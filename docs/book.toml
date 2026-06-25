@@ -9,8 +9,8 @@ src = "."
 build-dir = "../book"
 
 [output.html]
-git-repository-url = "https://github.com/mivinci/libx"
-edit-url-template = "https://github.com/mivinci/libx/edit/main/docs/{path}"
+git-repository-url = "https://github.com/mivinci/x"
+edit-url-template = "https://github.com/mivinci/x/edit/main/docs/{path}"
 additional-css = ["theme/custom.css"]
 additional-js = ["mermaid.min.js", "mermaid-init.js"]
 
