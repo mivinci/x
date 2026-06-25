@@ -144,12 +144,14 @@ protected:
   void SetUp() override {
     loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
+    xEventLoopEnter(loop);
     client = xHttpClientCreate(nullptr);
     ASSERT_NE(client, nullptr);
   }
 
   void TearDown() override {
     if (client) xHttpClientDestroy(client);
+    xEventLoopLeave();
     if (loop) xEventLoopDestroy(loop);
   }
 };

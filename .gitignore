@@ -54,6 +54,7 @@ cmake-build-*
 book
 tmp
 .claude
+.codex
 .codebuddy
 openspec
 

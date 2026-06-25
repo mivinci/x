@@ -30,6 +30,7 @@ endif()
 add_compile_definitions(X_DEBUG_LEVEL=${X_DEBUG_LEVEL})
 
 if(X_BUILD_TESTS)
+  enable_testing()
   find_package(GTest REQUIRED)
   # Promote IMPORTED targets to GLOBAL so sibling subdirs can
   # link against them too.

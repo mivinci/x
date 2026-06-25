@@ -124,6 +124,7 @@ protected:
   void SetUp() override {
     loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
+    xEventLoopEnter(loop);
 
     server = xHttpServerCreate();
     ASSERT_NE(server, nullptr);
@@ -138,6 +139,7 @@ protected:
   void TearDown() override {
     if (client) xHttpClientDestroy(client);
     if (server) xHttpServerDestroy(server);
+    xEventLoopLeave();
     if (loop) xEventLoopDestroy(loop);
   }
 

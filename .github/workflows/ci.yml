@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.c'
+      - '**.h'
+      - '**.cpp'
+      - '**/CMakeLists.txt'
+      - '**.cmake'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.c'
+      - '**.h'
+      - '**.cpp'
+      - '**/CMakeLists.txt'
+      - '**.cmake'
+      - '.github/workflows/ci.yml'
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / ${{ matrix.tls }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        tls: [openssl, mbedtls]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── Install dependencies ──────────────────────────────────────────
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            libgtest-dev \
+            libnghttp2-dev \
+            libssl-dev \
+            libmbedtls-dev \
+            libusrsctp-dev \
+            libcurl4-openssl-dev
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install googletest llhttp nghttp2 openssl mbedtls libusrsctp
+
+      # ── Build cache ────────────────────────────────────────────────────
+      - name: Compute cache key
+        id: cache-key
+        run: |
+          HASH=$(cat CMakeLists.txt x/*/CMakeLists.txt cmake/*.cmake 2>/dev/null | sha256sum | cut -c1-8)
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: build
+          key: build-${{ runner.os }}-${{ matrix.tls }}-${{ steps.cache-key.outputs.hash }}
+          restore-keys: |
+            build-${{ runner.os }}-${{ matrix.tls }}-
+
+      # ── Build & Test ──────────────────────────────────────────────────
+      - name: Build & Test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bash scripts/test-linux.sh -t ${{ matrix.tls }} -j $(nproc) -B build --asan
+
+      - name: Build & Test (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          zsh scripts/test-mac.sh -t ${{ matrix.tls }} -j $(sysctl -n hw.ncpu) -B build --asan

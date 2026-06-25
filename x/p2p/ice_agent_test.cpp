@@ -119,10 +119,18 @@ TEST(IceAgentTest, CreateNullConfigFails) {
   xEventLoopDestroy(loop);
 }
 
-TEST(IceAgentTest, CreateNullLoopFails) {
+TEST(IceAgentTest, CreateOnThreadWithoutLoopFails) {
+  /* xIceAgentCreate uses xEventLoopCurrent() internally.
+   * On a thread with no event loop entered, creation must fail. */
   xIceConf config;
   memset(&config, 0, sizeof(config));
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+  xEventLoopEnter(loop);
+  xEventLoopLeave();
+  /* Now no loop is entered — creation should return NULL */
   EXPECT_EQ(xIceAgentCreate(&config), nullptr);
+  xEventLoopDestroy(loop);
 }
 TEST(IceAgentTest, DestroyNullIsNoop) {
   xIceAgentDestroy(nullptr); /* Should not crash */
