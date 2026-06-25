@@ -43,17 +43,21 @@ if(Libcurl_FOUND AND NOT TARGET Libcurl::Libcurl)
   if(APPLE)
     find_library(COREFOUNDATION CoreFoundation REQUIRED)
     find_library(SYSTEMCONFIG SystemConfiguration REQUIRED)
-    find_package(ZLIB REQUIRED)
+    find_package(ZLIB QUIET)
     find_library(LIBZSTD NAMES zstd PATHS /opt/homebrew/lib /usr/local/lib)
-    find_library(LIBPSL NAMES psl PATHS /opt/homebrew/lib /usr/local/lib)
+    find_library(LIBPSL NAMES psl libpsl
+      PATHS /opt/homebrew/opt/libpsl/lib /opt/homebrew/lib /usr/local/lib /usr/lib)
 
     set_property(TARGET Libcurl::Libcurl APPEND PROPERTY
       INTERFACE_LINK_LIBRARIES
       ${COREFOUNDATION}
       ${SYSTEMCONFIG}
-      ZLIB::ZLIB
     )
 
+    if(ZLIB_FOUND)
+      set_property(TARGET Libcurl::Libcurl APPEND PROPERTY
+        INTERFACE_LINK_LIBRARIES ZLIB::ZLIB)
+    endif()
     if(LIBZSTD)
       set_property(TARGET Libcurl::Libcurl APPEND PROPERTY
         INTERFACE_LINK_LIBRARIES "${LIBZSTD}")
