@@ -5,7 +5,7 @@ This guide covers end-to-end TLS deployment for xhttp, including certificate gen
 ## Prerequisites
 
 - **OpenSSL CLI** — Used for certificate generation (`openssl` command).
-- **TLS backend compiled** — moo must be built with `X_TLS_BACKEND=openssl` (or `mbedtls`). Without a TLS backend, `xHttpServerListenTls()` returns `xErrno_NotSupported`.
+- **TLS backend compiled** — libx must be built with `X_TLS_BACKEND=openssl` (or `mbedtls`). Without a TLS backend, `xHttpServerListenTls()` returns `xErrno_NotSupported`.
 
 Check your build:
 

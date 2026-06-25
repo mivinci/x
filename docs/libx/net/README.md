@@ -2,13 +2,13 @@
 
 ## Introduction
 
-**xnet** is moo's networking utility module, providing three foundational components for network programming: a lightweight URL parser, an asynchronous DNS resolver, and shared TLS configuration types. These building blocks are used internally by higher-level modules like xhttp, and are also available for direct use in application code.
+**xnet** is libx's networking utility module, providing three foundational components for network programming: a lightweight URL parser, an asynchronous DNS resolver, and shared TLS configuration types. These building blocks are used internally by higher-level modules like xhttp, and are also available for direct use in application code.
 
 ## Design Philosophy
 
 1. **Zero-Copy URL Parsing** — `xUrlParse()` makes a single internal copy of the input string. All component fields (scheme, host, port, etc.) are pointer+length pairs referencing this copy, avoiding per-field allocations.
 
-2. **Async DNS via Thread-Pool Offload** — DNS resolution uses `getaddrinfo()` offloaded to the event loop's thread pool. The callback is always invoked on the event loop thread, keeping the async programming model consistent with the rest of moo.
+2. **Async DNS via Thread-Pool Offload** — DNS resolution uses `getaddrinfo()` offloaded to the event loop's thread pool. The callback is always invoked on the event loop thread, keeping the async programming model consistent with the rest of libx.
 
 3. **Shared TLS Types** — `xTlsConf` is a plain data structure shared across modules. It decouples TLS configuration from any specific TLS backend (OpenSSL, mbedTLS).
 

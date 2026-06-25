@@ -2,13 +2,13 @@
 
 ## Introduction
 
-**xp2p** is moo's peer-to-peer connectivity module, providing a lightweight **WebRTC DataChannel** stack in pure C99. It implements the full protocol pipeline — **ICE** (NAT traversal) → **DTLS** (encryption) → **SCTP** (reliable/unreliable transport) → **DataChannel** (messaging) — orchestrated by a top-level `xPeerConnection` API that mirrors the browser `RTCPeerConnection`.
+**xp2p** is libx's peer-to-peer connectivity module, providing a lightweight **WebRTC DataChannel** stack in pure C99. It implements the full protocol pipeline — **ICE** (NAT traversal) → **DTLS** (encryption) → **SCTP** (reliable/unreliable transport) → **DataChannel** (messaging) — orchestrated by a top-level `xPeerConnection` API that mirrors the browser `RTCPeerConnection`.
 
 At the lower level, xp2p includes a complete STUN/TURN client stack, SDP encoding/decoding, and an event-driven ICE agent that handles candidate gathering, connectivity checks, and nomination. At the higher level, `xPeerConnection` manages SDP offer/answer negotiation, DTLS 1.2 handshake with self-signed ECDSA certificates, user-space SCTP association (via usrsctp), and the DataChannel Establishment Protocol (DCEP, RFC 8832).
 
 ## Design Philosophy
 
-1. **Single-Threaded, Event-Driven** — The entire stack (ICE, DTLS, SCTP, DataChannel) runs on the moo event loop. All callbacks are invoked on the event loop thread, keeping the async programming model consistent with the rest of moo.
+1. **Single-Threaded, Event-Driven** — The entire stack (ICE, DTLS, SCTP, DataChannel) runs on the libx event loop. All callbacks are invoked on the event loop thread, keeping the async programming model consistent with the rest of libx.
 
 2. **RFC Compliance** — Implements ICE (RFC 8445), STUN (RFC 5389), TURN (RFC 5766), DTLS 1.2 (RFC 6347), SCTP (RFC 4960), and DataChannel (DCEP, RFC 8832) with proper message integrity, fingerprint, and retransmission.
 

@@ -2,13 +2,13 @@
 
 ## Introduction
 
-`dns.h` provides asynchronous DNS resolution by offloading `getaddrinfo()` to the event loop's thread pool. The completion callback is always invoked on the event loop thread, maintaining moo's single-threaded callback model. Queries can be cancelled before the callback fires.
+`dns.h` provides asynchronous DNS resolution by offloading `getaddrinfo()` to the event loop's thread pool. The completion callback is always invoked on the event loop thread, maintaining libx's single-threaded callback model. Queries can be cancelled before the callback fires.
 
 ## Design Philosophy
 
 1. **Thread-Pool Offload** — `getaddrinfo()` is a blocking POSIX call. Rather than introducing a dedicated DNS thread, xnet reuses the event loop's existing thread pool via `xEventLoopSubmit()`.
 
-2. **Event-Loop-Thread Callbacks** — The done callback runs on the event loop thread, so user code never needs synchronization. This is consistent with every other callback in moo.
+2. **Event-Loop-Thread Callbacks** — The done callback runs on the event loop thread, so user code never needs synchronization. This is consistent with every other callback in libx.
 
 3. **Linked-List Result** — Resolved addresses are returned as a linked list of `xDnsAddr` nodes, preserving the full `getaddrinfo()` result (family, socktype, protocol) for each address.
 
@@ -207,7 +207,7 @@ stateDiagram-v2
 
 ### Error Mapping
 
-`getaddrinfo()` returns EAI\_\* codes. These are mapped to moo error codes:
+`getaddrinfo()` returns EAI\_\* codes. These are mapped to libx error codes:
 
 | EAI Code | xErrno | Meaning |
 | --- | --- | --- |

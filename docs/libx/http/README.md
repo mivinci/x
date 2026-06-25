@@ -2,7 +2,7 @@
 
 ## Introduction
 
-**xhttp** is moo's HTTP module, providing both a fully asynchronous HTTP **client** and **server**, all powered by xbase's event loop.
+**xhttp** is libx's HTTP module, providing both a fully asynchronous HTTP **client** and **server**, all powered by xbase's event loop.
 
 - The **client** uses libcurl's multi-socket API for non-blocking HTTP requests and SSE streaming — ideal for integrating with REST APIs and LLM streaming endpoints. Supports TLS configuration including custom CA certificates, mutual TLS (mTLS), and certificate verification control via `xTlsConf`.
 - The **server** uses an `xHttpProto` vtable interface for protocol-abstracted parsing, supporting both HTTP/1.1 (llhttp) and HTTP/2 (nghttp2, h2c Prior Knowledge) on the same port. TLS listeners are supported via `xHttpServerListenTls` with `xTlsConf`. Single-threaded, event-driven connection handling — ideal for building lightweight HTTP services and APIs.

@@ -2,7 +2,7 @@
 
 ## Introduction
 
-**xlog** is moo's high-performance asynchronous logging module. It formats log entries on the calling thread and flushes them to a file (or stderr) on the event loop thread, decoupling I/O latency from application logic. Three operating modes — Timer, Notify, and Mixed — offer different trade-offs between flush latency and overhead.
+**xlog** is libx's high-performance asynchronous logging module. It formats log entries on the calling thread and flushes them to a file (or stderr) on the event loop thread, decoupling I/O latency from application logic. Three operating modes — Timer, Notify, and Mixed — offer different trade-offs between flush latency and overhead.
 
 ## Design Philosophy
 

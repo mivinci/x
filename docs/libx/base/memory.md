@@ -136,7 +136,7 @@ int main(void) {
     // Allocate Buffer + 1024 extra bytes for data[]
     Buffer *buf = XMALLOCEX(Buffer, 1024);
 
-    memcpy(buf->data, "Hello, moo!", 12);
+    memcpy(buf->data, "Hello, libx!", 12);
     buf->len = 12;
 
     printf("Buffer: %.*s\n", (int)buf->len, buf->data);

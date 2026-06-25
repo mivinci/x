@@ -17,7 +17,7 @@
 
 4. **Fatal = Synchronous + Abort** — Fatal-level messages bypass the async queue entirely: they are written directly to the file and followed by `abort()`. This ensures the fatal message is never lost.
 
-5. **xbase Bridge** — `xLoggerEnter()` registers a callback with xbase's `xLogSetCallback()`, routing all internal moo error messages through the async logger.
+5. **xbase Bridge** — `xLoggerEnter()` registers a callback with xbase's `xLogSetCallback()`, routing all internal libx error messages through the async logger.
 
 ## Architecture
 
@@ -184,7 +184,7 @@ void graceful_shutdown(xLogger logger) {
 
 1. **Application Logging** — Primary use case: structured, async logging for server applications with file rotation and level filtering.
 
-2. **moo Internal Error Capture** — Via `xLoggerEnter()`, all moo internal errors (from `xLog()`) are automatically routed through the async logger.
+2. **libx Internal Error Capture** — Via `xLoggerEnter()`, all libx internal errors (from `xLog()`) are automatically routed through the async logger.
 
 3. **Debug Logging** — Use `xLogMode_Notify` during development for immediate log output without timer delay.
 

@@ -2,11 +2,11 @@
 
 ## Introduction
 
-`error.h` defines a unified set of error codes (`xErrno`) used throughout moo. Every function that can fail returns an `xErrno` value, providing a consistent error handling pattern across all modules. The companion function `xstrerror()` converts error codes to human-readable strings for logging and debugging.
+`error.h` defines a unified set of error codes (`xErrno`) used throughout libx. Every function that can fail returns an `xErrno` value, providing a consistent error handling pattern across all modules. The companion function `xstrerror()` converts error codes to human-readable strings for logging and debugging.
 
 ## Design Philosophy
 
-1. **Single Error Enum** — All moo modules share one error code enum, avoiding the confusion of module-specific error types. This makes error handling uniform: check for `xErrno_Ok` everywhere.
+1. **Single Error Enum** — All libx modules share one error code enum, avoiding the confusion of module-specific error types. This makes error handling uniform: check for `xErrno_Ok` everywhere.
 
 2. **Descriptive Codes** — Each error code maps to a specific failure category (invalid argument, out of memory, wrong state, etc.), giving callers enough information to decide how to handle the error without inspecting errno or platform-specific codes.
 
@@ -16,7 +16,7 @@
 
 ```mermaid
 graph LR
-    MODULES["All moo Modules"] -->|"return"| ERRNO["xErrno"]
+    MODULES["All libx Modules"] -->|"return"| ERRNO["xErrno"]
     ERRNO -->|"xstrerror()"| MSG["Human-readable string"]
     MSG -->|"xLog()"| LOG["Log output"]
 
@@ -149,7 +149,7 @@ The error codes are defined as an `int`-based enum (via `XDEF_ENUM`), starting f
 
 ### Usage Pattern
 
-The idiomatic moo error handling pattern:
+The idiomatic libx error handling pattern:
 
 ```c
 xErrno err = xSomeFunction(args);

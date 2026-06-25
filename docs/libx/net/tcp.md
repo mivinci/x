@@ -2,13 +2,13 @@
 
 ## Introduction
 
-`tcp.h` provides three async TCP building blocks on top of moo's event loop:
+`tcp.h` provides three async TCP building blocks on top of libx's event loop:
 
 - **xTcpConn** — a thin resource wrapper that pairs an `xSocket` with an `xTransport`, plus convenience `Recv`/`Send`/`SendIov` helpers.
 - **xTcpConnect** — an async connector that performs DNS → socket → non-blocking connect → optional TLS handshake, delivering a ready-to-use `xTcpConn` via callback.
 - **xTcpListener** — an async listener that accepts connections (with optional TLS) and delivers each as an `xTcpConn`.
 
-All callbacks run on the event loop thread, consistent with the rest of moo.
+All callbacks run on the event loop thread, consistent with the rest of libx.
 
 ## Design Philosophy
 

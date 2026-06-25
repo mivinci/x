@@ -2,7 +2,7 @@
 
 ## Introduction
 
-`tls.h` defines `xTlsConf`, the unified TLS configuration structure shared across moo modules, and `xTlsCtx`, the opaque handle to a server-level TLS context. It controls certificate loading, peer verification, and optional ALPN negotiation for both client-side and server-side TLS. These are the central TLS abstractions — the actual TLS handshake is handled by the TLS backend (OpenSSL or mbedTLS) in the transport layer.
+`tls.h` defines `xTlsConf`, the unified TLS configuration structure shared across libx modules, and `xTlsCtx`, the opaque handle to a server-level TLS context. It controls certificate loading, peer verification, and optional ALPN negotiation for both client-side and server-side TLS. These are the central TLS abstractions — the actual TLS handshake is handled by the TLS backend (OpenSSL or mbedTLS) in the transport layer.
 
 ## Design Philosophy
 

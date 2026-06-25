@@ -557,18 +557,18 @@ int main(void) {
 
 ### libuv Baseline Comparison
 
-| Dimension | moo | libuv | Ratio |
+| Dimension | libx | libuv | Ratio |
 | --- | ---: | ---: | ---: |
-| **Wake Latency** | 413 ns | 417 ns | **Tied** (moo 1.01× faster) |
-| **Timer (single)** | 461 ns | 1,517 ns | **moo 3.3× faster** |
-| **Timer (×1000)** | 43,545 ns | 68,659 ns | **moo 1.6× faster** |
+| **Wake Latency** | 413 ns | 417 ns | **Tied** (libx 1.01× faster) |
+| **Timer (single)** | 461 ns | 1,517 ns | **libx 3.3× faster** |
+| **Timer (×1000)** | 43,545 ns | 68,659 ns | **libx 1.6× faster** |
 | **Offload (single)** | 3,785 ns | 3,449 ns | libuv 1.1× faster (tied) |
 | **Offload (×1000)** | 456,426 ns | 218,513 ns | libuv 2.1× faster |
 
 **Key Observations:**
 
 - **Wake latency** — Now effectively tied with libuv (413ns vs 417ns) after switching to `EVFILT_USER` (kqueue) / `eventfd` (epoll) + atomic wake coalescing. Previously 2.1× slower.
-- **Timer** — moo now **wins across all batch sizes** thanks to batch-pop with single lock acquisition and timer struct freelist pooling. Previously libuv was 4–5× faster at batch sizes.
+- **Timer** — libx now **wins across all batch sizes** thanks to batch-pop with single lock acquisition and timer struct freelist pooling. Previously libuv was 4–5× faster at batch sizes.
 - **Offload round-trip** — libuv remains ~2× faster at scale. The gap has narrowed at small batch sizes thanks to wake coalescing and work item pooling.
 
 ## Implementation Details

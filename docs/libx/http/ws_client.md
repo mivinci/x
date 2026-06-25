@@ -341,7 +341,7 @@ static void on_open(xWsConn conn, void *arg) {
 
 **Key Differentiator:** xhttp's WebSocket client runs entirely on the xbase event loop with zero blocking calls. The multi-phase connection (DNS → TCP → TLS → Upgrade) is a single async state machine. Combined with the shared `xWsConn` model, client and server code use identical APIs for sending, receiving, and closing — making bidirectional WebSocket applications straightforward.
 
-**TLS Context Sharing:** For `wss://` connections, the client supports a shared `xTlsCtx` (via `conf.tls_ctx`) that avoids reloading certificates and re-creating the SSL context on every connection. This is the same pattern used by `xTcpConnect` and `xTcpListener`, providing consistent TLS context management across all moo networking APIs.
+**TLS Context Sharing:** For `wss://` connections, the client supports a shared `xTlsCtx` (via `conf.tls_ctx`) that avoids reloading certificates and re-creating the SSL context on every connection. This is the same pattern used by `xTcpConnect` and `xTcpListener`, providing consistent TLS context management across all libx networking APIs.
 
 ## Implementation Details
 

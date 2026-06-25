@@ -1,6 +1,6 @@
 # Libraries
 
-moo is organized into nine libraries, layered from low-level core primitives up to high-level async networking, P2P connectivity, file transfer, and an embeddable JavaScript engine.
+libx is organized into nine libraries, layered from low-level core primitives up to high-level async networking, P2P connectivity, file transfer, and an embeddable JavaScript engine.
 
 ```text
 ┌─────────────────────────────────────────────┐

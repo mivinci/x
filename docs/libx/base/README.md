@@ -2,9 +2,9 @@
 
 ## Introduction
 
-**xbase** is the foundational module of moo, providing the core primitives for building event-driven, asynchronous C applications on macOS and Linux. It delivers a cross-platform event loop, monotonic timers, an N:M task model (thread pool), async sockets, reference-counted memory management, lock-free data structures, and essential utilities — all in a minimal, zero-dependency C99 package.
+**xbase** is the foundational module of libx, providing the core primitives for building event-driven, asynchronous C applications on macOS and Linux. It delivers a cross-platform event loop, monotonic timers, an N:M task model (thread pool), async sockets, reference-counted memory management, lock-free data structures, and essential utilities — all in a minimal, zero-dependency C99 package.
 
-xbase is designed to be the "kernel" that higher-level moo modules (xbuf, xhttp, xlog) build upon. Every I/O-bound or timer-driven feature in moo ultimately relies on xbase's event loop and concurrency primitives.
+xbase is designed to be the "kernel" that higher-level libx modules (xbuf, xhttp, xlog) build upon. Every I/O-bound or timer-driven feature in libx ultimately relies on xbase's event loop and concurrency primitives.
 
 ## Design Philosophy
 
@@ -177,7 +177,7 @@ int main(void) {
 Compile with:
 
 ```bash
-gcc -o example example.c -I/path/to/moo -lxbase -lpthread
+gcc -o example example.c -I/path/to/libx -lxbase -lpthread
 ```
 
 ## Relationship with Other Modules

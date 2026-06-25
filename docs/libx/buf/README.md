@@ -2,7 +2,7 @@
 
 ## Introduction
 
-**xbuf** is moo's buffer module, providing three distinct buffer types optimized for different use cases: a linear auto-growing buffer, a fixed-size ring buffer, and a reference-counted block-chain I/O buffer. Together they cover the full spectrum of buffering needs — from simple byte accumulation to zero-copy network I/O.
+**xbuf** is libx's buffer module, providing three distinct buffer types optimized for different use cases: a linear auto-growing buffer, a fixed-size ring buffer, and a reference-counted block-chain I/O buffer. Together they cover the full spectrum of buffering needs — from simple byte accumulation to zero-copy network I/O.
 
 ## Design Philosophy
 

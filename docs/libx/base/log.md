@@ -2,7 +2,7 @@
 
 ## Introduction
 
-`log.h` provides a per-thread, callback-based logging mechanism for moo's internal error reporting. Each thread can register its own log callback via `xLogSetCallback()`; when `xLog()` is called, the formatted message is dispatched to that callback. If no callback is registered, messages fall back to `stderr`. On fatal errors, a stack backtrace is captured and `abort()` is called.
+`log.h` provides a per-thread, callback-based logging mechanism for libx's internal error reporting. Each thread can register its own log callback via `xLogSetCallback()`; when `xLog()` is called, the formatted message is dispatched to that callback. If no callback is registered, messages fall back to `stderr`. On fatal errors, a stack backtrace is captured and `abort()` is called.
 
 ## Design Philosophy
 
@@ -12,7 +12,7 @@
 
 3. **Fatal with Backtrace** — When `fatal = true`, `xLog()` captures a stack trace via [`xBacktrace()`](backtrace.md) before calling `abort()`. This provides immediate diagnostic information for unrecoverable errors.
 
-4. **Bridge to xlog** — The callback mechanism is designed to integrate with the higher-level [`xlog`](../log/index.html) module. The xlog logger registers itself as the thread's log callback, so internal moo errors are automatically routed through the async logging pipeline.
+4. **Bridge to xlog** — The callback mechanism is designed to integrate with the higher-level [`xlog`](../log/index.html) module. The xlog logger registers itself as the thread's log callback, so internal libx errors are automatically routed through the async logging pipeline.
 
 ## Architecture
 
@@ -107,15 +107,15 @@ void dangerous_operation(void) {
 
 ## Use Cases
 
-1. **moo Internal Error Reporting** — All moo modules use `xLog()` to report internal errors (e.g., allocation failures, invalid states). By registering a callback, applications can capture these messages in their logging pipeline.
+1. **libx Internal Error Reporting** — All libx modules use `xLog()` to report internal errors (e.g., allocation failures, invalid states). By registering a callback, applications can capture these messages in their logging pipeline.
 
-2. **xlog Integration** — The [`xlog`](../log/index.html) module registers its logger as the thread's callback via `xLogSetCallback()`, routing all internal moo messages through the async logging system.
+2. **xlog Integration** — The [`xlog`](../log/index.html) module registers its logger as the thread's callback via `xLogSetCallback()`, routing all internal libx messages through the async logging system.
 
 3. **Test Frameworks** — Test harnesses can register a callback that captures log messages for assertion, rather than letting them go to stderr.
 
 ## Best Practices
 
-- **Register callbacks early.** Set up `xLogSetCallback()` before calling any moo functions to ensure all messages are captured.
+- **Register callbacks early.** Set up `xLogSetCallback()` before calling any libx functions to ensure all messages are captured.
 - **Don't block in callbacks.** The callback runs synchronously on the calling thread. Blocking delays the caller. For async logging, use the xlog module.
 - **Handle NULL backtrace.** The `backtrace` parameter is NULL for non-fatal messages. Always check before using it.
 - **Be aware of buffer truncation.** Messages longer than `XLOG_BUF_SIZE` are truncated. Increase the size at compile time if needed.

@@ -2,7 +2,7 @@
 
 ## Introduction
 
-**xcrypto** is moo's cryptographic module, providing common hash functions, checksums, and HMAC primitives for use by higher-level modules. It currently offers:
+**xcrypto** is libx's cryptographic module, providing common hash functions, checksums, and HMAC primitives for use by higher-level modules. It currently offers:
 
 - **Hash functions**: SHA-1, SHA-256, MD5
 - **Checksum**: CRC-32
@@ -20,7 +20,7 @@ SHA-1 and SHA-256 support three backends selected at build time via `X_TLS_BACKE
 
 4. **Compile-Time Static Assertions** — Each backend implementation uses `_Static_assert` to verify at compile time that the opaque buffer is large enough for its internal state, catching size mismatches before they become runtime bugs.
 
-5. **Consistent Error Handling** — All functions return `xErrno` codes and validate arguments defensively, following the same error convention used throughout moo.
+5. **Consistent Error Handling** — All functions return `xErrno` codes and validate arguments defensively, following the same error convention used throughout libx.
 
 6. **Generic HMAC via Vtable** — The HMAC implementation is hash-agnostic, driven by an `xHashVtable` that describes any hash algorithm's init/update/final/sizes. Adding HMAC for a new hash requires only a one-line vtable definition.
 
@@ -218,7 +218,7 @@ int main(void) {
 Compile with:
 
 ```bash
-gcc -o example example.c -I/path/to/moo -lxcrypto -lxbase
+gcc -o example example.c -I/path/to/libx -lxcrypto -lxbase
 ```
 
 ## Relationship with Other Modules
