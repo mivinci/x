@@ -58,7 +58,7 @@ jobs:
       - name: Compute cache key
         id: cache-key
         run: |
-          HASH=$(cat CMakeLists.txt x/*/CMakeLists.txt cmake/*.cmake 2>/dev/null | sha256sum | cut -c1-8)
+          HASH=$(cat CMakeLists.txt libx/x/*/CMakeLists.txt cmake/*.cmake 2>/dev/null | sha256sum | cut -c1-8)
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
 
       - uses: actions/cache@v4

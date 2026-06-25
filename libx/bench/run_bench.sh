@@ -13,7 +13,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BUILD_DIR="${BUILD_DIR:-${SCRIPT_DIR}/../build}"
+BUILD_DIR="${BUILD_DIR:-${SCRIPT_DIR}/../../build}"
 RESULTS_DIR="${RESULTS_DIR:-${SCRIPT_DIR}/../bench_results}"
 
 # Colors
@@ -38,8 +38,8 @@ run_tcp() {
   local num_msgs="${TCP_NUM_MSGS:-100000}"
   local concurrency="${TCP_CONCURRENCY:-4}"
 
-  local server_bin="$BUILD_DIR/bench/tcp_echo_server"
-  local client_bin="$BUILD_DIR/bench/tcp_echo_client"
+  local server_bin="$BUILD_DIR/libx/bench/tcp_echo_server"
+  local client_bin="$BUILD_DIR/libx/bench/tcp_echo_client"
 
   if [ ! -x "$server_bin" ] || [ ! -x "$client_bin" ]; then
     error "TCP echo binaries not found. Build with -DX_BUILD_BENCHMARKS=ON"
@@ -75,7 +75,7 @@ run_http() {
   local threads="${HTTP_THREADS:-4}"
   local connections="${HTTP_CONNECTIONS:-100}"
 
-  local server_bin="$BUILD_DIR/bench/http_bench_server"
+  local server_bin="$BUILD_DIR/libx/bench/http_bench_server"
 
   if [ ! -x "$server_bin" ]; then
     error "HTTP bench server not found. Build with -DX_BUILD_BENCHMARKS=ON and libcurl"

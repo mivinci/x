@@ -11,6 +11,7 @@ project(libx C CXX)
 list(APPEND CMAKE_PREFIX_PATH /opt/homebrew)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/libx")
 include(cmake/Functions.cmake)
 
 # ── Library-build toggles ─────────────────────────────────────────────
@@ -54,19 +55,4 @@ endif()
 find_package(Libcurl REQUIRED)
 
 # ── Modules ───────────────────────────────────────────────────────────
-add_subdirectory(x/base)
-add_subdirectory(x/log)
-add_subdirectory(x/buf)
-add_subdirectory(x/net)
-add_subdirectory(x/crypto)
-add_subdirectory(x/p2p)
-add_subdirectory(x/http)
-
-# ── Aggregated target ─────────────────────────────────────────────────
-add_subdirectory(x)
-
-# ── Benchmarks ──────────────────────────────────────────────────────────
-option(X_BUILD_BENCHMARKS "Build libx benchmarks" OFF)
-if(X_BUILD_BENCHMARKS)
-  add_subdirectory(bench)
-endif()
+add_subdirectory(libx)
