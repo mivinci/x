@@ -35,7 +35,7 @@ fi
 
 # ── Build ───────────────────────────────────────────────────────────────
 echo "=== Configuring (TLS: $TLS_BACKEND, jobs: $JOBS) ==="
-cmake -B "$BUILD_DIR" -DX_TLS_BACKEND="$TLS_BACKEND" $CMAKE_ASAN_FLAGS
+eval cmake -B "$BUILD_DIR" -DX_TLS_BACKEND="$TLS_BACKEND" $CMAKE_ASAN_FLAGS
 
 echo "=== Building ==="
 cmake --build "$BUILD_DIR" -j "$JOBS"

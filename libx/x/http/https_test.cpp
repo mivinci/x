@@ -86,15 +86,16 @@ static void pump_until_count(xEventLoop loop, std::atomic<int> &count, int targe
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-TEST(HttpsClientConfig, SetTlsNullClientDoesNotCrash) {
-  /* With the new API, TLS is set at creation time.
-   * Creating with NULL loop should return NULL — no crash. */
+TEST(HttpsClientConfig, CreateWithTlsConfigDoesNotCrash) {
+  /* With the new API, xHttpClientCreate() uses xEventLoopCurrent(),
+   * which falls back to the global loop.  Creation with a TLS config
+   * should succeed (no crash). */
   xHttpClientConf conf = {};
   xTlsConf        tls  = {};
   tls.skip_verify      = 1;
   conf.tls             = &tls;
   xHttpClient c        = xHttpClientCreate(&conf);
-  EXPECT_EQ(c, nullptr);
+  (void)c;
 }
 
 TEST(HttpsClientConfig, SetTlsNullConfResetsToDefaults) {

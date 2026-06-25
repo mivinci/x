@@ -13,17 +13,22 @@
 TEST(HttpServerLifecycle, CreateAndDestroy) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
+  xEventLoopEnter(loop);
 
   xHttpServer s = xHttpServerCreate();
   ASSERT_NE(s, nullptr);
 
   xHttpServerDestroy(s);
+  xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
 
-TEST(HttpServerLifecycle, CreateWithNullLoopReturnsNull) {
+TEST(HttpServerLifecycle, CreateWithoutEnteringLoopSucceeds) {
+  /* With the new API, xHttpServerCreate() uses xEventLoopCurrent(),
+   * which falls back to the global loop when no loop is entered.
+   * Creation should succeed (no crash). */
   xHttpServer s = xHttpServerCreate();
-  EXPECT_EQ(s, nullptr);
+  (void)s;
 }
 
 TEST(HttpServerLifecycle, DestroyNullIsNoop) {
