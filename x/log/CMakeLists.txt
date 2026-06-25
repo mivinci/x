@@ -1,0 +1,21 @@
+file(GLOB_RECURSE XLOG_HEADERS "*.h")
+file(GLOB_RECURSE XLOG_SOURCES "*.c")
+add_library(xlog ${X_LIB_TYPE} ${XLOG_SOURCES} ${XLOG_HEADERS})
+x_source_group(xlog "${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(xlog PROPERTIES FOLDER "libx")
+
+target_link_libraries(xlog PUBLIC xbase)
+
+message(STATUS "xlog: async logging module enabled")
+
+option(XLOG_BUILD_TESTS "Build xlog tests" ${X_BUILD_TESTS})
+if(XLOG_BUILD_TESTS)
+  file(GLOB_RECURSE XLOG_TEST_SOURCES "*_test.cpp")
+  if(XLOG_TEST_SOURCES)
+    add_executable(xlog_test ${XLOG_TEST_SOURCES})
+    target_link_libraries(xlog_test PRIVATE xlog GTest::gtest_main)
+    x_source_group(xlog_test "${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(xlog_test PROPERTIES FOLDER "libx")
+    add_test(NAME xlog_test COMMAND xlog_test)
+  endif()
+endif()
