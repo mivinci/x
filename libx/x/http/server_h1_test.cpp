@@ -226,6 +226,7 @@ TEST_F(HttpServerTest, MethodNotAllowedResponse) {
 
 TEST_F(HttpServerTest, KeepAliveConnectionReuse) {
   HandlerCtx ctx;
+  xHttpServerSetIdleTimeout(server, 60000);
   xHttpServerRoute(server, "GET /ka", echo_handler, &ctx);
   listen_and_pump();
 
