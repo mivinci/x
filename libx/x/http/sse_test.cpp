@@ -404,6 +404,7 @@ TEST_F(SseClientTest, OnDoneNullDoesNotCrash) {
 TEST(SseLifecycle, DestroyWithInflightSse) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
+  xEventLoopEnter(loop);
 
   xHttpClient c = xHttpClientCreate(nullptr);
   ASSERT_NE(c, nullptr);
@@ -425,6 +426,7 @@ TEST(SseLifecycle, DestroyWithInflightSse) {
 
   /* Destroy while SSE is in flight — must not crash or leak */
   xHttpClientDestroy(c);
+  xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
 

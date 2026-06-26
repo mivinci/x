@@ -101,6 +101,7 @@ TEST(HttpsClientConfig, CreateWithTlsConfigDoesNotCrash) {
 TEST(HttpsClientConfig, SetTlsNullConfResetsToDefaults) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
+  xEventLoopEnter(loop);
   /* Create with TLS config */
   xTlsConf tls         = {};
   tls.ca               = "/tmp/ca.pem";
@@ -117,12 +118,14 @@ TEST(HttpsClientConfig, SetTlsNullConfResetsToDefaults) {
 
   /* Should not crash on subsequent use */
   xHttpClientDestroy(client);
+  xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
 
 TEST(HttpsClientConfig, SetTlsWithAllFields) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
+  xEventLoopEnter(loop);
 
   xTlsConf tls         = {};
   tls.ca               = "/tmp/ca.pem";
@@ -145,6 +148,7 @@ TEST(HttpsClientConfig, SetTlsWithAllFields) {
   ASSERT_NE(client, nullptr);
 
   xHttpClientDestroy(client);
+  xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
 
@@ -260,8 +264,10 @@ protected:
     /* ── Server setup ── */
     server_loop = xEventLoopCreate();
     ASSERT_NE(server_loop, nullptr);
+    xEventLoopEnter(server_loop);
     server = xHttpServerCreate();
     ASSERT_NE(server, nullptr);
+    xEventLoopLeave();
 
     tls_port = find_free_port();
     ASSERT_NE(tls_port, 0);
@@ -605,8 +611,10 @@ protected:
   void SetUp() override {
     server_loop = xEventLoopCreate();
     ASSERT_NE(server_loop, nullptr);
+    xEventLoopEnter(server_loop);
     server = xHttpServerCreate();
     ASSERT_NE(server, nullptr);
+    xEventLoopLeave();
 
     tls_port = find_free_port();
     ASSERT_NE(tls_port, 0);
