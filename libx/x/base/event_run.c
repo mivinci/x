@@ -41,6 +41,7 @@ xEventLoop xEventLoopEnter(xEventLoop loop) {
 xEventLoop xEventLoopLeave(void) {
   struct xEventLoop_ *cur = (struct xEventLoop_ *)tl_loop;
   xEventLoop          old = tl_loop;
+  if (cur) cur->prev = NULL; /* sever back-link */
   tl_loop                 = cur ? (xEventLoop)cur->prev : NULL;
   return old;
 }
@@ -73,13 +74,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)loop_;
   if (!loop) return;
   loop->backend->destroy(loop);
-  /* NOTE: the loop struct itself is intentionally not freed — dangling
-   * references to loop->prev persist in thread-local storage after
-   * xEventLoopLeave.  Freeing here causes use-after-free when a later
-   * xEventLoopEnter touches prev of a restored (but now dead) loop.
-   * The next best option is to zero loop->prev in xEventLoopLeave
-   * or to chain destructors from the loop group, but both need broader
-   * testing.  For now accept the one-time leak per event-loop. */
+  free(loop);
 }
 
 /* ───────────────── Run modes ───────────────── */
