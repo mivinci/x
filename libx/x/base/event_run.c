@@ -73,6 +73,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)loop_;
   if (!loop) return;
   loop->backend->destroy(loop);
+  free(loop);
 }
 
 /* ───────────────── Run modes ───────────────── */
