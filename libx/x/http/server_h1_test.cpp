@@ -801,6 +801,9 @@ TEST_F(HttpServerTest, DeferredResponseSendAndResume) {
   DeferCtx ctx;
   ctx.response_body = "hello from deferred";
 
+  /* Avoid read timeout firing while response is deferred */
+  xHttpServerSetIdleTimeout(server, 60000);
+
   xHttpServerRoute(server, "GET /deferred", defer_handler, &ctx);
   listen_and_pump();
 
@@ -844,6 +847,8 @@ TEST_F(HttpServerTest, DeferredResponseMultipleConcurrent) {
   DeferCtx ctx_a, ctx_b;
   ctx_a.response_body = "response A";
   ctx_b.response_body = "response B";
+
+  xHttpServerSetIdleTimeout(server, 60000);
 
   xHttpServerRoute(server, "GET /a", defer_handler, &ctx_a);
   xHttpServerRoute(server, "GET /b", defer_handler, &ctx_b);

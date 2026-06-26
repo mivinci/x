@@ -291,9 +291,11 @@ protected:
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     stop_server_loop();
     if (client) xHttpClientDestroy(client);
+    /* Destroy server BEFORE loops — xHttpServerDestroy may stop timers
+     * that belong to the loop; destroying the loop first frees the timer pool. */
+    if (server) xHttpServerDestroy(server);
     xEventLoopLeave();
     if (client_loop) xEventLoopDestroy(client_loop);
-    if (server) xHttpServerDestroy(server);
     if (server_loop) xEventLoopDestroy(server_loop);
 
     unlink(cert_path.c_str());
@@ -674,9 +676,10 @@ protected:
     loop_running = false;
     if (loop_thread.joinable()) loop_thread.join();
     if (client) xHttpClientDestroy(client);
+    /* Destroy server BEFORE loops — xHttpServerDestroy may stop timers */
+    if (server) xHttpServerDestroy(server);
     xEventLoopLeave();
     if (client_loop) xEventLoopDestroy(client_loop);
-    if (server) xHttpServerDestroy(server);
     if (server_loop) xEventLoopDestroy(server_loop);
 
     unlink(server_cert.c_str());
