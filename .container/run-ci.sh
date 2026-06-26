@@ -23,8 +23,8 @@ echo "=== Run CI ($TLS, $ASAN) ==="
 container run --rm -v "$PWD:/workspace" "$IMAGE" bash -c "
   rm -rf /workspace/$BDIR
   if [ '$ASAN' = 'no-asan' ]; then
-    scripts/test-linux.sh -t '$TLS' -j 2 -B $BDIR
+    scripts/test-linux.sh -t '$TLS' -j \$(nproc) -B $BDIR
   else
-    scripts/test-linux.sh -t '$TLS' -j 2 -B $BDIR --asan
+    scripts/test-linux.sh -t '$TLS' -j \$(nproc) -B $BDIR --asan
   fi
 "
