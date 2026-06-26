@@ -233,6 +233,15 @@ static size_t sse_write_callback(char *ptr, size_t size, size_t nmemb, void *use
   return total;
 }
 
+/* ── curl read callback (streaming upload via on_read) ── */
+
+static size_t sse_read_callback(char *buf, size_t size, size_t nmemb, void *userdata) {
+  struct xHttpReq_ *req     = (struct xHttpReq_ *)userdata;
+  size_t            bufsize = size * nmemb;
+  if (!req->on_read) return 0; /* no provider — EOF */
+  return req->on_read(buf, bufsize, req->arg);
+}
+
 /* ── Completion ── */
 
 static void sse_on_done(struct xHttpReq_ *req_, CURLcode result) {
@@ -322,13 +331,16 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config, xSs
     break;
   }
 
-  /* Body — make a copy so the caller doesn't need to keep it alive */
-  if (config->body && config->body_len > 0) {
-    req->base.post_data = (char *)malloc(config->body_len);
-    if (!req->base.post_data) goto fail_easy;
-    memcpy(req->base.post_data, config->body, config->body_len);
-    curl_easy_setopt(easy, CURLOPT_POSTFIELDS, req->base.post_data);
-    curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long)config->body_len);
+  /* Body — wire up streaming upload via on_read (like client.c).
+   * Don't set CURLOPT_UPLOAD — it forces PUT.  Instead, rely on the
+   * method setting (POST/PUT/etc.) + CURLOPT_READFUNCTION. */
+  req->base.on_read = config->on_read;
+  if (config->on_read) {
+    curl_easy_setopt(easy, CURLOPT_READFUNCTION, sse_read_callback);
+    curl_easy_setopt(easy, CURLOPT_READDATA, &req->base);
+    if (config->content_length > 0) {
+      curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long)config->content_length);
+    }
   }
 
   /* SSE is a long-lived streaming protocol — CURLOPT_TIMEOUT_MS caps the

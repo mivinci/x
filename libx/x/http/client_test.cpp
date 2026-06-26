@@ -39,16 +39,34 @@ struct ResponseCtx {
   std::string       body;
   std::string       headers;
   std::string       curl_error;
+  /* Upload state — used when on_read is set */
+  std::string       upload_data;
+  size_t            upload_offset{0};
 };
 
-static void on_response(const xHttpResponse *resp, void *arg) {
-  auto *ctx        = static_cast<ResponseCtx *>(arg);
-  ctx->status_code = resp->status_code;
-  ctx->curl_code   = resp->curl_code;
-  if (resp->body && resp->body_len > 0) ctx->body.assign(resp->body, resp->body_len);
-  if (resp->headers && resp->headers_len > 0) ctx->headers.assign(resp->headers, resp->headers_len);
-  if (resp->curl_error) ctx->curl_error = resp->curl_error;
-  ctx->done.store(true, std::memory_order_release);
+static void on_response(xHttpCtx *ctx, void *arg) {
+  auto *c        = static_cast<ResponseCtx *>(arg);
+  c->status_code = ctx->status_code;
+  c->curl_code   = ctx->curl_code;
+  if (ctx->headers && ctx->headers_len > 0) c->headers.assign(ctx->headers, ctx->headers_len);
+  if (ctx->curl_error) c->curl_error = ctx->curl_error;
+  c->done.store(true, std::memory_order_release);
+}
+
+static int on_data_collect(const char *data, size_t len, void *arg) {
+  auto *c = static_cast<ResponseCtx *>(arg);
+  c->body.append(data, len);
+  return 0;
+}
+
+static size_t on_read_provide(char *buf, size_t bufsize, void *arg) {
+  auto *c        = static_cast<ResponseCtx *>(arg);
+  size_t remaining = c->upload_data.size() - c->upload_offset;
+  if (remaining == 0) return 0; /* EOF */
+  size_t n = bufsize < remaining ? bufsize : remaining;
+  memcpy(buf, c->upload_data.data() + c->upload_offset, n);
+  c->upload_offset += n;
+  return n;
 }
 
 /* find_free_port / pump_until / pump_until_count removed — use the
@@ -158,6 +176,7 @@ TEST_F(HttpClientTest, GetRequest) {
   std::string u = url("/get");
   xHttpRequestConf conf = {};
   conf.url     = u.c_str();
+  conf.on_data = on_data_collect;
   conf.on_done = on_response;
   xErrno err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -176,12 +195,14 @@ TEST_F(HttpClientTest, GetRequest) {
 TEST_F(HttpClientTest, PostRequest) {
   ResponseCtx ctx;
   const char *body = "{\"hello\":\"world\"}";
+  ctx.upload_data.assign(body, strlen(body));
   std::string u = url("/post");
   xHttpRequestConf conf = {};
-  conf.url      = u.c_str();
-  conf.body     = body;
-  conf.body_len = strlen(body);
-  conf.on_done  = on_response;
+  conf.url            = u.c_str();
+  conf.on_read        = on_read_provide;
+  conf.content_length = strlen(body);
+  conf.on_data        = on_data_collect;
+  conf.on_done        = on_response;
   xErrno err = xHttpClientPost(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
   run_until(loop, ctx.done);
@@ -207,9 +228,9 @@ TEST_F(HttpClientTest, ConcurrentRequests) {
   std::vector<MultiCtx> ctxs(N);
   for (auto &c : ctxs) c.counter = &done_count;
 
-  auto multi_cb = [](const xHttpResponse *resp, void *arg) {
+  auto multi_cb = [](xHttpCtx *c, void *arg) {
     auto *ctx        = static_cast<MultiCtx *>(arg);
-    ctx->status_code = resp->status_code;
+    ctx->status_code = c->status_code;
     ctx->counter->fetch_add(1);
   };
 
@@ -235,6 +256,7 @@ TEST_F(HttpClientTest, InvalidUrlFails) {
   ResponseCtx ctx;
   xHttpRequestConf conf = {};
   conf.url     = "http://127.0.0.1:1/nope";
+  conf.on_data = on_data_collect;
   conf.on_done = on_response;
   xErrno err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -274,6 +296,7 @@ TEST_F(HttpClientTest, DoGetRequest) {
   memset(&config, 0, sizeof(config));
   config.url     = u.c_str();
   config.method  = xHttpMethod_GET;
+  config.on_data = on_data_collect;
   config.on_done = on_response;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
@@ -296,6 +319,7 @@ TEST_F(HttpClientTest, DoWithCustomHeaders) {
   config.url     = u.c_str();
   config.method  = xHttpMethod_GET;
   config.headers = hdrs;
+  config.on_data = on_data_collect;
   config.on_done = on_response;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
@@ -317,6 +341,7 @@ TEST_F(HttpClientTest, DoWithTimeout) {
   config.url        = u.c_str();
   config.method     = xHttpMethod_GET;
   config.timeout_ms = 500;
+  config.on_data    = on_data_collect;
   config.on_done    = on_response;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
@@ -336,7 +361,7 @@ TEST_F(HttpClientTest, DoNullConfigReturnsError) {
 
 /* ───────────────────── Streaming client API tests ───────────────────── */
 /*
- * Tests for the on_header / on_data / on_read / on_done streaming callbacks
+ * Tests for the on_response / on_data / on_read / on_done streaming callbacks
  * added to xHttpRequestConf. Uses the HttpServerTest fixture so each test
  * gets its own server + port; the xHttpClient is created per-test.
  */
@@ -348,12 +373,13 @@ struct StreamCtx {
   long                     status_code{0};
   int                      curl_code{-1};
   std::string              body_acc;          // accumulator for on_data
-  std::vector<std::string> header_lines;      // one entry per on_header call
+  std::string              headers;           // full headers from on_response
   size_t                   total_bytes{0};
   int                      abort_after{0};    // >0 → abort after N data calls
   std::atomic<int>         data_calls{0};
   bool                     first_data_seen{false};
   bool                     had_headers_before_data{false};
+  bool                     on_response_called{false};
 
   /* Upload state — only used when on_read is set. Embedded so a single
    * arg pointer serves on_read, on_data, and on_done. */
@@ -362,9 +388,12 @@ struct StreamCtx {
   size_t                   upload_chunk_size{1024};
 };
 
-static int collect_header(const char *line, size_t len, void *arg) {
-  auto *ctx = static_cast<StreamCtx *>(arg);
-  ctx->header_lines.emplace_back(line, len);
+static int collect_init(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<StreamCtx *>(arg);
+  c->on_response_called = true;
+  if (ctx->headers && ctx->headers_len > 0) {
+    c->headers.assign(ctx->headers, ctx->headers_len);
+  }
   return 0;
 }
 
@@ -372,7 +401,7 @@ static int collect_data(const char *data, size_t len, void *arg) {
   auto *ctx = static_cast<StreamCtx *>(arg);
   if (!ctx->first_data_seen) {
     ctx->first_data_seen         = true;
-    ctx->had_headers_before_data = !ctx->header_lines.empty();
+    ctx->had_headers_before_data = ctx->on_response_called;
   }
   ctx->body_acc.append(data, len);
   ctx->total_bytes += len;
@@ -381,11 +410,11 @@ static int collect_data(const char *data, size_t len, void *arg) {
   return 0;
 }
 
-static void on_stream_done(const xHttpResponse *resp, void *arg) {
-  auto *ctx        = static_cast<StreamCtx *>(arg);
-  ctx->status_code = resp->status_code;
-  ctx->curl_code   = resp->curl_code;
-  ctx->done.store(true, std::memory_order_release);
+static void on_stream_done(xHttpCtx *ctx, void *arg) {
+  auto *c        = static_cast<StreamCtx *>(arg);
+  c->status_code = ctx->status_code;
+  c->curl_code   = ctx->curl_code;
+  c->done.store(true, std::memory_order_release);
 }
 
 /* Streaming upload provider — hands out up to upload_chunk_size bytes per
@@ -510,7 +539,7 @@ TEST_F(HttpServerTest, StreamingAbort) {
   EXPECT_LT(ctx.total_bytes, body.size());
 }
 
-/* 3. Header streaming: on_header receives status line + headers before on_data. */
+/* 3. Header streaming: on_response receives status line + headers before on_data. */
 TEST_F(HttpServerTest, HeaderStreaming) {
   xHttpServerRoute(server, "GET /headers", custom_headers_handler, nullptr);
   listen_and_pump();
@@ -521,11 +550,11 @@ TEST_F(HttpServerTest, HeaderStreaming) {
   StreamCtx ctx;
   std::string u = "http://127.0.0.1:" + std::to_string(port) + "/headers";
   xHttpRequestConf conf = {};
-  conf.url       = u.c_str();
-  conf.method    = xHttpMethod_GET;
-  conf.on_header = collect_header;
-  conf.on_data   = collect_data;
-  conf.on_done   = on_stream_done;
+  conf.url        = u.c_str();
+  conf.method     = xHttpMethod_GET;
+  conf.on_response = collect_init;
+  conf.on_data    = collect_data;
+  conf.on_done    = on_stream_done;
   xErrno err = xHttpClientDo(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -536,28 +565,25 @@ TEST_F(HttpServerTest, HeaderStreaming) {
   EXPECT_EQ(ctx.curl_code, 0);
   EXPECT_EQ(ctx.status_code, 200);
 
-  ASSERT_FALSE(ctx.header_lines.empty())
-    << "Expected at least the status line header";
-  EXPECT_NE(ctx.header_lines[0].find("HTTP/1.1 200"), std::string::npos)
-    << "Status line should be the first header; got: " << ctx.header_lines[0];
+  ASSERT_FALSE(ctx.headers.empty())
+    << "Expected headers to be delivered via on_response";
+  EXPECT_NE(ctx.headers.find("HTTP/1.1 200"), std::string::npos)
+    << "Status line missing; got: " << ctx.headers;
 
-  bool found_a = false, found_b = false;
-  for (const auto &line : ctx.header_lines) {
-    if (line.find("X-Custom-A: alpha") != std::string::npos) found_a = true;
-    if (line.find("X-Custom-B: beta") != std::string::npos) found_b = true;
-  }
-  EXPECT_TRUE(found_a) << "X-Custom-A header missing";
-  EXPECT_TRUE(found_b) << "X-Custom-B header missing";
+  EXPECT_NE(ctx.headers.find("X-Custom-A: alpha"), std::string::npos)
+    << "X-Custom-A header missing";
+  EXPECT_NE(ctx.headers.find("X-Custom-B: beta"), std::string::npos)
+    << "X-Custom-B header missing";
 
   /* Headers must arrive before any body data. */
   EXPECT_TRUE(ctx.first_data_seen);
   EXPECT_TRUE(ctx.had_headers_before_data)
-    << "on_data was invoked before any on_header call";
+    << "on_data was invoked before on_response";
 
   EXPECT_EQ(ctx.body_acc, "body");
 }
 
-/* 4. Streaming upload with known Content-Length (body_len > 0).
+/* 4. Streaming upload with known Content-Length (content_length > 0).
  *
  * NOTE: When on_read is set, client.c sets CURLOPT_UPLOAD which makes
  * libcurl use PUT (overriding CURLOPT_POST). The route is registered
@@ -576,12 +602,12 @@ TEST_F(HttpServerTest, StreamingUpload) {
 
   std::string u = "http://127.0.0.1:" + std::to_string(port) + "/echo";
   xHttpRequestConf conf = {};
-  conf.url      = u.c_str();
-  conf.method   = xHttpMethod_POST;
-  conf.on_read  = provide_data;
-  conf.body_len = ctx.upload_data.size(); /* known size → Content-Length */
-  conf.on_data  = collect_data;
-  conf.on_done  = on_stream_done;
+  conf.url            = u.c_str();
+  conf.method         = xHttpMethod_POST;
+  conf.on_read        = provide_data;
+  conf.content_length = ctx.upload_data.size(); /* known size → Content-Length */
+  conf.on_data        = collect_data;
+  conf.on_done        = on_stream_done;
   xErrno err = xHttpClientDo(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -599,7 +625,7 @@ TEST_F(HttpServerTest, StreamingUpload) {
   EXPECT_EQ(ctx.body_acc, ctx.upload_data);
 }
 
-/* 5. Streaming upload with chunked transfer-encoding (body_len = 0). */
+/* 5. Streaming upload with chunked transfer-encoding (content_length = 0). */
 TEST_F(HttpServerTest, StreamingUploadChunked) {
   EchoCtx echo;
   xHttpServerRoute(server, "/echo", echo_handler, &echo);
@@ -614,12 +640,12 @@ TEST_F(HttpServerTest, StreamingUploadChunked) {
 
   std::string u = "http://127.0.0.1:" + std::to_string(port) + "/echo";
   xHttpRequestConf conf = {};
-  conf.url      = u.c_str();
-  conf.method   = xHttpMethod_POST;
-  conf.on_read  = provide_data;
-  conf.body_len = 0; /* unknown size → chunked transfer */
-  conf.on_data  = collect_data;
-  conf.on_done  = on_stream_done;
+  conf.url            = u.c_str();
+  conf.method         = xHttpMethod_POST;
+  conf.on_read        = provide_data;
+  conf.content_length = 0; /* unknown size → chunked transfer */
+  conf.on_data        = collect_data;
+  conf.on_done        = on_stream_done;
   xErrno err = xHttpClientDo(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -669,6 +695,7 @@ TEST_F(HttpServerTest, BackwardCompat) {
   xHttpRequestConf conf = {};
   conf.url     = u.c_str();
   conf.method  = xHttpMethod_GET;
+  conf.on_data = on_data_collect;
   conf.on_done = on_response;
   xErrno err = xHttpClientDo(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);

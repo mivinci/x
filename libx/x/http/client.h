@@ -25,38 +25,43 @@
 XDEF_HANDLE(xHttpClient);
 
 /**
- * @brief HTTP response delivered to the completion callback.
+ * @brief Per-request context shared between the client and the user callbacks.
  *
- * All pointers are valid only for the duration of the callback.
- * The caller must NOT free any of the fields; the library manages
- * their lifetime.
+ * Built by the library and passed to @ref xHttpInitFunc (after response headers
+ * are received) and @ref xHttpDoneFunc (after the transfer completes). All
+ * pointers are valid only for the duration of the callback; the caller must
+ * NOT free any of the fields.
+ *
+ * Note: there is no @c body field — response body data is delivered via
+ * @ref xHttpDataFunc, or discarded if @ref xHttpRequestConf.on_data is NULL.
  */
-XDEF_STRUCT(xHttpResponse) {
-  long        status_code; /**< HTTP status code (e.g. 200), 0 on failure */
-  const char *headers;     /**< Raw response headers (NUL-terminated)     */
-  size_t      headers_len; /**< Length of headers in bytes                 */
-  const char *body;        /**< Response body (NUL-terminated)             */
-  size_t      body_len;    /**< Length of body in bytes                    */
-  int         curl_code;   /**< CURLcode (0 = CURLE_OK on success)        */
-  const char *curl_error;  /**< Human-readable curl error, or NULL        */
+XDEF_STRUCT(xHttpCtx) {
+  const char *method;       /**< Request method (client: NULL)                */
+  const char *url;          /**< Request URL (client: NULL)                   */
+  long        status_code;  /**< HTTP status code (e.g. 200), 0 on failure    */
+  int         curl_code;    /**< CURLcode (0 = CURLE_OK on success)           */
+  const char *curl_error;   /**< Human-readable curl error, or NULL           */
+  const char *headers;      /**< Raw response headers (NUL-terminated)        */
+  size_t      headers_len;  /**< Length of @p headers in bytes                */
+  void       *internal_;    /**< Internal use (server-side; client: NULL)     */
 };
 
 /**
- * @brief Callback invoked when an HTTP request completes.
- * @param resp  Response data (valid only during the callback).
- * @param arg   User-provided argument.
+ * @brief Callback invoked once after all response headers are received,
+ *        before the first body chunk (if any).
+ *
+ * @param ctx  Request context with @p status_code and @p headers populated.
+ * @param arg  User-provided argument.
+ * @return     0 to continue the transfer, non-zero to abort.
  */
-typedef void (*xHttpResponseFunc)(const xHttpResponse *resp, void *arg);
+typedef int (*xHttpInitFunc)(xHttpCtx *ctx, void *arg);
 
 /**
- * @brief Callback invoked per response header line (including status line
- *        and the final empty CRLF line).
- *
- * @param line  One header line including trailing CRLF (e.g. "HTTP/1.1 200 OK\r\n").
- * @param arg   User-provided argument.
- * @return      0 to continue, non-zero to abort the transfer.
+ * @brief Callback invoked when an HTTP request completes.
+ * @param ctx  Request context (valid only during the callback).
+ * @param arg  User-provided argument.
  */
-typedef int (*xHttpHeaderFunc)(const char *line, size_t len, void *arg);
+typedef void (*xHttpDoneFunc)(xHttpCtx *ctx, void *arg);
 
 /**
  * @brief Callback invoked for each chunk of response body data.
@@ -112,26 +117,29 @@ XDEF_ENUM(xHttpVersion){
  *
  * Used with xHttpClientDo() for full control over the request.
  * Zero-initialize for defaults (GET, no headers, no timeout).
+ *
+ * Request body is provided via @ref on_read; set @ref content_length to the
+ * known body size (0 = chunked transfer-encoding). Response body is delivered
+ * via @ref on_data; if @ref on_data is NULL, the body is discarded.
  */
 XDEF_STRUCT(xHttpRequestConf) {
-  const char  *url;          /**< Request URL (must not be NULL)             */
-  xHttpMethod  method;       /**< HTTP method (default: GET)                 */
-  const char  *body;         /**< Request body, or NULL (ignored if on_read) */
-  size_t       body_len;     /**< Length of body / Content-Length for on_read*/
-  const char **headers;      /**< NULL-terminated array of "Key: Value"      */
-  long         timeout_ms;   /**< Per-request timeout in ms (0 = no limit).
-                                  For regular HTTP: total transfer timeout.
-                                  For SSE: connection-phase timeout only;
-                                  stalled streams are detected via
-                                  low-speed-time instead.                  */
-  xHttpVersion http_version; /**< HTTP version (0 = use client default)      */
+  const char  *url;            /**< Request URL (must not be NULL)             */
+  xHttpMethod  method;         /**< HTTP method (default: GET)                 */
+  size_t       content_length; /**< Request body size for on_read (0=chunked)  */
+  const char **headers;        /**< NULL-terminated array of "Key: Value"      */
+  long         timeout_ms;     /**< Per-request timeout in ms (0 = no limit).
+                                    For regular HTTP: total transfer timeout.
+                                    For SSE: connection-phase timeout only;
+                                    stalled streams are detected via
+                                    low-speed-time instead.                  */
+  xHttpVersion http_version;   /**< HTTP version (0 = use client default)      */
 
   /* ── Streaming callbacks (all optional, NULL = not used) ── */
 
-  xHttpHeaderFunc   on_header; /**< Per header line callback (NULL = buffer) */
-  xHttpDataFunc     on_data;   /**< Per body chunk callback (NULL = buffer)  */
-  xHttpReadFunc     on_read;   /**< Request body provider (NULL = use body)  */
-  xHttpResponseFunc on_done;   /**< Completion callback (NULL = fire-forget) */
+  xHttpInitFunc on_response; /**< Called once after headers (NULL = skip)     */
+  xHttpDataFunc on_data;     /**< Per body chunk callback (NULL = discard)    */
+  xHttpReadFunc on_read;     /**< Request body provider (NULL = no body)      */
+  xHttpDoneFunc on_done;     /**< Completion callback (NULL = fire-forget)    */
 };
 
 /**
@@ -194,7 +202,8 @@ XCAPI(xErrno) xHttpClientGet(xHttpClient client, const xHttpRequestConf *conf, v
  * @brief Submit an asynchronous HTTP POST request.
  *
  * Forces @ref xHttpRequestConf.method to POST, then delegates to
- * xHttpClientDo().  Request body comes from @p conf->body or @p conf->on_read.
+ * xHttpClientDo().  Request body comes from @p conf->on_read (with
+ * @p conf->content_length providing the size, 0 for chunked).
  *
  * @param client  The HTTP client.
  * @param conf    Request configuration (must not be NULL, conf->url required).
@@ -208,9 +217,9 @@ XCAPI(xErrno) xHttpClientPost(xHttpClient client, const xHttpRequestConf *conf, 
 /**
  * @brief Submit a fully-configured asynchronous HTTP request.
  *
- * All callbacks (on_header, on_data, on_read, on_done) are read from
- * @p conf.  Zero-initialized conf fields mean: no header streaming,
- * buffered body, no upload streaming, fire-and-forget (no completion).
+ * All callbacks (on_response, on_data, on_read, on_done) are read from
+ * @p conf.  Zero-initialized conf fields mean: no init callback, discarded
+ * response body, no upload streaming, fire-and-forget (no completion).
  *
  * @param client  The HTTP client.
  * @param conf    Request configuration (must not be NULL, conf->url required).

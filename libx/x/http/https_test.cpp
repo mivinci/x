@@ -135,16 +135,34 @@ struct RespCtx {
   std::string       body{};
   std::string       headers{};
   std::string       curl_error{};
+  /* Upload state — used when on_read is set */
+  std::string       upload_data{};
+  size_t            upload_offset{0};
 };
 
-static void on_resp(const xHttpResponse *resp, void *arg) {
-  auto *ctx        = static_cast<RespCtx *>(arg);
-  ctx->status_code = resp->status_code;
-  ctx->curl_code   = resp->curl_code;
-  if (resp->body && resp->body_len > 0) ctx->body.assign(resp->body, resp->body_len);
-  if (resp->headers && resp->headers_len > 0) ctx->headers.assign(resp->headers, resp->headers_len);
-  if (resp->curl_error) ctx->curl_error = resp->curl_error;
-  ctx->done.store(true, std::memory_order_release);
+static void on_resp(xHttpCtx *ctx, void *arg) {
+  auto *c        = static_cast<RespCtx *>(arg);
+  c->status_code = ctx->status_code;
+  c->curl_code   = ctx->curl_code;
+  if (ctx->headers && ctx->headers_len > 0) c->headers.assign(ctx->headers, ctx->headers_len);
+  if (ctx->curl_error) c->curl_error = ctx->curl_error;
+  c->done.store(true, std::memory_order_release);
+}
+
+static int on_data_collect(const char *data, size_t len, void *arg) {
+  auto *c = static_cast<RespCtx *>(arg);
+  c->body.append(data, len);
+  return 0;
+}
+
+static size_t on_read_provide(char *buf, size_t bufsize, void *arg) {
+  auto *c        = static_cast<RespCtx *>(arg);
+  size_t remaining = c->upload_data.size() - c->upload_offset;
+  if (remaining == 0) return 0; /* EOF */
+  size_t n = bufsize < remaining ? bufsize : remaining;
+  memcpy(buf, c->upload_data.data() + c->upload_offset, n);
+  c->upload_offset += n;
+  return n;
 }
 
 } // namespace
@@ -346,6 +364,7 @@ TEST_F(HttpsIntegrationTest, GetWithSkipVerify) {
   std::string u = url("/hello");
   xHttpRequestConf conf = {};
   conf.url     = u.c_str();
+  conf.on_data = on_data_collect;
   conf.on_done = on_resp;
   xErrno  err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -367,12 +386,14 @@ TEST_F(HttpsIntegrationTest, PostWithSkipVerify) {
 
   RespCtx     ctx{};
   const char *body = "request-body-data";
+  ctx.upload_data.assign(body, strlen(body));
   std::string u = url("/echo");
   xHttpRequestConf conf = {};
-  conf.url      = u.c_str();
-  conf.body     = body;
-  conf.body_len = strlen(body);
-  conf.on_done  = on_resp;
+  conf.url            = u.c_str();
+  conf.on_read        = on_read_provide;
+  conf.content_length = strlen(body);
+  conf.on_data        = on_data_collect;
+  conf.on_done        = on_resp;
   xErrno err = xHttpClientPost(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -394,16 +415,18 @@ TEST_F(HttpsIntegrationTest, DoWithCustomHeaders) {
   RespCtx     ctx{};
   const char *hdrs[]  = {"X-Custom: test-value", NULL};
   const char *body    = "put-body";
+  ctx.upload_data.assign(body, strlen(body));
   std::string req_url = url("/data");
 
   xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
-  config.url      = req_url.c_str();
-  config.method   = xHttpMethod_PUT;
-  config.body     = body;
-  config.body_len = strlen(body);
-  config.headers  = hdrs;
-  config.on_done  = on_resp;
+  config.url            = req_url.c_str();
+  config.method         = xHttpMethod_PUT;
+  config.on_read        = on_read_provide;
+  config.content_length = strlen(body);
+  config.headers        = hdrs;
+  config.on_data        = on_data_collect;
+  config.on_done        = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -462,6 +485,7 @@ TEST_F(HttpsIntegrationTest, GetWithCorrectCaPath) {
   std::string u = url("/hello");
   xHttpRequestConf conf = {};
   conf.url     = u.c_str();
+  conf.on_data = on_data_collect;
   conf.on_done = on_resp;
   xErrno  err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -489,6 +513,7 @@ TEST_F(HttpsIntegrationTest, SelfSignedCertRejectedWithoutSkipVerify) {
   std::string u = url("/hello");
   xHttpRequestConf conf = {};
   conf.url     = u.c_str();
+  conf.on_data = on_data_collect;
   conf.on_done = on_resp;
   xErrno  err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok); /* submission succeeds, failure is async */
@@ -516,6 +541,7 @@ TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
   std::string u = url("/hello");
   xHttpRequestConf conf = {};
   conf.url     = u.c_str();
+  conf.on_data = on_data_collect;
   conf.on_done = on_resp;
   xErrno  err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -545,22 +571,26 @@ TEST_F(HttpsIntegrationTest, ConcurrentHttpsRequests) {
     int               curl_code{-1};
     std::string       body;
   };
-
   std::vector<MultiCtx> ctxs(N);
   for (auto &c : ctxs)
     c.counter = &done_count;
 
-  auto multi_cb = [](const xHttpResponse *resp, void *arg) {
+  auto multi_on_data = [](const char *data, size_t len, void *arg) {
+    auto *ctx = static_cast<MultiCtx *>(arg);
+    ctx->body.append(data, len);
+    return 0;
+  };
+  auto multi_cb = [](xHttpCtx *c, void *arg) {
     auto *ctx        = static_cast<MultiCtx *>(arg);
-    ctx->status_code = resp->status_code;
-    ctx->curl_code   = resp->curl_code;
-    if (resp->body && resp->body_len > 0) ctx->body.assign(resp->body, resp->body_len);
+    ctx->status_code = c->status_code;
+    ctx->curl_code   = c->curl_code;
     ctx->counter->fetch_add(1, std::memory_order_release);
   };
 
   for (int i = 0; i < N; i++) {
     xHttpRequestConf conf = {};
     conf.url     = u.c_str();
+    conf.on_data = multi_on_data;
     conf.on_done = multi_cb;
     xErrno err = xHttpClientGet(client, &conf, &ctxs[i]);
     ASSERT_EQ(err, xErrno_Ok);
@@ -735,6 +765,7 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
   std::string u = url("/secure");
   xHttpRequestConf conf = {};
   conf.url     = u.c_str();
+  conf.on_data = on_data_collect;
   conf.on_done = on_resp;
   err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -774,6 +805,7 @@ TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
   std::string u = url("/secure");
   xHttpRequestConf conf = {};
   conf.url     = u.c_str();
+  conf.on_data = on_data_collect;
   conf.on_done = on_resp;
   err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -802,6 +834,7 @@ TEST_F(HttpsIntegrationTest, HttpsRequestTimeout) {
   config.url        = "https://10.255.255.1:443/timeout";
   config.method     = xHttpMethod_GET;
   config.timeout_ms = 500; /* 500ms timeout */
+  config.on_data    = on_data_collect;
   config.on_done    = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
@@ -856,7 +889,7 @@ TEST_F(HttpsIntegrationTest, DestroyWithInflightHttpsRequest) {
   client_skip_verify();
 
   std::atomic<bool> cb_called{false};
-  auto              cb = [](const xHttpResponse *, void *arg) {
+  auto              cb = [](xHttpCtx *, void *arg) {
     auto *flag = static_cast<std::atomic<bool> *>(arg);
     flag->store(true, std::memory_order_release);
   };
@@ -893,6 +926,7 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
   std::string u1 = url("/hello");
   xHttpRequestConf conf1 = {};
   conf1.url     = u1.c_str();
+  conf1.on_data = on_data_collect;
   conf1.on_done = on_resp;
   xErrno  err = xHttpClientGet(client, &conf1, &ctx1);
   ASSERT_EQ(err, xErrno_Ok);
@@ -908,6 +942,7 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
   std::string u2 = url("/hello");
   xHttpRequestConf conf2 = {};
   conf2.url     = u2.c_str();
+  conf2.on_data = on_data_collect;
   conf2.on_done = on_resp;
   err = xHttpClientGet(client, &conf2, &ctx2);
   ASSERT_EQ(err, xErrno_Ok);

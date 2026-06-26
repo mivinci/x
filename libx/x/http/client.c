@@ -52,33 +52,67 @@ static const struct xHttpReqVtable oneshot_vtable = {
 
 /* ── curl data callbacks ───────────────────────────────────────────────── */
 
-/* Buffering write callback (existing behavior — body buffered into xBuffer) */
+/* Build the xHttpCtx for callback delivery. Idempotent — safe to call
+ * multiple times (e.g. once for on_response, once for on_done). */
+static void req_build_ctx(struct xHttpReq_ *req, CURLcode result) {
+  xHttpCtx *ctx = &req->ctx;
+
+  /* Ensure headers are NUL-terminated */
+  xBufferAppend(&req->header_buf, "\0", 1);
+  const char *header_data = (const char *)xBufferData(req->header_buf);
+  size_t      header_len  = xBufferLen(req->header_buf);
+  /* Strip trailing NUL(s) added by repeated calls */
+  while (header_len > 0 && header_data[header_len - 1] == '\0') header_len--;
+
+  ctx->method      = NULL;
+  ctx->url         = NULL;
+  ctx->headers     = header_data ? header_data : "";
+  ctx->headers_len = header_len;
+  ctx->internal_   = NULL;
+  ctx->curl_code   = (int)result;
+
+  if (result == CURLE_OK) {
+    long code = 0;
+    curl_easy_getinfo(req->easy, CURLINFO_RESPONSE_CODE, &code);
+    ctx->status_code = code;
+    ctx->curl_error  = NULL;
+  } else {
+    ctx->status_code = 0;
+    ctx->curl_error  = req->errbuf[0] ? req->errbuf : curl_easy_strerror(result);
+  }
+}
+
+/* Call on_response once, on first body chunk or at completion.
+ * Returns 0 on success, non-zero on abort. */
+static int req_maybe_call_on_response(struct xHttpReq_ *req) {
+  if (req->headers_done) return 0;
+  req->headers_done = 1;
+  if (req->on_response) {
+    req_build_ctx(req, CURLE_OK);
+    return req->on_response(&req->ctx, req->arg);
+  }
+  return 0;
+}
+
+/* Write callback — handles both streaming (on_data) and discard modes.
+ * Triggers on_response on the first body chunk. */
 static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
   struct xHttpReq_ *req   = (struct xHttpReq_ *)userdata;
   size_t            total = size * nmemb;
-  if (xBufferAppend(&req->body_buf, ptr, total) != xErrno_Ok) return 0;
-  return total;
-}
-
-/* Streaming write callback — delegates to user's on_data */
-static size_t stream_write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
-  struct xHttpReq_ *req   = (struct xHttpReq_ *)userdata;
-  size_t            total = size * nmemb;
+  /* Trigger on_response on first body chunk (if not yet called) */
+  if (req_maybe_call_on_response(req) != 0) return 0; /* abort */
+  /* Deliver body via on_data, or discard if NULL */
   if (req->on_data) {
     if (req->on_data(ptr, total, req->arg) != 0) return 0; /* abort */
   }
   return total;
 }
 
-/* Header callback — always buffers into header_buf.
- * If on_header is set, also calls it per line. */
+/* Header callback — always buffers into header_buf. */
 static size_t header_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
   struct xHttpReq_ *req   = (struct xHttpReq_ *)userdata;
   size_t            total = size * nmemb;
   if (xBufferAppend(&req->header_buf, ptr, total) != xErrno_Ok) return 0;
-  if (req->on_header) {
-    if (req->on_header(ptr, total, req->arg) != 0) return 0; /* abort */
-  }
   return total;
 }
 
@@ -130,49 +164,27 @@ static void check_multi_info(struct xHttpClient_ *c) {
 /* ── Oneshot HTTP request handlers ─────────────────────────────────────── */
 
 static void oneshot_on_done(struct xHttpReq_ *req, CURLcode result) {
-  /* Build response */
-  xHttpResponse resp;
-  memset(&resp, 0, sizeof(resp));
-  resp.curl_code = (int)result;
-
-  if (result == CURLE_OK) {
-    long code = 0;
-    curl_easy_getinfo(req->easy, CURLINFO_RESPONSE_CODE, &code);
-    resp.status_code = code;
-    resp.curl_error  = NULL;
-  } else {
-    resp.status_code = 0;
-    resp.curl_error  = req->errbuf[0] ? req->errbuf : curl_easy_strerror(result);
+  /* If on_response hasn't been called yet (no body or error), call it now.
+   * Ignore the return value since the transfer is already complete. */
+  if (!req->headers_done) {
+    req->headers_done = 1;
+    if (req->on_response) {
+      req_build_ctx(req, result);
+      req->on_response(&req->ctx, req->arg);
+    }
   }
 
-  /* Append NUL terminators so the user gets C strings. */
-  xBufferAppend(&req->body_buf, "\0", 1);
-  xBufferAppend(&req->header_buf, "\0", 1);
-
-  const char *body_data   = (const char *)xBufferData(req->body_buf);
-  const char *header_data = (const char *)xBufferData(req->header_buf);
-
-  /* In streaming mode (on_data set), body was delivered via callback —
-   * don't expose it in the response. */
-  if (req->on_data) {
-    resp.body     = NULL;
-    resp.body_len = 0;
-  } else {
-    resp.body     = body_data ? body_data : "";
-    resp.body_len = body_data ? xBufferLen(req->body_buf) - 1 : 0;
-  }
-  resp.headers     = header_data ? header_data : "";
-  resp.headers_len = header_data ? xBufferLen(req->header_buf) - 1 : 0;
+  /* Build/refresh ctx for on_done */
+  req_build_ctx(req, result);
 
   /* Invoke user callback — do NOT clean up here, let check_multi_info handle it */
-  if (req->on_done) req->on_done(&resp, req->arg);
+  if (req->on_done) req->on_done(&req->ctx, req->arg);
 }
 
 static void oneshot_on_cleanup(struct xHttpReq_ *req) {
   /* Only clean up request-specific resources here.
    * curl_multi_remove + curl_easy_cleanup + free(req) are handled
    * by destroy_req() which calls this. */
-  xBufferDestroy(req->body_buf);
   xBufferDestroy(req->header_buf);
   if (req->post_data) free(req->post_data);
   if (req->req_headers) curl_slist_free_all(req->req_headers);
@@ -355,13 +367,9 @@ xHttpClient xHttpClientCreate( const xHttpClientConf *conf) {
  */
 static void destroy_req(struct xHttpClient_ *c, CURL *easy, struct xHttpReq_ *req, int notify) {
   if (req && notify && req->on_done) {
-    xHttpResponse resp;
-    memset(&resp, 0, sizeof(resp));
-    resp.curl_code  = CURLE_ABORTED_BY_CALLBACK;
-    resp.curl_error = "Request aborted: client destroyed";
-    resp.body       = "";
-    resp.headers    = "";
-    req->on_done(&resp, req->arg);
+    req_build_ctx(req, CURLE_ABORTED_BY_CALLBACK);
+    req->ctx.curl_error = "Request aborted: client destroyed";
+    req->on_done(&req->ctx, req->arg);
   }
 
   if (req && !req->cleaned) {
@@ -421,15 +429,11 @@ void xHttpClientDestroy(xHttpClient client) {
 /* ── Internal: configure and submit an easy handle ─────────────────────── */
 
 static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
-  /* Write callback: streaming (on_data) or buffered */
-  if (req->on_data) {
-    curl_easy_setopt(req->easy, CURLOPT_WRITEFUNCTION, stream_write_callback);
-  } else {
-    curl_easy_setopt(req->easy, CURLOPT_WRITEFUNCTION, write_callback);
-  }
+  /* Write callback: single handler covers streaming (on_data) and discard */
+  curl_easy_setopt(req->easy, CURLOPT_WRITEFUNCTION, write_callback);
   curl_easy_setopt(req->easy, CURLOPT_WRITEDATA, req);
 
-  /* Header callback: always buffers; optionally calls on_header */
+  /* Header callback: always buffers into header_buf */
   curl_easy_setopt(req->easy, CURLOPT_HEADERFUNCTION, header_callback);
   curl_easy_setopt(req->easy, CURLOPT_HEADERDATA, req);
 
@@ -464,7 +468,6 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
   CURLMcode mc = curl_multi_add_handle(c->multi, req->easy);
   if (mc != CURLM_OK) {
     curl_easy_cleanup(req->easy);
-    xBufferDestroy(req->body_buf);
     xBufferDestroy(req->header_buf);
     if (req->post_data) free(req->post_data);
     if (req->req_headers) curl_slist_free_all(req->req_headers);
@@ -490,30 +493,22 @@ static struct xHttpReq_ *http_req_new(struct xHttpClient_ *c, const xHttpRequest
     return NULL;
   }
 
-  req->vt        = &oneshot_vtable;
-  req->client    = c;
-  req->arg       = arg;
-  req->on_done   = conf->on_done;
-  req->on_header = conf->on_header;
-  req->on_data   = conf->on_data;
-  req->on_read   = conf->on_read;
+  req->vt           = &oneshot_vtable;
+  req->client       = c;
+  req->arg          = arg;
+  req->on_done      = conf->on_done;
+  req->on_response  = conf->on_response;
+  req->on_data      = conf->on_data;
+  req->on_read      = conf->on_read;
+  req->headers_done = 0;
   memset(req->errbuf, 0, sizeof(req->errbuf));
-  req->post_data   = NULL;
-  req->req_headers = NULL;
+  req->post_data    = NULL;
+  req->req_headers  = NULL;
+  memset(&req->ctx, 0, sizeof(req->ctx));
 
-  /* Body buffer: only needed in buffered mode (no on_data) */
-  if (!conf->on_data) {
-    req->body_buf = xBufferCreate(1024);
-    if (!req->body_buf) {
-      curl_easy_cleanup(req->easy);
-      free(req);
-      return NULL;
-    }
-  }
-  /* Header buffer: always needed for on_done */
+  /* Header buffer: always needed for on_response / on_done */
   req->header_buf = xBufferCreate(512);
   if (!req->header_buf) {
-    xBufferDestroy(req->body_buf);
     curl_easy_cleanup(req->easy);
     free(req);
     return NULL;
@@ -576,27 +571,24 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg
     break;
   }
 
-  /* Body: on_read takes precedence over body pointer */
+  /* Body: on_read provides the request body via streaming.
+   * If content_length > 0, set Content-Length; else libcurl uses chunked.
+   * For POST, CURLOPT_POST already enables the read callback. For other
+   * methods (PUT/PATCH/DELETE), CURLOPT_UPLOAD is needed to enable it;
+   * CURLOPT_CUSTOMREQUEST (set above) still controls the method. */
   if (conf->on_read) {
-    /* Streaming upload — http_submit sets CURLOPT_UPLOAD + CURLOPT_READFUNCTION.
-     * If body_len > 0, set Content-Length; else libcurl uses chunked. */
-    if (conf->body_len > 0) {
-      curl_easy_setopt(req->easy, CURLOPT_POSTFIELDSIZE, (long)conf->body_len);
+    if (conf->method != xHttpMethod_POST) {
+      curl_easy_setopt(req->easy, CURLOPT_UPLOAD, 1L);
+      if (conf->content_length > 0) {
+        curl_easy_setopt(req->easy, CURLOPT_INFILESIZE_LARGE, (curl_off_t)conf->content_length);
+      }
+    } else {
+      if (conf->content_length > 0) {
+        curl_easy_setopt(req->easy, CURLOPT_POSTFIELDSIZE, (long)conf->content_length);
+      }
     }
-  } else if (conf->body && conf->body_len > 0) {
-    /* Simple buffered body — copy so caller doesn't need to keep it alive */
-    req->post_data = (char *)malloc(conf->body_len);
-    if (!req->post_data) {
-      curl_easy_cleanup(req->easy);
-      xBufferDestroy(req->body_buf);
-      xBufferDestroy(req->header_buf);
-      free(req);
-      return xErrno_Unknown;
-    }
-    memcpy(req->post_data, conf->body, conf->body_len);
-    curl_easy_setopt(req->easy, CURLOPT_POSTFIELDS, req->post_data);
-    curl_easy_setopt(req->easy, CURLOPT_POSTFIELDSIZE, (long)conf->body_len);
   }
+  /* If on_read is NULL, no request body (GET/DELETE/etc.) */
 
   /* Custom headers */
   if (conf->headers) {

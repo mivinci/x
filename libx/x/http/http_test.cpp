@@ -35,15 +35,33 @@ struct RespCtx {
   int               curl_code{-1};
   std::string       body;
   std::string       headers;
+  /* Upload state — used when on_read is set */
+  std::string       upload_data;
+  size_t            upload_offset{0};
 };
 
-static void on_resp(const xHttpResponse *resp, void *arg) {
-  auto *ctx        = static_cast<RespCtx *>(arg);
-  ctx->status_code = resp->status_code;
-  ctx->curl_code   = resp->curl_code;
-  if (resp->body && resp->body_len > 0) ctx->body.assign(resp->body, resp->body_len);
-  if (resp->headers && resp->headers_len > 0) ctx->headers.assign(resp->headers, resp->headers_len);
-  ctx->done.store(true, std::memory_order_release);
+static void on_resp(xHttpCtx *ctx, void *arg) {
+  auto *c        = static_cast<RespCtx *>(arg);
+  c->status_code = ctx->status_code;
+  c->curl_code   = ctx->curl_code;
+  if (ctx->headers && ctx->headers_len > 0) c->headers.assign(ctx->headers, ctx->headers_len);
+  c->done.store(true, std::memory_order_release);
+}
+
+static int on_data_collect(const char *data, size_t len, void *arg) {
+  auto *c = static_cast<RespCtx *>(arg);
+  c->body.append(data, len);
+  return 0;
+}
+
+static size_t on_read_provide(char *buf, size_t bufsize, void *arg) {
+  auto *c        = static_cast<RespCtx *>(arg);
+  size_t remaining = c->upload_data.size() - c->upload_offset;
+  if (remaining == 0) return 0; /* EOF */
+  size_t n = bufsize < remaining ? bufsize : remaining;
+  memcpy(buf, c->upload_data.data() + c->upload_offset, n);
+  c->upload_offset += n;
+  return n;
 }
 
 /* ───────────────────── SSE context ───────────────────── */
@@ -160,6 +178,7 @@ TEST_F(IntegrationTest, H1Get) {
   std::string url = make_url("/hello");
   xHttpRequestConf conf = {};
   conf.url     = url.c_str();
+  conf.on_data = on_data_collect;
   conf.on_done = on_resp;
   xErrno      err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -181,11 +200,13 @@ TEST_F(IntegrationTest, H1PostEcho) {
   RespCtx     ctx;
   std::string url  = make_url("/echo");
   const char *body = "{\"msg\":\"integration\"}";
+  ctx.upload_data.assign(body, strlen(body));
   xHttpRequestConf conf = {};
-  conf.url      = url.c_str();
-  conf.body     = body;
-  conf.body_len = strlen(body);
-  conf.on_done  = on_resp;
+  conf.url            = url.c_str();
+  conf.on_read        = on_read_provide;
+  conf.content_length = strlen(body);
+  conf.on_data        = on_data_collect;
+  conf.on_done        = on_resp;
   xErrno      err  = xHttpClientPost(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -212,6 +233,7 @@ TEST_F(IntegrationTest, H1DoCustomHeaders) {
   config.url     = url.c_str();
   config.method  = xHttpMethod_GET;
   config.headers = hdrs;
+  config.on_data = on_data_collect;
   config.on_done = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
@@ -237,6 +259,7 @@ TEST_F(IntegrationTest, H1NotFound) {
   std::string url = make_url("/nonexistent");
   xHttpRequestConf conf = {};
   conf.url     = url.c_str();
+  conf.on_data = on_data_collect;
   conf.on_done = on_resp;
   xErrno      err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -262,6 +285,7 @@ TEST_F(IntegrationTest, H2cGet) {
   config.url          = url.c_str();
   config.method       = xHttpMethod_GET;
   config.http_version = xHttpVersion_H2C;
+  config.on_data      = on_data_collect;
   config.on_done      = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
@@ -284,15 +308,17 @@ TEST_F(IntegrationTest, H2cPostEcho) {
   RespCtx     ctx;
   std::string url  = make_url("/echo");
   const char *body = "h2c-body-test";
+  ctx.upload_data.assign(body, strlen(body));
 
   xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
-  config.url          = url.c_str();
-  config.method       = xHttpMethod_POST;
-  config.body         = body;
-  config.body_len     = strlen(body);
-  config.http_version = xHttpVersion_H2C;
-  config.on_done      = on_resp;
+  config.url            = url.c_str();
+  config.method         = xHttpMethod_POST;
+  config.on_read        = on_read_provide;
+  config.content_length = strlen(body);
+  config.http_version   = xHttpVersion_H2C;
+  config.on_data        = on_data_collect;
+  config.on_done        = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -324,6 +350,7 @@ TEST_F(IntegrationTest, ClientDefaultH2c) {
   /* Use convenience API — should inherit client default H2C */
   xHttpRequestConf req_conf = {};
   req_conf.url     = url.c_str();
+  req_conf.on_data = on_data_collect;
   req_conf.on_done = on_resp;
   xErrno err = xHttpClientGet(client, &req_conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -402,6 +429,7 @@ TEST_F(IntegrationTest, H2cNotFound) {
   config.url          = url.c_str();
   config.method       = xHttpMethod_GET;
   config.http_version = xHttpVersion_H2C;
+  config.on_data      = on_data_collect;
   config.on_done      = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
@@ -430,6 +458,7 @@ TEST_F(IntegrationTest, H2cDoCustomHeaders) {
   config.method       = xHttpMethod_GET;
   config.headers      = hdrs;
   config.http_version = xHttpVersion_H2C;
+  config.on_data      = on_data_collect;
   config.on_done      = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
@@ -470,6 +499,7 @@ TEST_F(IntegrationTest, H1RouteParam) {
   std::string url = make_url("/users/42");
   xHttpRequestConf conf = {};
   conf.url     = url.c_str();
+  conf.on_data = on_data_collect;
   conf.on_done = on_resp;
   xErrno      err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -496,6 +526,7 @@ TEST_F(IntegrationTest, H2cRouteParam) {
   config.url          = url.c_str();
   config.method       = xHttpMethod_GET;
   config.http_version = xHttpVersion_H2C;
+  config.on_data      = on_data_collect;
   config.on_done      = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
@@ -529,14 +560,16 @@ TEST_F(IntegrationTest, H1PutMethod) {
   RespCtx     ctx;
   std::string url  = make_url("/resource");
   const char *body = "updated-data";
+  ctx.upload_data.assign(body, strlen(body));
 
   xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
-  config.url      = url.c_str();
-  config.method   = xHttpMethod_PUT;
-  config.body     = body;
-  config.body_len = strlen(body);
-  config.on_done  = on_resp;
+  config.url            = url.c_str();
+  config.method         = xHttpMethod_PUT;
+  config.on_read        = on_read_provide;
+  config.content_length = strlen(body);
+  config.on_data        = on_data_collect;
+  config.on_done        = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -570,6 +603,7 @@ TEST_F(IntegrationTest, H2cDeleteMethod) {
   config.url          = url.c_str();
   config.method       = xHttpMethod_DELETE;
   config.http_version = xHttpVersion_H2C;
+  config.on_data      = on_data_collect;
   config.on_done      = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
@@ -595,12 +629,14 @@ TEST_F(IntegrationTest, LargeBodyRoundTrip) {
   std::string large_body(4000, 'X');
 
   RespCtx     ctx;
+  ctx.upload_data = large_body;
   std::string url = make_url("/echo");
   xHttpRequestConf conf = {};
-  conf.url      = url.c_str();
-  conf.body     = large_body.c_str();
-  conf.body_len = large_body.size();
-  conf.on_done  = on_resp;
+  conf.url            = url.c_str();
+  conf.on_read        = on_read_provide;
+  conf.content_length = large_body.size();
+  conf.on_data        = on_data_collect;
+  conf.on_done        = on_resp;
   xErrno      err =
     xHttpClientPost(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -612,6 +648,34 @@ TEST_F(IntegrationTest, LargeBodyRoundTrip) {
   EXPECT_EQ(ctx.status_code, 200);
   EXPECT_EQ(ctx.body.size(), large_body.size());
   EXPECT_EQ(ctx.body, large_body);
+}
+
+/* ───────────────────── SSE POST context (combines SSE + upload) ───────────────────── */
+
+struct SsePostCtx {
+  SseTestCtx   sse;
+  std::string  upload_data;
+  size_t       upload_offset{0};
+};
+
+static size_t sse_post_on_read(char *buf, size_t bufsize, void *arg) {
+  auto *c        = static_cast<SsePostCtx *>(arg);
+  size_t remaining = c->upload_data.size() - c->upload_offset;
+  if (remaining == 0) return 0;
+  size_t n = bufsize < remaining ? bufsize : remaining;
+  memcpy(buf, c->upload_data.data() + c->upload_offset, n);
+  c->upload_offset += n;
+  return n;
+}
+
+static int sse_post_on_ev(const xSseEvent *ev, void *arg) {
+  auto *c = static_cast<SsePostCtx *>(arg);
+  return on_sse_ev(ev, &c->sse);
+}
+
+static void sse_post_on_end(int curl_code, void *arg) {
+  auto *c = static_cast<SsePostCtx *>(arg);
+  on_sse_end(curl_code, &c->sse);
 }
 
 /* ───────────────────── SSE via DoSse POST (LLM-style) ───────────────────── */
@@ -635,28 +699,29 @@ TEST_F(IntegrationTest, SseDoPostH1) {
   xHttpServerRoute(server, "POST /v1/chat", sse_post_handler, nullptr);
   listen_and_pump();
 
-  SseTestCtx  ctx;
+  SsePostCtx ctx;
   std::string url  = make_url("/v1/chat");
   const char *body = "{\"model\":\"gpt-4\"}";
+  ctx.upload_data.assign(body, strlen(body));
 
   xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
-  config.url      = url.c_str();
-  config.method   = xHttpMethod_POST;
-  config.body     = body;
-  config.body_len = strlen(body);
+  config.url            = url.c_str();
+  config.method         = xHttpMethod_POST;
+  config.on_read        = sse_post_on_read;
+  config.content_length = strlen(body);
 
-  xErrno err = xHttpClientDoSse(client, &config, on_sse_ev, on_sse_end, &ctx);
+  xErrno err = xHttpClientDoSse(client, &config, sse_post_on_ev, sse_post_on_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until(loop, ctx.done, 5000);
+  run_until(loop, ctx.sse.done, 5000);
 
-  ASSERT_TRUE(ctx.done.load()) << "SSE POST stream did not finish";
-  EXPECT_EQ(ctx.done_curl_code, 0);
-  ASSERT_EQ(ctx.event_count.load(), 2);
-  EXPECT_EQ(ctx.data[0], body);
-  EXPECT_EQ(ctx.events[1], "done");
-  EXPECT_EQ(ctx.data[1], "[DONE]");
+  ASSERT_TRUE(ctx.sse.done.load()) << "SSE POST stream did not finish";
+  EXPECT_EQ(ctx.sse.done_curl_code, 0);
+  ASSERT_EQ(ctx.sse.event_count.load(), 2);
+  EXPECT_EQ(ctx.sse.data[0], body);
+  EXPECT_EQ(ctx.sse.events[1], "done");
+  EXPECT_EQ(ctx.sse.data[1], "[DONE]");
 }
 
 /* ───────────────────── SSE via DoSse POST over H2C ───────────────────── */
@@ -665,29 +730,30 @@ TEST_F(IntegrationTest, SseDoPostH2c) {
   xHttpServerRoute(server, "POST /v1/chat", sse_post_handler, nullptr);
   listen_and_pump();
 
-  SseTestCtx  ctx;
+  SsePostCtx ctx;
   std::string url  = make_url("/v1/chat");
   const char *body = "{\"stream\":true}";
+  ctx.upload_data.assign(body, strlen(body));
 
   xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
-  config.url          = url.c_str();
-  config.method       = xHttpMethod_POST;
-  config.body         = body;
-  config.body_len     = strlen(body);
-  config.http_version = xHttpVersion_H2C;
+  config.url            = url.c_str();
+  config.method         = xHttpMethod_POST;
+  config.on_read        = sse_post_on_read;
+  config.content_length = strlen(body);
+  config.http_version   = xHttpVersion_H2C;
 
-  xErrno err = xHttpClientDoSse(client, &config, on_sse_ev, on_sse_end, &ctx);
+  xErrno err = xHttpClientDoSse(client, &config, sse_post_on_ev, sse_post_on_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until(loop, ctx.done, 5000);
+  run_until(loop, ctx.sse.done, 5000);
 
-  ASSERT_TRUE(ctx.done.load()) << "SSE POST/H2C stream did not finish";
-  EXPECT_EQ(ctx.done_curl_code, 0);
-  ASSERT_EQ(ctx.event_count.load(), 2);
-  EXPECT_EQ(ctx.data[0], body);
-  EXPECT_EQ(ctx.events[1], "done");
-  EXPECT_EQ(ctx.data[1], "[DONE]");
+  ASSERT_TRUE(ctx.sse.done.load()) << "SSE POST/H2C stream did not finish";
+  EXPECT_EQ(ctx.sse.done_curl_code, 0);
+  ASSERT_EQ(ctx.sse.event_count.load(), 2);
+  EXPECT_EQ(ctx.sse.data[0], body);
+  EXPECT_EQ(ctx.sse.events[1], "done");
+  EXPECT_EQ(ctx.sse.data[1], "[DONE]");
 }
 
 /* ───────────────────── Empty body response (204) ───────────────────── */
@@ -703,6 +769,7 @@ TEST_F(IntegrationTest, H1EmptyBodyResponse) {
   memset(&config, 0, sizeof(config));
   config.url    = url.c_str();
   config.method = xHttpMethod_DELETE;
+  config.on_data = on_data_collect;
   config.on_done = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
@@ -729,6 +796,7 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
   xHttpRequestConf req_conf = {};
   req_conf.url    = url.c_str();
   req_conf.method = xHttpMethod_GET;
+  req_conf.on_data = on_data_collect;
   req_conf.on_done = on_resp;
   xErrno err1 = xHttpClientGet(client, &req_conf, &ctx_h1);
   ASSERT_EQ(err1, xErrno_Ok);
@@ -739,6 +807,7 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
   config.url          = url.c_str();
   config.method       = xHttpMethod_GET;
   config.http_version = xHttpVersion_H2C;
+  config.on_data      = on_data_collect;
   config.on_done      = on_resp;
 
   xErrno err2 = xHttpClientDo(client, &config, &ctx_h2c);
