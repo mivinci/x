@@ -16,22 +16,12 @@ target_link_libraries(xhttp PUBLIC xbase xbuf xnet PRIVATE Libcurl::Libcurl)
 message(STATUS "xhttp: libcurl integration enabled")
 
 find_package(Llhttp REQUIRED)
-# Suppress system-header warnings for homebrew-imported targets;
-# FetchContent-built ALIAS targets don't support set_target_properties.
-get_target_property(_llhttp_type Llhttp::Llhttp TYPE)
-if(NOT _llhttp_type STREQUAL "ALIAS")
-  set_target_properties(Llhttp::Llhttp PROPERTIES IMPORTED_NO_SYSTEM TRUE)
-endif()
 target_compile_definitions(xhttp PUBLIC X_HAS_LLHTTP)
 target_link_libraries(xhttp PRIVATE Llhttp::Llhttp)
 
 message(STATUS "xhttp: llhttp integration enabled")
 
 find_package(Nghttp2 REQUIRED)
-get_target_property(_nghttp2_type Nghttp2::Nghttp2 TYPE)
-if(NOT _nghttp2_type STREQUAL "ALIAS")
-  set_target_properties(Nghttp2::Nghttp2 PROPERTIES IMPORTED_NO_SYSTEM TRUE)
-endif()
 target_compile_definitions(xhttp PUBLIC X_HAS_NGHTTP2)
 target_link_libraries(xhttp PRIVATE Nghttp2::Nghttp2)
 
@@ -71,7 +61,6 @@ elseif(X_TLS_BACKEND STREQUAL "openssl")
   message(STATUS "xhttp: TLS backend = OpenSSL (forced)")
 elseif(X_TLS_BACKEND STREQUAL "mbedtls")
   find_package(MbedTLS REQUIRED)
-  set_target_properties(MbedTLS::MbedTLS PROPERTIES IMPORTED_NO_SYSTEM TRUE)
   target_compile_definitions(xhttp PUBLIC X_HAS_MBEDTLS)
   target_sources(xhttp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_mbedtls.c)
@@ -89,7 +78,6 @@ elseif(X_TLS_BACKEND STREQUAL "auto")
   else()
     find_package(MbedTLS QUIET)
     if(MbedTLS_FOUND)
-      set_target_properties(MbedTLS::MbedTLS PROPERTIES IMPORTED_NO_SYSTEM TRUE)
       target_compile_definitions(xhttp PUBLIC X_HAS_MBEDTLS)
       target_sources(xhttp PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_mbedtls.c)
