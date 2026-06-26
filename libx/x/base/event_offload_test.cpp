@@ -17,6 +17,8 @@ extern "C" {
 #include <x/base/task.h>
 }
 
+#include <x/base/test_helper.h>
+
 /* ───────────────────── Fixture ───────────────────── */
 
 class EventOffloadTest : public ::testing::Test {
@@ -71,10 +73,8 @@ TEST_F(EventOffloadTest, BasicOffload) {
 
   ASSERT_NE(xWorkSubmit( group, basic_work, basic_done, &ctx), nullptr);
 
-  /* Pump the event loop until done_fn fires (max 2 s). */
-  for (int i = 0; i < 200 && !ctx.done_called.load(std::memory_order_acquire); i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  /* Pump the event loop until done_fn fires (max 5 s). */
+  run_until(loop, ctx.done_called, 5000);
 
   EXPECT_TRUE(ctx.work_done.load());
   EXPECT_TRUE(ctx.done_called.load());
@@ -98,9 +98,7 @@ TEST_F(EventOffloadTest, FireAndForget) {
   ASSERT_NE(xWorkSubmit( group, work_fn, nullptr, &work_done), nullptr);
 
   /* Pump the loop to let the done queue drain (even though done_fn is NULL). */
-  for (int i = 0; i < 200 && !work_done.load(std::memory_order_acquire); i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  run_until(loop, work_done, 5000);
 
   EXPECT_TRUE(work_done.load());
 }
@@ -155,9 +153,7 @@ TEST_F(EventOffloadTest, ConcurrentSubmits) {
     th.join();
 
   /* Pump the event loop until all done callbacks fire. */
-  for (int i = 0; i < 500 && done_count.load(std::memory_order_acquire) < TOTAL; i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  run_until_count(loop, done_count, TOTAL, 10000);
 
   EXPECT_EQ(work_count.load(), TOTAL);
   EXPECT_EQ(done_count.load(), TOTAL);
@@ -171,9 +167,7 @@ TEST_F(EventOffloadTest, NullGroupUsesGlobal) {
   /* Pass NULL as group — should use xTaskGroupGlobal(). */
   ASSERT_NE(xWorkSubmit( nullptr, basic_work, basic_done, &ctx), nullptr);
 
-  for (int i = 0; i < 200 && !ctx.done_called.load(std::memory_order_acquire); i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  run_until(loop, ctx.done_called, 5000);
 
   EXPECT_TRUE(ctx.work_done.load());
   EXPECT_TRUE(ctx.done_called.load());
@@ -207,9 +201,7 @@ TEST_F(EventOffloadTest, ResultPassedToDoneFn) {
 
   ASSERT_NE(xWorkSubmit( group, work_fn, done_fn, &out), nullptr);
 
-  for (int i = 0; i < 200 && !done.load(std::memory_order_acquire); i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  run_until(loop, done, 5000);
 
   EXPECT_TRUE(done.load());
   EXPECT_EQ(received_result, &sentinel);
@@ -237,9 +229,7 @@ TEST_F(EventOffloadTest, WorkFreelistReuse) {
     }
 
     /* Pump until all done callbacks fire */
-    for (int i = 0; i < 200 && done_count.load(std::memory_order_acquire) < PER_ROUND; i++) {
-      xEventLoopRun(loop, X_RUN_ONCE);
-    }
+    run_until_count(loop, done_count, PER_ROUND, 5000);
 
     EXPECT_EQ(done_count.load(), PER_ROUND) << "round " << r;
   }
@@ -280,8 +270,7 @@ TEST_F(EventOffloadTest, SubmitFailsWhenGroupFull) {
 
   /* Cleanup */
   unblock.store(true, std::memory_order_release);
-  for (int i = 0; i < 200; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_for(loop, 2000);
 
   xTaskGroupDestroy(small);
 }
@@ -335,8 +324,7 @@ TEST_F(EventOffloadTest, CancelQueuedWork) {
 
   /* Unblock the worker and pump the loop */
   unblock.store(true, std::memory_order_release);
-  for (int i = 0; i < 200; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_for(loop, 2000);
 
   /* Neither work_fn nor done_fn should have been called */
   EXPECT_FALSE(work_called.load());
@@ -378,8 +366,7 @@ TEST_F(EventOffloadTest, CancelRunningWorkFails) {
 
   /* Let it finish and pump the loop */
   unblock.store(true, std::memory_order_release);
-  for (int i = 0; i < 200; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_for(loop, 2000);
 }
 
 TEST_F(EventOffloadTest, CancelSubmitOutHandle) {
@@ -389,8 +376,7 @@ TEST_F(EventOffloadTest, CancelSubmitOutHandle) {
   ASSERT_NE(work, nullptr);
 
   /* Pump the loop to let it complete normally */
-  for (int i = 0; i < 200; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_for(loop, 2000);
 }
 
 TEST_F(EventOffloadTest, CancelSubmitNullOutStillWorks) {
@@ -404,8 +390,7 @@ TEST_F(EventOffloadTest, CancelSubmitNullOutStillWorks) {
               &done),
             nullptr);
 
-  for (int i = 0; i < 200 && !done.load(std::memory_order_acquire); i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_until(loop, done, 5000);
 
   EXPECT_TRUE(done.load());
 }

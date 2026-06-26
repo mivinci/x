@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <x/base/test_helper.h>
+
 /* ───────────────────── Repeat timer ───────────────────── */
 
 TEST(BuiltinTimerRepeat, FiresMultipleTimes) {
@@ -12,8 +14,7 @@ TEST(BuiltinTimerRepeat, FiresMultipleTimes) {
   std::atomic<int> count{0};
   xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &count, 10, 10);
 
-  for (int i = 0; i < 20; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_for(loop, 2000);
   xEventLoopRun(loop, X_RUN_NOWAIT);
 
   EXPECT_GE(count.load(), 3) << "repeat timer should fire multiple times";
@@ -32,8 +33,7 @@ TEST(BuiltinTimerRepeat, StopRepeatTimer) {
     [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &count, 10, 10);
   ASSERT_NE(t, nullptr);
 
-  for (int i = 0; i < 15 && count.load() < 3; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_until_count(loop, count, 3, 10000);
   EXPECT_GE(count.load(), 1) << "should have fired at least once before stop";
 
   int before = count.load();
@@ -62,8 +62,7 @@ TEST(BuiltinTimerEdge, SelfStopInCallback) {
     }, &ctx, 10, 10);
   ASSERT_NE(ctx.timer, nullptr);
 
-  for (int i = 0; i < 20 && ctx.count.load() < 5; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_for(loop, 500);
   EXPECT_LE(ctx.count.load(), 3) << "self-stop prevented further fires";
 
   xEventLoopLeave();
@@ -80,8 +79,7 @@ TEST(BuiltinTimerEdge, BulkStress) {
   for (int i = 0; i < N; i++)
     xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &counter, (uint64_t)i, 0);
 
-  for (int i = 0; i < 500 && counter.load() < N; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_until_count(loop, counter, N, 10000);
   xEventLoopRun(loop, X_RUN_NOWAIT);
   EXPECT_EQ(counter.load(), N) << "all timers should fire";
 

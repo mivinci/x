@@ -1,6 +1,8 @@
 /* event_timer_misc_test.cpp — Miscellaneous timer tests */
 #include "event_timer_test_helpers.h"
 
+#include <x/base/test_helper.h>
+
 /* ───────────────────── Multiple timers ordering ───────────────────── */
 /* ───────────────────── Multiple timers ordering ───────────────────── */
 
@@ -33,11 +35,7 @@ TEST(BuiltinTimerOrder, MultipleTimersInOrder) {
   xTimerStart(fn, &ctx2, 100, 0);
 
   /* Wait for all to fire */
-  for (int i = 0; i < 10; i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-    std::lock_guard<std::mutex> lock(mu);
-    if (order.size() >= 3) break;
-  }
+  run_for(loop, 2000);
 
   std::lock_guard<std::mutex> lock(mu);
   ASSERT_EQ(order.size(), 3u);
@@ -79,10 +77,7 @@ TEST(BuiltinTimerMixed, IOAndTimerTogether) {
   write_fd(fds[1], "x", 1);
 
   /* Wait for both */
-  for (int i = 0; i < 10; i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-    if (io_count.load() >= 1 && timer_count.load() >= 1) break;
-  }
+  run_for(loop, 2000);
 
   EXPECT_GE(io_count.load(), 1);
   EXPECT_GE(timer_count.load(), 1);

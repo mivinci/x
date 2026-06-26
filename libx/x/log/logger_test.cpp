@@ -24,6 +24,8 @@ extern "C" {
 #include <x/log/logger.h>
 }
 
+#include <x/base/test_helper.h>
+
 /* ───────────────────── Helpers ───────────────────── */
 
 using ms = std::chrono::milliseconds;
@@ -50,13 +52,7 @@ static void cleanup_files(const char *path, int max_files = 10) {
   }
 }
 
-/** Run the event loop for up to `timeout_ms`, pumping events. */
-static void pump_loop(xEventLoop loop, int timeout_ms) {
-  auto deadline = std::chrono::steady_clock::now() + ms(timeout_ms);
-  while (std::chrono::steady_clock::now() < deadline) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
-}
+/* pump_loop removed — use run_for from <x/base/test_helper.h> instead. */
 
 /* ───────────────────── Fixture ───────────────────── */
 
@@ -139,7 +135,7 @@ TEST_F(LoggerTest, LevelFiltering) {
   XLOG_ERROR_L(logger, "error message");
 
   /* Pump loop to let timer flush */
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   xLoggerDestroy(logger);
 
@@ -166,7 +162,7 @@ TEST_F(LoggerTest, TimerModeFlush) {
   XLOG_INFO_L(logger, "timer test message");
 
   /* Pump loop to let timer fire */
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   xLoggerDestroy(logger);
 
@@ -190,7 +186,7 @@ TEST_F(LoggerTest, NotifyModeFlush) {
   XLOG_INFO_L(logger, "notify test message");
 
   /* Pump loop briefly — notify should be fast */
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   xLoggerDestroy(logger);
 
@@ -215,7 +211,7 @@ TEST_F(LoggerTest, MixedModeErrorFlushesImmediately) {
   XLOG_ERROR_L(logger, "urgent error");
 
   /* Short pump — should be enough for pipe-based flush */
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   xLoggerDestroy(logger);
 
@@ -237,7 +233,7 @@ TEST_F(LoggerTest, MixedModeDebugWaitsForTimer) {
   XLOG_DEBUG_L(logger, "delayed debug");
 
   /* Pump long enough for timer to fire */
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   xLoggerDestroy(logger);
 
@@ -265,7 +261,7 @@ TEST_F(LoggerTest, FileRotation) {
     XLOG_INFO_L(logger, "rotation test entry %d with some padding text", i);
   }
 
-  pump_loop(loop, 200);
+  run_for(loop, 200);
   xLoggerDestroy(logger);
 
   /* Check that rotated files exist */
@@ -297,7 +293,7 @@ TEST_F(LoggerTest, StderrNoRotation) {
   /* Should not crash even with rotation settings */
   XLOG_INFO_L(logger, "stderr test");
 
-  pump_loop(loop, 50);
+  run_for(loop, 50);
   xLoggerDestroy(logger);
 }
 
@@ -339,7 +335,7 @@ TEST_F(LoggerTest, MultiThreadSafety) {
     th.join();
 
   /* Pump loop to flush remaining entries */
-  pump_loop(loop, 200);
+  run_for(loop, 200);
   xLoggerDestroy(logger);
 
   EXPECT_EQ(count.load(), THREADS * PER_THREAD);
@@ -375,7 +371,7 @@ TEST_F(LoggerTest, BridgeRedirectsXLog) {
   xLog(false, "bridged message from xLog");
 
   /* Pump loop */
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   /* Leave bridge context */
   xLoggerLeave();
@@ -402,7 +398,7 @@ TEST_F(LoggerTest, BridgeLeaveRestoresDefault) {
   /* After leave, xLog should go to stderr, not to our file */
   xLog(false, "should go to stderr not file");
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
   xLoggerDestroy(logger);
 
   std::string content = read_file(test_path);
@@ -424,7 +420,7 @@ TEST_F(LoggerTest, LogEntryContainsTimestamp) {
 
   XLOG_INFO_L(logger, "timestamp check");
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
   xLoggerDestroy(logger);
 
   std::string content = read_file(test_path);
@@ -450,7 +446,7 @@ TEST_F(LoggerTest, DefaultFlushInterval) {
 
   XLOG_INFO_L(logger, "default interval test");
 
-  pump_loop(loop, 200);
+  run_for(loop, 200);
   xLoggerDestroy(logger);
 
   std::string content = read_file(test_path);
@@ -477,7 +473,7 @@ TEST_F(LoggerTest, ContextMacrosUseCurrentLogger) {
   XLOG_INFO("context info message");
   XLOG_WARN("context warn message");
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   /* Leave context */
   xLoggerLeave();

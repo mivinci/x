@@ -25,6 +25,8 @@
 
 #include <gtest/gtest.h>
 
+#include <x/base/test_helper.h>
+
 /* ───────────────────── Helpers ───────────────────── */
 
 using ms = std::chrono::milliseconds;
@@ -692,12 +694,7 @@ TEST(EventDynamic, AddSourceBetweenWaits) {
   write_fd(fds1[1], "b", 1);
   write_fd(fds2[1], "c", 1);
 
-  int total = 0;
-  for (int i = 0; i < 5 && total < 2; i++) {
-    int n = xEventLoopRun(loop, X_RUN_ONCE);
-    if (n > 0) total += n;
-  }
-  EXPECT_EQ(total, 2);
+  run_for(loop, 500);
   EXPECT_EQ(count1, 2);
   EXPECT_EQ(count2, 1);
 
@@ -776,12 +773,7 @@ TEST(EventReadWrite, BothReadAndWrite) {
   ASSERT_NE(src, nullptr);
 
   /* Should get at least a write event */
-  int total = 0;
-  for (int i = 0; i < 5 && total == 0; i++) {
-    int n = xEventLoopRun(loop, X_RUN_ONCE);
-    if (n > 0) total += n;
-  }
-  EXPECT_GE(total, 1);
+  run_for(loop, 500);
   EXPECT_TRUE(got_mask & xEvent_Write);
 
   xEventDel(src);

@@ -12,6 +12,8 @@ extern "C" {
 #include "ice_agent.h"
 }
 
+#include <x/base/test_helper.h>
+
 #include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
@@ -22,35 +24,37 @@ using ms = std::chrono::milliseconds;
 
 /* ───────────────────── Helpers ───────────────────── */
 
-static void pump_loop(xEventLoop loop, int total_ms) {
-  auto deadline = std::chrono::steady_clock::now() + ms(total_ms);
-  while (std::chrono::steady_clock::now() < deadline) {
-    auto remaining =
-      std::chrono::duration_cast<ms>(deadline - std::chrono::steady_clock::now()).count();
-    if (remaining <= 0) break;
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
-}
+/* pump_loop removed — use run_for from <x/base/test_helper.h> instead. */
 
 /*
  * Pump the event loop until `pred()` returns true or `total_ms` elapses.
  * Returns true if the predicate was satisfied, false on timeout.
  *
- * Use this instead of a fixed `pump_loop(loop, N)` when the test's success
- * criterion is an async state change (e.g. gathering completed). It avoids
- * both flakiness on slow CI runners AND wasted wall-clock time on fast ones.
+ * Uses X_RUN_DEFAULT with a repeating checker timer (5ms) and a watchdog.
  */
 template <class Pred> static bool pump_until(xEventLoop loop, Pred pred, int total_ms) {
-  auto deadline = std::chrono::steady_clock::now() + ms(total_ms);
-  while (std::chrono::steady_clock::now() < deadline) {
-    if (pred()) return true;
-    auto remaining =
-      std::chrono::duration_cast<ms>(deadline - std::chrono::steady_clock::now()).count();
-    if (remaining <= 0) break;
-    /* Wake up at least every 50ms so we can re-check the predicate even
-     * if no event fires (e.g. waiting on a timer that hasn't fired yet). */
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  if (pred()) return true;
+
+  struct PredCtx {
+    xEventLoop loop;
+    Pred      *pred;
+  } ctx{loop, &pred};
+
+  xTimer checker = xTimerStart(
+    [](void *arg) {
+      auto *c = static_cast<PredCtx *>(arg);
+      if ((*c->pred)()) xEventLoopStop(c->loop);
+    },
+    &ctx, 5, 5);
+
+  xTimer watchdog = xTimerStart(
+    [](void *arg) { xEventLoopStop((xEventLoop)arg); },
+    loop, (uint64_t)total_ms, 0);
+
+  xEventLoopRun(loop, X_RUN_DEFAULT);
+
+  if (checker) xTimerStop(checker);
+  if (watchdog) xTimerStop(watchdog);
   return pred();
 }
 
@@ -148,7 +152,7 @@ TEST(IceAgentTest, GatherProducesHostCandidate) {
   EXPECT_NE(as.last_candidate.find("typ host"), std::string::npos);
 
   /* No STUN/TURN servers → gathering completes immediately */
-  pump_loop(loop, 100);
+  run_for(loop, 100);
   EXPECT_TRUE(as.gathering_done);
 
   xIceAgentDestroy(agent);
@@ -373,7 +377,7 @@ TEST(IceAgentTest, FullLocalLoopback) {
   EXPECT_EQ(xIceAgentGather(ctld), xErrno_Ok);
 
   /* Wait for gathering to complete (immediate with no servers) */
-  pump_loop(loop, 100);
+  run_for(loop, 100);
   EXPECT_TRUE(as_ctrl.gathering_done);
   EXPECT_TRUE(as_ctld.gathering_done);
 
@@ -391,7 +395,7 @@ TEST(IceAgentTest, FullLocalLoopback) {
   free(answer);
 
   /* Pump loop to allow connectivity checks */
-  pump_loop(loop, 11000);
+  run_for(loop, 11000);
 
   /*
    * Note: In a real loopback test, both agents would need to be on
@@ -437,7 +441,7 @@ TEST(IceAgentTest, TrickleIceAddCandidate) {
   ASSERT_NE(agent, nullptr);
 
   EXPECT_EQ(xIceAgentGather(agent), xErrno_Ok);
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   /* Set remote description with no candidates */
   const char *remote_sdp = "v=0\r\n"
@@ -457,7 +461,7 @@ TEST(IceAgentTest, TrickleIceAddCandidate) {
     xErrno_Ok);
 
   /* Pump to allow checks */
-  pump_loop(loop, 2000);
+  run_for(loop, 2000);
 
   /* Agent should be in Checking or beyond */
   xIceState state = as.state.load();
@@ -490,7 +494,7 @@ TEST(IceAgentTest, AllPairsFailLeadsToFailedState) {
   ASSERT_NE(agent, nullptr);
 
   EXPECT_EQ(xIceAgentGather(agent), xErrno_Ok);
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   /* Set remote with unreachable candidate */
   const char *remote_sdp = "v=0\r\n"
@@ -505,7 +509,7 @@ TEST(IceAgentTest, AllPairsFailLeadsToFailedState) {
   EXPECT_EQ(xIceAgentSetRemoteDescription(agent, remote_sdp), xErrno_Ok);
 
   /* Wait for check timeout (10s) + margin */
-  pump_loop(loop, 11000);
+  run_for(loop, 11000);
 
   EXPECT_EQ(as.state.load(), xIceState_Failed);
 

@@ -23,25 +23,10 @@ extern "C" {
 #include <x/base/event.h>
 }
 
+#include <x/base/test_helper.h>
+
 #include <cstring>
 #include <vector>
-
-/* ═══════════════════════════════════════════════════════════
- *  Helpers
- * ═══════════════════════════════════════════════════════════ */
-
-/**
- * Tick the event loop for up to @p total_ms, calling xEventLoopRun in
- * small increments so timers and callbacks fire promptly.
- */
-static void tick_loop(xEventLoop loop, int total_ms) {
-  int       elapsed = 0;
-  const int step    = 5;
-  while (elapsed < total_ms) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-    elapsed += step;
-  }
-}
 
 /* ═══════════════════════════════════════════════════════════
  *  Fingerprint String Helpers
@@ -535,20 +520,29 @@ protected:
 
   /* Run the handshake loop until both sides are connected or timeout */
   bool RunHandshake(int timeout_ms = 3000) {
-    int       elapsed = 0;
-    const int step    = 5;
-    while (elapsed < timeout_ms) {
-      xEventLoopRun(loop, X_RUN_ONCE);
-      elapsed += step;
+    xTimer checker = xTimerStart(
+      [](void *arg) {
+        auto *self = static_cast<DtlsHandshakeTest *>(arg);
+        if (self->active_state == xDtlsState_Connected &&
+            self->passive_state == xDtlsState_Connected) {
+          xEventLoopStop(self->loop);
+        } else if (self->active_state == xDtlsState_Failed ||
+                   self->passive_state == xDtlsState_Failed) {
+          xEventLoopStop(self->loop);
+        }
+      },
+      this, 5, 5);
 
-      if (active_state == xDtlsState_Connected && passive_state == xDtlsState_Connected) {
-        return true;
-      }
-      if (active_state == xDtlsState_Failed || passive_state == xDtlsState_Failed) {
-        return false;
-      }
-    }
-    return false;
+    xTimer watchdog = xTimerStart(
+      [](void *arg) { xEventLoopStop((xEventLoop)arg); },
+      loop, (uint64_t)timeout_ms, 0);
+
+    xEventLoopRun(loop, X_RUN_DEFAULT);
+
+    if (checker) xTimerStop(checker);
+    if (watchdog) xTimerStop(watchdog);
+
+    return active_state == xDtlsState_Connected && passive_state == xDtlsState_Connected;
   }
 
 private:
@@ -640,7 +634,7 @@ TEST_F(DtlsHandshakeTest, DataExchangeAfterHandshake) {
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Tick to let data flow */
-  tick_loop(loop, 50);
+  run_for(loop, 50);
 
   ASSERT_EQ(passive_received.size(), strlen(msg1));
   EXPECT_EQ(memcmp(passive_received.data(), msg1, strlen(msg1)), 0);
@@ -650,7 +644,7 @@ TEST_F(DtlsHandshakeTest, DataExchangeAfterHandshake) {
   err              = xDtlsTransportSend(passive, (const uint8_t *)msg2, strlen(msg2));
   ASSERT_EQ(err, xErrno_Ok);
 
-  tick_loop(loop, 50);
+  run_for(loop, 50);
 
   ASSERT_EQ(active_received.size(), strlen(msg2));
   EXPECT_EQ(memcmp(active_received.data(), msg2, strlen(msg2)), 0);
@@ -672,7 +666,7 @@ TEST_F(DtlsHandshakeTest, LargeDataExchange) {
   xErrno err = xDtlsTransportSend(active, payload.data(), payload.size());
   ASSERT_EQ(err, xErrno_Ok);
 
-  tick_loop(loop, 100);
+  run_for(loop, 100);
 
   ASSERT_EQ(passive_received.size(), payload.size());
   EXPECT_EQ(memcmp(passive_received.data(), payload.data(), payload.size()), 0);
@@ -760,17 +754,28 @@ TEST_F(DtlsWrongFingerprintTest, WrongFingerprintCausesFailure) {
   ASSERT_EQ(xDtlsTransportStart(passive), xErrno_Ok);
 
   /* Run handshake — should fail due to fingerprint mismatch */
-  int  elapsed = 0;
-  bool failed  = false;
-  while (elapsed < 5000) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-    elapsed += 10;
-    if (active_state == xDtlsState_Failed) {
-      failed = true;
-      break;
-    }
-  }
+  struct CheckerCtx {
+    xEventLoop  loop;
+    xDtlsState *active_state;
+  } ctx{loop, &active_state};
 
+  xTimer checker = xTimerStart(
+    [](void *arg) {
+      auto *c = static_cast<CheckerCtx *>(arg);
+      if (*c->active_state == xDtlsState_Failed) xEventLoopStop(c->loop);
+    },
+    &ctx, 5, 5);
+
+  xTimer watchdog = xTimerStart(
+    [](void *arg) { xEventLoopStop((xEventLoop)arg); },
+    loop, 5000, 0);
+
+  xEventLoopRun(loop, X_RUN_DEFAULT);
+
+  if (checker) xTimerStop(checker);
+  if (watchdog) xTimerStop(watchdog);
+
+  bool failed = (active_state == xDtlsState_Failed);
   EXPECT_TRUE(failed) << "Expected handshake to fail due to wrong fingerprint, "
                       << "but active state is: " << active_state;
 }
@@ -817,7 +822,7 @@ TEST_F(DtlsTimeoutTest, PassiveTimesOutWithoutPeer) {
   EXPECT_EQ(last_state, xDtlsState_Connecting);
 
   /* Tick past the timeout */
-  tick_loop(loop, 500);
+  run_for(loop, 500);
 
   EXPECT_EQ(last_state, xDtlsState_Failed)
     << "Expected timeout failure, but state is: " << last_state;
@@ -847,7 +852,7 @@ TEST_F(DtlsTimeoutTest, ActiveTimesOutWithoutPeer) {
   ASSERT_EQ(xDtlsTransportStart(t), xErrno_Ok);
   EXPECT_EQ(last_state, xDtlsState_Connecting);
 
-  tick_loop(loop, 500);
+  run_for(loop, 500);
 
   EXPECT_EQ(last_state, xDtlsState_Failed)
     << "Expected timeout failure, but state is: " << last_state;
@@ -981,7 +986,7 @@ TEST_F(DtlsFeedInputTest, FeedGarbageDoesNotCrash) {
   xDtlsTransportFeedInput(t, garbage, sizeof(garbage));
 
   /* Tick to process */
-  tick_loop(loop, 50);
+  run_for(loop, 50);
 
   /* Transport should still be alive (connecting or failed, not crashed) */
   xDtlsState state = xDtlsTransportGetState(t);

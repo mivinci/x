@@ -14,10 +14,11 @@ extern "C" {
 #include "stun_msg.h"
 }
 
+#include <x/base/test_helper.h>
+
 #include <arpa/inet.h>
 #include <atomic>
 #include <cerrno>
-#include <chrono>
 #include <cstring>
 #include <netinet/in.h>
 #include <poll.h>
@@ -26,8 +27,6 @@ extern "C" {
 #include <unistd.h>
 
 /* ───────────────────── Helpers ───────────────────── */
-
-using ms = std::chrono::milliseconds;
 
 /**
  * @brief Build a STUN Binding Success Response with a XOR-MAPPED-ADDRESS
@@ -331,13 +330,8 @@ static void probe_callback(const xNatProbeResult *result, void *arg) {
 
 /** Run the event loop until the probe completes or timeout. */
 static bool wait_for_probe(xEventLoop loop, ProbeCtx &ctx, int max_ms = 8000) {
-  auto start = std::chrono::steady_clock::now();
-  while (!ctx.done) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-    auto elapsed = std::chrono::duration_cast<ms>(std::chrono::steady_clock::now() - start).count();
-    if (elapsed > max_ms) return false;
-  }
-  return true;
+  run_until(loop, ctx.done, max_ms);
+  return ctx.done.load();
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -432,8 +426,7 @@ TEST(NatProbeCancel, CancelImmediatelyAfterStart) {
 
   /* Pump the event loop briefly to let any in-flight thread pool tasks
      drain (DNS offload may still be running). */
-  for (int i = 0; i < 20; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_for(loop, 200);
 
   xEventLoopLeave();
   xEventLoopDestroy(loop);

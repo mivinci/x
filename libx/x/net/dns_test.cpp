@@ -18,6 +18,8 @@ extern "C" {
 #include <x/net/dns.h>
 }
 
+#include <x/base/test_helper.h>
+
 /* ───────────────────── Helpers ───────────────────── */
 
 using ms = std::chrono::milliseconds;
@@ -216,9 +218,7 @@ TEST_F(DnsTest, CancelPreventsCallback) {
   xDnsCancel( q);
 
   /* Pump the event loop to let the done callback fire (or not) */
-  for (int i = 0; i < 100; i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  run_for(loop, 1000);
 
   /* The callback should NOT have been invoked */
   EXPECT_FALSE(called.load());
@@ -251,9 +251,7 @@ TEST_F(DnsTest, CallbackOnEventLoopThread) {
   xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 2000, 0);
 
   /* Pump until callback fires or timer stops us */
-  for (int i = 0; i < 500 && !ctx.called.load(std::memory_order_acquire); i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  run_until(loop, ctx.called, 5000);
 
   EXPECT_TRUE(ctx.called.load());
   EXPECT_TRUE(pthread_equal(ctx.callback_thread, loop_thread));

@@ -16,6 +16,8 @@ extern "C" {
 #include <x/base/event.h>
 }
 
+#include <x/base/test_helper.h>
+
 /* ───────────────────── Fixture ───────────────────── */
 
 class EventPostTest : public ::testing::Test {
@@ -46,9 +48,7 @@ TEST_F(EventPostTest, BasicPost) {
   ASSERT_EQ(xEventLoopPost(this->loop, fn, &called), xErrno_Ok);
 
   /* Pump the loop until the callback fires. */
-  for (int i = 0; i < 200 && !called.load(std::memory_order_acquire); i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  run_until(loop, called, 5000);
 
   EXPECT_TRUE(called.load());
 }
@@ -77,9 +77,7 @@ TEST_F(EventPostTest, PostFromAnotherThread) {
 
   /* Pump the loop until the callback fires. */
   std::thread::id loop_thread = std::this_thread::get_id();
-  for (int i = 0; i < 200 && !called.load(std::memory_order_acquire); i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  run_until(loop, called, 5000);
 
   EXPECT_TRUE(called.load());
   /* Callback must have run on the loop thread (the current thread). */
@@ -100,9 +98,7 @@ TEST_F(EventPostTest, MultiplePosts) {
     ASSERT_EQ(xEventLoopPost(this->loop, fn, &count), xErrno_Ok);
   }
 
-  for (int i = 0; i < 500 && count.load(std::memory_order_acquire) < N; i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  run_until_count(loop, count, N, 10000);
 
   EXPECT_EQ(count.load(), N);
 }
@@ -134,9 +130,7 @@ TEST_F(EventPostTest, ConcurrentPosts) {
   for (auto &th : threads)
     th.join();
 
-  for (int i = 0; i < 500 && count.load(std::memory_order_acquire) < TOTAL; i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  run_until_count(loop, count, TOTAL, 10000);
 
   EXPECT_EQ(count.load(), TOTAL);
 }
@@ -156,9 +150,7 @@ TEST_F(EventPostTest, PostInterleavedWithSubmit) {
   }
 
   /* Pump the loop. */
-  for (int i = 0; i < 200 && post_count.load(std::memory_order_acquire) < 10; i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  run_until_count(loop, post_count, 10, 10000);
 
   EXPECT_EQ(post_count.load(), 10);
 }

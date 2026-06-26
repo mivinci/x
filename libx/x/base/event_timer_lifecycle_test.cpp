@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <x/base/test_helper.h>
+
 /* ───────────────────── TimerAfter ───────────────────── */
 /* ───────────────────── TimerAfter ───────────────────── */
 
@@ -17,8 +19,7 @@ TEST(BuiltinTimerAfter, BasicDelay) {
 
   /* Wait long enough for the timer to fire (may need multiple waits
    * because the initial xEventLoopWake from TimerAfter can return early) */
-  for (int i = 0; i < 10 && fired.load() == 0; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_until_count(loop, fired, 1, 10000);
 
   EXPECT_EQ(fired.load(), 1);
 
@@ -68,8 +69,7 @@ TEST(BuiltinTimerAt, AbsoluteTime) {
   xTimer t        = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 50, 0);
   ASSERT_NE(t, nullptr);
 
-  for (int i = 0; i < 10 && fired.load() == 0; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_until_count(loop, fired, 1, 10000);
 
   EXPECT_EQ(fired.load(), 1);
 
@@ -146,8 +146,7 @@ TEST(BuiltinTimerCancel, CancelAfterFireReturnsError) {
   ASSERT_NE(t, nullptr);
 
   /* Wait for it to fire */
-  for (int i = 0; i < 20 && fired.load() == 0; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_until_count(loop, fired, 1, 10000);
 
   EXPECT_EQ(fired.load(), 1);
 

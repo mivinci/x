@@ -19,6 +19,8 @@ extern "C" {
 #include <x/http/server.h>
 }
 
+#include <x/base/test_helper.h>
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -26,106 +28,8 @@ extern "C" {
 
 /* ───────────────────── Helpers ───────────────────── */
 
-/**
- * @brief Pump the event loop for a given number of milliseconds.
- *
- * Uses X_RUN_NOWAIT to avoid blocking when the only pending timer is a
- * long idle-timeout (which would cause X_RUN_ONCE to block for the full
- * timeout duration). A short sleep between iterations prevents 100% CPU.
- */
-static inline void pump_loop(xEventLoop loop, int ms) {
-  uint64_t end = xMonoMs() + (uint64_t)ms;
-  do {
-    xEventLoopRun(loop, X_RUN_NOWAIT);
-    usleep(1000); /* 1ms — yield CPU between non-blocking polls */
-  } while (xMonoMs() < end);
-}
-
-/**
- * @brief Run the event loop for a fixed duration.
- *
- * Uses X_RUN_DEFAULT with a one-shot stop timer, so the loop sleeps
- * efficiently in poll instead of busy-looping.  Prefer this over
- * pump_loop for new tests.
- */
-static inline void run_for(xEventLoop loop, int ms) {
-  xTimer t = xTimerStart(
-    [](void *arg) { xEventLoopStop((xEventLoop)arg); },
-    loop, (uint64_t)ms, 0);
-  xEventLoopRun(loop, X_RUN_DEFAULT);
-  if (t) xTimerStop(t);
-}
-
-/**
- * @brief Run the event loop until @p flag becomes true or timeout expires.
- *
- * A repeating timer polls the flag every 5 ms and stops the loop when it
- * is set.  A one-shot watchdog timer stops the loop after @p timeout_ms to
- * prevent hangs on failure.  The loop sleeps efficiently in poll between
- * events — no busy-looping.
- *
- * Prefer this over pump_until for new tests.
- */
-static inline void run_until(xEventLoop loop, std::atomic<bool> &flag,
-                             int timeout_ms = 5000) {
-  if (flag.load(std::memory_order_acquire)) return;
-
-  struct RunUntilCtx {
-    xEventLoop         loop;
-    std::atomic<bool> *flag;
-  } ctx{loop, &flag};
-
-  xTimer checker = xTimerStart(
-    [](void *arg) {
-      auto *c = static_cast<RunUntilCtx *>(arg);
-      if (c->flag->load(std::memory_order_acquire))
-        xEventLoopStop(c->loop);
-    },
-    &ctx, 5, 5);
-
-  xTimer watchdog = xTimerStart(
-    [](void *arg) { xEventLoopStop((xEventLoop)arg); },
-    loop, (uint64_t)timeout_ms, 0);
-
-  xEventLoopRun(loop, X_RUN_DEFAULT);
-
-  if (checker) xTimerStop(checker);
-  if (watchdog) xTimerStop(watchdog);
-}
-
-/**
- * @brief Run the event loop until @p count reaches @p target or timeout.
- *
- * Same efficient X_RUN_DEFAULT pattern as run_until, but for integer
- * counters (e.g. event counts).
- */
-static inline void run_until_count(xEventLoop loop, std::atomic<int> &count,
-                                   int target, int timeout_ms = 10000) {
-  if (count.load(std::memory_order_acquire) >= target) return;
-
-  struct RunUntilCountCtx {
-    xEventLoop          loop;
-    std::atomic<int>   *count;
-    int                 target;
-  } ctx{loop, &count, target};
-
-  xTimer checker = xTimerStart(
-    [](void *arg) {
-      auto *c = static_cast<RunUntilCountCtx *>(arg);
-      if (c->count->load(std::memory_order_acquire) >= c->target)
-        xEventLoopStop(c->loop);
-    },
-    &ctx, 5, 5);
-
-  xTimer watchdog = xTimerStart(
-    [](void *arg) { xEventLoopStop((xEventLoop)arg); },
-    loop, (uint64_t)timeout_ms, 0);
-
-  xEventLoopRun(loop, X_RUN_DEFAULT);
-
-  if (checker) xTimerStop(checker);
-  if (watchdog) xTimerStop(watchdog);
-}
+/* run_for / run_until / run_until_count are provided by <x/base/test_helper.h>.
+ * pump_loop has been removed — use run_for instead. */
 
 /**
  * @brief Find a free port by binding to port 0.
