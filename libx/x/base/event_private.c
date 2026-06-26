@@ -140,9 +140,25 @@ void loop_cleanup_done(struct xEventLoop_ *loop) {
  * Spin-wait until all in-flight offload workers have finished and
  * pushed their results into the done queue.  Must be called before
  * loop_cleanup_done() during destroy to avoid use-after-free.
+ *
+ * We drain the done queue inside the spin loop: inflight is only
+ * decremented when a completed work item is popped, so without
+ * draining the loop would spin forever if destroy happens while
+ * offload work is still in-flight (worker has pushed to the done
+ * queue but loop_run_done hasn't run yet).  done_fn is NOT fired —
+ * the loop is being torn down.
  */
 void loop_wait_inflight(struct xEventLoop_ *loop) {
   while (xAtomicLoad(&loop->inflight, xAtomicAcquire) > 0) {
+    xMpsc *node;
+    while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
+      struct xWork_ *w = xContainerOf(node, struct xWork_, mpsc);
+      if (w->task) {
+        xTaskWait(w->task, NULL);
+        xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
+      }
+      free(w);
+    }
     /* Brief yield to let worker threads finish. */
 #ifdef _WIN32
     Sleep(0);

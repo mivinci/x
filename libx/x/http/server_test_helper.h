@@ -28,11 +28,17 @@ extern "C" {
 
 /**
  * @brief Pump the event loop for a given number of milliseconds.
+ *
+ * Uses X_RUN_NOWAIT to avoid blocking when the only pending timer is a
+ * long idle-timeout (which would cause X_RUN_ONCE to block for the full
+ * timeout duration). A short sleep between iterations prevents 100% CPU.
  */
 static inline void pump_loop(xEventLoop loop, int ms) {
-  for (int elapsed = 0; elapsed < ms; elapsed += 5) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  uint64_t end = xMonoMs() + (uint64_t)ms;
+  do {
+    xEventLoopRun(loop, X_RUN_NOWAIT);
+    usleep(1000); /* 1ms — yield CPU between non-blocking polls */
+  } while (xMonoMs() < end);
 }
 
 /**
