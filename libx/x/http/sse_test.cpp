@@ -384,8 +384,7 @@ TEST_F(SseClientTest, OnDoneNullDoesNotCrash) {
   run_until_count(loop, event_count, 1, 5000);
 
   /* Just verify it doesn't crash — pump a bit more for cleanup */
-  for (int i = 0; i < 50; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_for(loop, 500);
 
   EXPECT_GE(event_count.load(), 1);
 }
@@ -412,8 +411,7 @@ TEST(SseLifecycle, DestroyWithInflightSse) {
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Pump briefly to let curl start the connection */
-  for (int i = 0; i < 10; i++)
-    xEventLoopRun(loop, X_RUN_ONCE);
+  run_for(loop, 100);
 
   /* Destroy while SSE is in flight — must not crash or leak */
   xHttpClientDestroy(c);

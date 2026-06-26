@@ -828,8 +828,7 @@ TEST_F(HttpsIntegrationTest, DestroyWithInflightHttpsRequest) {
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Pump briefly to let curl start the TLS handshake */
-  for (int i = 0; i < 5; i++)
-    xEventLoopRun(client_loop, X_RUN_ONCE);
+  run_for(client_loop, 100);
 
   /* Destroy while request may be in flight — must not crash */
   xHttpClientDestroy(client);
