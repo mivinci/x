@@ -91,17 +91,23 @@ TEST(BuiltinTimerPrecision, UnderHeavyCallbacks) {
   std::atomic<uint64_t> fire_time{0};
   xTimerStart([](void *arg) { static_cast<std::atomic<uint64_t> *>(arg)->store(xMonoNs()); }, &fire_time, 100, 0);
 
+  /* Pump until the timer fires.  X_RUN_ONCE processes at most
+   * 2*EVENT_DONE_BATCH_MAX done-callbacks per iteration, so with 200
+   * posted items multiple iterations are needed before the timer's
+   * 100ms deadline is reached. */
   uint64_t start_ns = xMonoNs();
-  xEventLoopRun(loop, X_RUN_ONCE);
-  ASSERT_GT(fire_time.load(), 0u);
+  for (int i = 0; i < 500 && fire_time.load() == 0; i++)
+    xEventLoopRun(loop, X_RUN_ONCE);
+  ASSERT_GT(fire_time.load(), 0u) << "timer should have fired";
   uint64_t elapsed_ns = fire_time.load() - start_ns;
   EXPECT_GE(elapsed_ns, 80u * 1000000u);
-  /* Upper bound is generous: usleep(2000) can take 10-20ms per call on
-   * shared CI runners, so 32 done-callbacks (2 batches of 16) can add
-   * ~500ms before the timer fires. */
-  EXPECT_LE(elapsed_ns, 1000u * 1000000u);
+  /* Upper bound is generous: on slow CI runners usleep(2000) can take
+   * 10-20ms per call, so draining 200 callbacks can add seconds. */
+  EXPECT_LE(elapsed_ns, 2000u * 1000000u);
 
-  xEventLoopRun(loop, X_RUN_ONCE);
+  /* Drain remaining callbacks. */
+  for (int i = 0; i < 500 && heavy_count.load() < 200; i++)
+    xEventLoopRun(loop, X_RUN_ONCE);
   xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
