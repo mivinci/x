@@ -1,9 +1,12 @@
-FROM ubuntu:24.04
+FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates cmake g++ git make \
-    libgtest-dev libnghttp2-dev libssl-dev libusrsctp-dev \
-    libcurl4-openssl-dev libmbedtls-dev \
+# Use Tsinghua mirror for faster downloads in China
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates cmake g++ git make \
+        libgtest-dev libnghttp2-dev libssl-dev libusrsctp-dev \
+        libcurl4-openssl-dev libmbedtls-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

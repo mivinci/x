@@ -39,10 +39,14 @@ xEventLoop xEventLoopEnter(xEventLoop loop) {
 }
 
 xEventLoop xEventLoopLeave(void) {
-  struct xEventLoop_ *cur = (struct xEventLoop_ *)tl_loop;
-  xEventLoop          old = tl_loop;
-  if (cur) cur->prev = NULL; /* sever back-link */
-  tl_loop                 = cur ? (xEventLoop)cur->prev : NULL;
+  struct xEventLoop_ *cur  = (struct xEventLoop_ *)tl_loop;
+  xEventLoop          old  = tl_loop;
+  xEventLoop          prev = NULL;
+  if (cur) {
+    prev        = (xEventLoop)cur->prev;
+    cur->prev   = NULL; /* sever back-link */
+  }
+  tl_loop = prev;
   return old;
 }
 xEventLoop xEventLoopCurrent(void) {
