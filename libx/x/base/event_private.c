@@ -147,16 +147,19 @@ void loop_cleanup_done(struct xEventLoop_ *loop) {
  * offload work is still in-flight (worker has pushed to the done
  * queue but loop_run_done hasn't run yet).  done_fn is NOT fired —
  * the loop is being torn down.
+ *
+ * We do NOT call xTaskWait here: if the work item is in the done
+ * queue the worker has already finished, so the task's note is
+ * already signaled.  More importantly, the owning task group may
+ * have already been destroyed (freeing the task struct), making
+ * w->task a dangling pointer.
  */
 void loop_wait_inflight(struct xEventLoop_ *loop) {
   while (xAtomicLoad(&loop->inflight, xAtomicAcquire) > 0) {
     xMpsc *node;
     while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
       struct xWork_ *w = xContainerOf(node, struct xWork_, mpsc);
-      if (w->task) {
-        xTaskWait(w->task, NULL);
-        xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
-      }
+      xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
       free(w);
     }
     /* Brief yield to let worker threads finish. */
