@@ -104,7 +104,7 @@ public:
 
   /**
    * Perform I/O: send pending data and receive response data.
-   * Call this in a loop with pump_loop.
+   * Call this in a loop with run_for.
    */
   void perform_io() {
     /* Send any pending data */
@@ -305,7 +305,7 @@ protected:
   void listen_and_pump() {
     xErrno err = xHttpServerListen(server, "127.0.0.1", port);
     ASSERT_EQ(err, xErrno_Ok) << "Failed to listen on port " << port;
-    pump_loop(loop, 20);
+    run_for(loop, 20);
   }
 };
 
@@ -324,13 +324,13 @@ TEST_F(HttpServerH2Test, PriorKnowledgeGetRequest) {
 
   H2Client client;
   ASSERT_TRUE(client.connect(port));
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   /* Perform initial I/O to exchange SETTINGS */
   client.perform_io();
-  pump_loop(loop, 50);
+  run_for(loop, 50);
   client.perform_io();
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   /* Submit GET request */
   int32_t stream_id = client.submit_get("/hello");
@@ -338,7 +338,7 @@ TEST_F(HttpServerH2Test, PriorKnowledgeGetRequest) {
 
   /* Pump and perform I/O to get response */
   for (int i = 0; i < 20; i++) {
-    pump_loop(loop, 25);
+    run_for(loop, 25);
     client.perform_io();
     if (client.response_status(stream_id) > 0) break;
   }
@@ -352,18 +352,18 @@ TEST_F(HttpServerH2Test, H2NotFoundReturns404) {
 
   H2Client client;
   ASSERT_TRUE(client.connect(port));
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   client.perform_io();
-  pump_loop(loop, 50);
+  run_for(loop, 50);
   client.perform_io();
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   int32_t stream_id = client.submit_get("/nonexistent");
   ASSERT_GT(stream_id, 0);
 
   for (int i = 0; i < 20; i++) {
-    pump_loop(loop, 25);
+    run_for(loop, 25);
     client.perform_io();
     if (client.response_status(stream_id) > 0) break;
   }
@@ -382,7 +382,7 @@ TEST_F(HttpServerH2Test, H1AndH2Coexist) {
     std::string request = "GET /hello HTTP/1.1\r\nHost: localhost\r\n"
                           "Connection: close\r\n\r\n";
     ASSERT_TRUE(send_str(fd, request));
-    pump_loop(loop, 100);
+    run_for(loop, 100);
     std::string response = recv_all(fd);
     close(fd);
     EXPECT_NE(response.find("200 OK"), std::string::npos);
@@ -393,17 +393,17 @@ TEST_F(HttpServerH2Test, H1AndH2Coexist) {
   {
     H2Client client;
     ASSERT_TRUE(client.connect(port));
-    pump_loop(loop, 50);
+    run_for(loop, 50);
     client.perform_io();
-    pump_loop(loop, 50);
+    run_for(loop, 50);
     client.perform_io();
-    pump_loop(loop, 50);
+    run_for(loop, 50);
 
     int32_t stream_id = client.submit_get("/hello");
     ASSERT_GT(stream_id, 0);
 
     for (int i = 0; i < 20; i++) {
-      pump_loop(loop, 25);
+      run_for(loop, 25);
       client.perform_io();
       if (client.response_status(stream_id) > 0) break;
     }

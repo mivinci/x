@@ -31,6 +31,8 @@ extern "C" {
 #include <x/http/server.h>
 }
 
+#include "server_test_helper.h"
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -41,45 +43,8 @@ extern "C" {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-static uint16_t find_free_port() {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (fd < 0) return 0;
-
-  struct sockaddr_in addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sin_family      = AF_INET;
-  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  addr.sin_port        = 0;
-
-  if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    close(fd);
-    return 0;
-  }
-
-  socklen_t len = sizeof(addr);
-  if (getsockname(fd, (struct sockaddr *)&addr, &len) < 0) {
-    close(fd);
-    return 0;
-  }
-
-  uint16_t port = ntohs(addr.sin_port);
-  close(fd);
-  return port;
-}
-
-static void pump_until(xEventLoop loop, std::atomic<bool> &flag, int max_ms = 5000) {
-  for (int elapsed = 0; elapsed < max_ms && !flag.load(std::memory_order_acquire); elapsed += 10) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
-}
-
-static void pump_until_count(xEventLoop loop, std::atomic<int> &count, int target,
-                             int max_ms = 10000) {
-  for (int elapsed = 0; elapsed < max_ms && count.load(std::memory_order_acquire) < target;
-       elapsed += 10) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
-}
+/* find_free_port / pump_until / pump_until_count removed — use the
+ * shared helpers from server_test_helper.h instead. */
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Client TLS config API tests (no TLS backend required)
@@ -381,7 +346,7 @@ TEST_F(HttpsIntegrationTest, GetWithSkipVerify) {
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(client_loop, ctx.done, 5000);
+  run_until(client_loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -401,7 +366,7 @@ TEST_F(HttpsIntegrationTest, PostWithSkipVerify) {
   xErrno err = xHttpClientPost(client, url("/echo").c_str(), body, strlen(body), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(client_loop, ctx.done, 5000);
+  run_until(client_loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -432,7 +397,7 @@ TEST_F(HttpsIntegrationTest, DoWithCustomHeaders) {
   xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(client_loop, ctx.done, 5000);
+  run_until(client_loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -458,7 +423,7 @@ TEST_F(HttpsIntegrationTest, SseOverHttps) {
                                   on_sse_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(client_loop, ctx.done, 5000);
+  run_until(client_loop, ctx.done, 5000);
 
   /* SSE over TLS streaming may crash on some server implementations.
    * If done was signaled, verify the events; otherwise just check
@@ -486,7 +451,7 @@ TEST_F(HttpsIntegrationTest, GetWithCorrectCaPath) {
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(client_loop, ctx.done, 5000);
+  run_until(client_loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -509,7 +474,7 @@ TEST_F(HttpsIntegrationTest, SelfSignedCertRejectedWithoutSkipVerify) {
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok); /* submission succeeds, failure is async */
 
-  pump_until(client_loop, ctx.done, 5000);
+  run_until(client_loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   /* Should fail with a TLS verification error */
@@ -532,7 +497,7 @@ TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(client_loop, ctx.done, 5000);
+  run_until(client_loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_NE(ctx.curl_code, 0);
@@ -573,7 +538,7 @@ TEST_F(HttpsIntegrationTest, ConcurrentHttpsRequests) {
     ASSERT_EQ(err, xErrno_Ok);
   }
 
-  pump_until_count(client_loop, done_count, N, 10000);
+  run_until_count(client_loop, done_count, N, 10000);
 
   EXPECT_EQ(done_count.load(), N);
   for (int i = 0; i < N; i++) {
@@ -742,7 +707,7 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
   err = xHttpClientGet(client, url("/secure").c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(client_loop, ctx.done, 5000);
+  run_until(client_loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -777,7 +742,7 @@ TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
   err = xHttpClientGet(client, url("/secure").c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(client_loop, ctx.done, 5000);
+  run_until(client_loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   /* Server should reject the connection — TLS handshake fails */
@@ -805,7 +770,7 @@ TEST_F(HttpsIntegrationTest, HttpsRequestTimeout) {
   xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(client_loop, ctx.done, 3000);
+  run_until(client_loop, ctx.done, 3000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request did not time out as expected";
   EXPECT_NE(ctx.curl_code, 0); /* should have timed out */
@@ -836,7 +801,7 @@ TEST_F(HttpsIntegrationTest, DoSseOverHttps) {
       xHttpClientDoSse(client, &config, on_sse_ev, on_sse_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(client_loop, ctx.done, 5000);
+  run_until(client_loop, ctx.done, 5000);
 
   if (ctx.done.load()) {
     if (ctx.done_curl_code == 0 && ctx.event_count.load() >= 2) {
@@ -887,7 +852,7 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
   RespCtx ctx1{};
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx1);
   ASSERT_EQ(err, xErrno_Ok);
-  pump_until(client_loop, ctx1.done, 5000);
+  run_until(client_loop, ctx1.done, 5000);
   ASSERT_TRUE(ctx1.done.load());
   EXPECT_EQ(ctx1.curl_code, 0);
   EXPECT_EQ(ctx1.status_code, 200);
@@ -898,7 +863,7 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
   RespCtx ctx2{};
   err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx2);
   ASSERT_EQ(err, xErrno_Ok);
-  pump_until(client_loop, ctx2.done, 5000);
+  run_until(client_loop, ctx2.done, 5000);
   ASSERT_TRUE(ctx2.done.load());
   EXPECT_NE(ctx2.curl_code, 0);
   EXPECT_EQ(ctx2.status_code, 0);

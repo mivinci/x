@@ -151,7 +151,7 @@ TEST_F(WsConnectTest, ConnectAndEcho) {
 
   /* Pump until connected */
   for (int i = 0; i < 100 && client_ctx.open_count == 0; i++) {
-    pump_loop(loop, 10);
+    run_for(loop, 10);
   }
   ASSERT_EQ(client_ctx.open_count.load(), 1);
   ASSERT_NE(client_ctx.conn, nullptr);
@@ -163,7 +163,7 @@ TEST_F(WsConnectTest, ConnectAndEcho) {
 
   /* Pump until echo received */
   for (int i = 0; i < 100 && client_ctx.message_count == 0; i++) {
-    pump_loop(loop, 10);
+    run_for(loop, 10);
   }
   EXPECT_EQ(client_ctx.message_count.load(), 1);
   EXPECT_EQ(client_ctx.last_message, "Hello from client!");
@@ -172,7 +172,7 @@ TEST_F(WsConnectTest, ConnectAndEcho) {
   /* Close gracefully */
   xWsClose(client_ctx.conn, 1000);
   for (int i = 0; i < 100 && client_ctx.close_count == 0; i++) {
-    pump_loop(loop, 10);
+    run_for(loop, 10);
   }
   EXPECT_GE(client_ctx.close_count.load(), 1);
 }
@@ -196,7 +196,7 @@ TEST_F(WsConnectTest, ConnectBinaryMessage) {
   ASSERT_EQ(err, xErrno_Ok);
 
   for (int i = 0; i < 100 && client_ctx.open_count == 0; i++)
-    pump_loop(loop, 10);
+    run_for(loop, 10);
   ASSERT_EQ(client_ctx.open_count.load(), 1);
 
   /* Send binary data */
@@ -205,14 +205,14 @@ TEST_F(WsConnectTest, ConnectBinaryMessage) {
   ASSERT_EQ(err, xErrno_Ok);
 
   for (int i = 0; i < 100 && client_ctx.message_count == 0; i++)
-    pump_loop(loop, 10);
+    run_for(loop, 10);
   EXPECT_EQ(client_ctx.message_count.load(), 1);
   EXPECT_EQ(client_ctx.last_opcode, xWsOpcode_Binary);
   EXPECT_EQ(client_ctx.last_message.size(), sizeof(data));
 
   xWsClose(client_ctx.conn, 1000);
   for (int i = 0; i < 100 && client_ctx.close_count == 0; i++)
-    pump_loop(loop, 10);
+    run_for(loop, 10);
 }
 
 TEST_F(WsConnectTest, InvalidUrl) {
@@ -268,7 +268,7 @@ TEST_F(WsConnectTest, ConnectionRefused) {
 
   /* Pump until on_close fires (connection refused) */
   for (int i = 0; i < 200 && client_ctx.close_count == 0; i++) {
-    pump_loop(loop, 10);
+    run_for(loop, 10);
   }
   EXPECT_EQ(client_ctx.open_count.load(), 0);
   EXPECT_GE(client_ctx.close_count.load(), 1);
@@ -293,10 +293,10 @@ TEST_F(WsConnectTest, ConnectWithPath) {
   ASSERT_EQ(err, xErrno_Ok);
 
   for (int i = 0; i < 100 && client_ctx.open_count == 0; i++)
-    pump_loop(loop, 10);
+    run_for(loop, 10);
   EXPECT_EQ(client_ctx.open_count.load(), 1);
 
   xWsClose(client_ctx.conn, 1000);
   for (int i = 0; i < 100 && client_ctx.close_count == 0; i++)
-    pump_loop(loop, 10);
+    run_for(loop, 10);
 }

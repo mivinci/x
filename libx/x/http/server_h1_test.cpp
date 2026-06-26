@@ -120,7 +120,7 @@ TEST_F(HttpServerTest, BasicGetRequest) {
   std::string request = "GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -167,7 +167,7 @@ TEST_F(HttpServerTest, PostRequestWithBody) {
                         body;
   ASSERT_TRUE(send_str(fd, request));
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -192,7 +192,7 @@ TEST_F(HttpServerTest, NotFoundResponse) {
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -214,7 +214,7 @@ TEST_F(HttpServerTest, MethodNotAllowedResponse) {
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -236,7 +236,7 @@ TEST_F(HttpServerTest, KeepAliveConnectionReuse) {
   /* Send first request */
   std::string req1 = "GET /ka HTTP/1.1\r\nHost: localhost\r\n\r\n";
   ASSERT_TRUE(send_str(fd, req1));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string resp1 = recv_all(fd, 1000);
   EXPECT_NE(resp1.find("HTTP/1.1 200 OK"), std::string::npos);
@@ -245,7 +245,7 @@ TEST_F(HttpServerTest, KeepAliveConnectionReuse) {
   /* Send second request on the same connection */
   std::string req2 = "GET /ka HTTP/1.1\r\nHost: localhost\r\n\r\n";
   ASSERT_TRUE(send_str(fd, req2));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string resp2 = recv_all(fd, 1000);
   EXPECT_NE(resp2.find("HTTP/1.1 200 OK"), std::string::npos);
@@ -271,7 +271,7 @@ TEST_F(HttpServerTest, DefaultResponseWhenHandlerDoesNotSend) {
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -292,7 +292,7 @@ TEST_F(HttpServerTest, BadRequestOnParseError) {
   std::string request = "INVALID GARBAGE\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -320,7 +320,7 @@ TEST_F(HttpServerTest, HeaderTooLargeReturns431) {
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -348,7 +348,7 @@ TEST_F(HttpServerTest, BodyTooLargeReturns413) {
                         body;
   ASSERT_TRUE(send_str(fd, request));
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -371,7 +371,7 @@ TEST_F(HttpServerTest, ClientDisconnectDoesNotCrash) {
   close(fd);
 
   /* Pump to process the disconnect — should not crash */
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 }
 
 /* ───────────────────── NULL method matches all methods ─────────────────────
@@ -389,7 +389,7 @@ TEST_F(HttpServerTest, NullMethodMatchesAll) {
     std::string request = "GET /any HTTP/1.1\r\nHost: localhost\r\n"
                           "Connection: close\r\n\r\n";
     ASSERT_TRUE(send_str(fd, request));
-    pump_loop(loop, 100);
+    run_for(loop, 100);
     std::string response = recv_all(fd);
     close(fd);
     EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
@@ -403,7 +403,7 @@ TEST_F(HttpServerTest, NullMethodMatchesAll) {
                           "Content-Length: 0\r\n"
                           "Connection: close\r\n\r\n";
     ASSERT_TRUE(send_str(fd, request));
-    pump_loop(loop, 100);
+    run_for(loop, 100);
     std::string response = recv_all(fd);
     close(fd);
     EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
@@ -423,7 +423,7 @@ TEST_F(HttpServerTest, DestroyWithActiveConnections) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   /* Destroy server while connection is active — should not crash */
   xHttpServerDestroy(server);
@@ -459,7 +459,7 @@ TEST_F(HttpServerTest, StreamingResponse) {
   std::string request = "GET /stream HTTP/1.1\r\nHost: localhost\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -498,7 +498,7 @@ TEST_F(HttpServerTest, StreamingAutoEnd) {
   std::string request = "GET /stream-auto HTTP/1.1\r\nHost: localhost\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -535,7 +535,7 @@ TEST_F(HttpServerTest, WriteAndSendMutuallyExclusive) {
   std::string request = "GET /mix HTTP/1.1\r\nHost: localhost\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -572,7 +572,7 @@ TEST_F(HttpServerTest, ParamRouteBasic) {
   std::string request = "GET /users/42 HTTP/1.1\r\nHost: localhost\r\n"
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -594,7 +594,7 @@ TEST_F(HttpServerTest, ParamRouteStringId) {
   std::string request = "GET /users/alice HTTP/1.1\r\nHost: localhost\r\n"
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -634,7 +634,7 @@ TEST_F(HttpServerTest, ParamRouteMultipleParams) {
   std::string request = "GET /users/99/edit HTTP/1.1\r\nHost: localhost\r\n"
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -659,7 +659,7 @@ TEST_F(HttpServerTest, ParamRouteExtraSegments404) {
   std::string request = "GET /users/42/extra HTTP/1.1\r\nHost: localhost\r\n"
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -692,7 +692,7 @@ TEST_F(HttpServerTest, ParamRouteNonexistentParam) {
   std::string request = "GET /items/7 HTTP/1.1\r\nHost: localhost\r\n"
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -719,7 +719,7 @@ TEST_F(HttpServerTest, StaticRoutePriorityOverParam) {
     std::string request = "GET /users/me HTTP/1.1\r\nHost: localhost\r\n"
                           "Connection: close\r\n\r\n";
     ASSERT_TRUE(send_str(fd, request));
-    pump_loop(loop, 100);
+    run_for(loop, 100);
     std::string response = recv_all(fd);
     close(fd);
     EXPECT_EQ(static_ctx.call_count.load(), 1);
@@ -733,7 +733,7 @@ TEST_F(HttpServerTest, StaticRoutePriorityOverParam) {
     std::string request = "GET /users/42 HTTP/1.1\r\nHost: localhost\r\n"
                           "Connection: close\r\n\r\n";
     ASSERT_TRUE(send_str(fd, request));
-    pump_loop(loop, 100);
+    run_for(loop, 100);
     std::string response = recv_all(fd);
     close(fd);
     EXPECT_EQ(param_ctx.call_count.load(), 1);
@@ -756,7 +756,7 @@ TEST_F(HttpServerTest, ParamRouteMethodNotAllowed) {
                         "Content-Length: 0\r\n"
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string response = recv_all(fd);
   close(fd);
@@ -869,7 +869,7 @@ TEST_F(HttpServerTest, DeferredResponseMultipleConcurrent) {
   ASSERT_TRUE(send_str(fd_b, req_b));
 
   /* Both handlers should fire and defer */
-  pump_loop(loop, 100);
+  run_for(loop, 100);
   EXPECT_EQ(ctx_a.call_count.load(), 1);
   EXPECT_EQ(ctx_b.call_count.load(), 1);
   EXPECT_NE(ctx_a.stored_writer, nullptr);
@@ -879,7 +879,7 @@ TEST_F(HttpServerTest, DeferredResponseMultipleConcurrent) {
   deferred_send_and_resume(&ctx_a);
   deferred_send_and_resume(&ctx_b);
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   std::string resp_a = recv_all(fd_a);
   std::string resp_b = recv_all(fd_b);
@@ -905,7 +905,7 @@ TEST_F(HttpServerTest, DeferredResponseWithoutResumeNoResponse) {
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
   EXPECT_EQ(ctx.call_count.load(), 1);
 
   /* Never call send_and_resume — connection should stay alive

@@ -25,11 +25,7 @@ extern "C" {
 
 /* ───────────────────── Helpers ───────────────────── */
 
-static void pump_until_bool(xEventLoop loop, std::atomic<bool> &flag, int max_ms = 5000) {
-  for (int elapsed = 0; elapsed < max_ms && !flag.load(std::memory_order_acquire); elapsed += 10) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
-}
+/* pump_until_bool removed — use run_until from server_test_helper.h instead. */
 
 /* ───────────────────── Response context ───────────────────── */
 
@@ -146,7 +142,7 @@ protected:
   void listen_and_pump() {
     xErrno err = xHttpServerListen(server, "127.0.0.1", port);
     ASSERT_EQ(err, xErrno_Ok) << "Failed to listen on port " << port;
-    pump_loop(loop, 20);
+    run_for(loop, 20);
   }
 
   std::string make_url(const char *path) {
@@ -165,7 +161,7 @@ TEST_F(IntegrationTest, H1Get) {
   xErrno      err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -185,7 +181,7 @@ TEST_F(IntegrationTest, H1PostEcho) {
   xErrno      err  = xHttpClientPost(client, url.c_str(), body, strlen(body), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -212,7 +208,7 @@ TEST_F(IntegrationTest, H1DoCustomHeaders) {
   xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -233,7 +229,7 @@ TEST_F(IntegrationTest, H1NotFound) {
   xErrno      err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -258,7 +254,7 @@ TEST_F(IntegrationTest, H2cGet) {
   xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "H2C request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -287,7 +283,7 @@ TEST_F(IntegrationTest, H2cPostEcho) {
   xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "H2C POST request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -315,7 +311,7 @@ TEST_F(IntegrationTest, ClientDefaultH2c) {
   xErrno err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request with default H2C timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -334,7 +330,7 @@ TEST_F(IntegrationTest, SseOverH1) {
   xErrno      err = xHttpClientGetSse(client, url.c_str(), on_sse_ev, on_sse_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "SSE stream did not finish in time";
   EXPECT_EQ(ctx.done_curl_code, 0);
@@ -365,7 +361,7 @@ TEST_F(IntegrationTest, SseOverH2c) {
   xErrno err = xHttpClientDoSse(client, &config, on_sse_ev, on_sse_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "SSE/H2C stream did not finish in time";
   EXPECT_EQ(ctx.done_curl_code, 0);
@@ -393,7 +389,7 @@ TEST_F(IntegrationTest, H2cNotFound) {
   xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "H2C 404 request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -420,7 +416,7 @@ TEST_F(IntegrationTest, H2cDoCustomHeaders) {
   xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "H2C headers request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -456,7 +452,7 @@ TEST_F(IntegrationTest, H1RouteParam) {
   xErrno      err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -482,7 +478,7 @@ TEST_F(IntegrationTest, H2cRouteParam) {
   xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "H2C param request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -521,7 +517,7 @@ TEST_F(IntegrationTest, H1PutMethod) {
   xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "PUT request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -554,7 +550,7 @@ TEST_F(IntegrationTest, H2cDeleteMethod) {
   xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "DELETE request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -579,7 +575,7 @@ TEST_F(IntegrationTest, LargeBodyRoundTrip) {
     xHttpClientPost(client, url.c_str(), large_body.c_str(), large_body.size(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 10000);
+  run_until(loop, ctx.done, 10000);
 
   ASSERT_TRUE(ctx.done.load()) << "Large body request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -623,7 +619,7 @@ TEST_F(IntegrationTest, SseDoPostH1) {
   xErrno err = xHttpClientDoSse(client, &config, on_sse_ev, on_sse_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "SSE POST stream did not finish";
   EXPECT_EQ(ctx.done_curl_code, 0);
@@ -654,7 +650,7 @@ TEST_F(IntegrationTest, SseDoPostH2c) {
   xErrno err = xHttpClientDoSse(client, &config, on_sse_ev, on_sse_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "SSE POST/H2C stream did not finish";
   EXPECT_EQ(ctx.done_curl_code, 0);
@@ -681,7 +677,7 @@ TEST_F(IntegrationTest, H1EmptyBodyResponse) {
   xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_bool(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "204 request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -713,11 +709,8 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
   ASSERT_EQ(err2, xErrno_Ok);
 
   /* Pump until both complete */
-  for (int elapsed = 0; elapsed < 5000; elapsed += 10) {
-    if (ctx_h1.done.load(std::memory_order_acquire) && ctx_h2c.done.load(std::memory_order_acquire))
-      break;
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
+  run_until(loop, ctx_h1.done, 5000);
+  run_until(loop, ctx_h2c.done, 5000);
 
   ASSERT_TRUE(ctx_h1.done.load()) << "H1 request timed out";
   EXPECT_EQ(ctx_h1.curl_code, 0);

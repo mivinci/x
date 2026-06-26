@@ -267,7 +267,7 @@ protected:
   void listen_and_pump() {
     xErrno err = xHttpServerListen(server, "127.0.0.1", port);
     ASSERT_EQ(err, xErrno_Ok) << "Failed to listen on port " << port;
-    pump_loop(loop, 20);
+    run_for(loop, 20);
   }
 };
 

@@ -536,7 +536,7 @@ protected:
     }
 
     /* Pump loop to process the handshake */
-    pump_loop(loop, 50);
+    run_for(loop, 50);
 
     /* Read the 101 response */
     std::string resp = recv_all(fd, 1000);
@@ -556,11 +556,11 @@ TEST_F(WsServerTest, HandshakeSuccess) {
   int fd = ws_connect();
   ASSERT_GE(fd, 0) << "WebSocket handshake failed";
 
-  pump_loop(loop, 50);
+  run_for(loop, 50);
   EXPECT_EQ(ws_ctx.open_count.load(), 1);
 
   close(fd);
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 }
 
 TEST_F(WsServerTest, HandshakeMissingHeaders) {
@@ -576,13 +576,13 @@ TEST_F(WsServerTest, HandshakeMissingHeaders) {
                     "\r\n";
   ASSERT_TRUE(send_str(fd, req));
 
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   std::string resp = recv_all(fd, 1000);
   EXPECT_NE(resp.find("400"), std::string::npos) << "Expected 400 Bad Request, got: " << resp;
 
   close(fd);
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 }
 
 TEST_F(WsServerTest, HandshakeWrongVersion) {
@@ -601,13 +601,13 @@ TEST_F(WsServerTest, HandshakeWrongVersion) {
                     "\r\n";
   ASSERT_TRUE(send_str(fd, req));
 
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   std::string resp = recv_all(fd, 1000);
   EXPECT_NE(resp.find("400"), std::string::npos) << "Expected 400 for wrong version, got: " << resp;
 
   close(fd);
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 }
 
 TEST_F(WsServerTest, HandshakeWrongMethod) {
@@ -627,7 +627,7 @@ TEST_F(WsServerTest, HandshakeWrongMethod) {
                     "\r\n";
   ASSERT_TRUE(send_str(fd, req));
 
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   std::string resp = recv_all(fd, 1000);
   /* Router returns 405 because path matches but method doesn't */
@@ -635,7 +635,7 @@ TEST_F(WsServerTest, HandshakeWrongMethod) {
     << "Expected 405 or 404 for POST, got: " << resp;
 
   close(fd);
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 }
 
 TEST_F(WsServerTest, TextMessage) {
@@ -644,18 +644,18 @@ TEST_F(WsServerTest, TextMessage) {
 
   int fd = ws_connect();
   ASSERT_GE(fd, 0);
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   /* Send a text message */
   ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_TEXT, "Hello WS", 8));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   EXPECT_EQ(ws_ctx.message_count.load(), 1);
   EXPECT_EQ(ws_ctx.last_message, "Hello WS");
   EXPECT_EQ(ws_ctx.last_opcode, xWsOpcode_Text);
 
   close(fd);
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 }
 
 TEST_F(WsServerTest, BinaryMessage) {
@@ -664,18 +664,18 @@ TEST_F(WsServerTest, BinaryMessage) {
 
   int fd = ws_connect();
   ASSERT_GE(fd, 0);
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   uint8_t data[] = {0x01, 0x02, 0x03, 0x04};
   ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_BINARY, data, sizeof(data)));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   EXPECT_EQ(ws_ctx.message_count.load(), 1);
   EXPECT_EQ(ws_ctx.last_opcode, xWsOpcode_Binary);
   EXPECT_EQ(ws_ctx.last_message.size(), 4u);
 
   close(fd);
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 }
 
 TEST_F(WsServerTest, PingPong) {
@@ -684,11 +684,11 @@ TEST_F(WsServerTest, PingPong) {
 
   int fd = ws_connect();
   ASSERT_GE(fd, 0);
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   /* Send a Ping */
   ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_PING, "ping", 4));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   /* Should receive a Pong with same payload */
   auto pong = ws_recv_frame(fd);
@@ -697,7 +697,7 @@ TEST_F(WsServerTest, PingPong) {
   EXPECT_EQ(pong.payload, "ping");
 
   close(fd);
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 }
 
 TEST_F(WsServerTest, CloseHandshake) {
@@ -706,24 +706,24 @@ TEST_F(WsServerTest, CloseHandshake) {
 
   int fd = ws_connect();
   ASSERT_GE(fd, 0);
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   /* Send Close frame with code 1000 */
   uint8_t close_payload[] = {0x03, 0xE8}; /* 1000 */
   ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_CLOSE, close_payload, 2));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   /* Should receive a Close frame back */
   auto close_frame = ws_recv_frame(fd);
   ASSERT_TRUE(close_frame.valid) << "Failed to receive Close frame";
   EXPECT_EQ(close_frame.opcode, XWS_OPCODE_CLOSE);
 
-  pump_loop(loop, 100);
+  run_for(loop, 100);
   EXPECT_EQ(ws_ctx.close_count.load(), 1);
   EXPECT_EQ(ws_ctx.close_code, 1000);
 
   close(fd);
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 }
 
 TEST_F(WsServerTest, ServerSend) {
@@ -732,13 +732,13 @@ TEST_F(WsServerTest, ServerSend) {
 
   int fd = ws_connect();
   ASSERT_GE(fd, 0);
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   /* Send a message from server to client */
   ASSERT_NE(ws_ctx.last_conn, nullptr);
   xErrno err = xWsSend(ws_ctx.last_conn, xWsOpcode_Text, "from server", 11);
   EXPECT_EQ(err, xErrno_Ok);
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   /* Receive the frame on the client side */
   auto frame = ws_recv_frame(fd);
@@ -747,7 +747,7 @@ TEST_F(WsServerTest, ServerSend) {
   EXPECT_EQ(frame.payload, "from server");
 
   close(fd);
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 }
 
 TEST_F(WsServerTest, FragmentedMessage) {
@@ -756,29 +756,29 @@ TEST_F(WsServerTest, FragmentedMessage) {
 
   int fd = ws_connect();
   ASSERT_GE(fd, 0);
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   /* Send fragmented message: "Hello" + " " + "World" */
   /* Fragment 1: TEXT, FIN=0 */
   ASSERT_TRUE(ws_send_frame(fd, 0, XWS_OPCODE_TEXT, "Hello", 5));
-  pump_loop(loop, 50);
+  run_for(loop, 50);
   EXPECT_EQ(ws_ctx.message_count.load(), 0) << "Should not deliver until final fragment";
 
   /* Fragment 2: CONTINUATION, FIN=0 */
   ASSERT_TRUE(ws_send_frame(fd, 0, XWS_OPCODE_CONTINUATION, " ", 1));
-  pump_loop(loop, 50);
+  run_for(loop, 50);
   EXPECT_EQ(ws_ctx.message_count.load(), 0);
 
   /* Fragment 3: CONTINUATION, FIN=1 */
   ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_CONTINUATION, "World", 5));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   EXPECT_EQ(ws_ctx.message_count.load(), 1);
   EXPECT_EQ(ws_ctx.last_message, "Hello World");
   EXPECT_EQ(ws_ctx.last_opcode, xWsOpcode_Text);
 
   close(fd);
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 }
 
 TEST_F(WsServerTest, ServerInitiatedClose) {
@@ -787,13 +787,13 @@ TEST_F(WsServerTest, ServerInitiatedClose) {
 
   int fd = ws_connect();
   ASSERT_GE(fd, 0);
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 
   /* Server initiates close */
   ASSERT_NE(ws_ctx.last_conn, nullptr);
   xErrno err = xWsClose(ws_ctx.last_conn, 1000);
   EXPECT_EQ(err, xErrno_Ok);
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   /* Client should receive Close frame */
   auto close_frame = ws_recv_frame(fd);
@@ -803,10 +803,10 @@ TEST_F(WsServerTest, ServerInitiatedClose) {
   /* Client responds with Close */
   uint8_t close_payload[] = {0x03, 0xE8};
   ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_CLOSE, close_payload, 2));
-  pump_loop(loop, 100);
+  run_for(loop, 100);
 
   EXPECT_EQ(ws_ctx.close_count.load(), 1);
 
   close(fd);
-  pump_loop(loop, 50);
+  run_for(loop, 50);
 }

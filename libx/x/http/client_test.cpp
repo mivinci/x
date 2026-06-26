@@ -23,6 +23,8 @@ extern "C" {
 #include <x/http/server.h>
 }
 
+#include "server_test_helper.h"
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -49,33 +51,8 @@ static void on_response(const xHttpResponse *resp, void *arg) {
   ctx->done.store(true, std::memory_order_release);
 }
 
-static uint16_t find_free_port() {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (fd < 0) return 0;
-  struct sockaddr_in addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sin_family      = AF_INET;
-  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  addr.sin_port        = 0;
-  if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) { close(fd); return 0; }
-  socklen_t len = sizeof(addr);
-  if (getsockname(fd, (struct sockaddr *)&addr, &len) < 0) { close(fd); return 0; }
-  uint16_t port = ntohs(addr.sin_port);
-  close(fd);
-  return port;
-}
-
-static void pump_until(xEventLoop loop, std::atomic<bool> &flag, int max_ms = 5000) {
-  for (int elapsed = 0; elapsed < max_ms && !flag.load(std::memory_order_acquire); elapsed += 10)
-    xEventLoopRun(loop, X_RUN_ONCE);
-}
-
-static void pump_until_count(xEventLoop loop, std::atomic<int> &count, int target,
-                             int max_ms = 10000) {
-  for (int elapsed = 0; elapsed < max_ms && count.load(std::memory_order_acquire) < target;
-       elapsed += 10)
-    xEventLoopRun(loop, X_RUN_ONCE);
-}
+/* find_free_port / pump_until / pump_until_count removed — use the
+ * shared helpers from server_test_helper.h instead. */
 
 /* ───────────────────── Fixture ───────────────────── */
 
@@ -180,7 +157,7 @@ TEST_F(HttpClientTest, GetRequest) {
   ResponseCtx ctx;
   xErrno err = xHttpClientGet(client, url("/get").c_str(), on_response, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
-  pump_until(loop, ctx.done);
+  run_until(loop, ctx.done);
   xHttpClientDestroy(client);
   client = nullptr;
 
@@ -197,7 +174,7 @@ TEST_F(HttpClientTest, PostRequest) {
   const char *body = "{\"hello\":\"world\"}";
   xErrno err = xHttpClientPost(client, url("/post").c_str(), body, strlen(body), on_response, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
-  pump_until(loop, ctx.done);
+  run_until(loop, ctx.done);
   xHttpClientDestroy(client);
   client = nullptr;
 
@@ -230,7 +207,7 @@ TEST_F(HttpClientTest, ConcurrentRequests) {
     xErrno err = xHttpClientGet(client, url("/get").c_str(), multi_cb, &ctxs[i]);
     ASSERT_EQ(err, xErrno_Ok);
   }
-  pump_until_count(loop, done_count, N);
+  run_until_count(loop, done_count, N);
   xHttpClientDestroy(client);
   client = nullptr;
 
@@ -244,7 +221,7 @@ TEST_F(HttpClientTest, InvalidUrlFails) {
   ResponseCtx ctx;
   xErrno err = xHttpClientGet(client, "http://127.0.0.1:1/nope", on_response, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
-  pump_until(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
   xHttpClientDestroy(client);
   client = nullptr;
 
@@ -277,7 +254,7 @@ TEST_F(HttpClientTest, DoGetRequest) {
 
   xErrno err = xHttpClientDo(client, &config, on_response, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
-  pump_until(loop, ctx.done);
+  run_until(loop, ctx.done);
   xHttpClientDestroy(client);
   client = nullptr;
 
@@ -298,7 +275,7 @@ TEST_F(HttpClientTest, DoWithCustomHeaders) {
 
   xErrno err = xHttpClientDo(client, &config, on_response, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
-  pump_until(loop, ctx.done);
+  run_until(loop, ctx.done);
   xHttpClientDestroy(client);
   client = nullptr;
 
@@ -318,7 +295,7 @@ TEST_F(HttpClientTest, DoWithTimeout) {
 
   xErrno err = xHttpClientDo(client, &config, on_response, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
-  pump_until(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
   xHttpClientDestroy(client);
   client = nullptr;
 
