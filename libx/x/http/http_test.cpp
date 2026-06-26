@@ -158,7 +158,10 @@ TEST_F(IntegrationTest, H1Get) {
 
   RespCtx     ctx;
   std::string url = make_url("/hello");
-  xErrno      err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
+  xHttpRequestConf conf = {};
+  conf.url     = url.c_str();
+  conf.on_done = on_resp;
+  xErrno      err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -178,7 +181,12 @@ TEST_F(IntegrationTest, H1PostEcho) {
   RespCtx     ctx;
   std::string url  = make_url("/echo");
   const char *body = "{\"msg\":\"integration\"}";
-  xErrno      err  = xHttpClientPost(client, url.c_str(), body, strlen(body), on_resp, &ctx);
+  xHttpRequestConf conf = {};
+  conf.url      = url.c_str();
+  conf.body     = body;
+  conf.body_len = strlen(body);
+  conf.on_done  = on_resp;
+  xErrno      err  = xHttpClientPost(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -204,8 +212,9 @@ TEST_F(IntegrationTest, H1DoCustomHeaders) {
   config.url     = url.c_str();
   config.method  = xHttpMethod_GET;
   config.headers = hdrs;
+  config.on_done = on_resp;
 
-  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -226,7 +235,10 @@ TEST_F(IntegrationTest, H1NotFound) {
 
   RespCtx     ctx;
   std::string url = make_url("/nonexistent");
-  xErrno      err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
+  xHttpRequestConf conf = {};
+  conf.url     = url.c_str();
+  conf.on_done = on_resp;
+  xErrno      err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -250,8 +262,9 @@ TEST_F(IntegrationTest, H2cGet) {
   config.url          = url.c_str();
   config.method       = xHttpMethod_GET;
   config.http_version = xHttpVersion_H2C;
+  config.on_done      = on_resp;
 
-  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -279,8 +292,9 @@ TEST_F(IntegrationTest, H2cPostEcho) {
   config.body         = body;
   config.body_len     = strlen(body);
   config.http_version = xHttpVersion_H2C;
+  config.on_done      = on_resp;
 
-  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -308,7 +322,10 @@ TEST_F(IntegrationTest, ClientDefaultH2c) {
   std::string url = make_url("/hello");
 
   /* Use convenience API — should inherit client default H2C */
-  xErrno err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
+  xHttpRequestConf req_conf = {};
+  req_conf.url     = url.c_str();
+  req_conf.on_done = on_resp;
+  xErrno err = xHttpClientGet(client, &req_conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -385,8 +402,9 @@ TEST_F(IntegrationTest, H2cNotFound) {
   config.url          = url.c_str();
   config.method       = xHttpMethod_GET;
   config.http_version = xHttpVersion_H2C;
+  config.on_done      = on_resp;
 
-  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -412,8 +430,9 @@ TEST_F(IntegrationTest, H2cDoCustomHeaders) {
   config.method       = xHttpMethod_GET;
   config.headers      = hdrs;
   config.http_version = xHttpVersion_H2C;
+  config.on_done      = on_resp;
 
-  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -449,7 +468,10 @@ TEST_F(IntegrationTest, H1RouteParam) {
 
   RespCtx     ctx;
   std::string url = make_url("/users/42");
-  xErrno      err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
+  xHttpRequestConf conf = {};
+  conf.url     = url.c_str();
+  conf.on_done = on_resp;
+  xErrno      err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -474,8 +496,9 @@ TEST_F(IntegrationTest, H2cRouteParam) {
   config.url          = url.c_str();
   config.method       = xHttpMethod_GET;
   config.http_version = xHttpVersion_H2C;
+  config.on_done      = on_resp;
 
-  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -513,8 +536,9 @@ TEST_F(IntegrationTest, H1PutMethod) {
   config.method   = xHttpMethod_PUT;
   config.body     = body;
   config.body_len = strlen(body);
+  config.on_done  = on_resp;
 
-  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -546,8 +570,9 @@ TEST_F(IntegrationTest, H2cDeleteMethod) {
   config.url          = url.c_str();
   config.method       = xHttpMethod_DELETE;
   config.http_version = xHttpVersion_H2C;
+  config.on_done      = on_resp;
 
-  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -571,8 +596,13 @@ TEST_F(IntegrationTest, LargeBodyRoundTrip) {
 
   RespCtx     ctx;
   std::string url = make_url("/echo");
+  xHttpRequestConf conf = {};
+  conf.url      = url.c_str();
+  conf.body     = large_body.c_str();
+  conf.body_len = large_body.size();
+  conf.on_done  = on_resp;
   xErrno      err =
-    xHttpClientPost(client, url.c_str(), large_body.c_str(), large_body.size(), on_resp, &ctx);
+    xHttpClientPost(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 10000);
@@ -673,8 +703,9 @@ TEST_F(IntegrationTest, H1EmptyBodyResponse) {
   memset(&config, 0, sizeof(config));
   config.url    = url.c_str();
   config.method = xHttpMethod_DELETE;
+  config.on_done = on_resp;
 
-  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -695,7 +726,11 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
   std::string url = make_url("/hello");
 
   /* H1 request */
-  xErrno err1 = xHttpClientGet(client, url.c_str(), on_resp, &ctx_h1);
+  xHttpRequestConf req_conf = {};
+  req_conf.url    = url.c_str();
+  req_conf.method = xHttpMethod_GET;
+  req_conf.on_done = on_resp;
+  xErrno err1 = xHttpClientGet(client, &req_conf, &ctx_h1);
   ASSERT_EQ(err1, xErrno_Ok);
 
   /* H2C request */
@@ -704,8 +739,9 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
   config.url          = url.c_str();
   config.method       = xHttpMethod_GET;
   config.http_version = xHttpVersion_H2C;
+  config.on_done      = on_resp;
 
-  xErrno err2 = xHttpClientDo(client, &config, on_resp, &ctx_h2c);
+  xErrno err2 = xHttpClientDo(client, &config, &ctx_h2c);
   ASSERT_EQ(err2, xErrno_Ok);
 
   /* Pump until both complete */

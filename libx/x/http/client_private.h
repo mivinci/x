@@ -50,12 +50,15 @@ XDEF_STRUCT(xHttpReq_) {
   int                          cleaned;                 /* cleanup already done flag   */
 
   /* For oneshot HTTP requests */
-  xHttpResponseFunc  on_response; /* completion callback         */
-  xBuffer            body_buf;    /* response body               */
-  xBuffer            header_buf;  /* response headers            */
-  char              *post_data;   /* copy of POST body (owned)   */
-  struct curl_slist *req_headers; /* custom request headers      */
-  struct xHttpReq_  *next;        /* intrusive list link (client) */
+  xHttpResponseFunc  on_done;      /* completion callback         */
+  xHttpHeaderFunc    on_header;    /* per header line callback    */
+  xHttpDataFunc      on_data;      /* per body chunk callback     */
+  xHttpReadFunc      on_read;      /* request body provider       */
+  xBuffer            body_buf;     /* response body (buffered)    */
+  xBuffer            header_buf;   /* response headers            */
+  char              *post_data;    /* copy of POST body (owned)   */
+  struct curl_slist *req_headers;  /* custom request headers      */
+  struct xHttpReq_  *next;         /* intrusive list link (client) */
 };
 /* ───────────────────── Client internal structure ───────────────────── */
 

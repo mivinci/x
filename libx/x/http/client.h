@@ -49,6 +49,43 @@ XDEF_STRUCT(xHttpResponse) {
 typedef void (*xHttpResponseFunc)(const xHttpResponse *resp, void *arg);
 
 /**
+ * @brief Callback invoked per response header line (including status line
+ *        and the final empty CRLF line).
+ *
+ * @param line  One header line including trailing CRLF (e.g. "HTTP/1.1 200 OK\r\n").
+ * @param arg   User-provided argument.
+ * @return      0 to continue, non-zero to abort the transfer.
+ */
+typedef int (*xHttpHeaderFunc)(const char *line, size_t len, void *arg);
+
+/**
+ * @brief Callback invoked for each chunk of response body data.
+ *
+ * Called only when @ref xHttpRequestConf.on_data is set (streaming mode).
+ * The @p data pointer is valid only during the callback — copy if needed.
+ *
+ * @param data  Body chunk (not NUL-terminated).
+ * @param len   Length of @p data in bytes.
+ * @param arg   User-provided argument.
+ * @return      0 to continue, non-zero to abort the transfer.
+ */
+typedef int (*xHttpDataFunc)(const char *data, size_t len, void *arg);
+
+/**
+ * @brief Callback invoked by libcurl to pull request body data for upload.
+ *
+ * Called only when @ref xHttpRequestConf.on_read is set.  Fill @p buf with
+ * up to @p bufsize bytes and return the number of bytes written.  Return 0
+ * to signal end of body (EOF).
+ *
+ * @param buf      Destination buffer (owned by libcurl).
+ * @param bufsize  Maximum bytes to write.
+ * @param arg      User-provided argument.
+ * @return         Bytes written, or 0 for EOF.
+ */
+typedef size_t (*xHttpReadFunc)(char *buf, size_t bufsize, void *arg);
+
+/**
  * @brief HTTP method constants.
  */
 XDEF_ENUM(xHttpMethod){
@@ -79,8 +116,8 @@ XDEF_ENUM(xHttpVersion){
 XDEF_STRUCT(xHttpRequestConf) {
   const char  *url;          /**< Request URL (must not be NULL)             */
   xHttpMethod  method;       /**< HTTP method (default: GET)                 */
-  const char  *body;         /**< Request body, or NULL                      */
-  size_t       body_len;     /**< Length of body in bytes                    */
+  const char  *body;         /**< Request body, or NULL (ignored if on_read) */
+  size_t       body_len;     /**< Length of body / Content-Length for on_read*/
   const char **headers;      /**< NULL-terminated array of "Key: Value"      */
   long         timeout_ms;   /**< Per-request timeout in ms (0 = no limit).
                                   For regular HTTP: total transfer timeout.
@@ -88,6 +125,13 @@ XDEF_STRUCT(xHttpRequestConf) {
                                   stalled streams are detected via
                                   low-speed-time instead.                  */
   xHttpVersion http_version; /**< HTTP version (0 = use client default)      */
+
+  /* ── Streaming callbacks (all optional, NULL = not used) ── */
+
+  xHttpHeaderFunc   on_header; /**< Per header line callback (NULL = buffer) */
+  xHttpDataFunc     on_data;   /**< Per body chunk callback (NULL = buffer)  */
+  xHttpReadFunc     on_read;   /**< Request body provider (NULL = use body)  */
+  xHttpResponseFunc on_done;   /**< Completion callback (NULL = fire-forget) */
 };
 
 /**
@@ -136,42 +180,44 @@ XCAPI(void) xHttpClientDestroy(xHttpClient client);
 /**
  * @brief Submit an asynchronous HTTP GET request.
  *
- * @param client       The HTTP client.
- * @param url          Request URL.
- * @param on_response  Completion callback.
- * @param arg          User argument forwarded to @p on_response.
- * @return             xErrno_Ok on success, or an error code.
+ * Forces @ref xHttpRequestConf.method to GET, then delegates to
+ * xHttpClientDo().  The URL and all callbacks come from @p conf.
+ *
+ * @param client  The HTTP client.
+ * @param conf    Request configuration (must not be NULL, conf->url required).
+ * @param arg     User argument forwarded to all callbacks.
+ * @return        xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpClientGet(xHttpClient client, const char *url, xHttpResponseFunc on_response,
-                             void *arg);
+XCAPI(xErrno) xHttpClientGet(xHttpClient client, const xHttpRequestConf *conf, void *arg);
 
 /**
  * @brief Submit an asynchronous HTTP POST request.
  *
- * @param client       The HTTP client.
- * @param url          Request URL.
- * @param body         Request body data.
- * @param body_len     Length of @p body in bytes.
- * @param on_response  Completion callback.
- * @param arg          User argument forwarded to @p on_response.
- * @return             xErrno_Ok on success, or an error code.
+ * Forces @ref xHttpRequestConf.method to POST, then delegates to
+ * xHttpClientDo().  Request body comes from @p conf->body or @p conf->on_read.
+ *
+ * @param client  The HTTP client.
+ * @param conf    Request configuration (must not be NULL, conf->url required).
+ * @param arg     User argument forwarded to all callbacks.
+ * @return        xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpClientPost(xHttpClient client, const char *url, const char *body,
-                              size_t body_len, xHttpResponseFunc on_response, void *arg);
+XCAPI(xErrno) xHttpClientPost(xHttpClient client, const xHttpRequestConf *conf, void *arg);
 
 /* ── Generic request ───────────────────────────────────────────────────── */
 
 /**
  * @brief Submit a fully-configured asynchronous HTTP request.
  *
- * @param client       The HTTP client.
- * @param config       Request configuration (must not be NULL).
- * @param on_response  Completion callback.
- * @param arg          User argument forwarded to @p on_response.
- * @return             xErrno_Ok on success, or an error code.
+ * All callbacks (on_header, on_data, on_read, on_done) are read from
+ * @p conf.  Zero-initialized conf fields mean: no header streaming,
+ * buffered body, no upload streaming, fire-and-forget (no completion).
+ *
+ * @param client  The HTTP client.
+ * @param conf    Request configuration (must not be NULL, conf->url required).
+ * @param arg     User argument forwarded to all callbacks.
+ * @return        xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpClientDo(xHttpClient client, const xHttpRequestConf *config,
-                            xHttpResponseFunc on_response, void *arg);
+XCAPI(xErrno) xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg);
 
 /* ── SSE (Server-Sent Events) ──────────────────────────────────────────── */
 

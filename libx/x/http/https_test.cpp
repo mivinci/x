@@ -343,7 +343,11 @@ TEST_F(HttpsIntegrationTest, GetWithSkipVerify) {
   client_skip_verify();
 
   RespCtx ctx{};
-  xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
+  std::string u = url("/hello");
+  xHttpRequestConf conf = {};
+  conf.url     = u.c_str();
+  conf.on_done = on_resp;
+  xErrno  err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -363,7 +367,13 @@ TEST_F(HttpsIntegrationTest, PostWithSkipVerify) {
 
   RespCtx     ctx{};
   const char *body = "request-body-data";
-  xErrno err = xHttpClientPost(client, url("/echo").c_str(), body, strlen(body), on_resp, &ctx);
+  std::string u = url("/echo");
+  xHttpRequestConf conf = {};
+  conf.url      = u.c_str();
+  conf.body     = body;
+  conf.body_len = strlen(body);
+  conf.on_done  = on_resp;
+  xErrno err = xHttpClientPost(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -393,8 +403,9 @@ TEST_F(HttpsIntegrationTest, DoWithCustomHeaders) {
   config.body     = body;
   config.body_len = strlen(body);
   config.headers  = hdrs;
+  config.on_done  = on_resp;
 
-  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -448,7 +459,11 @@ TEST_F(HttpsIntegrationTest, GetWithCorrectCaPath) {
   client_set_ca(ca_cert_path);
 
   RespCtx ctx{};
-  xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
+  std::string u = url("/hello");
+  xHttpRequestConf conf = {};
+  conf.url     = u.c_str();
+  conf.on_done = on_resp;
+  xErrno  err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -471,7 +486,11 @@ TEST_F(HttpsIntegrationTest, SelfSignedCertRejectedWithoutSkipVerify) {
   create_client(nullptr);
 
   RespCtx ctx{};
-  xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
+  std::string u = url("/hello");
+  xHttpRequestConf conf = {};
+  conf.url     = u.c_str();
+  conf.on_done = on_resp;
+  xErrno  err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok); /* submission succeeds, failure is async */
 
   run_until(client_loop, ctx.done, 5000);
@@ -494,7 +513,11 @@ TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
   create_client(&tls);
 
   RespCtx ctx{};
-  xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
+  std::string u = url("/hello");
+  xHttpRequestConf conf = {};
+  conf.url     = u.c_str();
+  conf.on_done = on_resp;
+  xErrno  err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -513,6 +536,8 @@ TEST_F(HttpsIntegrationTest, ConcurrentHttpsRequests) {
 
   constexpr int    N = 5;
   std::atomic<int> done_count{0};
+
+  std::string u = url("/hello");
 
   struct MultiCtx {
     std::atomic<int> *counter;
@@ -534,7 +559,10 @@ TEST_F(HttpsIntegrationTest, ConcurrentHttpsRequests) {
   };
 
   for (int i = 0; i < N; i++) {
-    xErrno err = xHttpClientGet(client, url("/hello").c_str(), multi_cb, &ctxs[i]);
+    xHttpRequestConf conf = {};
+    conf.url     = u.c_str();
+    conf.on_done = multi_cb;
+    xErrno err = xHttpClientGet(client, &conf, &ctxs[i]);
     ASSERT_EQ(err, xErrno_Ok);
   }
 
@@ -704,7 +732,11 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
   ASSERT_NE(client, nullptr);
 
   RespCtx ctx{};
-  err = xHttpClientGet(client, url("/secure").c_str(), on_resp, &ctx);
+  std::string u = url("/secure");
+  xHttpRequestConf conf = {};
+  conf.url     = u.c_str();
+  conf.on_done = on_resp;
+  err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -739,7 +771,11 @@ TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
   ASSERT_NE(client, nullptr);
 
   RespCtx ctx{};
-  err = xHttpClientGet(client, url("/secure").c_str(), on_resp, &ctx);
+  std::string u = url("/secure");
+  xHttpRequestConf conf = {};
+  conf.url     = u.c_str();
+  conf.on_done = on_resp;
+  err = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -766,8 +802,9 @@ TEST_F(HttpsIntegrationTest, HttpsRequestTimeout) {
   config.url        = "https://10.255.255.1:443/timeout";
   config.method     = xHttpMethod_GET;
   config.timeout_ms = 500; /* 500ms timeout */
+  config.on_done    = on_resp;
 
-  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 3000);
@@ -824,7 +861,11 @@ TEST_F(HttpsIntegrationTest, DestroyWithInflightHttpsRequest) {
     flag->store(true, std::memory_order_release);
   };
 
-  xErrno err = xHttpClientGet(client, url("/hello").c_str(), cb, &cb_called);
+  std::string u = url("/hello");
+  xHttpRequestConf conf = {};
+  conf.url     = u.c_str();
+  conf.on_done = cb;
+  xErrno err = xHttpClientGet(client, &conf, &cb_called);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Pump briefly to let curl start the TLS handshake */
@@ -849,7 +890,11 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
   }
 
   RespCtx ctx1{};
-  xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx1);
+  std::string u1 = url("/hello");
+  xHttpRequestConf conf1 = {};
+  conf1.url     = u1.c_str();
+  conf1.on_done = on_resp;
+  xErrno  err = xHttpClientGet(client, &conf1, &ctx1);
   ASSERT_EQ(err, xErrno_Ok);
   run_until(client_loop, ctx1.done, 5000);
   ASSERT_TRUE(ctx1.done.load());
@@ -860,7 +905,11 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
   create_client(nullptr);
 
   RespCtx ctx2{};
-  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx2);
+  std::string u2 = url("/hello");
+  xHttpRequestConf conf2 = {};
+  conf2.url     = u2.c_str();
+  conf2.on_done = on_resp;
+  err = xHttpClientGet(client, &conf2, &ctx2);
   ASSERT_EQ(err, xErrno_Ok);
   run_until(client_loop, ctx2.done, 5000);
   ASSERT_TRUE(ctx2.done.load());
