@@ -54,6 +54,7 @@ else()
   )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
   set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(llhttp)
 
   if(TARGET llhttp_static)
