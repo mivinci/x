@@ -24,23 +24,14 @@ extern "C" {
 #include <x/http/client.h>
 }
 
+#include "server_test_helper.h"
+
 /* ───────────────────── Helpers ───────────────────── */
 
 using ms = std::chrono::milliseconds;
 
-static void pump_until(xEventLoop loop, std::atomic<bool> &flag, int max_ms = 5000) {
-  for (int elapsed = 0; elapsed < max_ms && !flag.load(std::memory_order_acquire); elapsed += 10) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
-}
-
-static void pump_until_count(xEventLoop loop, std::atomic<int> &count, int target,
-                             int max_ms = 10000) {
-  for (int elapsed = 0; elapsed < max_ms && count.load(std::memory_order_acquire) < target;
-       elapsed += 10) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
-}
+/* pump_until / pump_until_count removed — use run_until from
+ * server_test_helper.h instead (X_RUN_DEFAULT + stop timer). */
 
 /* ───────────────────── Minimal SSE server ───────────────────── */
 
@@ -210,7 +201,7 @@ TEST_F(SseClientTest, ReceiveSingleEvent) {
   xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load()) << "SSE stream did not finish in time";
   EXPECT_EQ(ctx.event_count.load(), 1);
@@ -233,7 +224,7 @@ TEST_F(SseClientTest, ReceiveMultipleEvents) {
   xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load());
   EXPECT_EQ(ctx.event_count.load(), 3);
@@ -254,7 +245,7 @@ TEST_F(SseClientTest, CustomEventType) {
   xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load());
   EXPECT_EQ(ctx.event_count.load(), 1);
@@ -275,7 +266,7 @@ TEST_F(SseClientTest, MultilineData) {
   xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load());
   EXPECT_EQ(ctx.event_count.load(), 1);
@@ -294,7 +285,7 @@ TEST_F(SseClientTest, EventWithId) {
   xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load());
   EXPECT_EQ(ctx.event_count.load(), 1);
@@ -313,7 +304,7 @@ TEST_F(SseClientTest, CommentLinesIgnored) {
   xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load());
   EXPECT_EQ(ctx.event_count.load(), 1);
@@ -345,7 +336,7 @@ TEST_F(SseClientTest, UserCloseStopsStream) {
     xHttpClientGetSse(client, srv.url().c_str(), on_sse_event_close_after_2, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load());
   /* Should have received at most 2 events (closed after 2nd) */
@@ -365,7 +356,7 @@ TEST_F(SseClientTest, OnDoneCalledOnStreamEnd) {
   xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(loop, ctx.done, 5000);
+  run_until(loop, ctx.done, 5000);
 
   ASSERT_TRUE(ctx.done.load());
   /* Server closes connection cleanly — curl_code should be CURLE_OK (0) */
@@ -390,7 +381,7 @@ TEST_F(SseClientTest, OnDoneNullDoesNotCrash) {
     xHttpClientGetSse(client, srv.url().c_str(), cb, nullptr /* on_done = NULL */, &event_count);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until_count(loop, event_count, 1, 5000);
+  run_until_count(loop, event_count, 1, 5000);
 
   /* Just verify it doesn't crash — pump a bit more for cleanup */
   for (int i = 0; i < 50; i++)
@@ -440,7 +431,7 @@ TEST_F(SseClientTest, ConnectionFailureCallsDone) {
     xHttpClientGetSse(client, "http://127.0.0.1:1/events", on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  pump_until(loop, ctx.done, 10000);
+  run_until(loop, ctx.done, 10000);
 
   ASSERT_TRUE(ctx.done.load()) << "on_done was not called on connection failure";
   EXPECT_NE(ctx.done_curl_code, 0);     /* should be a curl error */

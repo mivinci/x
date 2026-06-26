@@ -816,7 +816,7 @@ TEST_F(HttpServerTest, DeferredResponseSendAndResume) {
   ASSERT_TRUE(send_str(fd, request));
 
   /* Pump — handler should have been called and deferred */
-  pump_loop(loop, 100);
+  run_for(loop, 50);
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_NE(ctx.stored_writer, nullptr);
   EXPECT_FALSE(ctx.send_done.load());
@@ -833,7 +833,7 @@ TEST_F(HttpServerTest, DeferredResponseSendAndResume) {
   EXPECT_TRUE(ctx.send_done.load());
 
   /* Pump to flush */
-  pump_loop(loop, 100);
+  run_for(loop, 50);
 
   /* Read the response */
   std::string response = recv_all(fd);
