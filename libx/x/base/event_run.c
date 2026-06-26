@@ -8,6 +8,7 @@
 
 #include "event_private.h"
 #include <limits.h>
+#include <signal.h>
 
 /* ───────────────── Backend selection ───────────────── */
 
