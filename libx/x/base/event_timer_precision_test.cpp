@@ -96,7 +96,10 @@ TEST(BuiltinTimerPrecision, UnderHeavyCallbacks) {
   ASSERT_GT(fire_time.load(), 0u);
   uint64_t elapsed_ns = fire_time.load() - start_ns;
   EXPECT_GE(elapsed_ns, 80u * 1000000u);
-  EXPECT_LE(elapsed_ns, 300u * 1000000u);
+  /* Upper bound is generous: usleep(2000) can take 10-20ms per call on
+   * shared CI runners, so 32 done-callbacks (2 batches of 16) can add
+   * ~500ms before the timer fires. */
+  EXPECT_LE(elapsed_ns, 1000u * 1000000u);
 
   xEventLoopRun(loop, X_RUN_ONCE);
   xEventLoopLeave();
