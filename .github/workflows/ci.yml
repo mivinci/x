@@ -52,7 +52,7 @@ jobs:
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install googletest llhttp nghttp2 openssl mbedtls libusrsctp
+          brew install googletest llhttp nghttp2 openssl mbedtls libusrsctp curl
 
       # ── Build cache ────────────────────────────────────────────────────
       - name: Compute cache key

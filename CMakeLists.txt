@@ -54,22 +54,5 @@ endif()
 # ── External dependencies ─────────────────────────────────────────────
 find_package(Libcurl REQUIRED)
 
-# Work around Homebrew libcurl referencing a non-existent Xcode SDK path
-# on GitHub Actions runners where the Xcode version differs from the one
-# used to build the Homebrew package.
-if(TARGET Libcurl::Libcurl)
-  get_target_property(_curl_inc Libcurl::Libcurl INTERFACE_INCLUDE_DIRECTORIES)
-  if(_curl_inc)
-    set(_filtered "")
-    foreach(dir ${_curl_inc})
-      if(EXISTS "${dir}")
-        list(APPEND _filtered "${dir}")
-      endif()
-    endforeach()
-    set_target_properties(Libcurl::Libcurl PROPERTIES
-      INTERFACE_INCLUDE_DIRECTORIES "${_filtered}")
-  endif()
-endif()
-
 # ── Modules ───────────────────────────────────────────────────────────
 add_subdirectory(libx)
