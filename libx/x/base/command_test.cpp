@@ -1487,7 +1487,21 @@ TEST(Command, PipeStdinIsBlocking) {
 
   const char  *argv[] = {"-c", "print(input())", nullptr};
   xCommandConf conf   = {};
-  conf.cmd            = "/usr/bin/python3";
+
+  /* Find a working python3 — /usr/bin/python3 is a stub on macOS CI */
+  static const char *python_paths[] = {
+    "/opt/homebrew/bin/python3",
+    "/usr/local/bin/python3",
+    "/usr/bin/python3",
+    nullptr,
+  };
+  const char *python = nullptr;
+  for (auto p : python_paths) {
+    if (access(p, X_OK) == 0) { python = p; break; }
+  }
+  if (!python) GTEST_SKIP() << "python3 not found";
+
+  conf.cmd            = python;
   conf.argv           = argv;
   conf.stdout_mode    = xCommandOutput_Capture;
   conf.stderr_mode    = xCommandOutput_Capture;
