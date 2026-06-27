@@ -482,7 +482,7 @@ TEST_F(HttpsIntegrationTest, DoWithCustomHeaders) {
 
 #if 0  /* disabled: server TLS streaming not yet supported */
 TEST_F(HttpsIntegrationTest, SseOverHttps) {
-  xHttpServerRoute(server, "GET /events", sse_handler, nullptr);
+  route("GET /events", sse_handler, nullptr);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -902,7 +902,7 @@ TEST_F(HttpsIntegrationTest, HttpsRequestTimeout) {
 
 #if 0  /* disabled: server TLS streaming not yet supported */
 TEST_F(HttpsIntegrationTest, DoSseOverHttps) {
-  xHttpServerRoute(server, "POST /sse", sse_handler, nullptr);
+  route("POST /sse", sse_handler, nullptr);
   listen_tls_and_start();
   client_skip_verify();
 

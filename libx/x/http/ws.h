@@ -232,7 +232,7 @@ XCAPI(xErrno) xWsConnect( const xWsConnectConf *conf, const xWsCallbacks *callba
  * and starts listening on the given address and port.
  *
  * The returned handle can be used with xHttpServerDestroy() for
- * cleanup, or with xHttpServerRoute() to add extra HTTP endpoints
+ * cleanup, or with xHttpMuxHandle() to add extra HTTP endpoints
  * (e.g. a health-check page).
  *
  * @param loop       Event loop (must not be NULL).
