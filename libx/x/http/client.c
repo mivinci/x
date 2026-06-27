@@ -573,18 +573,22 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg
 
   /* Body: on_read provides the request body via streaming.
    * If content_length > 0, set Content-Length; else libcurl uses chunked.
-   * For POST, CURLOPT_POST already enables the read callback. For other
-   * methods (PUT/PATCH/DELETE), CURLOPT_UPLOAD is needed to enable it;
-   * CURLOPT_CUSTOMREQUEST (set above) still controls the method. */
+   * For POST, CURLOPT_POSTFIELDS must be explicitly set to NULL for
+   * libcurl to use CURLOPT_READFUNCTION (otherwise it sends empty body
+   * on some platforms). For other methods (PUT/PATCH/DELETE),
+   * CURLOPT_UPLOAD enables the read callback. */
   if (conf->on_read) {
-    if (conf->method != xHttpMethod_POST) {
+    if (conf->method == xHttpMethod_POST) {
+      curl_easy_setopt(req->easy, CURLOPT_POSTFIELDS, NULL);
+      if (conf->content_length > 0) {
+        curl_easy_setopt(req->easy, CURLOPT_POSTFIELDSIZE, (long)conf->content_length);
+      } else {
+        curl_easy_setopt(req->easy, CURLOPT_POSTFIELDSIZE, -1L); /* chunked */
+      }
+    } else {
       curl_easy_setopt(req->easy, CURLOPT_UPLOAD, 1L);
       if (conf->content_length > 0) {
         curl_easy_setopt(req->easy, CURLOPT_INFILESIZE_LARGE, (curl_off_t)conf->content_length);
-      }
-    } else {
-      if (conf->content_length > 0) {
-        curl_easy_setopt(req->easy, CURLOPT_POSTFIELDSIZE, (long)conf->content_length);
       }
     }
   }
