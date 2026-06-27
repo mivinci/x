@@ -871,3 +871,395 @@ TEST_F(HttpServerTest, BackwardCompat) {
   EXPECT_EQ(ctx.status_code, 200);
   EXPECT_EQ(ctx.body, "ok");
 }
+
+/* ───────────────────── Edge case tests ───────────────────── */
+
+/* 8. on_response abort: client rejects based on status code.
+ *    Server returns 404 with a body.  Client's on_response sees 404,
+ *    returns 1 → write_callback aborts → on_data never called. */
+static int reject_non_200(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<StreamCtx *>(arg);
+  c->on_response_called = true;
+  /* curl_easy_getinfo may not have the status code yet during write_callback,
+   * so check the raw headers for the status line. */
+  if (ctx->headers && ctx->headers_len > 0) {
+    c->headers.assign(ctx->headers, ctx->headers_len);
+    /* Look for "HTTP/1.1 200" or "HTTP/2 200" */
+    if (c->headers.find(" 200 ") != std::string::npos)
+      return 0; /* OK — continue */
+  }
+  return 1; /* non-200 → abort */
+}
+
+TEST_F(HttpServerTest, OnResponseAbort) {
+  route("GET /error", [](xHttpCtx *ctx, void *) {
+    xHttpCtxSetStatus(ctx, 404);
+    xHttpCtxSend(ctx, "Not Found Body", 14);
+  }, nullptr);
+  listen_and_pump();
+
+  xHttpClient client = xHttpClientCreate(nullptr);
+  ASSERT_NE(client, nullptr);
+
+  StreamCtx ctx;
+  std::string u = "http://127.0.0.1:" + std::to_string(port) + "/error";
+  xHttpRequestConf conf = {};
+  conf.url         = u.c_str();
+  conf.method      = xHttpMethod_GET;
+  conf.on_response = reject_non_200;
+  conf.on_data     = collect_data;
+  conf.on_done     = on_stream_done;
+  xErrno err = xHttpClientDo(client, &conf, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  run_until(loop, ctx.done, 5000);
+  xHttpClientDestroy(client);
+
+  ASSERT_TRUE(ctx.done.load()) << "Request timed out";
+  EXPECT_TRUE(ctx.on_response_called);
+  EXPECT_NE(ctx.curl_code, 0) << "Should have aborted";
+  EXPECT_EQ(ctx.total_bytes, 0u) << "on_data should not have been called";
+  /* Verify via headers that it was a 404 */
+  ASSERT_FALSE(ctx.headers.empty());
+  EXPECT_NE(ctx.headers.find("404"), std::string::npos)
+    << "Expected 404 in headers: " << ctx.headers;
+}
+
+/* 9. Server on_data abort (413): server's on_data returns non-0 after
+ *    receiving some body → 413 sent, on_done NOT called. */
+struct LimitCtx {
+  std::atomic<bool> on_done_called{false};
+  std::atomic<size_t> total_received{0};
+  size_t limit{0};
+};
+
+static int limit_on_data(const char *data, size_t len, void *arg) {
+  auto *c = static_cast<LimitCtx *>(arg);
+  c->total_received += len;
+  if (c->total_received > c->limit) return 1; /* abort → 413 */
+  return 0;
+}
+
+static void record_on_done(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<LimitCtx *>(arg);
+  c->on_done_called.store(true, std::memory_order_release);
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSend(ctx, "ok", 2);
+}
+
+TEST_F(HttpServerTest, ServerOnDataAbort413) {
+  LimitCtx lc;
+  lc.limit = 100; /* allow 100 bytes, reject after */
+
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern  = "POST /upload";
+    rc.on_data  = limit_on_data;
+    rc.on_done  = record_on_done;
+    rc.arg      = &lc;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+  listen_and_pump();
+
+  xHttpClient client = xHttpClientCreate(nullptr);
+  ASSERT_NE(client, nullptr);
+
+  StreamCtx ctx;
+  ctx.upload_data       = std::string(4096, 'x');
+  ctx.upload_chunk_size = 1024;
+  std::string u = "http://127.0.0.1:" + std::to_string(port) + "/upload";
+  xHttpRequestConf conf = {};
+  conf.url            = u.c_str();
+  conf.method         = xHttpMethod_POST;
+  conf.on_read        = provide_data;
+  conf.content_length = ctx.upload_data.size();
+  conf.on_data        = collect_data;
+  conf.on_done        = on_stream_done;
+  xErrno err = xHttpClientDo(client, &conf, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  run_until(loop, ctx.done, 5000);
+  xHttpClientDestroy(client);
+
+  ASSERT_TRUE(ctx.done.load()) << "Request timed out";
+  /* on_done should NOT have been called (413 aborts before completion) */
+  EXPECT_FALSE(lc.on_done_called.load())
+    << "Server on_done should not be called after on_data abort";
+  /* Client should receive 413 */
+  EXPECT_EQ(ctx.status_code, 413);
+}
+
+/* 10. Server on_request rejection (401): on_request sends 401 and returns
+ *     non-0 → body not read, on_done NOT called. */
+struct AuthCtx {
+  std::atomic<bool> on_done_called{false};
+  std::atomic<bool> on_data_called{false};
+};
+
+static int auth_check(xHttpCtx *ctx, void *arg) {
+  (void)arg;
+  /* Check for Authorization header */
+  if (ctx->headers && ctx->headers_len > 0) {
+    std::string hdrs(ctx->headers, ctx->headers_len);
+    if (hdrs.find("Authorization: Bearer valid") != std::string::npos)
+      return 0; /* authorized */
+  }
+  /* Not authorized — send 401 and abort */
+  xHttpCtxSetStatus(ctx, 401);
+  xHttpCtxSend(ctx, "Unauthorized", 12);
+  return 1;
+}
+
+static int auth_on_data(const char *, size_t, void *arg) {
+  auto *c = static_cast<AuthCtx *>(arg);
+  c->on_data_called.store(true, std::memory_order_release);
+  return 0;
+}
+
+static void auth_on_done(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<AuthCtx *>(arg);
+  c->on_done_called.store(true, std::memory_order_release);
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSend(ctx, "ok", 2);
+}
+
+TEST_F(HttpServerTest, ServerOnRequestReject401) {
+  AuthCtx ac;
+
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern   = "POST /secure";
+    rc.on_request = auth_check;
+    rc.on_data    = auth_on_data;
+    rc.on_done    = auth_on_done;
+    rc.arg        = &ac;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+  listen_and_pump();
+
+  xHttpClient client = xHttpClientCreate(nullptr);
+  ASSERT_NE(client, nullptr);
+
+  /* POST without Authorization header → should get 401 */
+  StreamCtx ctx;
+  ctx.upload_data       = std::string(256, 'x');
+  ctx.upload_chunk_size = 256;
+  std::string u = "http://127.0.0.1:" + std::to_string(port) + "/secure";
+  xHttpRequestConf conf = {};
+  conf.url            = u.c_str();
+  conf.method         = xHttpMethod_POST;
+  conf.on_read        = provide_data;
+  conf.content_length = ctx.upload_data.size();
+  conf.on_data        = collect_data;
+  conf.on_done        = on_stream_done;
+  xErrno err = xHttpClientDo(client, &conf, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  run_until(loop, ctx.done, 5000);
+  xHttpClientDestroy(client);
+
+  ASSERT_TRUE(ctx.done.load()) << "Request timed out";
+  EXPECT_EQ(ctx.status_code, 401);
+  EXPECT_FALSE(ac.on_done_called.load())
+    << "Server on_done should not be called after on_request rejection";
+  EXPECT_FALSE(ac.on_data_called.load())
+    << "Server on_data should not be called after on_request rejection";
+}
+
+/* 11. Custom resolver (no mux): use xHttpResolveFunc directly. */
+namespace {
+
+struct CustomResolverCtx {
+  std::atomic<bool> handler_called{false};
+};
+
+static void custom_handler(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<CustomResolverCtx *>(arg);
+  c->handler_called.store(true, std::memory_order_release);
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSend(ctx, "from custom resolver", 20);
+}
+
+static const xHttpRouteInfo *custom_resolve(void *router, xHttpCtx *ctx) {
+  (void)ctx;
+  auto *c = static_cast<CustomResolverCtx *>(router);
+  static const xHttpRouteInfo info = {
+    .on_request = nullptr,
+    .on_data    = nullptr,
+    .on_done    = custom_handler,
+    .arg        = nullptr, /* set below */
+  };
+  /* arg is set dynamically — use a non-const copy */
+  static xHttpRouteInfo dynamic_info = info;
+  dynamic_info.arg = c;
+  return &dynamic_info;
+}
+
+} // namespace
+
+TEST(HttpCustomResolver, BasicRequest) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+  xEventLoopEnter(loop);
+
+  CustomResolverCtx rctx;
+
+  xHttpServerConf sconf = {};
+  sconf.resolve         = custom_resolve;
+  sconf.router           = &rctx;
+  sconf.idle_timeout_ms  = 60000;
+  xHttpServer server     = xHttpServerCreate(&sconf);
+  ASSERT_NE(server, nullptr);
+
+  uint16_t port = find_free_port();
+  ASSERT_NE(port, 0u);
+  ASSERT_EQ(xHttpServerListen(server, "127.0.0.1", port), xErrno_Ok);
+  run_for(loop, 20);
+
+  xHttpClient client = xHttpClientCreate(nullptr);
+  ASSERT_NE(client, nullptr);
+
+  ResponseCtx rctx2;
+  std::string u = "http://127.0.0.1:" + std::to_string(port) + "/anything";
+  xHttpRequestConf conf = {};
+  conf.url     = u.c_str();
+  conf.on_data = on_data_collect;
+  conf.on_done = on_response;
+  xErrno err = xHttpClientDo(client, &conf, &rctx2);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  run_until(loop, rctx2.done, 5000);
+  xHttpClientDestroy(client);
+  xHttpServerDestroy(server);
+  xEventLoopLeave();
+  xEventLoopDestroy(loop);
+
+  ASSERT_TRUE(rctx2.done.load()) << "Request timed out";
+  EXPECT_EQ(rctx2.curl_code, 0);
+  EXPECT_EQ(rctx2.status_code, 200);
+  EXPECT_EQ(rctx2.body, "from custom resolver");
+  EXPECT_TRUE(rctx.handler_called.load());
+}
+
+/* 12. Client on_read empty body: on_read returns 0 immediately →
+ *     POST with Content-Length: 0, server receives empty body. */
+static size_t empty_provide(char *, size_t, void *) {
+  return 0; /* EOF immediately — empty body */
+}
+
+TEST_F(HttpServerTest, OnReadEmptyBody) {
+  EchoCtx echo;
+  EchoState state;
+  state.ctx = &echo;
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern = "POST /echo";
+    rc.on_data = echo_on_data;
+    rc.on_done = echo_handler;
+    rc.arg     = &state;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+  listen_and_pump();
+
+  xHttpClient client = xHttpClientCreate(nullptr);
+  ASSERT_NE(client, nullptr);
+
+  StreamCtx ctx;
+  std::string u = "http://127.0.0.1:" + std::to_string(port) + "/echo";
+  xHttpRequestConf conf = {};
+  conf.url            = u.c_str();
+  conf.method         = xHttpMethod_POST;
+  conf.on_read        = empty_provide;
+  conf.content_length = 0; /* empty body */
+  conf.on_data        = collect_data;
+  conf.on_done        = on_stream_done;
+  xErrno err = xHttpClientDo(client, &conf, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  run_until(loop, ctx.done, 5000);
+  xHttpClientDestroy(client);
+
+  ASSERT_TRUE(ctx.done.load()) << "Request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  /* Server should have received empty body */
+  EXPECT_EQ(echo.last_body.size(), 0u);
+  /* Client should have received empty echo */
+  EXPECT_EQ(ctx.total_bytes, 0u);
+}
+
+/* 13. Full lifecycle: on_request → on_data → on_done with shared arg.
+ *     Verifies callback order and arg sharing. */
+struct LifecycleCtx {
+  std::atomic<int> phase{0}; /* 0=init, 1=on_request, 2=on_data, 3=on_done */
+  std::string collected_body;
+};
+
+static int lifecycle_on_request(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<LifecycleCtx *>(arg);
+  int prev = c->phase.exchange(1, std::memory_order_acq_rel);
+  (void)prev;
+  /* Verify we can see the request URL */
+  return 0;
+}
+
+static int lifecycle_on_data(const char *data, size_t len, void *arg) {
+  auto *c = static_cast<LifecycleCtx *>(arg);
+  c->phase.store(2, std::memory_order_release);
+  c->collected_body.append(data, len);
+  return 0;
+}
+
+static void lifecycle_on_done(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<LifecycleCtx *>(arg);
+  c->phase.store(3, std::memory_order_release);
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSend(ctx, c->collected_body.data(), c->collected_body.size());
+}
+
+TEST_F(HttpServerTest, FullLifecycleOrder) {
+  LifecycleCtx lc;
+
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern   = "POST /lifecycle";
+    rc.on_request = lifecycle_on_request;
+    rc.on_data    = lifecycle_on_data;
+    rc.on_done    = lifecycle_on_done;
+    rc.arg        = &lc;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+  listen_and_pump();
+
+  xHttpClient client = xHttpClientCreate(nullptr);
+  ASSERT_NE(client, nullptr);
+
+  StreamCtx ctx;
+  ctx.upload_data       = std::string(256, 'L');
+  ctx.upload_chunk_size = 256;
+  std::string u = "http://127.0.0.1:" + std::to_string(port) + "/lifecycle";
+  xHttpRequestConf conf = {};
+  conf.url            = u.c_str();
+  conf.method         = xHttpMethod_POST;
+  conf.on_read        = provide_data;
+  conf.content_length = ctx.upload_data.size();
+  conf.on_data        = collect_data;
+  conf.on_done        = on_stream_done;
+  xErrno err = xHttpClientDo(client, &conf, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  run_until(loop, ctx.done, 5000);
+  xHttpClientDestroy(client);
+
+  ASSERT_TRUE(ctx.done.load()) << "Request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  /* on_done was called (phase 3) */
+  EXPECT_EQ(lc.phase.load(), 3);
+  /* Server collected the full body */
+  EXPECT_EQ(lc.collected_body.size(), 256u);
+  EXPECT_EQ(lc.collected_body, ctx.upload_data);
+  /* Client received the echo */
+  EXPECT_EQ(ctx.total_bytes, 256u);
+  EXPECT_EQ(ctx.body_acc, ctx.upload_data);
+}
