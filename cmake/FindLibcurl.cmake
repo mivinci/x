@@ -8,6 +8,12 @@
 #   Libcurl_INCLUDE_DIRS - Include directories
 #   Libcurl_LIBRARIES    - Libraries to link against
 
+# On macOS, avoid finding headers/libs in the Xcode SDK, whose path
+# includes the Xcode version and may not exist on CI runners.
+if(APPLE)
+  set(_curl_no_system NO_CMAKE_SYSTEM_PATH)
+endif()
+
 find_path(Libcurl_INCLUDE_DIRS
   NAMES curl/curl.h
   PATHS
@@ -16,7 +22,7 @@ find_path(Libcurl_INCLUDE_DIRS
     /usr/local/opt/curl/include
     /usr/local/include
     /usr/include
-  NO_CMAKE_SYSTEM_PATH  # avoid macOS SDK paths with Xcode version
+  ${_curl_no_system}
 )
 
 find_library(Libcurl_LIBRARIES
@@ -26,8 +32,9 @@ find_library(Libcurl_LIBRARIES
     /opt/homebrew/lib
     /usr/local/opt/curl/lib
     /usr/local/lib
+    /usr/lib/x86_64-linux-gnu
     /usr/lib
-  NO_CMAKE_SYSTEM_PATH  # avoid macOS SDK paths with Xcode version
+  ${_curl_no_system}
 )
 
 include(FindPackageHandleStandardArgs)
