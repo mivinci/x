@@ -12,9 +12,11 @@ find_path(Libcurl_INCLUDE_DIRS
   NAMES curl/curl.h
   PATHS
     /opt/homebrew/opt/curl/include
+    /opt/homebrew/include
     /usr/local/opt/curl/include
     /usr/local/include
     /usr/include
+  NO_CMAKE_SYSTEM_PATH  # avoid macOS SDK paths with Xcode version
 )
 
 find_library(Libcurl_LIBRARIES
@@ -25,6 +27,7 @@ find_library(Libcurl_LIBRARIES
     /usr/local/opt/curl/lib
     /usr/local/lib
     /usr/lib
+  NO_CMAKE_SYSTEM_PATH  # avoid macOS SDK paths with Xcode version
 )
 
 include(FindPackageHandleStandardArgs)
