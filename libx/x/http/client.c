@@ -71,11 +71,17 @@ static void req_build_ctx(struct xHttpReq_ *req, CURLcode result) {
   ctx->internal_   = NULL;
   ctx->curl_code   = (int)result;
 
+  /* Always try to get the response code — the server may have sent a
+   * valid response (e.g. 413) before closing the connection while the
+   * client was still uploading.  In that case curl reports an error
+   * (CURLE_SEND_ERROR / CURLE_RECV_ERROR) but the response code is
+   * still available. */
+  long code = 0;
+  curl_easy_getinfo(req->easy, CURLINFO_RESPONSE_CODE, &code);
+  ctx->status_code = code;
+
   if (result == CURLE_OK) {
-    long code = 0;
-    curl_easy_getinfo(req->easy, CURLINFO_RESPONSE_CODE, &code);
-    ctx->status_code = code;
-    ctx->curl_error  = NULL;
+    ctx->curl_error = NULL;
   } else {
     ctx->status_code = 0;
     ctx->curl_error  = req->errbuf[0] ? req->errbuf : curl_easy_strerror(result);
