@@ -18,6 +18,7 @@ TEST(Socket, SkipOnWindows) {
 #include <chrono>
 
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -862,4 +863,46 @@ TEST(SocketTimeout, IOResetsWriteTimer) {
 
 #endif /* _WIN32 */
 
+/* ───────────────────── UDP sendto / recvfrom ───────────────────── */
 
+TEST(Socket, UdpSendToRecvFrom) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+  xEventLoopEnter(loop);
+
+  xSocket a = xSocketCreate(AF_INET, SOCK_DGRAM, 0, xEvent_Read,
+                            [](xSocket, xEventMask, void *) {}, nullptr);
+  xSocket b = xSocketCreate(AF_INET, SOCK_DGRAM, 0, xEvent_Read,
+                            [](xSocket, xEventMask, void *) {}, nullptr);
+  ASSERT_NE(a, nullptr);
+  ASSERT_NE(b, nullptr);
+
+  struct sockaddr_in bin;
+  memset(&bin, 0, sizeof(bin));
+  bin.sin_family      = AF_INET;
+  bin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  bin.sin_port        = 0;
+  ASSERT_EQ(bind(xSocketFd(b), (struct sockaddr *)&bin, sizeof(bin)), 0);
+  socklen_t blen = sizeof(bin);
+  ASSERT_EQ(getsockname(xSocketFd(b), (struct sockaddr *)&bin, &blen), 0);
+  ASSERT_GT(ntohs(bin.sin_port), 0);
+
+  const char *msg = "hello";
+  ssize_t s = xSocketSendTo(a, msg, 5, (struct sockaddr *)&bin, sizeof(bin));
+  EXPECT_EQ(s, 5);
+
+  pump_loop(loop, 10);
+
+  char                    rbuf[16] = {0};
+  struct sockaddr_storage src;
+  socklen_t               srclen = sizeof(src);
+  ssize_t r = xSocketRecvFrom(b, rbuf, sizeof(rbuf) - 1,
+                              (struct sockaddr *)&src, &srclen);
+  EXPECT_EQ(r, 5);
+  EXPECT_STREQ(rbuf, "hello");
+
+  xSocketDestroy(a);
+  xSocketDestroy(b);
+  xEventLoopLeave();
+  xEventLoopDestroy(loop);
+}

@@ -13,6 +13,9 @@
 #include <x/base/error.h>
 #include <x/base/event.h>
 
+#include <sys/types.h>
+#include <sys/socket.h> /* struct sockaddr, socklen_t, sendto, recvfrom */
+
 /* ───────────────────── Types ───────────────────── */
 
 /**
@@ -143,5 +146,44 @@ XCAPI(int) xSocketFd(xSocket sock);
  * @return      The event mask, or 0 if sock is NULL.
  */
 XCAPI(xEventMask) xSocketMask(xSocket sock);
+
+/* ───────────────────── Datagram I/O ───────────────────── */
+
+/**
+ * @brief Send a datagram to a specified destination address.
+ *
+ * Thin non-blocking wrapper around sendto(). Intended for UDP / connected
+ * datagram sockets. The socket must already be registered with the event
+ * loop via xSocketCreate(); use xSocketSetMask(sock, xEvent_Write) to be
+ * notified when the socket is writable.
+ *
+ * @param sock     Socket handle (must not be NULL).
+ * @param buf      Data to send (must not be NULL if len > 0).
+ * @param len      Number of bytes to send.
+ * @param dest     Destination address (must not be NULL).
+ * @param destlen  Length of @p dest.
+ * @return         Bytes sent, or -1 on error (errno set).
+ */
+XCAPI(ssize_t) xSocketSendTo(xSocket sock, const void *buf, size_t len,
+                             const struct sockaddr *dest, socklen_t destlen);
+
+/**
+ * @brief Receive a datagram, capturing the source address.
+ *
+ * Thin non-blocking wrapper around recvfrom(). Intended for UDP / datagram
+ * sockets. Register for readability via xSocketSetMask(sock, xEvent_Read)
+ * and call this from the callback.
+ *
+ * @param sock    Socket handle (must not be NULL).
+ * @param buf     Destination buffer (must not be NULL if len > 0).
+ * @param len     Capacity of @p buf.
+ * @param src     Filled with the sender's address (may be NULL).
+ * @param srclen  In: capacity of @p src; out: actual address length.
+ *                Must not be NULL if @p src is non-NULL.
+ * @return        Bytes received, or -1 on error (errno set to EAGAIN /
+ *                EWOULDBLOCK when no data is available).
+ */
+XCAPI(ssize_t) xSocketRecvFrom(xSocket sock, void *buf, size_t len,
+                               struct sockaddr *src, socklen_t *srclen);
 
 #endif /* XBASE_SOCKET_H */

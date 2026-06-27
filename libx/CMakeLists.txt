@@ -6,6 +6,7 @@ add_subdirectory(x/net)
 add_subdirectory(x/crypto)
 add_subdirectory(x/p2p)
 add_subdirectory(x/http)
+add_subdirectory(x/dns)
 
 # ── Aggregated target ─────────────────────────────────────────────────
 
@@ -16,7 +17,7 @@ add_subdirectory(x/http)
 # Fine-grained linking of individual submodules (xbase, xhttp, etc.)
 # continues to work exactly as before.
 add_library(x INTERFACE)
-target_link_libraries(x INTERFACE xbase xlog xbuf xnet xcrypto xhttp xp2p)
+target_link_libraries(x INTERFACE xbase xlog xbuf xnet xcrypto xhttp xp2p xdns)
 target_include_directories(x INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
 
 # ── Benchmarks ──────────────────────────────────────────────────────────

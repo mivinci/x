@@ -8,6 +8,7 @@
 
 #include <x/base/socket.h>
 
+#include <errno.h>
 #include <stdlib.h>
 
 #ifdef _WIN32
@@ -17,6 +18,7 @@
 #else
 #include <fcntl.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 #endif
 
@@ -298,4 +300,42 @@ int xSocketFd(xSocket sock) {
 xEventMask xSocketMask(xSocket sock) {
   if (!sock) return 0;
   return ((struct xSocket_ *)sock)->mask;
+}
+
+/* ───────────────────── Datagram I/O ───────────────────── */
+
+ssize_t xSocketSendTo(xSocket sock, const void *buf, size_t len,
+                      const struct sockaddr *dest, socklen_t destlen) {
+  if (!sock || (!buf && len > 0) || !dest) {
+    errno = EINVAL;
+    return -1;
+  }
+  int fd = ((struct xSocket_ *)sock)->fd;
+#ifdef _WIN32
+  return (ssize_t)sendto(fd, (const char *)buf, (int)len, 0, dest, destlen);
+#else
+  return sendto(fd, buf, len, 0, dest, destlen);
+#endif
+}
+
+ssize_t xSocketRecvFrom(xSocket sock, void *buf, size_t len,
+                        struct sockaddr *src, socklen_t *srclen) {
+  if (!sock || (!buf && len > 0)) {
+    errno = EINVAL;
+    return -1;
+  }
+  if (src && !srclen) {
+    errno = EINVAL;
+    return -1;
+  }
+  int fd = ((struct xSocket_ *)sock)->fd;
+#ifdef _WIN32
+  int fromlen = srclen ? (int)*srclen : 0;
+  ssize_t n = (ssize_t)recvfrom(fd, (char *)buf, (int)len, 0, src,
+                                srclen ? &fromlen : NULL);
+  if (srclen) *srclen = (socklen_t)fromlen;
+  return n;
+#else
+  return recvfrom(fd, buf, len, 0, src, srclen);
+#endif
 }

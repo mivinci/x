@@ -56,7 +56,6 @@ tmp
 .claude
 .codex
 .codebuddy
-openspec
 
 # mdbook-mermaid generated files
 docs/mermaid.min.js
