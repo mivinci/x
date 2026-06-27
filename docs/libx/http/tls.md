@@ -11,7 +11,7 @@ Check your build:
 
 ```bash
 # If X_HAS_OPENSSL is defined, TLS is available
-grep -r "X_HAS_OPENSSL" xhttp/
+grep -r "X_HAS_OPENSSL" libx/x/http/
 ```
 
 ## Certificate Generation
@@ -125,6 +125,14 @@ sequenceDiagram
 **Server:**
 
 ```c
+xHttpMux mux = xHttpMuxCreate();
+/* ... xHttpMuxHandle(mux, &route) ... */
+
+xHttpServerConf sconf = {0};
+sconf.resolve = xHttpMuxResolve;
+sconf.router  = mux;
+xHttpServer server = xHttpServerCreate(&sconf);
+
 xTlsConf tls = {
     .cert = "server.pem",
     .key  = "server-key.pem",
@@ -138,13 +146,13 @@ xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
 xTlsConf tls = {0};
 tls.ca = "ca.pem";
 xHttpClientConf conf = {.tls = &tls};
-xHttpClient client =
-    xHttpClientCreate(&conf);
+xHttpClient client = xHttpClientCreate(&conf);
 
-xHttpClientGet(
-    client,
-    "https://localhost:8443/hello",
-    on_response, NULL);
+xHttpRequestConf req = {0};
+req.url     = "https://localhost:8443/hello";
+req.on_data = on_data;
+req.on_done = on_done;
+xHttpClientGet(client, &req, &resp);
 ```
 
 **Client (skip verification — development only):**
@@ -153,8 +161,7 @@ xHttpClientGet(
 xTlsConf tls = {0};
 tls.skip_verify = 1;
 xHttpClientConf conf = {.tls = &tls};
-xHttpClient client =
-    xHttpClientCreate(&conf);
+xHttpClient client = xHttpClientCreate(&conf);
 ```
 
 ### 2. Mutual TLS (mTLS)
@@ -180,9 +187,9 @@ sequenceDiagram
 
 ```c
 xTlsConf tls = {
-    .cert     = "server.pem",
-    .key      = "server-key.pem",
-    .ca       = "ca.pem",       // CA to verify client certs
+    .cert = "server.pem",
+    .key  = "server-key.pem",
+    .ca   = "ca.pem",                       /* enables client cert verification */
 };
 xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
 ```
@@ -195,13 +202,13 @@ tls.ca   = "ca.pem";
 tls.cert = "client.pem";
 tls.key  = "client-key.pem";
 xHttpClientConf conf = {.tls = &tls};
-xHttpClient client =
-    xHttpClientCreate(&conf);
+xHttpClient client = xHttpClientCreate(&conf);
 
-xHttpClientGet(
-    client,
-    "https://localhost:8443/secure",
-    on_response, NULL);
+xHttpRequestConf req = {0};
+req.url     = "https://localhost:8443/secure";
+req.on_data = on_data;
+req.on_done = on_done;
+xHttpClientGet(client, &req, &resp);
 ```
 
 ### 3. HTTP + HTTPS on Different Ports
@@ -209,10 +216,8 @@ xHttpClientGet(
 A single `xHttpServer` can serve both cleartext HTTP and HTTPS simultaneously:
 
 ```c
-// HTTP on port 8080
-xHttpServerListen(server, "0.0.0.0", 8080);
+xHttpServerListen(server,    "0.0.0.0", 8080);
 
-// HTTPS on port 8443
 xTlsConf tls = {
     .cert = "server.pem",
     .key  = "server-key.pem",
@@ -220,7 +225,7 @@ xTlsConf tls = {
 xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
 ```
 
-Routes are shared — the same handlers serve both HTTP and HTTPS traffic.
+Routes on the `xHttpMux` are shared — the same handlers serve both HTTP and HTTPS traffic.
 
 ## Complete End-to-End Example
 
@@ -266,25 +271,34 @@ echo "Generated: ca.pem, server.pem, server-key.pem, client.pem, client-key.pem"
 #include <x/base/event.h>
 #include <x/http/server.h>
 
-static void on_secure(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
-    (void)req; (void)arg;
-    xHttpResponseSetHeader(w, "Content-Type", "text/plain");
-    xHttpResponseSend(w, "mTLS OK!\n", 9);
+static int on_secure(xHttpCtx *ctx, void *arg) {
+    (void)arg;
+    xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+    xHttpCtxSend(ctx, "mTLS OK!\n", 9);
+    return 0;
 }
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-
     xEventLoopEnter(loop);
 
-    xHttpServer server = xHttpServerCreate();
+    xHttpMux mux = xHttpMuxCreate();
+    xHttpRouteConf route = {
+        .pattern    = "GET /secure",
+        .on_request = on_secure,
+    };
+    xHttpMuxHandle(mux, &route);
 
-    xHttpServerRoute(server, "GET /secure", on_secure, NULL);
+    xHttpServerConf sconf = {0};
+    sconf.resolve = xHttpMuxResolve;
+    sconf.router  = mux;
+
+    xHttpServer server = xHttpServerCreate(&sconf);
 
     xTlsConf tls = {
-        .cert     = "server.pem",
-        .key      = "server-key.pem",
-        .ca       = "ca.pem",
+        .cert = "server.pem",
+        .key  = "server-key.pem",
+        .ca   = "ca.pem",
     };
     xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
 
@@ -292,6 +306,7 @@ int main(void) {
     xEventLoopRun(loop);
 
     xHttpServerDestroy(server);
+    xHttpMuxDestroy(mux);
     xEventLoopDestroy(loop);
     return 0;
 }
@@ -301,22 +316,33 @@ int main(void) {
 
 ```c
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <x/base/event.h>
 #include <x/http/client.h>
 
-static void on_response(const xHttpResponse *resp, void *arg) {
-    (void)arg;
-    if (resp->curl_code == 0) {
-        printf("HTTP %ld: %.*s\n", resp->status_code,
-               (int)resp->body_len, resp->body);
-    } else {
-        printf("TLS error: %s\n", resp->curl_error);
-    }
+struct Resp { long status; char *buf; size_t len; };
+
+static int on_data(const char *data, size_t len, void *arg) {
+    struct Resp *r = arg;
+    r->buf = realloc(r->buf, r->len + len + 1);
+    memcpy(r->buf + r->len, data, len);
+    r->len += len;
+    r->buf[r->len] = '\0';
+    return 0;
+}
+
+static void on_done(xHttpCtx *ctx, void *arg) {
+    struct Resp *r = arg;
+    r->status = ctx->status_code;
+    if (ctx->curl_code != 0)
+        printf("TLS error: %s\n", ctx->curl_error ? ctx->curl_error : "?");
+    else
+        printf("HTTP %ld: %s\n", r->status, r->buf ? r->buf : "(empty)");
 }
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-
     xEventLoopEnter(loop);
 
     xTlsConf tls = {0};
@@ -324,13 +350,19 @@ int main(void) {
     tls.cert = "client.pem";
     tls.key  = "client-key.pem";
     xHttpClientConf conf = {.tls = &tls};
-    xHttpClient client =
-        xHttpClientCreate(&conf);
+    xHttpClient client = xHttpClientCreate(&conf);
 
-    xHttpClientGet(client, "https://localhost:8443/secure",
-                   on_response, NULL);
+    xHttpRequestConf req = {0};
+    req.url     = "https://localhost:8443/secure";
+    req.on_data = on_data;
+    req.on_done = on_done;
+
+    struct Resp r = {0};
+    xHttpClientGet(client, &req, &r);
 
     xEventLoopRun(loop);
+
+    free(r.buf);
     xHttpClientDestroy(client);
     xEventLoopDestroy(loop);
     return 0;
@@ -367,7 +399,7 @@ When TLS is enabled, ALPN (Application-Layer Protocol Negotiation) automatically
 - If the client supports HTTP/2, ALPN negotiates `h2` and the connection uses HTTP/2 framing.
 - Otherwise, ALPN falls back to `http/1.1`.
 
-This is transparent to application code — the same routes and handlers work regardless of the negotiated protocol.
+This is transparent to application code — the same `xHttpMux` routes and route callbacks work regardless of the negotiated protocol.
 
 ## Troubleshooting
 
@@ -395,24 +427,27 @@ This is transparent to application code — the same routes and handlers work re
 
 | Item | Description |
 | --- | --- |
-| `xTlsConf` | Struct: `cert`, `key`, `ca`, `key_password`, `alpn`, `skip_verify` |
-| `xHttpServerListenTls()` | Start HTTPS listener with TLS config |
+| `xTlsConf` | Struct: `cert`, `key`, `ca`, `key_password`, `skip_verify` |
+| `xHttpServerConf` | Struct: `resolve`, `router`, `idle_timeout_ms`, `max_header_size` |
+| `xHttpServerCreate(&sconf)` | Create server with resolver + limits |
+| `xHttpServerListenTls(server, host, port, &tls)` | Start HTTPS listener |
 
 ### Client Side
 
 | Item | Description |
 | --- | --- |
-| `xTlsConf` | Struct: `cert`, `key`, `ca`, `key_password`, `alpn`, `skip_verify` |
+| `xTlsConf` | Struct: `ca`, `cert`, `key`, `key_password`, `skip_verify` |
 | `xHttpClientConf` | Struct: `tls` (pointer to `xTlsConf`), `http_version` |
-| `xHttpClientCreate()` | Create client with TLS config via `xHttpClientConf`. |
+| `xHttpClientCreate(&conf)` | Create client with TLS config |
+| `xHttpRequestConf` | Per-request config: `url`, `method`, `headers`, `on_read`, `on_data`, `on_done` |
 
 ### WebSocket Client Side
 
 | Item | Description |
 | --- | --- |
-| `xTlsConf` | Struct: `cert`, `key`, `ca`, `key_password`, `alpn`, `skip_verify` |
+| `xTlsConf` | Struct: `ca`, `cert`, `key`, `key_password`, `skip_verify` |
 | `xTlsCtx` | Opaque shared TLS context from `xTlsCtxCreate()` |
 | `xWsConnectConf` | Struct: `tls` (pointer to `xTlsConf`), `tls_ctx` (shared context, priority over `tls`) |
-| `xWsConnect()` | Initiate async WebSocket connection with optional TLS. |
+| `xWsConnect(&conf, &cbs, arg)` | Initiate async WebSocket connection with optional TLS |
 
 For full API details, see [server.md](server.md#tls-configuration) and [client.md](client.md#tls-configuration).

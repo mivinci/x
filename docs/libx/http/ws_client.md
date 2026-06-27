@@ -10,7 +10,7 @@
 
 2. **Shared Connection Model** — Once the handshake completes, a client `xWsConn` is identical to a server `xWsConn`. The same `xWsSend()`, `xWsClose()`, and callback interfaces apply. Code that operates on `xWsConn` doesn't need to know which side initiated the connection.
 
-3. **Failure via `on_close`** — If the connection fails at any stage (DNS, TCP, TLS, or HTTP Upgrade), `on_close` is invoked with an error code. `on_open` is never called for failed connections. This simplifies error handling: cleanup always happens in one place.
+3. **Failure via `on_close`** — If the connection fails at any stage (DNS, TCP, TLS, or HTTP Upgrade), `on_close` is invoked with an error code. `on_open` is never called for failed connections. Cleanup always happens in one place.
 
 4. **Client-Side Masking** — Per RFC 6455, client-to-server frames must be masked. The library handles this automatically when the connection is created in client mode.
 
@@ -83,12 +83,12 @@ graph TD
 ### xWsConnectConf
 
 ```c
-struct xWsConnectConf {
-    const char *url;              // ws:// or wss:// URL (required)
-    const xTlsConf *tls;         // TLS config for wss:// (NULL = defaults)
-    xTlsCtx tls_ctx;             // Pre-created shared TLS context (priority over tls)
-    const char *headers;          // Extra HTTP headers (NULL = none)
-    int timeout_ms;               // Connect timeout (0 = 10000 ms)
+XDEF_STRUCT(xWsConnectConf) {
+    const char   *url;        /* ws:// or wss:// URL (required)            */
+    const xTlsConf *tls;      /* TLS config for wss:// (NULL = defaults)   */
+    xTlsCtx       tls_ctx;    /* Pre-created shared TLS context (priority) */
+    const char   *headers;    /* Extra HTTP headers (NULL = none)          */
+    int           timeout_ms; /* Connect timeout (0 = 10000 ms)            */
 };
 ```
 
@@ -150,7 +150,7 @@ Initiate a graceful close. Identical to the server-side API.
 
 ## Usage Examples
 
-### Connect and Echo
+### Connect and echo
 
 ```c
 #include <x/base/event.h>
@@ -177,7 +177,6 @@ static void on_close(xWsConn conn, uint16_t code, const char *reason, size_t len
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-
     xEventLoopEnter(loop);
 
     xWsConnectConf conf = {0};
@@ -197,91 +196,40 @@ int main(void) {
 }
 ```
 
-### Secure Connection (wss://)
+### Secure connection (wss://)
 
 ```c
-#include <x/base/event.h>
-#include <x/http/ws.h>
-#include <x/net/tls.h>
+xTlsConf tls = {0};
+tls.skip_verify = 1;                       /* dev only */
 
-static void on_open(xWsConn conn, void *arg) { /* ... */ }
-static void on_message(xWsConn conn, xWsOpcode op, const void *data, size_t len, void *arg) { /* ... */ }
-static void on_close(xWsConn conn, uint16_t code, const char *reason, size_t len, void *arg) { /* ... */ }
+xWsConnectConf conf = {0};
+conf.url        = "wss://echo.example.com/ws";
+conf.tls        = &tls;
+conf.timeout_ms = 5000;
 
-int main(void) {
-    xEventLoop loop = xEventLoopCreate();
-
-    xEventLoopEnter(loop);
-
-    // Skip certificate verification (dev only)
-    xTlsConf tls = {0};
-    tls.skip_verify = 1;
-
-    xWsConnectConf conf = {0};
-    conf.url = "wss://echo.example.com/ws";
-    conf.tls = &tls;
-    conf.timeout_ms = 5000;
-
-    xWsCallbacks cbs = {
-        .on_open    = on_open,
-        .on_message = on_message,
-        .on_close   = on_close,
-    };
-
-    xWsConnect(&conf, &cbs, NULL);
-
-    xEventLoopRun(loop);
-    xEventLoopDestroy(loop);
-    return 0;
-}
+xWsConnect(&conf, &cbs, NULL);
 ```
 
-### Shared TLS Context (Multiple Connections)
+### Shared TLS context (multiple connections)
 
-When creating many `wss://` connections (e.g. reconnect loops or connection pools), use a shared `xTlsCtx` to avoid reloading certificates on every connection:
+When creating many `wss://` connections (reconnect loops, connection pools), use a shared `xTlsCtx` to avoid reloading certificates on every connection:
 
 ```c
-#include <x/base/event.h>
-#include <x/http/ws.h>
-#include <x/net/tls.h>
+xTlsConf tls = {0};
+tls.ca = "ca.pem";
+xTlsCtx ctx = xTlsCtxCreate(&tls);
 
-static void on_open(xWsConn conn, void *arg) { /* ... */ }
-static void on_message(xWsConn conn, xWsOpcode op, const void *data, size_t len, void *arg) { /* ... */ }
-static void on_close(xWsConn conn, uint16_t code, const char *reason, size_t len, void *arg) { /* ... */ }
+/* All connections share the same ctx */
+xWsConnectConf conf = {0};
+conf.url     = "wss://echo.example.com/ws";
+conf.tls_ctx = ctx;                        /* shared, not copied */
 
-int main(void) {
-    xEventLoop loop = xEventLoopCreate();
+xWsConnect(&conf, &cbs, NULL);
 
-    xEventLoopEnter(loop);
-
-    // Create a shared TLS context once
-    xTlsConf tls = {0};
-    tls.ca = "ca.pem";
-    xTlsCtx ctx = xTlsCtxCreate(&tls);
-
-    // All connections share the same ctx
-    xWsConnectConf conf = {0};
-    conf.url = "wss://echo.example.com/ws";
-    conf.tls_ctx = ctx;  // shared, not copied
-
-    xWsCallbacks cbs = {
-        .on_open    = on_open,
-        .on_message = on_message,
-        .on_close   = on_close,
-    };
-
-    xWsConnect(&conf, &cbs, NULL);
-
-    xEventLoopRun(loop);
-
-    // Destroy ctx after all connections are closed
-    xTlsCtxDestroy(ctx);
-    xEventLoopDestroy(loop);
-    return 0;
-}
+/* Destroy ctx only after all connections are closed. */
 ```
 
-### Custom Headers (Authentication)
+### Custom headers (authentication)
 
 ```c
 xWsConnectConf conf = {0};
@@ -292,25 +240,26 @@ conf.headers = "Authorization: Bearer token123\r\n"
 xWsConnect(&conf, &cbs, NULL);
 ```
 
-### Connection Failure Handling
+### Connection failure handling
 
 ```c
 static void on_close(xWsConn conn, uint16_t code, const char *reason, size_t len, void *arg) {
+    (void)reason; (void)len; (void)arg;
     if (conn == NULL) {
-        // Connection failed before establishing WebSocket
+        /* Connection failed before the WebSocket was established */
         printf("Connection failed (code %u)\n", code);
-        // Optionally retry after a delay
+        /* Optionally schedule a retry via xEventLoopPost / a timer */
         return;
     }
-    // Normal close after successful connection
     printf("Disconnected: %u\n", code);
 }
 ```
 
-### Binary Data
+### Binary data
 
 ```c
 static void on_open(xWsConn conn, void *arg) {
+    (void)arg;
     uint8_t data[] = {0x00, 0x01, 0x02, 0xFF, 0xFE};
     xWsSend(conn, xWsOpcode_Binary, data, sizeof(data));
 }
