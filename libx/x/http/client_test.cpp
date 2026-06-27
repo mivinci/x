@@ -72,14 +72,40 @@ static size_t on_read_provide(char *buf, size_t bufsize, void *arg) {
 /* find_free_port / pump_until / pump_until_count removed — use the
  * shared helpers from server_test_helper.h instead. */
 
-/* ───────────────────── Fixture ───────────────────── */
+/* ───────────────────── Echo helpers (server-side) ─────────────────────
+ * Collects a request body via on_data, then echoes it back from on_done.
+ * Used by HttpClientTest's POST /post route. */
+
+struct EchoBody {
+  std::string body;
+};
+
+static int echo_collect_data(const char *data, size_t len, void *arg) {
+  auto *e = static_cast<EchoBody *>(arg);
+  e->body.append(data, len);
+  return 0;
+}
+
+static void echo_send_handler(xHttpCtx *ctx, void *arg) {
+  auto *e = static_cast<EchoBody *>(arg);
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+  xHttpCtxSend(ctx, e->body.data(), e->body.size());
+}
+
+/* ──────────���────────── Fixture ───────────────────── */
 
 class HttpClientTest : public ::testing::Test {
 protected:
   xEventLoop  loop   = nullptr;
   xHttpServer server = nullptr;
+  xHttpMux    mux    = nullptr;
   xHttpClient client = nullptr;
   uint16_t    port   = 0;
+
+  /* Echo state for POST /post — collects request body via on_data, then
+   * echoes it back from on_done. Fresh per fixture instance. */
+  EchoBody    echo_body;
 
   std::string url(const char *path) {
     return "http://127.0.0.1:" + std::to_string(port) + path;
@@ -90,41 +116,61 @@ protected:
     ASSERT_NE(loop, nullptr);
     xEventLoopEnter(loop);
 
-    server = xHttpServerCreate();
+    mux = xHttpMuxCreate();
+    ASSERT_NE(mux, nullptr);
+
+    xHttpServerConf sconf = {};
+    sconf.resolve         = xHttpMuxResolve;
+    sconf.router          = mux;
+    sconf.idle_timeout_ms = 60000;
+    server = xHttpServerCreate(&sconf);
     ASSERT_NE(server, nullptr);
 
     /* GET /get — returns 200 with body "ok" */
-    xHttpServerRoute(server, "GET /get",
-      [](xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
-        xHttpResponseSetStatus(w, 200);
-        xHttpResponseSetHeader(w, "Content-Type", "text/plain");
-        xHttpResponseSend(w, "ok", 2);
-      }, nullptr);
+    {
+      xHttpRouteConf rc = {};
+      rc.pattern = "GET /get";
+      rc.on_done = [](xHttpCtx *ctx, void *arg) {
+        xHttpCtxSetStatus(ctx, 200);
+        xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+        xHttpCtxSend(ctx, "ok", 2);
+      };
+      ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+    }
 
-    /* POST /post — echoes request body */
-    xHttpServerRoute(server, "POST /post",
-      [](xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
-        xHttpResponseSetStatus(w, 200);
-        xHttpResponseSetHeader(w, "Content-Type", "text/plain");
-        xHttpResponseSend(w, req->body, req->body_len);
-      }, nullptr);
+    /* POST /post — echoes request body (collected via on_data) */
+    {
+      xHttpRouteConf rc = {};
+      rc.pattern = "POST /post";
+      rc.on_data = echo_collect_data;
+      rc.on_done = echo_send_handler;
+      rc.arg     = &echo_body;
+      ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+    }
 
-    /* GET /headers — echoes raw headers for debugging with DoWithCustomHeaders */
-    xHttpServerRoute(server, "GET /headers",
-      [](xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
-        xHttpResponseSetStatus(w, 200);
-        xHttpResponseSetHeader(w, "Content-Type", "text/plain");
-        if (req->headers && req->headers_len > 0) {
-          xHttpResponseWrite(w, req->headers, req->headers_len);
+    /* GET /headers — echoes raw request headers for DoWithCustomHeaders */
+    {
+      xHttpRouteConf rc = {};
+      rc.pattern = "GET /headers";
+      rc.on_done = [](xHttpCtx *ctx, void *arg) {
+        xHttpCtxSetStatus(ctx, 200);
+        xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+        if (ctx->headers && ctx->headers_len > 0) {
+          xHttpCtxWrite(ctx, ctx->headers, ctx->headers_len);
         }
-        xHttpResponseEnd(w);
-      }, nullptr);
+      };
+      ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+    }
 
     /* GET /ping — used by DoWithTimeout; server defers, client times out */
-    xHttpServerRoute(server, "GET /ping",
-      [](xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
-        xHttpResponseDefer(w);
-      }, nullptr);
+    {
+      xHttpRouteConf rc = {};
+      rc.pattern = "GET /ping";
+      rc.on_done = [](xHttpCtx *ctx, void *arg) {
+        xHttpCtxDefer(ctx);
+      };
+      ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+    }
 
     port = find_free_port();
     ASSERT_NE(port, 0) << "Could not find a free port";
@@ -138,6 +184,7 @@ protected:
   void TearDown() override {
     if (client) xHttpClientDestroy(client);
     if (server) xHttpServerDestroy(server);
+    if (mux) xHttpMuxDestroy(mux);
     xEventLoopLeave();
     if (loop) xEventLoopDestroy(loop);
   }
@@ -431,50 +478,61 @@ static size_t provide_data(char *buf, size_t bufsize, void *arg) {
 }
 
 /* Server handler: send a pre-built body verbatim. */
-static void send_body_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
-  (void)req;
+static void send_body_handler(xHttpCtx *ctx, void *arg) {
   auto *body = static_cast<std::string *>(arg);
-  xHttpResponseSetStatus(w, 200);
-  xHttpResponseSetHeader(w, "Content-Type", "text/plain");
-  xHttpResponseSend(w, body->c_str(), body->size());
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+  xHttpCtxSend(ctx, body->c_str(), body->size());
 }
 
 /* Server handler: echo the request body back. Records the method so tests
- * can verify which HTTP method curl actually sent. */
+ * can verify which HTTP method curl actually sent.
+ *
+ * The new API delivers the body via on_data (no req->body), so we collect
+ * it into EchoState::body and echo it back from on_done. */
 struct EchoCtx {
   std::string last_method;
   std::string last_body;
 };
 
-static void echo_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
-  auto *ctx = static_cast<EchoCtx *>(arg);
-  if (ctx) {
-    ctx->last_method = req->method ? req->method : "";
-    ctx->last_body.assign(req->body ? req->body : "", req->body_len);
+struct EchoState {
+  EchoCtx   *ctx{nullptr};
+  std::string body;
+};
+
+static int echo_on_data(const char *data, size_t len, void *arg) {
+  auto *s = static_cast<EchoState *>(arg);
+  s->body.append(data, len);
+  return 0;
+}
+
+static void echo_handler(xHttpCtx *ctx, void *arg) {
+  auto *s = static_cast<EchoState *>(arg);
+  if (s->ctx) {
+    s->ctx->last_method = ctx->method ? ctx->method : "";
+    s->ctx->last_body   = s->body;
   }
-  xHttpResponseSetStatus(w, 200);
-  xHttpResponseSetHeader(w, "Content-Type", "application/octet-stream");
-  xHttpResponseSend(w, req->body ? req->body : "", req->body_len);
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "application/octet-stream");
+  xHttpCtxSend(ctx, s->body.data(), s->body.size());
 }
 
 /* Server handler: send a small body with custom headers. */
-static void custom_headers_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
-  (void)req;
+static void custom_headers_handler(xHttpCtx *ctx, void *arg) {
   (void)arg;
-  xHttpResponseSetStatus(w, 200);
-  xHttpResponseSetHeader(w, "Content-Type", "text/plain");
-  xHttpResponseSetHeader(w, "X-Custom-A", "alpha");
-  xHttpResponseSetHeader(w, "X-Custom-B", "beta");
-  xHttpResponseSend(w, "body", 4);
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+  xHttpCtxSetHeader(ctx, "X-Custom-A", "alpha");
+  xHttpCtxSetHeader(ctx, "X-Custom-B", "beta");
+  xHttpCtxSend(ctx, "body", 4);
 }
 
 /* Server handler: minimal 200 OK with body "ok". */
-static void ok_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
-  (void)req;
+static void ok_handler(xHttpCtx *ctx, void *arg) {
   (void)arg;
-  xHttpResponseSetStatus(w, 200);
-  xHttpResponseSetHeader(w, "Content-Type", "text/plain");
-  xHttpResponseSend(w, "ok", 2);
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+  xHttpCtxSend(ctx, "ok", 2);
 }
 
 } // namespace
@@ -482,7 +540,7 @@ static void ok_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg
 /* 1. Streaming response: on_data collects a large body; on_done sees body=NULL. */
 TEST_F(HttpServerTest, StreamingResponseClient) {
   std::string body(8192, 'x');
-  xHttpServerRoute(server, "GET /big", send_body_handler, &body);
+  route("GET /big", send_body_handler, &body);
   listen_and_pump();
 
   xHttpClient client = xHttpClientCreate(nullptr);
@@ -513,7 +571,7 @@ TEST_F(HttpServerTest, StreamingAbort) {
   /* 64KB exceeds curl's 16KB write buffer, guaranteeing multiple chunks so
    * the abort fires before the full body has been delivered. */
   std::string body(65536, 'x');
-  xHttpServerRoute(server, "GET /big", send_body_handler, &body);
+  route("GET /big", send_body_handler, &body);
   listen_and_pump();
 
   xHttpClient client = xHttpClientCreate(nullptr);
@@ -541,7 +599,7 @@ TEST_F(HttpServerTest, StreamingAbort) {
 
 /* 3. Header streaming: on_response receives status line + headers before on_data. */
 TEST_F(HttpServerTest, HeaderStreaming) {
-  xHttpServerRoute(server, "GET /headers", custom_headers_handler, nullptr);
+  route("GET /headers", custom_headers_handler, nullptr);
   listen_and_pump();
 
   xHttpClient client = xHttpClientCreate(nullptr);
@@ -589,8 +647,17 @@ TEST_F(HttpServerTest, HeaderStreaming) {
  * libcurl use PUT (overriding CURLOPT_POST). The route is registered
  * without a method prefix so it matches any method. */
 TEST_F(HttpServerTest, StreamingUpload) {
-  EchoCtx echo;
-  xHttpServerRoute(server, "/echo", echo_handler, &echo);
+  EchoCtx    echo;
+  EchoState  state;
+  state.ctx = &echo;
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern = "/echo";
+    rc.on_data = echo_on_data;
+    rc.on_done = echo_handler;
+    rc.arg     = &state;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
   listen_and_pump();
 
   xHttpClient client = xHttpClientCreate(nullptr);
@@ -627,8 +694,17 @@ TEST_F(HttpServerTest, StreamingUpload) {
 
 /* 5. Streaming upload with chunked transfer-encoding (content_length = 0). */
 TEST_F(HttpServerTest, StreamingUploadChunked) {
-  EchoCtx echo;
-  xHttpServerRoute(server, "/echo", echo_handler, &echo);
+  EchoCtx    echo;
+  EchoState  state;
+  state.ctx = &echo;
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern = "/echo";
+    rc.on_data = echo_on_data;
+    rc.on_done = echo_handler;
+    rc.arg     = &state;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
   listen_and_pump();
 
   xHttpClient client = xHttpClientCreate(nullptr);
@@ -663,7 +739,7 @@ TEST_F(HttpServerTest, StreamingUploadChunked) {
 
 /* 6. Fire-and-forget: on_done=NULL, request must not crash. */
 TEST_F(HttpServerTest, FireAndForget) {
-  xHttpServerRoute(server, "GET /get", ok_handler, nullptr);
+  route("GET /get", ok_handler, nullptr);
   listen_and_pump();
 
   xHttpClient client = xHttpClientCreate(nullptr);
@@ -684,7 +760,7 @@ TEST_F(HttpServerTest, FireAndForget) {
 
 /* 7. Backward compatibility: body/body_len without on_read/on_data. */
 TEST_F(HttpServerTest, BackwardCompat) {
-  xHttpServerRoute(server, "GET /get", ok_handler, nullptr);
+  route("GET /get", ok_handler, nullptr);
   listen_and_pump();
 
   xHttpClient client = xHttpClientCreate(nullptr);

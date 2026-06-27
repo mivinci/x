@@ -25,12 +25,11 @@
 #include <x/base/base.h>
 #include <x/base/error.h>
 #include <x/base/event.h>
+#include <x/http/client.h> /* xHttpCtx */
 #include <x/net/tls.h>
 
 /* Forward declarations (avoid circular include with server.h) */
-XDEF_HANDLE(xHttpResponseWriter);
 XDEF_HANDLE(xHttpServer);
-typedef struct xHttpRequest xHttpRequest;
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
 
@@ -139,9 +138,9 @@ XCAPI(xErrno) xWsClose(xWsConn conn, uint16_t code);
 /**
  * @brief Upgrade an HTTP connection to WebSocket.
  *
- * Call this inside a regular xHttpHandlerFunc to perform the
- * WebSocket upgrade handshake (RFC 6455). On success the HTTP
- * connection is hijacked and a new xWsConn is created; the
+ * Call this inside a regular HTTP handler (on_request or on_done) to
+ * perform the WebSocket upgrade handshake (RFC 6455). On success the
+ * HTTP connection is hijacked and a new xWsConn is created; the
  * handler must return immediately after a successful upgrade.
  *
  * The function validates the request headers (Upgrade, Connection,
@@ -152,14 +151,12 @@ XCAPI(xErrno) xWsClose(xWsConn conn, uint16_t code);
  * HTTP error response (400/405) is sent and the function returns
  * a non-Ok error code. The handler may then return normally.
  *
- * @param writer     The response writer from the handler.
- * @param req        The HTTP request from the handler.
+ * @param ctx        The request context from the handler.
  * @param callbacks  WebSocket event callbacks (must not be NULL).
  * @param arg        User argument forwarded to callbacks.
  * @return           xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xWsUpgrade(xHttpResponseWriter writer, const xHttpRequest *req,
-                         const xWsCallbacks *callbacks, void *arg);
+XCAPI(xErrno) xWsUpgrade(xHttpCtx *ctx, const xWsCallbacks *callbacks, void *arg);
 
 /* ── Client Connect ─────────────────────────────────────────────────── */
 

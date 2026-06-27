@@ -282,6 +282,7 @@ class HttpServerH2Test : public ::testing::Test {
 protected:
   xEventLoop  loop     = nullptr;
   xHttpServer server   = nullptr;
+  xHttpMux    mux      = nullptr;
   uint16_t    port     = 0;
 
   void SetUp() override {
@@ -289,7 +290,15 @@ protected:
     ASSERT_NE(loop, nullptr);
     xEventLoopEnter(loop);
 
-    server = xHttpServerCreate();
+    mux = xHttpMuxCreate();
+    ASSERT_NE(mux, nullptr);
+
+    xHttpServerConf conf = {};
+    conf.resolve         = xHttpMuxResolve;
+    conf.router          = mux;
+    conf.idle_timeout_ms = 60000;
+
+    server = xHttpServerCreate(&conf);
     ASSERT_NE(server, nullptr);
 
     port = find_free_port();
@@ -298,6 +307,7 @@ protected:
 
   void TearDown() override {
     if (server) xHttpServerDestroy(server);
+    if (mux) xHttpMuxDestroy(mux);
     xEventLoopLeave();
     if (loop) xEventLoopDestroy(loop);
   }
@@ -307,19 +317,26 @@ protected:
     ASSERT_EQ(err, xErrno_Ok) << "Failed to listen on port " << port;
     run_for(loop, 20);
   }
+
+  void route(const char *pattern, xHttpDoneFunc on_done, void *arg = nullptr) {
+    xHttpRouteConf conf = {};
+    conf.pattern        = pattern;
+    conf.on_done        = on_done;
+    conf.arg            = arg;
+    ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
+  }
 };
 
 /* ── H2 Tests ──────────────────────────────────────────────────────────── */
 
-static void h2_hello_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
-  (void)req;
+static void h2_hello_handler(xHttpCtx *ctx, void *arg) {
   (void)arg;
-  xHttpResponseSetHeader(w, "content-type", "text/plain");
-  xHttpResponseSend(w, "hello h2", 8);
+  xHttpCtxSetHeader(ctx, "content-type", "text/plain");
+  xHttpCtxSend(ctx, "hello h2", 8);
 }
 
 TEST_F(HttpServerH2Test, PriorKnowledgeGetRequest) {
-  xHttpServerRoute(server, "GET /hello", h2_hello_handler, nullptr);
+  route("GET /hello", h2_hello_handler);
   listen_and_pump();
 
   H2Client client;
@@ -372,7 +389,7 @@ TEST_F(HttpServerH2Test, H2NotFoundReturns404) {
 }
 
 TEST_F(HttpServerH2Test, H1AndH2Coexist) {
-  xHttpServerRoute(server, "GET /hello", h2_hello_handler, nullptr);
+  route("GET /hello", h2_hello_handler);
   listen_and_pump();
 
   /* First: H1 request */

@@ -504,14 +504,14 @@ static RecvFrame ws_recv_frame(int fd, int timeout_ms = 2000) {
 }
 
 /* Handler that upgrades to WebSocket */
-static void ws_upgrade_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
-  WsTestCtx   *ctx = (WsTestCtx *)arg;
+static void ws_upgrade_handler(xHttpCtx *ctx, void *arg) {
+  WsTestCtx   *c = (WsTestCtx *)arg;
   xWsCallbacks cbs = {};
   cbs.on_open      = ws_test_on_open;
   cbs.on_message   = ws_test_on_message;
   cbs.on_close     = ws_test_on_close;
 
-  xWsUpgrade(writer, req, &cbs, ctx);
+  xWsUpgrade(ctx, &cbs, c);
 }
 
 class WsServerTest : public HttpServerTest {
@@ -520,8 +520,11 @@ protected:
 
   void SetUpWsRoute(const std::string &path = "/ws") {
     std::string pattern = "GET " + path;
-    xErrno      err     = xHttpServerRoute(server, pattern.c_str(), ws_upgrade_handler, &ws_ctx);
-    ASSERT_EQ(err, xErrno_Ok);
+    xHttpRouteConf conf = {};
+    conf.pattern        = pattern.c_str();
+    conf.on_done        = ws_upgrade_handler;
+    conf.arg            = &ws_ctx;
+    ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
   }
 
   /* Connect and perform WS handshake, return the fd */

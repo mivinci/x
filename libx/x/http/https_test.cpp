@@ -195,32 +195,39 @@ static void on_sse_end(int curl_code, void *arg) {
 
 /* ── Handlers ──────────────────────────────────────────────────────────── */
 
-static void echo_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
-  (void)arg;
-  xHttpResponseSetStatus(w, 200);
-  xHttpResponseSetHeader(w, "Content-Type", "text/plain");
-  if (req->body && req->body_len > 0) {
-    xHttpResponseSend(w, req->body, req->body_len);
+struct EchoBodyCtx {
+  std::string body;
+};
+
+static int echo_on_data(const char *data, size_t len, void *arg) {
+  auto *c = static_cast<EchoBodyCtx *>(arg);
+  c->body.append(data, len);
+  return 0;
+}
+
+static void echo_handler(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<EchoBodyCtx *>(arg);
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+  if (c && !c->body.empty()) {
+    xHttpCtxSend(ctx, c->body.data(), c->body.size());
   } else {
     const char *msg = "Hello HTTPS!";
-    xHttpResponseSend(w, msg, strlen(msg));
+    xHttpCtxSend(ctx, msg, strlen(msg));
   }
 }
 
 #if 0 /* disabled: server TLS streaming not yet supported */
-static void sse_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                        void *arg) {
-  (void)req;
+static void sse_handler(xHttpCtx *ctx, void *arg) {
   (void)arg;
-  xHttpResponseSetStatus(w, 200);
-  xHttpResponseSetHeader(w, "Content-Type", "text/event-stream");
-  xHttpResponseSetHeader(w, "Cache-Control", "no-cache");
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/event-stream");
+  xHttpCtxSetHeader(ctx, "Cache-Control", "no-cache");
 
   const char *ev1 = "data: hello-tls\n\n";
   const char *ev2 = "event: custom\ndata: world-tls\n\n";
-  xHttpResponseWrite(w, ev1, strlen(ev1));
-  xHttpResponseWrite(w, ev2, strlen(ev2));
-  xHttpResponseEnd(w);
+  xHttpCtxWrite(ctx, ev1, strlen(ev1));
+  xHttpCtxWrite(ctx, ev2, strlen(ev2));
 }
 #endif
 
@@ -230,6 +237,7 @@ class HttpsIntegrationTest : public ::testing::Test {
 protected:
   xEventLoop  server_loop = nullptr;
   xHttpServer server      = nullptr;
+  xHttpMux    mux         = nullptr;
   uint16_t    tls_port    = 0;
 
   std::string cert_path;
@@ -248,7 +256,16 @@ protected:
     server_loop = xEventLoopCreate();
     ASSERT_NE(server_loop, nullptr);
     xEventLoopEnter(server_loop);
-    server = xHttpServerCreate();
+
+    mux = xHttpMuxCreate();
+    ASSERT_NE(mux, nullptr);
+
+    xHttpServerConf sconf = {};
+    sconf.resolve         = xHttpMuxResolve;
+    sconf.router          = mux;
+    sconf.idle_timeout_ms = 60000;
+
+    server = xHttpServerCreate(&sconf);
     ASSERT_NE(server, nullptr);
     xEventLoopLeave();
 
@@ -275,20 +292,35 @@ protected:
   }
 
   void TearDown() override {
-    /* Give the server loop time to finish processing any pending events
-     * (e.g. TLS handshake failure cleanup) before stopping. */
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     stop_server_loop();
     if (client) xHttpClientDestroy(client);
-    /* Destroy server BEFORE loops — xHttpServerDestroy may stop timers
-     * that belong to the loop; destroying the loop first frees the timer pool. */
     if (server) xHttpServerDestroy(server);
+    if (mux) xHttpMuxDestroy(mux);
     xEventLoopLeave();
     if (client_loop) xEventLoopDestroy(client_loop);
     if (server_loop) xEventLoopDestroy(server_loop);
 
     unlink(cert_path.c_str());
     unlink(key_path.c_str());
+  }
+
+  void route(const char *pattern, xHttpDoneFunc on_done, void *arg = nullptr) {
+    xHttpRouteConf conf = {};
+    conf.pattern        = pattern;
+    conf.on_done        = on_done;
+    conf.arg            = arg;
+    ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
+  }
+
+  void route_with_data(const char *pattern, xHttpDataFunc on_data, xHttpDoneFunc on_done,
+                       void *arg) {
+    xHttpRouteConf conf = {};
+    conf.pattern        = pattern;
+    conf.on_data        = on_data;
+    conf.on_done        = on_done;
+    conf.arg            = arg;
+    ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
   }
 
   void start_server_loop() {
@@ -356,7 +388,7 @@ protected:
 /* ── HTTPS GET with skip_verify ────────────────────────────────────────── */
 
 TEST_F(HttpsIntegrationTest, GetWithSkipVerify) {
-  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
+  route("GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -380,7 +412,8 @@ TEST_F(HttpsIntegrationTest, GetWithSkipVerify) {
 /* ── HTTPS POST with skip_verify ───────────────────────────────────────── */
 
 TEST_F(HttpsIntegrationTest, PostWithSkipVerify) {
-  xHttpServerRoute(server, "POST /echo", echo_handler, nullptr);
+  EchoBodyCtx echo_ctx;
+  route_with_data("POST /echo", echo_on_data, echo_handler, &echo_ctx);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -408,7 +441,8 @@ TEST_F(HttpsIntegrationTest, PostWithSkipVerify) {
 /* ── HTTPS Do (generic) with custom headers ────────────────────────────── */
 
 TEST_F(HttpsIntegrationTest, DoWithCustomHeaders) {
-  xHttpServerRoute(server, "PUT /data", echo_handler, nullptr);
+  EchoBodyCtx echo_ctx;
+  route_with_data("PUT /data", echo_on_data, echo_handler, &echo_ctx);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -475,7 +509,7 @@ TEST_F(HttpsIntegrationTest, SseOverHttps) {
 
 /* ── HTTPS with correct CA path (no skip_verify) ────────────────────── */
 TEST_F(HttpsIntegrationTest, GetWithCorrectCaPath) {
-  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
+  route("GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
 
   /* Use the self-signed cert as CA — should pass verification */
@@ -501,7 +535,7 @@ TEST_F(HttpsIntegrationTest, GetWithCorrectCaPath) {
 /* ── HTTPS without skip_verify + self-signed cert → should fail ────────── */
 
 TEST_F(HttpsIntegrationTest, SelfSignedCertRejectedWithoutSkipVerify) {
-  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
+  route("GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
 
   /* Default TLS config: verify enabled, system CA bundle.
@@ -529,7 +563,7 @@ TEST_F(HttpsIntegrationTest, SelfSignedCertRejectedWithoutSkipVerify) {
 /* ── HTTPS with wrong CA path → should fail ────────────────────────────── */
 
 TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
-  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
+  route("GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
 
   /* Point to a non-existent CA file */
@@ -556,7 +590,7 @@ TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
 /* ── Multiple concurrent HTTPS requests ────────────────────────────────── */
 
 TEST_F(HttpsIntegrationTest, ConcurrentHttpsRequests) {
-  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
+  route("GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -612,6 +646,7 @@ class HttpsMtlsTest : public ::testing::Test {
 protected:
   xEventLoop  server_loop = nullptr;
   xHttpServer server      = nullptr;
+  xHttpMux    mux         = nullptr;
   uint16_t    tls_port    = 0;
 
   /* Server cert/key */
@@ -635,7 +670,15 @@ protected:
     server_loop = xEventLoopCreate();
     ASSERT_NE(server_loop, nullptr);
     xEventLoopEnter(server_loop);
-    server = xHttpServerCreate();
+
+    mux = xHttpMuxCreate();
+    ASSERT_NE(mux, nullptr);
+
+    xHttpServerConf sconf = {};
+    sconf.resolve         = xHttpMuxResolve;
+    sconf.router          = mux;
+    sconf.idle_timeout_ms = 60000;
+    server = xHttpServerCreate(&sconf);
     ASSERT_NE(server, nullptr);
     xEventLoopLeave();
 
@@ -709,6 +752,7 @@ protected:
     if (client) xHttpClientDestroy(client);
     /* Destroy server BEFORE loops — xHttpServerDestroy may stop timers */
     if (server) xHttpServerDestroy(server);
+    if (mux) xHttpMuxDestroy(mux);
     xEventLoopLeave();
     if (client_loop) xEventLoopDestroy(client_loop);
     if (server_loop) xEventLoopDestroy(server_loop);
@@ -718,6 +762,14 @@ protected:
     unlink(client_cert.c_str());
     unlink(client_key.c_str());
     unlink(ca_cert.c_str());
+  }
+
+  void route(const char *pattern, xHttpDoneFunc on_done, void *arg = nullptr) {
+    xHttpRouteConf conf = {};
+    conf.pattern        = pattern;
+    conf.on_done        = on_done;
+    conf.arg            = arg;
+    ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
   }
 
   void start_server_loop() {
@@ -737,7 +789,7 @@ protected:
 };
 
 TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
-  xHttpServerRoute(server, "GET /secure", echo_handler, nullptr);
+  route("GET /secure", echo_handler, nullptr);
 
   /* Server requires client certificate (verify_client = 2) */
   xTlsConf srv_conf = {};
@@ -779,7 +831,7 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
 }
 
 TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
-  xHttpServerRoute(server, "GET /secure", echo_handler, nullptr);
+  route("GET /secure", echo_handler, nullptr);
 
   /* Server requires client certificate */
   xTlsConf srv_conf = {};
@@ -884,7 +936,7 @@ TEST_F(HttpsIntegrationTest, DoSseOverHttps) {
 
 /* ── Destroy client with in-flight HTTPS request ────────────────────── */
 TEST_F(HttpsIntegrationTest, DestroyWithInflightHttpsRequest) {
-  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
+  route("GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -912,7 +964,7 @@ TEST_F(HttpsIntegrationTest, DestroyWithInflightHttpsRequest) {
 /* ── Reset TLS config between requests ─────────────────────────────────── */
 
 TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
-  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
+  route("GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
 
   /* First request: skip verify → should succeed */

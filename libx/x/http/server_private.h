@@ -24,12 +24,11 @@
 
 #define XHTTP_DEFAULT_IDLE_TIMEOUT_MS 60000
 #define XHTTP_DEFAULT_MAX_HEADER_SIZE 8192
-#define XHTTP_DEFAULT_MAX_BODY_SIZE   1048576
 
 /* Maximum number of iovec entries for writev */
 #define XHTTP_MAX_IOV 64
 
-/* ───────────────────── Route segment ───────────────────── */
+/* ───────────────────── Route segment (mux) ───────────────────── */
 
 /**
  * A single segment of a route pattern, e.g. for "/users/:id/posts":
@@ -42,16 +41,22 @@ XDEF_STRUCT(xHttpRouteSegment_) {
   const char *param; /**< Param name (e.g. "id"), or NULL for static */
 };
 
-/* ───────────────────── Route entry ───────────────────── */
+/* ───────────────────── Mux route entry ───────────────────── */
 
-XDEF_STRUCT(xHttpRoute_) {
-  const char                *method;        /**< HTTP method, or NULL for any method */
-  const char                *path;          /**< Original pattern string             */
-  struct xHttpRouteSegment_ *segments;      /**< Pre-parsed segments             */
-  int                        segment_count; /**< Number of segments               */
-  xHttpHandlerFunc           handler;       /**< Handler callback                    */
-  void                      *arg;           /**< User argument for handler           */
-  struct xHttpRoute_        *next;          /**< Next route in the linked list       */
+XDEF_STRUCT(xHttpMuxRoute_) {
+  const char                *method;        /**< HTTP method, or NULL for any */
+  const char                *path;          /**< Original pattern path         */
+  struct xHttpRouteSegment_ *segments;      /**< Pre-parsed segments           */
+  int                        segment_count; /**< Number of segments            */
+  xHttpRouteInfo             info;          /**< on_request/on_data/on_done/arg */
+  struct xHttpMuxRoute_     *next;          /**< Next route in linked list     */
+};
+
+/* ───────────────────── Mux ───────────────────── */
+
+XDEF_STRUCT(xHttpMux_) {
+  struct xHttpMuxRoute_ *routes;      /**< Head of route linked list */
+  struct xHttpMuxRoute_ *routes_tail; /**< Tail for O(1) append      */
 };
 
 /* ───────────────────── Route param entry (matched) ───────────────────── */
@@ -90,10 +95,6 @@ XDEF_STRUCT(xHttpResponseWriter_) {
 
 /* ───────────────────── Protocol handler vtable ───────────────────── */
 
-/**
- * Abstract protocol handler interface (vtable).
- * Allows transparent switching between HTTP/1.1 (llhttp) and HTTP/2 (nghttp2).
- */
 XDEF_STRUCT(xHttpProto) {
   /* Data ingestion */
   int (*on_data)(struct xHttpConn_ *conn, const char *buf, size_t len);
@@ -113,11 +114,6 @@ XDEF_STRUCT(xHttpProto) {
 
 /* ───────────────────── Stream (per-request state) ───────────────────── */
 
-/**
- * Represents a single HTTP request/response exchange.
- * HTTP/1.1: one implicit stream per connection (stream_id = 0).
- * HTTP/2:   multiple concurrent streams per connection.
- */
 XDEF_STRUCT(xHttpStream_) {
   struct xHttpConn_ *conn;      /**< Back-pointer to the connection   */
   int32_t            stream_id; /**< Stream ID (0 for H1)             */
@@ -126,11 +122,22 @@ XDEF_STRUCT(xHttpStream_) {
   xBuffer url;          /**< Parsed URL                       */
   xBuffer header_field; /**< Current header field being parsed*/
   xBuffer headers_raw;  /**< Accumulated raw headers          */
-  xBuffer body;         /**< Accumulated body                 */
   size_t  header_bytes; /**< Total header bytes received      */
 
   /* Response writer for this stream */
   struct xHttpResponseWriter_ writer;
+
+  /* Route resolution state (set during headers-complete) */
+  const xHttpRouteInfo *route_info;      /**< Matched route (NULL if 404)  */
+  int                   on_request_done; /**< on_request has been called   */
+  int                   request_aborted; /**< on_request returned non-0    */
+
+  /* Route params (filled by mux resolver) */
+  struct xHttpParam_ params[XHTTP_MAX_PARAMS + 1]; /**< +1 sentinel */
+  int                param_count;
+
+  /* Per-request context (built from stream state, passed to callbacks) */
+  xHttpCtx ctx;
 
   /* Stream state */
   int         request_complete;     /**< Request fully parsed          */
@@ -181,9 +188,9 @@ XDEF_STRUCT(xHttpServer_) {
   int     tls_listen_fd;   /**< TLS listening socket fd (raw)     */
   xTlsCtx tls_ctx;         /**< TLS context from xTlsCtxCreate()  */
 
-  /* Routes */
-  struct xHttpRoute_ *routes;      /**< Head of route linked list         */
-  struct xHttpRoute_ *routes_tail; /**< Tail for O(1) append              */
+  /* Resolver */
+  xHttpResolveFunc resolve; /**< Route resolver (may be NULL)     */
+  void            *router;  /**< Opaque router passed to resolve   */
 
   /* Active connections (doubly-linked list) */
   struct xHttpConn_ *conns; /**< Head of active connection list    */
@@ -194,7 +201,6 @@ XDEF_STRUCT(xHttpServer_) {
   /* Configuration */
   int    idle_timeout_ms;
   size_t max_header_size;
-  size_t max_body_size;
 
   /* Auxiliary data (set by convenience wrappers like xWsServe) */
   void *aux_data;
@@ -213,6 +219,9 @@ void xHttpConnClose(struct xHttpConn_ *conn);
 void xHttpConnResetParser(struct xHttpConn_ *conn);
 void xHttpConnDispatchRequest(struct xHttpConn_ *conn);
 
+/* Resolve route for a stream (called after headers-complete) */
+void xHttpStreamResolve(struct xHttpStream_ *stream);
+
 /* Response helpers (server.c) */
 void xHttpConnSendError(struct xHttpConn_ *conn, int status_code, const char *reason);
 void xHttpConnFlushWrite(struct xHttpConn_ *conn);
@@ -226,5 +235,11 @@ void xHttpConnHijack(struct xHttpConn_ *conn);
 
 /* Internal flush helper (returns 1 if connection was closed) */
 int xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
+
+/* Route parsing helpers (used by mux) */
+int  xHttpRouteParseSegments_(const char *path, struct xHttpRouteSegment_ **out);
+void xHttpRouteFreeSegments_(struct xHttpRouteSegment_ *segs, int count);
+int  xHttpRouteMatch_(const struct xHttpRouteSegment_ *segments, int segment_count,
+                      const char *url, struct xHttpParam_ *params, int *param_count);
 
 #endif /* XHTTP_SERVER_PRIVATE_H */

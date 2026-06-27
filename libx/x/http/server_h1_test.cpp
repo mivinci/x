@@ -15,7 +15,8 @@ TEST(HttpServerLifecycle, CreateAndDestroy) {
   ASSERT_NE(loop, nullptr);
   xEventLoopEnter(loop);
 
-  xHttpServer s = xHttpServerCreate();
+  xHttpServerConf conf = {};
+  xHttpServer s = xHttpServerCreate(&conf);
   ASSERT_NE(s, nullptr);
 
   xHttpServerDestroy(s);
@@ -24,15 +25,13 @@ TEST(HttpServerLifecycle, CreateAndDestroy) {
 }
 
 TEST(HttpServerLifecycle, CreateWithoutEnteringLoopSucceeds) {
-  /* With the new API, xHttpServerCreate() uses xEventLoopCurrent(),
-   * which falls back to the global loop when no loop is entered.
-   * Creation should succeed (no crash). */
-  xHttpServer s = xHttpServerCreate();
+  xHttpServerConf conf = {};
+  xHttpServer s = xHttpServerCreate(&conf);
   (void)s;
 }
 
 TEST(HttpServerLifecycle, DestroyNullIsNoop) {
-  xHttpServerDestroy(nullptr); /* should not crash */
+  xHttpServerDestroy(nullptr);
 }
 
 /* ───────────────────── Listen tests ───────────────────── */
@@ -54,64 +53,29 @@ TEST_F(HttpServerTest, ListenInvalidHostReturnsError) {
 
 /* ───────────────────── Configuration tests ───────────────────── */
 
-TEST_F(HttpServerTest, SetIdleTimeout) {
-  EXPECT_EQ(xHttpServerSetIdleTimeout(server, 5000), xErrno_Ok);
-  EXPECT_EQ(xHttpServerSetIdleTimeout(server, -1), xErrno_InvalidArg);
-  EXPECT_EQ(xHttpServerSetIdleTimeout(server, 0), xErrno_InvalidArg);
-  EXPECT_EQ(xHttpServerSetIdleTimeout(nullptr, 5000), xErrno_InvalidArg);
-}
-
 TEST_F(HttpServerTest, SetMaxHeaderSize) {
   EXPECT_EQ(xHttpServerSetMaxHeaderSize(server, 4096), xErrno_Ok);
   EXPECT_EQ(xHttpServerSetMaxHeaderSize(server, 0), xErrno_InvalidArg);
   EXPECT_EQ(xHttpServerSetMaxHeaderSize(nullptr, 4096), xErrno_InvalidArg);
 }
 
-TEST_F(HttpServerTest, SetMaxBodySize) {
-  EXPECT_EQ(xHttpServerSetMaxBodySize(server, 2048), xErrno_Ok);
-  EXPECT_EQ(xHttpServerSetMaxBodySize(server, 0), xErrno_InvalidArg);
-  EXPECT_EQ(xHttpServerSetMaxBodySize(nullptr, 2048), xErrno_InvalidArg);
-}
-
-/* ───────────────────── Route registration tests ───────────────────── */
-
-static void dummy_handler(xHttpResponseWriter, const xHttpRequest *, void *) {}
-
-TEST_F(HttpServerTest, RouteRegistration) {
-  EXPECT_EQ(xHttpServerRoute(server, "GET /test", dummy_handler, nullptr), xErrno_Ok);
-  EXPECT_EQ(xHttpServerRoute(server, "/any", dummy_handler, nullptr), xErrno_Ok);
-}
-
-TEST_F(HttpServerTest, RouteNullPathReturnsError) {
-  EXPECT_EQ(xHttpServerRoute(server, nullptr, dummy_handler, nullptr), xErrno_InvalidArg);
-}
-
-TEST_F(HttpServerTest, RouteNullHandlerReturnsError) {
-  EXPECT_EQ(xHttpServerRoute(server, "GET /test", nullptr, nullptr), xErrno_InvalidArg);
-}
-
-TEST_F(HttpServerTest, RouteNullServerReturnsError) {
-  EXPECT_EQ(xHttpServerRoute(nullptr, "GET /test", dummy_handler, nullptr), xErrno_InvalidArg);
-}
-
 /* ───────────────────── Basic GET request ───────────────────── */
 
-static void echo_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
-  auto *ctx        = static_cast<HandlerCtx *>(arg);
-  ctx->last_method = req->method;
-  ctx->last_url    = req->url;
-  if (req->body && req->body_len > 0) ctx->last_body.assign(req->body, req->body_len);
-  ctx->call_count.fetch_add(1, std::memory_order_release);
+static void echo_handler(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<HandlerCtx *>(arg);
+  c->last_method = ctx->method;
+  c->last_url    = ctx->url;
+  c->call_count.fetch_add(1, std::memory_order_release);
 
   const char *body = "Hello, World!";
-  xHttpResponseSetStatus(writer, 200);
-  xHttpResponseSetHeader(writer, "Content-Type", "text/plain");
-  xHttpResponseSend(writer, body, strlen(body));
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+  xHttpCtxSend(ctx, body, strlen(body));
 }
 
 TEST_F(HttpServerTest, BasicGetRequest) {
   HandlerCtx ctx;
-  xHttpServerRoute(server, "GET /hello", echo_handler, &ctx);
+  route("GET /hello", echo_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -129,7 +93,6 @@ TEST_F(HttpServerTest, BasicGetRequest) {
   EXPECT_EQ(ctx.last_method, "GET");
   EXPECT_EQ(ctx.last_url, "/hello");
 
-  /* Verify response contains expected parts */
   EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
   EXPECT_NE(response.find("Content-Type: text/plain"), std::string::npos);
   EXPECT_NE(response.find("Hello, World!"), std::string::npos);
@@ -137,21 +100,37 @@ TEST_F(HttpServerTest, BasicGetRequest) {
 
 /* ───────────────────── POST request with body ───────────────────── */
 
-static void body_echo_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
-  auto *ctx        = static_cast<HandlerCtx *>(arg);
-  ctx->last_method = req->method;
-  ctx->last_url    = req->url;
-  if (req->body && req->body_len > 0) ctx->last_body.assign(req->body, req->body_len);
-  ctx->call_count.fetch_add(1, std::memory_order_release);
+struct BodyEchoCtx {
+  std::atomic<int> call_count{0};
+  std::string      last_method;
+  std::string      last_url;
+  std::string      body;
+};
 
-  /* Echo the body back */
-  xHttpResponseSetStatus(writer, 200);
-  xHttpResponseSend(writer, req->body, req->body_len);
+static int echo_body_on_data(const char *data, size_t len, void *arg) {
+  auto *c = static_cast<BodyEchoCtx *>(arg);
+  c->body.append(data, len);
+  return 0;
+}
+
+static void echo_body_on_done(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<BodyEchoCtx *>(arg);
+  c->last_method = ctx->method;
+  c->last_url    = ctx->url;
+  c->call_count.fetch_add(1, std::memory_order_release);
+
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSend(ctx, c->body.data(), c->body.size());
 }
 
 TEST_F(HttpServerTest, PostRequestWithBody) {
-  HandlerCtx ctx;
-  xHttpServerRoute(server, "POST /echo", body_echo_handler, &ctx);
+  BodyEchoCtx ctx;
+  xHttpRouteConf conf = {};
+  conf.pattern        = "POST /echo";
+  conf.on_data        = echo_body_on_data;
+  conf.on_done        = echo_body_on_done;
+  conf.arg            = &ctx;
+  ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -174,15 +153,17 @@ TEST_F(HttpServerTest, PostRequestWithBody) {
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_EQ(ctx.last_method, "POST");
-  EXPECT_EQ(ctx.last_body, body);
+  EXPECT_EQ(ctx.body, body);
   EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
   EXPECT_NE(response.find(body), std::string::npos);
 }
 
 /* ───────────────────── 404 Not Found ───────────────────── */
 
+static void dummy_handler(xHttpCtx *, void *) {}
+
 TEST_F(HttpServerTest, NotFoundResponse) {
-  xHttpServerRoute(server, "GET /exists", dummy_handler, nullptr);
+  route("GET /exists", dummy_handler);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -203,7 +184,7 @@ TEST_F(HttpServerTest, NotFoundResponse) {
 /* ───────────────────── 405 Method Not Allowed ───────────────────── */
 
 TEST_F(HttpServerTest, MethodNotAllowedResponse) {
-  xHttpServerRoute(server, "GET /only-get", dummy_handler, nullptr);
+  route("GET /only-get", dummy_handler);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -226,14 +207,12 @@ TEST_F(HttpServerTest, MethodNotAllowedResponse) {
 
 TEST_F(HttpServerTest, KeepAliveConnectionReuse) {
   HandlerCtx ctx;
-  xHttpServerSetIdleTimeout(server, 60000);
-  xHttpServerRoute(server, "GET /ka", echo_handler, &ctx);
+  route("GET /ka", echo_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
-  /* Send first request */
   std::string req1 = "GET /ka HTTP/1.1\r\nHost: localhost\r\n\r\n";
   ASSERT_TRUE(send_str(fd, req1));
   run_for(loop, 100);
@@ -242,7 +221,6 @@ TEST_F(HttpServerTest, KeepAliveConnectionReuse) {
   EXPECT_NE(resp1.find("HTTP/1.1 200 OK"), std::string::npos);
   EXPECT_EQ(ctx.call_count.load(), 1);
 
-  /* Send second request on the same connection */
   std::string req2 = "GET /ka HTTP/1.1\r\nHost: localhost\r\n\r\n";
   ASSERT_TRUE(send_str(fd, req2));
   run_for(loop, 100);
@@ -257,11 +235,7 @@ TEST_F(HttpServerTest, KeepAliveConnectionReuse) {
 /* ───────────────────── Default 200 OK when handler doesn't respond ──── */
 
 TEST_F(HttpServerTest, DefaultResponseWhenHandlerDoesNotSend) {
-  auto noop_handler = [](xHttpResponseWriter, const xHttpRequest *, void *) {
-    /* Handler does nothing — server should auto-send 200 OK */
-  };
-
-  xHttpServerRoute(server, "GET /noop", (xHttpHandlerFunc)noop_handler, nullptr);
+  route("GET /noop", dummy_handler);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -282,13 +256,12 @@ TEST_F(HttpServerTest, DefaultResponseWhenHandlerDoesNotSend) {
 /* ───────────────────── Bad request (parse error) ───────────────────── */
 
 TEST_F(HttpServerTest, BadRequestOnParseError) {
-  xHttpServerRoute(server, "GET /test", dummy_handler, nullptr);
+  route("GET /test", dummy_handler);
   listen_and_pump();
 
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
-  /* Send malformed HTTP */
   std::string request = "INVALID GARBAGE\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
 
@@ -304,13 +277,12 @@ TEST_F(HttpServerTest, BadRequestOnParseError) {
 
 TEST_F(HttpServerTest, HeaderTooLargeReturns431) {
   xHttpServerSetMaxHeaderSize(server, 128);
-  xHttpServerRoute(server, "GET /test", dummy_handler, nullptr);
+  route("GET /test", dummy_handler);
   listen_and_pump();
 
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
-  /* Build a request with a very large header */
   std::string large_header(256, 'X');
   std::string request = "GET /test HTTP/1.1\r\n"
                         "Host: localhost\r\n"
@@ -328,61 +300,29 @@ TEST_F(HttpServerTest, HeaderTooLargeReturns431) {
   EXPECT_NE(response.find("431"), std::string::npos);
 }
 
-/* ───────────────────── Body too large → 413 ───────────────────── */
-
-TEST_F(HttpServerTest, BodyTooLargeReturns413) {
-  xHttpServerSetMaxBodySize(server, 32);
-  xHttpServerRoute(server, "POST /test", dummy_handler, nullptr);
-  listen_and_pump();
-
-  int fd = connect_to(port);
-  ASSERT_GE(fd, 0);
-
-  std::string body(64, 'A');
-  std::string request = "POST /test HTTP/1.1\r\n"
-                        "Host: localhost\r\n"
-                        "Content-Length: " +
-                        std::to_string(body.size()) +
-                        "\r\n"
-                        "Connection: close\r\n\r\n" +
-                        body;
-  ASSERT_TRUE(send_str(fd, request));
-
-  run_for(loop, 100);
-
-  std::string response = recv_all(fd);
-  close(fd);
-
-  EXPECT_NE(response.find("413"), std::string::npos);
-}
-
 /* ───────────────────── Client disconnect (half-close) ───────────────────── */
 
 TEST_F(HttpServerTest, ClientDisconnectDoesNotCrash) {
-  xHttpServerRoute(server, "GET /test", dummy_handler, nullptr);
+  route("GET /test", dummy_handler);
   listen_and_pump();
 
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
-  /* Send partial request and close immediately */
   std::string partial = "GET /test HTTP/1.1\r\nHost: lo";
   send_str(fd, partial);
   close(fd);
 
-  /* Pump to process the disconnect — should not crash */
   run_for(loop, 100);
 }
 
-/* ───────────────────── NULL method matches all methods ─────────────────────
- */
+/* ───────────────────── NULL method matches all methods ───────────────────── */
 
 TEST_F(HttpServerTest, NullMethodMatchesAll) {
   HandlerCtx ctx;
-  xHttpServerRoute(server, "/any", echo_handler, &ctx);
+  route("/any", echo_handler, &ctx);
   listen_and_pump();
 
-  /* Test with GET */
   {
     int fd = connect_to(port);
     ASSERT_GE(fd, 0);
@@ -395,7 +335,6 @@ TEST_F(HttpServerTest, NullMethodMatchesAll) {
     EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
   }
 
-  /* Test with POST */
   {
     int fd = connect_to(port);
     ASSERT_GE(fd, 0);
@@ -412,45 +351,40 @@ TEST_F(HttpServerTest, NullMethodMatchesAll) {
   EXPECT_EQ(ctx.call_count.load(), 2);
 }
 
-/* ───────────────────── Destroy with active connections ─────────────────────
- */
+/* ───────────────────── Destroy with active connections ───────────────────── */
 
 TEST_F(HttpServerTest, DestroyWithActiveConnections) {
-  xHttpServerRoute(server, "GET /test", dummy_handler, nullptr);
+  route("GET /test", dummy_handler);
   listen_and_pump();
 
-  /* Open a connection but don't send anything */
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   run_for(loop, 50);
 
-  /* Destroy server while connection is active — should not crash */
   xHttpServerDestroy(server);
-  server = nullptr; /* prevent double-destroy in TearDown */
+  server = nullptr;
 
   close(fd);
 }
 
-/* ───────────────────── Streaming response (xHttpResponseWrite) ───────── */
+/* ───────────────────── Streaming response (xHttpCtxWrite) ───────── */
 
-static void stream_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
-  (void)req;
-  auto *ctx = static_cast<HandlerCtx *>(arg);
-  ctx->call_count.fetch_add(1, std::memory_order_release);
+static void stream_handler(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<HandlerCtx *>(arg);
+  c->call_count.fetch_add(1, std::memory_order_release);
 
-  xHttpResponseSetStatus(writer, 200);
-  xHttpResponseSetHeader(writer, "Content-Type", "text/event-stream");
-  xHttpResponseSetHeader(writer, "Cache-Control", "no-cache");
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/event-stream");
+  xHttpCtxSetHeader(ctx, "Cache-Control", "no-cache");
 
-  xHttpResponseWrite(writer, "data: hello\n\n", 13);
-  xHttpResponseWrite(writer, "data: world\n\n", 13);
-  xHttpResponseEnd(writer);
+  xHttpCtxWrite(ctx, "data: hello\n\n", 13);
+  xHttpCtxWrite(ctx, "data: world\n\n", 13);
 }
 
 TEST_F(HttpServerTest, StreamingResponse) {
   HandlerCtx ctx;
-  xHttpServerRoute(server, "GET /stream", stream_handler, &ctx);
+  route("GET /stream", stream_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -470,26 +404,23 @@ TEST_F(HttpServerTest, StreamingResponse) {
   EXPECT_NE(response.find("Connection: close"), std::string::npos);
   EXPECT_NE(response.find("data: hello"), std::string::npos);
   EXPECT_NE(response.find("data: world"), std::string::npos);
-  /* Streaming responses should NOT have Content-Length */
   EXPECT_EQ(response.find("Content-Length"), std::string::npos);
 }
 
 /* ───────────────────── Streaming auto-end on handler return ─────────── */
 
-static void stream_no_end_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
-  (void)req;
-  auto *ctx = static_cast<HandlerCtx *>(arg);
-  ctx->call_count.fetch_add(1, std::memory_order_release);
+static void stream_no_end_handler(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<HandlerCtx *>(arg);
+  c->call_count.fetch_add(1, std::memory_order_release);
 
-  xHttpResponseSetHeader(writer, "Content-Type", "text/plain");
-  xHttpResponseWrite(writer, "chunk1", 6);
-  xHttpResponseWrite(writer, "chunk2", 6);
-  /* No xHttpResponseEnd() — should be auto-ended */
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+  xHttpCtxWrite(ctx, "chunk1", 6);
+  xHttpCtxWrite(ctx, "chunk2", 6);
 }
 
 TEST_F(HttpServerTest, StreamingAutoEnd) {
   HandlerCtx ctx;
-  xHttpServerRoute(server, "GET /stream-auto", stream_no_end_handler, &ctx);
+  route("GET /stream-auto", stream_no_end_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -511,22 +442,17 @@ TEST_F(HttpServerTest, StreamingAutoEnd) {
 
 /* ───────────────────── Write and Send are mutually exclusive ─────────── */
 
-static void write_then_send_handler(xHttpResponseWriter writer, const xHttpRequest *req,
-                                    void *arg) {
-  (void)req;
-  (void)arg;
-  xHttpResponseWrite(writer, "data", 4);
-  /* Send after Write should fail */
-  xErrno err = xHttpResponseSend(writer, "body", 4);
-  auto  *ctx = static_cast<HandlerCtx *>(arg);
-  /* Store the error in last_body for verification */
-  ctx->last_body = (err == xErrno_InvalidState) ? "InvalidState" : "Other";
-  ctx->call_count.fetch_add(1, std::memory_order_release);
+static void write_then_send_handler(xHttpCtx *ctx, void *arg) {
+  xHttpCtxWrite(ctx, "data", 4);
+  xErrno err = xHttpCtxSend(ctx, "body", 4);
+  auto  *c = static_cast<HandlerCtx *>(arg);
+  c->last_body = (err == xErrno_InvalidState) ? "InvalidState" : "Other";
+  c->call_count.fetch_add(1, std::memory_order_release);
 }
 
 TEST_F(HttpServerTest, WriteAndSendMutuallyExclusive) {
   HandlerCtx ctx;
-  xHttpServerRoute(server, "GET /mix", write_then_send_handler, &ctx);
+  route("GET /mix", write_then_send_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -546,24 +472,24 @@ TEST_F(HttpServerTest, WriteAndSendMutuallyExclusive) {
 
 /* ───────────────────── Parameterized route: /users/:id ───────────────── */
 
-static void param_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
-  auto *ctx = static_cast<ParamHandlerCtx *>(arg);
-  ctx->call_count.fetch_add(1, std::memory_order_release);
+static void param_handler(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<ParamHandlerCtx *>(arg);
+  c->call_count.fetch_add(1, std::memory_order_release);
 
   size_t      len = 0;
-  const char *id  = xHttpRequestParam(req, "id", &len);
-  if (id && len > 0) ctx->param_id.assign(id, len);
+  const char *id  = xHttpCtxParam(ctx, "id", &len);
+  if (id && len > 0) c->param_id.assign(id, len);
 
   char body[128];
-  int  blen = snprintf(body, sizeof(body), "id=%s", ctx->param_id.c_str());
-  xHttpResponseSetStatus(writer, 200);
-  xHttpResponseSetHeader(writer, "Content-Type", "text/plain");
-  xHttpResponseSend(writer, body, (size_t)blen);
+  int  blen = snprintf(body, sizeof(body), "id=%s", c->param_id.c_str());
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+  xHttpCtxSend(ctx, body, (size_t)blen);
 }
 
 TEST_F(HttpServerTest, ParamRouteBasic) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET /users/:id", param_handler, &ctx);
+  route("GET /users/:id", param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -585,7 +511,7 @@ TEST_F(HttpServerTest, ParamRouteBasic) {
 
 TEST_F(HttpServerTest, ParamRouteStringId) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET /users/:id", param_handler, &ctx);
+  route("GET /users/:id", param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -606,26 +532,26 @@ TEST_F(HttpServerTest, ParamRouteStringId) {
 
 /* ───────────────────── Multiple params: /users/:id/posts/:pid ────────── */
 
-static void multi_param_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
-  auto *ctx = static_cast<ParamHandlerCtx *>(arg);
-  ctx->call_count.fetch_add(1, std::memory_order_release);
+static void multi_param_handler(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<ParamHandlerCtx *>(arg);
+  c->call_count.fetch_add(1, std::memory_order_release);
 
   size_t      id_len = 0, action_len = 0;
-  const char *id     = xHttpRequestParam(req, "id", &id_len);
-  const char *action = xHttpRequestParam(req, "action", &action_len);
-  if (id && id_len > 0) ctx->param_id.assign(id, id_len);
-  if (action && action_len > 0) ctx->param_action.assign(action, action_len);
+  const char *id     = xHttpCtxParam(ctx, "id", &id_len);
+  const char *action = xHttpCtxParam(ctx, "action", &action_len);
+  if (id && id_len > 0) c->param_id.assign(id, id_len);
+  if (action && action_len > 0) c->param_action.assign(action, action_len);
 
   char body[256];
-  int  blen = snprintf(body, sizeof(body), "id=%s,action=%s", ctx->param_id.c_str(),
-                       ctx->param_action.c_str());
-  xHttpResponseSetStatus(writer, 200);
-  xHttpResponseSend(writer, body, (size_t)blen);
+  int  blen = snprintf(body, sizeof(body), "id=%s,action=%s", c->param_id.c_str(),
+                       c->param_action.c_str());
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSend(ctx, body, (size_t)blen);
 }
 
 TEST_F(HttpServerTest, ParamRouteMultipleParams) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET /users/:id/:action", multi_param_handler, &ctx);
+  route("GET /users/:id/:action", multi_param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -649,13 +575,12 @@ TEST_F(HttpServerTest, ParamRouteMultipleParams) {
 
 TEST_F(HttpServerTest, ParamRouteExtraSegments404) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET /users/:id", param_handler, &ctx);
+  route("GET /users/:id", param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
-  /* /users/42/extra should NOT match /users/:id */
   std::string request = "GET /users/42/extra HTTP/1.1\r\nHost: localhost\r\n"
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
@@ -670,20 +595,20 @@ TEST_F(HttpServerTest, ParamRouteExtraSegments404) {
 
 /* ───────────────────── Param route: missing param returns NULL ───────── */
 
-static void missing_param_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
-  auto *ctx = static_cast<ParamHandlerCtx *>(arg);
-  ctx->call_count.fetch_add(1, std::memory_order_release);
+static void missing_param_handler(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<ParamHandlerCtx *>(arg);
+  c->call_count.fetch_add(1, std::memory_order_release);
 
   size_t      len = 0;
-  const char *val = xHttpRequestParam(req, "nonexistent", &len);
-  ctx->param_id   = val ? "found" : "null";
+  const char *val = xHttpCtxParam(ctx, "nonexistent", &len);
+  c->param_id   = val ? "found" : "null";
 
-  xHttpResponseSend(writer, "ok", 2);
+  xHttpCtxSend(ctx, "ok", 2);
 }
 
 TEST_F(HttpServerTest, ParamRouteNonexistentParam) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET /items/:id", missing_param_handler, &ctx);
+  route("GET /items/:id", missing_param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -707,12 +632,22 @@ TEST_F(HttpServerTest, StaticRoutePriorityOverParam) {
   HandlerCtx      static_ctx;
   ParamHandlerCtx param_ctx;
 
-  /* Register static route first (first match wins) */
-  xHttpServerRoute(server, "GET /users/me", echo_handler, &static_ctx);
-  xHttpServerRoute(server, "GET /users/:id", param_handler, &param_ctx);
+  {
+    xHttpRouteConf conf = {};
+    conf.pattern        = "GET /users/me";
+    conf.on_done        = echo_handler;
+    conf.arg            = &static_ctx;
+    ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
+  }
+  {
+    xHttpRouteConf conf = {};
+    conf.pattern        = "GET /users/:id";
+    conf.on_done        = param_handler;
+    conf.arg            = &param_ctx;
+    ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
+  }
   listen_and_pump();
 
-  /* /users/me should match the static route */
   {
     int fd = connect_to(port);
     ASSERT_GE(fd, 0);
@@ -726,7 +661,6 @@ TEST_F(HttpServerTest, StaticRoutePriorityOverParam) {
     EXPECT_EQ(param_ctx.call_count.load(), 0);
   }
 
-  /* /users/42 should match the param route */
   {
     int fd = connect_to(port);
     ASSERT_GE(fd, 0);
@@ -745,13 +679,12 @@ TEST_F(HttpServerTest, StaticRoutePriorityOverParam) {
 
 TEST_F(HttpServerTest, ParamRouteMethodNotAllowed) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET /items/:id", param_handler, &ctx);
+  route("GET /items/:id", param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
-  /* POST to a GET-only param route should be 405 */
   std::string request = "POST /items/5 HTTP/1.1\r\nHost: localhost\r\n"
                         "Content-Length: 0\r\n"
                         "Connection: close\r\n\r\n";
@@ -768,33 +701,29 @@ TEST_F(HttpServerTest, ParamRouteMethodNotAllowed) {
 /* ───────────────────── Deferred response ──────────────────────────────── */
 
 struct DeferCtx {
-  std::atomic<int>     call_count{0};
-  xHttpResponseWriter  stored_writer{nullptr};
-  std::atomic<bool>    send_done{false};
-  std::string          response_body;
+  std::atomic<int>  call_count{0};
+  xHttpCtx         *stored_ctx{nullptr};
+  std::atomic<bool> send_done{false};
+  std::string       response_body;
 };
 
-static void defer_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
-  (void)req;
-  DeferCtx *ctx = (DeferCtx *)arg;
-  ctx->call_count.fetch_add(1);
+static void defer_handler(xHttpCtx *ctx, void *arg) {
+  DeferCtx *c = (DeferCtx *)arg;
+  c->call_count.fetch_add(1);
 
-  xHttpResponseSetStatus(writer, 200);
-  xHttpResponseSetHeader(writer, "Content-Type", "text/plain");
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
 
-  /* Defer: keep connection alive, send response later */
-  xHttpResponseDefer(writer);
-  ctx->stored_writer = writer;
+  xHttpCtxDefer(ctx);
+  c->stored_ctx = ctx;
 }
 
-/* Simulate: call xHttpResponseSend + xHttpConnResume from a channel-like callback */
-static void deferred_send_and_resume(DeferCtx *ctx) {
-  if (ctx->stored_writer) {
-    xHttpResponseSend(ctx->stored_writer, ctx->response_body.c_str(),
-                      ctx->response_body.size());
-    xHttpConnResume(ctx->stored_writer);
-    ctx->stored_writer = nullptr;
-    ctx->send_done.store(true);
+static void deferred_send_and_resume(DeferCtx *c) {
+  if (c->stored_ctx) {
+    xHttpCtxSend(c->stored_ctx, c->response_body.c_str(), c->response_body.size());
+    xHttpCtxResume(c->stored_ctx);
+    c->stored_ctx = nullptr;
+    c->send_done.store(true);
   }
 }
 
@@ -802,40 +731,31 @@ TEST_F(HttpServerTest, DeferredResponseSendAndResume) {
   DeferCtx ctx;
   ctx.response_body = "hello from deferred";
 
-  /* Avoid read timeout firing while response is deferred */
-  xHttpServerSetIdleTimeout(server, 60000);
-
-  xHttpServerRoute(server, "GET /deferred", defer_handler, &ctx);
+  route("GET /deferred", defer_handler, &ctx);
   listen_and_pump();
 
-  /* Send request */
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   std::string request = "GET /deferred HTTP/1.1\r\nHost: localhost\r\n"
                         "Connection: close\r\n\r\n";
   ASSERT_TRUE(send_str(fd, request));
 
-  /* Pump — handler should have been called and deferred */
   run_for(loop, 50);
   EXPECT_EQ(ctx.call_count.load(), 1);
-  EXPECT_NE(ctx.stored_writer, nullptr);
+  EXPECT_NE(ctx.stored_ctx, nullptr);
   EXPECT_FALSE(ctx.send_done.load());
 
-  /* Verify no response has been sent yet (connection still open) */
   {
     char buf[64];
     ssize_t n = recv(fd, buf, sizeof(buf) - 1, MSG_DONTWAIT);
     EXPECT_LT(n, 0) << "Expected no data yet, got: " << std::string(buf, n > 0 ? n : 0);
   }
 
-  /* Now send the response via the deferred path */
   deferred_send_and_resume(&ctx);
   EXPECT_TRUE(ctx.send_done.load());
 
-  /* Pump to flush */
   run_for(loop, 50);
 
-  /* Read the response */
   std::string response = recv_all(fd);
   close(fd);
 
@@ -849,13 +769,10 @@ TEST_F(HttpServerTest, DeferredResponseMultipleConcurrent) {
   ctx_a.response_body = "response A";
   ctx_b.response_body = "response B";
 
-  xHttpServerSetIdleTimeout(server, 60000);
-
-  xHttpServerRoute(server, "GET /a", defer_handler, &ctx_a);
-  xHttpServerRoute(server, "GET /b", defer_handler, &ctx_b);
+  route("GET /a", defer_handler, &ctx_a);
+  route("GET /b", defer_handler, &ctx_b);
   listen_and_pump();
 
-  /* Send two concurrent requests */
   int fd_a = connect_to(port);
   ASSERT_GE(fd_a, 0);
   int fd_b = connect_to(port);
@@ -868,14 +785,12 @@ TEST_F(HttpServerTest, DeferredResponseMultipleConcurrent) {
   ASSERT_TRUE(send_str(fd_a, req_a));
   ASSERT_TRUE(send_str(fd_b, req_b));
 
-  /* Both handlers should fire and defer */
   run_for(loop, 100);
   EXPECT_EQ(ctx_a.call_count.load(), 1);
   EXPECT_EQ(ctx_b.call_count.load(), 1);
-  EXPECT_NE(ctx_a.stored_writer, nullptr);
-  EXPECT_NE(ctx_b.stored_writer, nullptr);
+  EXPECT_NE(ctx_a.stored_ctx, nullptr);
+  EXPECT_NE(ctx_b.stored_ctx, nullptr);
 
-  /* Send both responses (simulating async download completion) */
   deferred_send_and_resume(&ctx_a);
   deferred_send_and_resume(&ctx_b);
 
@@ -896,7 +811,7 @@ TEST_F(HttpServerTest, DeferredResponseWithoutResumeNoResponse) {
   DeferCtx ctx;
   ctx.response_body = "never sent";
 
-  xHttpServerRoute(server, "GET /leak", defer_handler, &ctx);
+  route("GET /leak", defer_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -908,7 +823,5 @@ TEST_F(HttpServerTest, DeferredResponseWithoutResumeNoResponse) {
   run_for(loop, 100);
   EXPECT_EQ(ctx.call_count.load(), 1);
 
-  /* Never call send_and_resume — connection should stay alive
-     until idle timeout (no crash, no memory corruption) */
   close(fd);
 }

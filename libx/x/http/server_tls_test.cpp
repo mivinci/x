@@ -66,6 +66,7 @@ class HttpServerTlsTest : public ::testing::Test {
 protected:
   xEventLoop  loop     = nullptr;
   xHttpServer server   = nullptr;
+  xHttpMux    mux      = nullptr;
   uint16_t    port     = 0;
   uint16_t    tls_port = 0;
 
@@ -80,7 +81,15 @@ protected:
     ASSERT_NE(loop, nullptr);
     xEventLoopEnter(loop);
 
-    server = xHttpServerCreate();
+    mux = xHttpMuxCreate();
+    ASSERT_NE(mux, nullptr);
+
+    xHttpServerConf conf = {};
+    conf.resolve         = xHttpMuxResolve;
+    conf.router          = mux;
+    conf.idle_timeout_ms = 60000;
+
+    server = xHttpServerCreate(&conf);
     ASSERT_NE(server, nullptr);
 
     port     = find_free_port();
@@ -89,7 +98,6 @@ protected:
     ASSERT_NE(tls_port, 0);
     ASSERT_NE(port, tls_port);
 
-    /* Generate self-signed certificate */
     cert_path = "/tmp/xhttp_test_cert.pem";
     key_path  = "/tmp/xhttp_test_key.pem";
 
@@ -102,11 +110,19 @@ protected:
   void TearDown() override {
     stop_loop();
     if (server) xHttpServerDestroy(server);
+    if (mux) xHttpMuxDestroy(mux);
     xEventLoopLeave();
     if (loop) xEventLoopDestroy(loop);
 
     unlink(cert_path.c_str());
     unlink(key_path.c_str());
+  }
+
+  void route(const char *pattern, xHttpDoneFunc on_done) {
+    xHttpRouteConf conf = {};
+    conf.pattern        = pattern;
+    conf.on_done        = on_done;
+    ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
   }
 
   /** Start the event loop in a background thread. */
@@ -256,18 +272,16 @@ protected:
 
 /* ── Basic TLS connection ─────────────────────────────────────────────── */
 
-static void tls_hello_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
-  (void)req;
+static void tls_hello_handler(xHttpCtx *ctx, void *arg) {
   (void)arg;
   const char *body = "Hello TLS!";
-  xHttpResponseSetStatus(w, 200);
-  xHttpResponseSetHeader(w, "Content-Type", "text/plain");
-  xHttpResponseWrite(w, body, strlen(body));
-  xHttpResponseEnd(w);
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+  xHttpCtxWrite(ctx, body, strlen(body));
 }
 
 TEST_F(HttpServerTlsTest, BasicTlsConnection) {
-  xHttpServerRoute(server, "GET /hello", tls_hello_handler, nullptr);
+  route("GET /hello", tls_hello_handler);
   listen_tls_and_start();
 
   TlsConn conn = connect_tls("http/1.1");
@@ -286,7 +300,7 @@ TEST_F(HttpServerTlsTest, BasicTlsConnection) {
 /* ── ALPN negotiation: http/1.1 ───────────────────────────────────────── */
 
 TEST_F(HttpServerTlsTest, AlpnNegotiatesH1) {
-  xHttpServerRoute(server, "GET /alpn", tls_hello_handler, nullptr);
+  route("GET /alpn", tls_hello_handler);
   listen_tls_and_start();
 
   TlsConn conn = connect_tls("http/1.1");
@@ -330,7 +344,7 @@ TEST_F(HttpServerTlsTest, InvalidKeyPathReturnsError) {
 /* ── Simultaneous HTTP and HTTPS ──────────────────────────────────────── */
 
 TEST_F(HttpServerTlsTest, SimultaneousHttpAndHttps) {
-  xHttpServerRoute(server, "GET /dual", tls_hello_handler, nullptr);
+  route("GET /dual", tls_hello_handler);
 
   /* Start plain HTTP */
   xErrno err = xHttpServerListen(server, "127.0.0.1", port);

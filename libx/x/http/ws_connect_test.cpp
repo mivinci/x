@@ -99,13 +99,13 @@ static void server_on_close(xWsConn conn, uint16_t code, const char *reason, siz
   ctx->close_count++;
 }
 
-static void ws_echo_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
-  WsServerCtx *ctx = (WsServerCtx *)arg;
+static void ws_echo_handler(xHttpCtx *ctx, void *arg) {
+  WsServerCtx *sctx = (WsServerCtx *)arg;
   xWsCallbacks cbs = {};
   cbs.on_open      = server_on_open;
   cbs.on_message   = server_on_message;
   cbs.on_close     = server_on_close;
-  xWsUpgrade(writer, req, &cbs, ctx);
+  xWsUpgrade(ctx, &cbs, sctx);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -120,8 +120,7 @@ protected:
 
   void SetUpEchoServer(const std::string &path = "/ws") {
     std::string pattern = "GET " + path;
-    xErrno      err     = xHttpServerRoute(server, pattern.c_str(), ws_echo_handler, &server_ctx);
-    ASSERT_EQ(err, xErrno_Ok);
+    route(pattern.c_str(), ws_echo_handler, &server_ctx);
   }
 };
 

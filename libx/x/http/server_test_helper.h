@@ -28,8 +28,7 @@ extern "C" {
 
 /* ───────────────────── Helpers ───────────────────── */
 
-/* run_for / run_until / run_until_count are provided by <x/base/test_helper.h>.
- * pump_loop has been removed — use run_for instead. */
+/* run_for / run_until / run_until_count are provided by <x/base/test_helper.h>. */
 
 /**
  * @brief Find a free port by binding to port 0.
@@ -105,9 +104,7 @@ static inline std::string recv_all(int fd, int timeout_ms = 2000) {
     if (n <= 0) break;
     result.append(buf, (size_t)n);
 
-    /* If we got a complete HTTP response, stop */
     if (result.find("\r\n\r\n") != std::string::npos) {
-      /* Check if we have Content-Length and have received the full body */
       auto cl_pos = result.find("Content-Length: ");
       if (cl_pos != std::string::npos) {
         size_t cl_start = cl_pos + 16;
@@ -147,6 +144,7 @@ protected:
   xEventLoop  loop     = nullptr;
   xEventLoop  old_loop = nullptr;
   xHttpServer server   = nullptr;
+  xHttpMux    mux      = nullptr;
   uint16_t    port     = 0;
 
   void SetUp() override {
@@ -154,7 +152,15 @@ protected:
     ASSERT_NE(loop, nullptr);
     old_loop = xEventLoopEnter(loop);
 
-    server = xHttpServerCreate();
+    mux = xHttpMuxCreate();
+    ASSERT_NE(mux, nullptr);
+
+    xHttpServerConf conf = {};
+    conf.resolve         = xHttpMuxResolve;
+    conf.router          = mux;
+    conf.idle_timeout_ms = 60000;
+
+    server = xHttpServerCreate(&conf);
     ASSERT_NE(server, nullptr);
 
     port = find_free_port();
@@ -163,6 +169,7 @@ protected:
 
   void TearDown() override {
     if (server) xHttpServerDestroy(server);
+    if (mux) xHttpMuxDestroy(mux);
     xEventLoopEnter(old_loop);
     if (loop) xEventLoopDestroy(loop);
   }
@@ -173,7 +180,15 @@ protected:
     ASSERT_EQ(err, xErrno_Ok) << "Failed to listen on port " << port;
     run_for(loop, 20);
   }
+
+  /** Convenience: register a route with on_done only. */
+  void route(const char *pattern, xHttpDoneFunc on_done, void *arg = nullptr) {
+    xHttpRouteConf conf = {};
+    conf.pattern        = pattern;
+    conf.on_done        = on_done;
+    conf.arg            = arg;
+    ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
+  }
 };
 
 #endif /* XHTTP_SERVER_TEST_HELPER_H_ */
-
