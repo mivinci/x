@@ -54,5 +54,22 @@ endif()
 # ── External dependencies ─────────────────────────────────────────────
 find_package(Libcurl REQUIRED)
 
+# Filter non-existent paths from Libcurl::Libcurl's include directories.
+# Homebrew's curl cmake config may reference an Xcode SDK path that
+# doesn't exist on the current runner (different Xcode version).
+if(TARGET Libcurl::Libcurl)
+  get_target_property(_curl_inc Libcurl::Libcurl INTERFACE_INCLUDE_DIRECTORIES)
+  if(_curl_inc)
+    set(_filtered "")
+    foreach(_dir ${_curl_inc})
+      if(EXISTS "${_dir}")
+        list(APPEND _filtered "${_dir}")
+      endif()
+    endforeach()
+    set_target_properties(Libcurl::Libcurl PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${_filtered}")
+  endif()
+endif()
+
 # ── Modules ───────────────────────────────────────────────────────────
 add_subdirectory(libx)
