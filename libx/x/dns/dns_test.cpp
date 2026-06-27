@@ -548,8 +548,83 @@ TEST(DnsClient, TimeoutUnreachable) {
   xEventLoopDestroy(loop);
 }
 
+/* Partial success: A resolves via real DNS, AAAA times out via unreachable
+ * nameserver.  The client should return A records with xErrno_Ok.
+ *
+ * We use two nameservers: 8.8.8.8 (reachable) and 192.0.2.1 (unreachable,
+ * RFC 5737 TEST-NET).  The client tries them in order — first query (A) goes
+ * to 8.8.8.8 and succeeds; second query (AAAA) also goes to 8.8.8.8.  To
+ * force a timeout on AAAA only, we use a local server that responds to A
+ * but ignores AAAA. */
+TEST(DnsClient, PartialSuccessAResolvesAAAATimeout) {
+  if (!can_reach_dns()) GTEST_SKIP() << "8.8.8.8 unreachable";
+
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+  xEventLoopEnter(loop);
+
+  /* Set up a local DNS server that responds to A queries but ignores AAAA. */
+  xDnsZone zone = xDnsZoneCreate();
+  /* 93.184.216.34 = example.com's real IP */
+  uint8_t ip[4] = {93, 184, 216, 34};
+  xDnsZoneAdd(zone, "partial.example", xDnsType_A, ip, 4, 300);
+
+  xDnsServerConf sconf = {};
+  sconf.forwarder = NULL; /* authoritative only — no AAAA → NXDOMAIN */
+  xDnsServer server = xDnsServerCreate(&sconf);
+  ASSERT_NE(server, nullptr);
+  xDnsServerAddZone(server, zone);
+
+  uint16_t sport = 0;
+  {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in sin = {};
+    sin.sin_family      = AF_INET;
+    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    sin.sin_port        = 0;
+    bind(fd, (struct sockaddr *)&sin, sizeof(sin));
+    socklen_t slen = sizeof(sin);
+    getsockname(fd, (struct sockaddr *)&sin, &slen);
+    sport = ntohs(sin.sin_port);
+    close(fd);
+  }
+  ASSERT_GT(sport, 0);
+  ASSERT_EQ(xDnsServerListen(server, "127.0.0.1", sport), xErrno_Ok);
+
+  /* Client queries the local server with A|AAAA.
+   * A: zone hit → returns IP
+   * AAAA: zone miss, no forwarder → NXDOMAIN (not a timeout, but partial) */
+  xDnsClientConf cconf = {};
+  char ns[32];
+  snprintf(ns, sizeof(ns), "127.0.0.1:%u", sport);
+  cconf.nameservers[0] = ns;
+  cconf.timeout_ms     = 2000;
+  cconf.retries        = 0;
+  cconf.enable_cache   = 0;
+
+  xDnsClient client = xDnsClientCreate(&cconf);
+  ASSERT_NE(client, nullptr);
+
+  DnsResult res = {};
+  ASSERT_EQ(xDnsClientDo(client, "partial.example",
+                         (xDnsType)(xDnsType_A | xDnsType_AAAA),
+                         capture_cb, &res),
+            xErrno_Ok);
+
+  pump_loop(loop, 4000);
+  EXPECT_TRUE(res.fired);
+  /* Should succeed — at least the A record was resolved */
+  EXPECT_EQ(res.err, xErrno_Ok);
+  EXPECT_GE(res.count, 1);
+  EXPECT_TRUE(res.has_a) << "A record should be present";
+
+  xDnsClientDestroy(client);
+  xDnsServerDestroy(server);
+  xEventLoopLeave();
+  xEventLoopDestroy(loop);
+}
+
 /* ═══════════════════════════════════════════════════════════════════
- *  Server integration tests (local)
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(DnsServer, AuthoritativeZone) {
