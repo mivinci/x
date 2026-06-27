@@ -571,26 +571,27 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg
     break;
   }
 
-  /* Body: on_read provides the request body via streaming.
-   * If content_length > 0, set Content-Length; else libcurl uses chunked.
-   * For POST, CURLOPT_POSTFIELDS must be explicitly set to NULL for
-   * libcurl to use CURLOPT_READFUNCTION (otherwise it sends empty body
-   * on some platforms). For other methods (PUT/PATCH/DELETE),
-   * CURLOPT_UPLOAD enables the read callback. */
+  /* Method + Body.
+   *
+   * When on_read is set, we use CURLOPT_UPLOAD to enable the read
+   * callback (CURLOPT_UPLOAD is the reliable cross-platform way).
+   * UPLOAD forces PUT, so for other methods we override with
+   * CURLOPT_CUSTOMREQUEST.  When on_read is NULL, the method switch
+   * above already configured the method correctly. */
   if (conf->on_read) {
-    if (conf->method == xHttpMethod_POST) {
-      curl_easy_setopt(req->easy, CURLOPT_POSTFIELDS, NULL);
-      if (conf->content_length > 0) {
-        curl_easy_setopt(req->easy, CURLOPT_POSTFIELDSIZE, (long)conf->content_length);
-      } else {
-        curl_easy_setopt(req->easy, CURLOPT_POSTFIELDSIZE, -1L); /* chunked */
-      }
-    } else {
-      curl_easy_setopt(req->easy, CURLOPT_UPLOAD, 1L);
-      if (conf->content_length > 0) {
-        curl_easy_setopt(req->easy, CURLOPT_INFILESIZE_LARGE, (curl_off_t)conf->content_length);
-      }
+    static const char *method_str[] = {
+        "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD",
+    };
+    int mi = (conf->method >= 0 && conf->method <= 5) ? conf->method : 0;
+    curl_easy_setopt(req->easy, CURLOPT_UPLOAD, 1L);
+    if (mi != 2) { /* PUT is the UPLOAD default — no override needed */
+      curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, method_str[mi]);
     }
+    if (conf->content_length > 0) {
+      curl_easy_setopt(req->easy, CURLOPT_INFILESIZE_LARGE,
+                       (curl_off_t)conf->content_length);
+    }
+    /* content_length == 0 → chunked transfer-encoding (automatic) */
   }
   /* If on_read is NULL, no request body (GET/DELETE/etc.) */
 
