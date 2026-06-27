@@ -206,11 +206,15 @@ static int socket_callback(CURL *easy, curl_socket_t fd, int what, void *userp, 
     return 0;
   }
 
-  /* Map curl poll flags to xEventMask */
-  xEventMask mask = 0;
-  if (what == CURL_POLL_IN) mask = xEvent_Read;
-  if (what == CURL_POLL_OUT) mask = xEvent_Write;
-  if (what == CURL_POLL_INOUT) mask = xEvent_Read | xEvent_Write;
+  /* Map curl poll flags to xEventMask.
+   * Use level-triggered for libcurl sockets: libcurl's multi-socket API
+   * expects to be called whenever a fd is ready, not just on state
+   * transitions.  Edge-triggered misses repeated write-ready notifications
+   * (socket stays writable after small writes), causing upload stalls. */
+  xEventMask mask = xEvent_LevelTriggered;
+  if (what == CURL_POLL_IN) mask |= xEvent_Read;
+  if (what == CURL_POLL_OUT) mask |= xEvent_Write;
+  if (what == CURL_POLL_INOUT) mask |= xEvent_Read | xEvent_Write;
 
   if (!ctx) {
     /* First time seeing this fd — register with event loop */
@@ -245,24 +249,6 @@ static void fd_ready_callback(int fd, xEventMask mask, void *arg) {
   int running = 0;
   curl_multi_socket_action(c->multi, (curl_socket_t)fd, ev_bitmask, &running);
   check_multi_info(c);
-
-  /* Edge-triggered epoll: after writing, libcurl may still have data
-   * to send but won't get another writable event (socket is already
-   * writable, edge only fires on state transition).  Use curl_multi_wait
-   * to check if the fd is still writable, and if so, keep kicking
-   * libcurl until the fd is no longer writable or transfer completes. */
-  if (mask & xEvent_Write) {
-    for (int i = 0; i < 64; i++) {
-      struct curl_waitfd waitfd = {.fd = fd, .events = CURL_WAIT_POLLOUT, .revents = 0};
-      int numfds = 0;
-      CURLMcode mc = curl_multi_wait(c->multi, &waitfd, 1, 0, &numfds);
-      (void)mc;
-      if (!(waitfd.revents & CURL_WAIT_POLLOUT)) break; /* not writable */
-      curl_multi_socket_action(c->multi, (curl_socket_t)fd, CURL_CSELECT_OUT, &running);
-      check_multi_info(c);
-      if (running == 0) break; /* all transfers done */
-    }
-  }
 }
 
 /* ── Timer callback (CURLMOPT_TIMERFUNCTION) ───────────────────────────── */

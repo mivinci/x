@@ -42,8 +42,9 @@ static int set_nonblock(int fd) {
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-static uint32_t mask_to_epoll(xEventMask mask) {
-  uint32_t ev = EPOLLET; /* always edge-triggered */
+static uint32_t mask_to_epoll(xEventMask mask, int level_triggered) {
+  uint32_t ev = 0;
+  if (!level_triggered) ev |= EPOLLET; /* edge-triggered by default */
   if (mask & xEvent_Read) ev |= EPOLLIN;
   if (mask & xEvent_Write) ev |= EPOLLOUT;
   return ev;
@@ -224,7 +225,7 @@ static xErrno ep_add(struct xEventLoop_ *loop, struct xEventSource_ *src) {
   if (set_nonblock(src->fd) != 0) return xErrno_SysError;
 
   struct epoll_event ev;
-  ev.events   = mask_to_epoll(src->mask);
+  ev.events   = mask_to_epoll(src->mask, src->level_triggered);
   ev.data.ptr = src;
   if (epoll_ctl(el->epfd, EPOLL_CTL_ADD, src->fd, &ev) != 0) return xErrno_SysError;
 
@@ -235,7 +236,7 @@ static xErrno ep_mod(struct xEventLoop_ *loop, struct xEventSource_ *src, xEvent
   struct xEventLoopEpoll_ *el = (struct xEventLoopEpoll_ *)loop;
 
   struct epoll_event ev;
-  ev.events   = mask_to_epoll(mask);
+  ev.events   = mask_to_epoll(mask, src->level_triggered);
   ev.data.ptr = src;
   if (epoll_ctl(el->epfd, EPOLL_CTL_MOD, src->fd, &ev) != 0) return xErrno_SysError;
 

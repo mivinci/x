@@ -198,36 +198,39 @@ static int poll_poll(struct xEventLoop_ *loop, struct xPollEvent_ *events, int m
     if (pfd->revents & POLLOUT) ready |= xEvent_Write;
 
     if (ready) {
-      xEventMask orig_mask = src->mask;
-      src->mask            = 0; /* edge-triggered: disable to prevent level-triggered re-fire */
+      if (!src->level_triggered) {
+        /* Edge-triggered: disable mask to prevent level-triggered re-fire */
+        xEventMask orig_mask = src->mask;
+        src->mask            = 0;
 
-      events[count].type      = X_POLL_FD;
-      events[count].fd        = src->fd;
-      events[count].mask      = ready;
-      events[count].user_data = src;
-      count++;
+        events[count].type      = X_POLL_FD;
+        events[count].fd        = src->fd;
+        events[count].mask      = ready;
+        events[count].user_data = src;
+        count++;
 
-      /* Re-arm the source if the fd was fully drained.
-       * This emulates EPOLLET's "empty → non-empty" edge semantics:
-       * after the callback drains the buffer, restoring the mask
-       * allows the next data arrival to trigger a new edge. */
-      if (!src->deleted && src->mask == 0) {
-        xEventMask restore = 0;
-        if (orig_mask & xEvent_Read) {
-          /* Check if the read buffer is empty (works for both pipes and sockets) */
-          int avail = 0;
-          if (ioctl(src->fd, FIONREAD, &avail) == 0 && avail == 0) {
-            restore |= (orig_mask & xEvent_Read);
+        /* Re-arm the source if the fd was fully drained. */
+        if (!src->deleted && src->mask == 0) {
+          xEventMask restore = 0;
+          if (orig_mask & xEvent_Read) {
+            int avail = 0;
+            if (ioctl(src->fd, FIONREAD, &avail) == 0 && avail == 0) {
+              restore |= (orig_mask & xEvent_Read);
+            }
           }
-          /* avail > 0: data still available, keep read disabled (no new edge) */
+          if (orig_mask & xEvent_Write) {
+            restore |= (orig_mask & xEvent_Write);
+          }
+          src->mask = restore;
         }
-        if (orig_mask & xEvent_Write) {
-          /* Re-arm write: if the write buffer was full (blocking write),
-           * the fire indicated it became writable again. Restoring allows
-           * detecting the next "full → writable" transition. */
-          restore |= (orig_mask & xEvent_Write);
-        }
-        src->mask = restore;
+      } else {
+        /* Level-triggered: poll naturally reports ready fds every time.
+         * No mask manipulation needed — just report the event. */
+        events[count].type      = X_POLL_FD;
+        events[count].fd        = src->fd;
+        events[count].mask      = ready;
+        events[count].user_data = src;
+        count++;
       }
     }
   }

@@ -120,7 +120,8 @@ static int loop_poll_and_dispatch(struct xEventLoop_ *loop, int timeout_ms) {
     case X_POLL_FD: {
       struct xEventSource_ *src = events[i].user_data;
       if (src && !src->deleted) {
-        src->fn(src->fd, events[i].mask, src->arg);
+        /* Strip LevelTriggered — it's a registration flag, not an event. */
+        src->fn(src->fd, events[i].mask & ~xEvent_LevelTriggered, src->arg);
         dispatched++;
       }
       break;
@@ -214,8 +215,13 @@ xEventSource xEventAdd(int fd, xEventMask mask, xEventFunc fn, void *arg) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)xEventLoopCurrent();
   if (!loop || !fn) return NULL;
 
+  /* Extract the LevelTriggered flag and store it on the source. */
+  int level_triggered = (mask & xEvent_LevelTriggered) ? 1 : 0;
+  mask &= ~xEvent_LevelTriggered; /* strip from mask — it's a reg flag */
+
   struct xEventSource_ *src = source_array_add(&loop->sources, fd, mask, fn, arg);
   if (!src) return NULL;
+  src->level_triggered = level_triggered;
 
   if (loop->backend->add(loop, src) != xErrno_Ok) {
     source_array_remove(&loop->sources, src);
@@ -230,6 +236,8 @@ xErrno xEventMod(xEventSource src_, xEventMask mask) {
   struct xEventLoop_   *loop = (struct xEventLoop_ *)xEventLoopCurrent();
   struct xEventSource_ *src  = (struct xEventSource_ *)src_;
   if (!loop || !src) return xErrno_InvalidArg;
+  /* Strip LevelTriggered — trigger mode is set at Add time and preserved. */
+  mask &= ~xEvent_LevelTriggered;
   return loop->backend->mod(loop, src, mask);
 }
 

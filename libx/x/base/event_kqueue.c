@@ -26,14 +26,15 @@ static int set_nonblock(int fd) {
 
 /*
  * Register or update filters for a source on the kqueue fd.
- * Uses EV_CLEAR for edge-triggered semantics.
+ * Uses EV_CLEAR for edge-triggered, omits it for level-triggered.
  */
 static int kq_apply(int kqfd, struct xEventSource_ *src, xEventMask mask) {
   struct kevent changes[2];
   int           n = 0;
+  int           flags = EV_ADD | (src->level_triggered ? 0 : EV_CLEAR);
 
   if (mask & xEvent_Read) {
-    EV_SET(&changes[n], src->fd, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, src);
+    EV_SET(&changes[n], src->fd, EVFILT_READ, flags, 0, 0, src);
     n++;
   } else {
     /* Remove read filter if it was previously set */
@@ -42,7 +43,7 @@ static int kq_apply(int kqfd, struct xEventSource_ *src, xEventMask mask) {
   }
 
   if (mask & xEvent_Write) {
-    EV_SET(&changes[n], src->fd, EVFILT_WRITE, EV_ADD | EV_CLEAR, 0, 0, src);
+    EV_SET(&changes[n], src->fd, EVFILT_WRITE, flags, 0, 0, src);
     n++;
   } else {
     EV_SET(&changes[n], src->fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);

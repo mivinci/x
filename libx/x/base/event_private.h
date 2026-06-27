@@ -42,10 +42,11 @@ struct xSignalWatch_ {
 
 struct xEventSource_ {
   int        fd;
-  xEventMask mask;
+  xEventMask mask;            /* read/write flags (no LevelTriggered bit) */
   xEventFunc fn;
   void      *arg;
-  int        deleted; /* marked for deferred removal */
+  int        deleted;         /* marked for deferred removal */
+  int        level_triggered; /* 1 = LT mode, 0 = ET mode (default) */
 };
 
 /* ───────────────────── Source list (simple dynamic array) ───────────────── */

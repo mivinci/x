@@ -30,6 +30,11 @@
 XDEF_ENUM(xEventMask){
   xEvent_Read = 1 << 0, xEvent_Write = 1 << 1,
   xEvent_Timeout = 1 << 2, /* Used by higher-level modules (e.g., xSocket) */
+  xEvent_LevelTriggered = 1 << 3, /* Registration flag: use level-triggered
+                                     instead of edge-triggered.  Pass this in
+                                     the mask to xEventAdd() to get repeated
+                                     notifications while the fd remains ready.
+                                     Has no effect in the callback mask. */
 };
 
 /**
