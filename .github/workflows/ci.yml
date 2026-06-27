@@ -72,9 +72,11 @@ jobs:
       - name: Build & Test (Linux)
         if: runner.os == 'Linux'
         run: |
+          rm -f build/CMakeCache.txt
           bash scripts/test-linux.sh -t ${{ matrix.tls }} -j $(nproc) -B build --asan
 
       - name: Build & Test (macOS)
         if: runner.os == 'macOS'
         run: |
+          rm -f build/CMakeCache.txt
           zsh scripts/test-mac.sh -t ${{ matrix.tls }} -j $(sysctl -n hw.ncpu) -B build --asan
