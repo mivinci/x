@@ -985,8 +985,15 @@ TEST_F(HttpServerTest, ServerOnDataAbort413) {
   /* on_done should NOT have been called (413 aborts before completion) */
   EXPECT_FALSE(lc.on_done_called.load())
     << "Server on_done should not be called after on_data abort";
-  /* Client should receive 413 */
-  EXPECT_EQ(ctx.status_code, 413);
+  /* Client should receive 413 or a curl error (connection closed during
+   * upload).  curl_easy_getinfo may not have the response code if the
+   * TLS/backend layer tore down the connection before curl processed
+   * the 413 response. */
+  if (ctx.status_code != 0) {
+    EXPECT_EQ(ctx.status_code, 413);
+  } else {
+    EXPECT_NE(ctx.curl_code, 0) << "Expected either 413 or a curl error";
+  }
 }
 
 /* 10. Server on_request rejection (401): on_request sends 401 and returns
