@@ -737,7 +737,94 @@ TEST_F(HttpServerTest, StreamingUploadChunked) {
   EXPECT_EQ(ctx.body_acc, ctx.upload_data);
 }
 
-/* 6. Fire-and-forget: on_done=NULL, request must not crash. */
+/* 7. Large file upload (10 MB) — verifies multi-chunk streaming upload
+ *     and data integrity over many on_read/on_data callbacks. */
+TEST_F(HttpServerTest, LargeFileUpload) {
+  constexpr size_t SZ = 10 * 1024 * 1024;
+
+  EchoCtx    echo;
+  EchoState  state;
+  state.ctx = &echo;
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern = "/echo";
+    rc.on_data = echo_on_data;
+    rc.on_done = echo_handler;
+    rc.arg     = &state;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+  listen_and_pump();
+
+  xHttpClient client = xHttpClientCreate(nullptr);
+  ASSERT_NE(client, nullptr);
+
+  StreamCtx ctx;
+  ctx.upload_data.resize(SZ);
+  for (size_t i = 0; i < SZ; i++) ctx.upload_data[i] = (char)(i % 251);
+  ctx.upload_chunk_size = 16384; /* 16 KB per on_read call */
+
+  std::string u = "http://127.0.0.1:" + std::to_string(port) + "/echo";
+  xHttpRequestConf conf = {};
+  conf.url            = u.c_str();
+  conf.method         = xHttpMethod_POST;
+  conf.on_read        = provide_data;
+  conf.content_length = SZ;
+  conf.on_data        = collect_data;
+  conf.on_done        = on_stream_done;
+  xErrno err = xHttpClientDo(client, &conf, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  run_until(loop, ctx.done, 30000);
+  xHttpClientDestroy(client);
+
+  ASSERT_TRUE(ctx.done.load()) << "Request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  /* Server received the full 10 MB body */
+  EXPECT_EQ(echo.last_body.size(), SZ);
+  /* Data integrity — byte-for-byte match */
+  EXPECT_EQ(echo.last_body, ctx.upload_data);
+  /* Client received the full 10 MB echo back */
+  EXPECT_EQ(ctx.total_bytes, SZ);
+  EXPECT_EQ(ctx.body_acc, ctx.upload_data);
+}
+
+/* 8. Large file download (10 MB) — verifies multi-chunk streaming download
+ *     and data integrity. */
+TEST_F(HttpServerTest, LargeFileDownload) {
+  constexpr size_t SZ = 10 * 1024 * 1024;
+
+  std::string big_body(SZ, '\0');
+  for (size_t i = 0; i < SZ; i++) big_body[i] = (char)(i % 251);
+
+  route("GET /big", send_body_handler, &big_body);
+  listen_and_pump();
+
+  xHttpClient client = xHttpClientCreate(nullptr);
+  ASSERT_NE(client, nullptr);
+
+  StreamCtx ctx;
+  std::string u = "http://127.0.0.1:" + std::to_string(port) + "/big";
+  xHttpRequestConf conf = {};
+  conf.url     = u.c_str();
+  conf.method  = xHttpMethod_GET;
+  conf.on_data = collect_data;
+  conf.on_done = on_stream_done;
+  xErrno err = xHttpClientDo(client, &conf, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  run_until(loop, ctx.done, 30000);
+  xHttpClientDestroy(client);
+
+  ASSERT_TRUE(ctx.done.load()) << "Request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  EXPECT_EQ(ctx.total_bytes, SZ);
+  /* Data integrity */
+  EXPECT_EQ(ctx.body_acc, big_body);
+}
+
+/* 9. Fire-and-forget: on_done=NULL, request must not crash. */
 TEST_F(HttpServerTest, FireAndForget) {
   route("GET /get", ok_handler, nullptr);
   listen_and_pump();

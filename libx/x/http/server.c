@@ -1033,36 +1033,40 @@ const char *xHttpCtxParam(xHttpCtx *ctx, const char *name, size_t *len) {
  */
 
 static void conn_try_flush(struct xHttpConn_ *conn) {
-  if (xIOBufferEmpty(&conn->write_buf)) return;
+  /* Loop until EAGAIN or buffer empty — ensures we drain as much as
+   * possible in one call.  Without the loop, a partial writev (common
+   * for large responses) leaves data in the buffer, and edge-triggered
+   * epoll may not fire again if the socket is still technically writable. */
+  while (!xIOBufferEmpty(&conn->write_buf)) {
+    struct iovec iov[XHTTP_MAX_IOV];
+    int          cnt = xIOBufferReadIov(&conn->write_buf, iov, XHTTP_MAX_IOV);
+    if (cnt == 0) break;
 
-  struct iovec iov[XHTTP_MAX_IOV];
-  int          cnt = xIOBufferReadIov(&conn->write_buf, iov, XHTTP_MAX_IOV);
-  if (cnt == 0) return;
-
-  ssize_t n = conn->transport.writev(conn->transport.ctx, iov, cnt);
-  if (n < 0) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      if (!conn->writing) {
-        conn->writing = 1;
-        xSocketSetMask(conn->sock, xEvent_Read | xEvent_Write);
+    ssize_t n = conn->transport.writev(conn->transport.ctx, iov, cnt);
+    if (n < 0) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (!conn->writing) {
+          conn->writing = 1;
+          xSocketSetMask(conn->sock, xEvent_Read | xEvent_Write);
+        }
+        return;
       }
+      conn->keep_alive = 0;
       return;
     }
-    conn->keep_alive = 0;
-    return;
+    if (n > 0) xIOBufferConsume(&conn->write_buf, (size_t)n);
+    if (n == 0) break;
   }
-  if (n > 0) xIOBufferConsume(&conn->write_buf, (size_t)n);
 
-  if (!xIOBufferEmpty(&conn->write_buf)) {
-    if (!conn->writing) {
-      conn->writing = 1;
-      xSocketSetMask(conn->sock, xEvent_Read | xEvent_Write);
-    }
-  } else {
+  /* Buffer fully drained */
+  if (xIOBufferEmpty(&conn->write_buf)) {
     if (conn->writing) {
       conn->writing = 0;
       xSocketSetMask(conn->sock, xEvent_Read);
     }
+  } else if (!conn->writing) {
+    conn->writing = 1;
+    xSocketSetMask(conn->sock, xEvent_Read | xEvent_Write);
   }
 }
 

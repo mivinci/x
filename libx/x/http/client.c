@@ -246,7 +246,7 @@ static void fd_ready_callback(int fd, xEventMask mask, void *arg) {
   if (mask & xEvent_Read) ev_bitmask |= CURL_CSELECT_IN;
   if (mask & xEvent_Write) ev_bitmask |= CURL_CSELECT_OUT;
 
-  int running = 0;
+  int running = 0; /* output param — number of running transfers, unused */
   curl_multi_socket_action(c->multi, (curl_socket_t)fd, ev_bitmask, &running);
   check_multi_info(c);
 }
