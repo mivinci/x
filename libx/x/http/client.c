@@ -245,6 +245,24 @@ static void fd_ready_callback(int fd, xEventMask mask, void *arg) {
   int running = 0;
   curl_multi_socket_action(c->multi, (curl_socket_t)fd, ev_bitmask, &running);
   check_multi_info(c);
+
+  /* Edge-triggered epoll: after writing, libcurl may still have data
+   * to send but won't get another writable event (socket is already
+   * writable, edge only fires on state transition).  Use curl_multi_wait
+   * to check if the fd is still writable, and if so, keep kicking
+   * libcurl until the fd is no longer writable or transfer completes. */
+  if (mask & xEvent_Write) {
+    for (int i = 0; i < 64; i++) {
+      struct curl_waitfd waitfd = {.fd = fd, .events = CURL_WAIT_POLLOUT, .revents = 0};
+      int numfds = 0;
+      CURLMcode mc = curl_multi_wait(c->multi, &waitfd, 1, 0, &numfds);
+      (void)mc;
+      if (!(waitfd.revents & CURL_WAIT_POLLOUT)) break; /* not writable */
+      curl_multi_socket_action(c->multi, (curl_socket_t)fd, CURL_CSELECT_OUT, &running);
+      check_multi_info(c);
+      if (running == 0) break; /* all transfers done */
+    }
+  }
 }
 
 /* ── Timer callback (CURLMOPT_TIMERFUNCTION) ───────────────────────────── */
@@ -592,6 +610,11 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg
                        (curl_off_t)conf->content_length);
     }
     /* content_length == 0 → chunked transfer-encoding (automatic) */
+
+    /* Disable Expect: 100-continue — libcurl adds it for uploads >1KB
+     * on Linux, and our server doesn't send 100 Continue, causing
+     * a 1s stall followed by CURLE_GOT_NOTHING. */
+    req->req_headers = curl_slist_append(req->req_headers, "Expect:");
   }
   /* If on_read is NULL, no request body (GET/DELETE/etc.) */
 
@@ -600,9 +623,15 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg
     for (const char **h = conf->headers; *h; h++) {
       req->req_headers = curl_slist_append(req->req_headers, *h);
     }
-    if (req->req_headers) {
-      curl_easy_setopt(req->easy, CURLOPT_HTTPHEADER, req->req_headers);
-    }
+  }
+
+  /* Always set CURLOPT_HTTPHEADER if we have any headers (including
+   * the Expect: added above for on_read uploads).  Previously this
+   * was only set when conf->headers was non-NULL, which meant the
+   * Expect: header was silently dropped for uploads without custom
+   * headers — causing CURLE_GOT_NOTHING on Linux. */
+  if (req->req_headers) {
+    curl_easy_setopt(req->easy, CURLOPT_HTTPHEADER, req->req_headers);
   }
 
   /* Per-request timeout */
