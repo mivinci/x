@@ -6,6 +6,10 @@
  * event_run.c - Platform-agnostic event loop driver
  */
 
+#ifdef __linux__
+#define _GNU_SOURCE
+#endif
+
 #include "event_private.h"
 #include <limits.h>
 #include <signal.h>
