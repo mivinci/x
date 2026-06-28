@@ -71,7 +71,7 @@ static void basic_done(void *arg, void *result) {
 TEST_F(EventOffloadTest, BasicOffload) {
   OffloadCtx ctx;
 
-  ASSERT_NE(xWorkSubmit( group, basic_work, basic_done, &ctx), nullptr);
+  ASSERT_NE(xWorkSubmit(group, basic_work, basic_done, NULL, &ctx), nullptr);
 
   /* Pump the event loop until done_fn fires (max 5 s). */
   run_until(loop, ctx.done_called, 5000);
@@ -95,7 +95,7 @@ TEST_F(EventOffloadTest, FireAndForget) {
     return nullptr;
   };
 
-  ASSERT_NE(xWorkSubmit( group, work_fn, nullptr, &work_done), nullptr);
+  ASSERT_NE(xWorkSubmit(group, work_fn, nullptr, NULL, &work_done), nullptr);
 
   /* Pump the loop to let the done queue drain (even though done_fn is NULL). */
   run_until(loop, work_done, 5000);
@@ -106,7 +106,7 @@ TEST_F(EventOffloadTest, FireAndForget) {
 /* ───────────────────── Parameter validation ───────────────────── */
 
 TEST_F(EventOffloadTest, NullWorkFnReturnsError) {
-  EXPECT_EQ(xWorkSubmit( group, nullptr, basic_done, nullptr), nullptr);
+  EXPECT_EQ(xWorkSubmit(group, nullptr, basic_done, NULL, nullptr), nullptr);
 }
 
 /* ───────────────────── Concurrent submits ───────────────────── */
@@ -132,14 +132,11 @@ TEST_F(EventOffloadTest, ConcurrentSubmits) {
     threads.emplace_back([&]() {
       xEventLoopEnter(this->loop);
       for (int i = 0; i < PER_THREAD; i++) {
-        xWorkSubmit(
-          group,
-          [](void *arg) -> void * {
+        xWorkSubmit(group, [](void *arg) -> void * {
             auto *ctx = static_cast<SubmitCtx *>(arg);
             ctx->work_cnt->fetch_add(1, std::memory_order_relaxed);
             return nullptr;
-          },
-          [](void *arg, void *) {
+          }, NULL, [](void *arg, void *) {
             auto *ctx = static_cast<SubmitCtx *>(arg);
             ctx->done_cnt->fetch_add(1, std::memory_order_relaxed);
           },
@@ -165,7 +162,7 @@ TEST_F(EventOffloadTest, NullGroupUsesGlobal) {
   OffloadCtx ctx;
 
   /* Pass NULL as group — should use xTaskGroupGlobal(). */
-  ASSERT_NE(xWorkSubmit( nullptr, basic_work, basic_done, &ctx), nullptr);
+  ASSERT_NE(xWorkSubmit(nullptr, basic_work, basic_done, NULL, &ctx), nullptr);
 
   run_until(loop, ctx.done_called, 5000);
 
@@ -199,7 +196,7 @@ TEST_F(EventOffloadTest, ResultPassedToDoneFn) {
     void             **result_slot;
   } out{&done, &received_result};
 
-  ASSERT_NE(xWorkSubmit( group, work_fn, done_fn, &out), nullptr);
+  ASSERT_NE(xWorkSubmit(group, work_fn, done_fn, NULL, &out), nullptr);
 
   run_until(loop, done, 5000);
 
@@ -220,11 +217,9 @@ TEST_F(EventOffloadTest, WorkFreelistReuse) {
     std::atomic<int> done_count{0};
 
     for (int i = 0; i < PER_ROUND; i++) {
-      xWorkSubmit(
-        group, [](void *) -> void * { return nullptr; },
-        [](void *arg, void *) {
+      xWorkSubmit(group, [](void *) -> void * { return nullptr; }, [](void *arg, void *) {
           static_cast<std::atomic<int> *>(arg)->fetch_add(1, std::memory_order_relaxed);
-        },
+        }, NULL,
         &done_count);
     }
 
@@ -245,27 +240,22 @@ TEST_F(EventOffloadTest, SubmitFailsWhenGroupFull) {
 
   /* Block the single worker */
   std::atomic<bool> unblock{false};
-  xWorkSubmit(
-    small,
-    [](void *arg) -> void * {
+  xWorkSubmit(small, [](void *arg) -> void * {
       auto *flag = static_cast<std::atomic<bool> *>(arg);
       while (!flag->load(std::memory_order_acquire)) {
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
       return nullptr;
-    },
-    nullptr, &unblock);
+    }, nullptr, NULL, &unblock);
 
   /* Give the worker time to pick up the blocking task */
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   /* Fill the queue */
-  xWorkSubmit(
-    small, [](void *) -> void * { return nullptr; }, nullptr, nullptr);
+  xWorkSubmit(small, [](void *) -> void * { return nullptr; }, nullptr, NULL, nullptr);
 
   /* Next submit should fail because queue is full */
-  xWork err = xWorkSubmit(
-    small, [](void *) -> void * { return nullptr; }, nullptr, nullptr);
+  xWork err = xWorkSubmit(small, [](void *) -> void * { return nullptr; }, nullptr, NULL, nullptr);
   EXPECT_EQ(err, nullptr);
 
   /* Cleanup */
@@ -290,29 +280,23 @@ TEST_F(EventOffloadTest, CancelQueuedWork) {
   ASSERT_NE(small, nullptr);
 
   /* Block the worker */
-  xWorkSubmit(
-    small,
-    [](void *arg) -> void * {
+  xWorkSubmit(small, [](void *arg) -> void * {
       auto *flag = static_cast<std::atomic<bool> *>(arg);
       while (!flag->load(std::memory_order_acquire)) {
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
       return nullptr;
-    },
-    nullptr, &unblock);
+    }, nullptr, NULL, &unblock);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   /* Submit a task that should stay queued, get the work handle */
   std::atomic<bool> work_called{false};
   std::atomic<bool> done_called{false};
-  xWork        work = xWorkSubmit(
-              small,
-              [](void *arg) -> void * {
+  xWork        work = xWorkSubmit(small, [](void *arg) -> void * {
                 static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
                 return nullptr;
-              },
-              [](void *arg, void *) {
+              }, NULL, [](void *arg, void *) {
                 /* This is the done_fn — should NOT be called if cancelled. */
                 static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
               },
@@ -347,16 +331,14 @@ TEST_F(EventOffloadTest, CancelRunningWorkReturnsOkAndSkipsDone) {
   };
   Ctx ctx{&started, &unblock};
 
-  xWork work = xWorkSubmit(group,
-              [](void *arg) -> void * {
+  xWork work = xWorkSubmit(group, [](void *arg) -> void * {
                 auto *c = static_cast<Ctx *>(arg);
                 c->started->store(true, std::memory_order_release);
                 while (!c->unblock->load(std::memory_order_acquire)) {
                   std::this_thread::sleep_for(std::chrono::microseconds(100));
                 }
                 return nullptr;
-              },
-              [](void *arg, void *) {
+              }, NULL, [](void *arg, void *) {
                 static_cast<std::atomic<bool> *>(arg)->store(true);
               }, &done_fired);
   ASSERT_NE(work, nullptr);
@@ -379,8 +361,7 @@ TEST_F(EventOffloadTest, CancelRunningWorkReturnsOkAndSkipsDone) {
 
 TEST_F(EventOffloadTest, CancelSubmitOutHandle) {
   /* xWorkSubmit now returns the handle directly. */
-  xWork work = xWorkSubmit(
-              group, [](void *) -> void * { return nullptr; }, nullptr, nullptr);
+  xWork work = xWorkSubmit(group, [](void *) -> void * { return nullptr; }, nullptr, NULL, nullptr);
   ASSERT_NE(work, nullptr);
 
   /* Pump the loop to let it complete normally */
@@ -390,11 +371,9 @@ TEST_F(EventOffloadTest, CancelSubmitOutHandle) {
 TEST_F(EventOffloadTest, CancelSubmitNullOutStillWorks) {
   /* Passing NULL for out should still work (backward compat). */
   std::atomic<bool> done{false};
-  ASSERT_NE(xWorkSubmit(
-              group, [](void *) -> void * { return nullptr; },
-              [](void *arg, void *) {
+  ASSERT_NE(xWorkSubmit(group, [](void *) -> void * { return nullptr; }, [](void *arg, void *) {
                 static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
-              },
+              }, NULL,
               &done),
             nullptr);
 

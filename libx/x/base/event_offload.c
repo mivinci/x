@@ -39,7 +39,8 @@ static void *offload_worker(void *arg) {
 /* ───────────────────── Public API ───────────────────── */
 
 xWork xWorkSubmit(xTaskGroup group, xTaskFunc work_fn,
-                       xWorkDoneFunc done_fn, void *arg) {
+                       xWorkDoneFunc done_fn, xWorkCancelFunc on_cancel,
+                       void *arg) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)xEventLoopCurrent();
   if (!loop || !work_fn) return NULL;
 
@@ -53,9 +54,10 @@ xWork xWorkSubmit(xTaskGroup group, xTaskFunc work_fn,
   struct xWork_ *w = event_work_alloc((struct xEventLoop_ *)loop);
   if (!w) return NULL;
 
-  w->work_fn = work_fn;
-  w->done_fn = done_fn;
-  w->arg     = arg;
+  w->work_fn   = work_fn;
+  w->done_fn   = done_fn;
+  w->on_cancel = on_cancel;
+  w->arg       = arg;
   w->result  = NULL;
   w->loop    = (xEventLoop)loop;
 

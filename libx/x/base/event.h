@@ -215,6 +215,15 @@ XCAPI(xErrno) xTimerStop(xTimer timer);
 typedef void (*xWorkDoneFunc)(void *arg, void *result);
 
 /**
+ * @brief Callback invoked on the event loop thread when cancelled work
+ *        is cleaned up by loop_run_done. Used to free worker-allocated
+ *        results that would otherwise leak.
+ * @param arg     User-provided argument.
+ * @param result  Return value of the work function, or NULL.
+ */
+typedef void (*xWorkCancelFunc)(void *arg, void *result);
+
+/**
  * @brief Submit work to a thread pool; run @p done_fn on the loop thread
  *        when finished.
  *
@@ -222,15 +231,23 @@ typedef void (*xWorkDoneFunc)(void *arg, void *result);
  * returns, @p done_fn is queued to the event loop and will be dispatched
  * during the next iteration, serialised with I/O and timer callbacks.
  *
- * @param loop     The event loop (must not be NULL).
- * @param group    Task group (thread pool). NULL = use xTaskGroupGlobal().
- * @param work_fn  Function executed on a worker thread (must not be NULL).
- * @param done_fn  Completion callback on the loop thread, or NULL for
- *                 fire-and-forget.
+ * If the work is cancelled via xWorkCancel(), @p done_fn is NOT invoked.
+ * Instead, @p on_cancel is called from the event loop thread to free any
+ * worker-allocated results. @p on_cancel may be NULL.
+ *
+ * @param loop       The event loop (must not be NULL).
+ * @param group      Task group (thread pool). NULL = use xTaskGroupGlobal().
+ * @param work_fn    Function executed on a worker thread (must not be NULL).
+ * @param done_fn    Completion callback on the loop thread, or NULL for
+ *                   fire-and-forget.
+ * @param on_cancel  Cleanup callback invoked when work is cancelled, or NULL.
+ * @param arg        User-provided argument forwarded to all callbacks.
+ * @return           An xWork handle, or NULL on failure.
  * @param arg      Argument forwarded to both @p work_fn and @p done_fn.
  * @return         An xWork handle, or NULL on failure.
  */
-XCAPI(xWork) xWorkSubmit(xTaskGroup group, xTaskFunc work_fn, xWorkDoneFunc done_fn, void *arg);
+XCAPI(xWork) xWorkSubmit(xTaskGroup group, xTaskFunc work_fn,
+                       xWorkDoneFunc done_fn, xWorkCancelFunc on_cancel, void *arg);
 
 /**
  * @brief Cancel a previously submitted offload work item.

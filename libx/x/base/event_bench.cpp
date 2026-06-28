@@ -140,9 +140,7 @@ static void BM_EventLoop_OffloadSingle(benchmark::State &state) {
   for (auto _ : state) {
     std::atomic<bool> done{false};
 
-    xWorkSubmit(
-      loop, nullptr, [](void *) -> void * { return nullptr; },
-      [](void *arg, void *) {
+    xWorkSubmit(loop, nullptr, [](void *) -> void * { return nullptr; }, NULL, [](void *arg, void *) {
         static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
       },
       &done, nullptr);
@@ -175,9 +173,7 @@ static void BM_EventLoop_OffloadBatch(benchmark::State &state) {
     std::atomic<int64_t> remaining{batch};
 
     for (int64_t i = 0; i < batch; i++) {
-      xWorkSubmit(
-        loop, nullptr, [](void *) -> void * { return nullptr; },
-        [](void *arg, void *) {
+      xWorkSubmit(loop, nullptr, [](void *) -> void * { return nullptr; }, NULL, [](void *arg, void *) {
           static_cast<std::atomic<int64_t> *>(arg)->fetch_sub(1, std::memory_order_release);
         },
         &remaining, nullptr);

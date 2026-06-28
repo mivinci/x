@@ -150,6 +150,7 @@ struct xWork_ {
     void (*done_fn)(void *arg, void *result); /* offload completion   */
     xEventLoopPostFunc post_fn;               /* posted callback      */
   };
+  void          (*on_cancel)(void *arg, void *result); /* cancel cleanup */
   
   void          *arg;
   void          *result;

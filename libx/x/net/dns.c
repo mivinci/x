@@ -32,9 +32,6 @@ struct xDnsRequest_ {
 
   /* Work handle for xWorkCancel() */
   xWork work;
-
-  /* Cancellation flag (fallback when work is already running) */
-  int cancelled;
 };
 
 /* ───────────────────── Error mapping ───────────────────── */
@@ -161,30 +158,26 @@ static void *dns_work_fn(void *arg) {
 
 /**
  * @brief Done callback invoked on the event loop thread.
- *
- * If the request was cancelled, frees everything silently.
- * Otherwise, invokes the user callback with the result.
  */
 static void dns_done_fn(void *arg, void *work_result) {
   struct xDnsRequest_ *req    = (struct xDnsRequest_ *)arg;
   xDnsResult          *result = (xDnsResult *)work_result;
 
-  if (xAtomicLoad(&req->cancelled, xAtomicAcquire)) {
-    /* Cancelled: discard result, do not invoke user callback */
-    if (result) xDnsResultFree(result);
-  } else {
-    /* Deliver result to user */
-    if (!result) {
-      /* Should not happen, but be defensive */
-      result = result_error(xErrno_NoMemory);
-    }
-    req->callback(result, req->arg);
-  }
+  if (!result) result = result_error(xErrno_NoMemory);
+  req->callback(result, req->arg);
 
-  /* Clean up the request */
   free(req->hostname);
   free(req->service);
   free(req);
+}
+
+/**
+ * @brief Cancel cleanup — frees worker-allocated result only.
+ *        req is freed synchronously by xDnsCancel.
+ */
+static void dns_on_cancel(void *arg, void *result) {
+  (void)arg;
+  if (result) xDnsResultFree((xDnsResult *)result);
 }
 
 /* ───────────────────── Public API ───────────────────── */
@@ -218,9 +211,8 @@ xDnsQuery xDnsResolve( const char *hostname, const char *service,
 
   req->callback  = callback;
   req->arg       = arg;
-  req->cancelled = 0;
 
-  req->work = xWorkSubmit(NULL, dns_work_fn, dns_done_fn, req);
+  req->work = xWorkSubmit(NULL, dns_work_fn, dns_done_fn, dns_on_cancel, req);
   if (!req->work) goto fail;
 
   return (xDnsQuery)req;
@@ -240,18 +232,12 @@ void xDnsCancel(xDnsQuery query) {
 
   struct xDnsRequest_ *req = (struct xDnsRequest_ *)query;
 
-  /* Fast path: if work_fn has not started yet, cancel it entirely.
-   * On success, done_fn will NOT be called, so we clean up here. */
-  if (xWorkCancel(req->work) == xErrno_Ok) {
-    free(req->hostname);
-    free(req->service);
-    free(req);
-    return;
-  }
-
-  /* Slow path: work_fn is already running or done.
-   * Set the flag so done_fn skips the user callback. */
-  xAtomicStore(&req->cancelled, 1, xAtomicRelease);
+  /* xWorkCancel prevents done_fn; on_cancel frees worker result.
+   * req resources freed synchronously here. */
+  xWorkCancel(req->work);
+  free(req->hostname);
+  free(req->service);
+  free(req);
 }
 
 void xDnsResultFree(xDnsResult *result) {
