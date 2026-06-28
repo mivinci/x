@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -80,12 +82,8 @@ func main() {
 
 	results := []Result{}
 
-	// Warmup (different name to avoid cache pollution)
-	if localMode {
-		benchSingle(resolver, "bench-99.local")
-	} else {
-		benchSingle(resolver, "microsoft.com")
-	}
+	// Warmup: prime resolver cache with same domain as measurement
+	benchSingle(resolver, singleHost)
 
 	// Single query
 	us, ok := benchSingle(resolver, singleHost)
@@ -96,22 +94,28 @@ func main() {
 		LatencyUs: us, Queries: 1, Success: s, Failed: f,
 	})
 
-	// Batch — sequential, same as xdns/xnet
-	var total int64
-	okCount, failCount := 0, 0
+	// Batch — concurrent goroutines, measure wall time (matches xdns/xnet/cares)
+	var wg sync.WaitGroup
+	var okCount, failCount int64
+	start := time.Now()
 	for _, name := range batchNames {
-		us, ok := benchSingle(resolver, name)
-		total += us
-		if ok {
-			okCount++
-		} else {
-			failCount++
-		}
+		wg.Add(1)
+		go func(n string) {
+			defer wg.Done()
+			_, err := resolver.LookupHost(context.Background(), n)
+			if err == nil {
+				atomic.AddInt64(&okCount, 1)
+			} else {
+				atomic.AddInt64(&failCount, 1)
+			}
+		}(name)
 	}
+	wg.Wait()
+	elapsed := time.Since(start).Microseconds()
 	results = append(results, Result{
 		Resolver: "go", Mode: mode, Scenario: "batch",
-		LatencyUs: total, Queries: len(batchNames),
-		Success: okCount, Failed: failCount,
+		LatencyUs: elapsed, Queries: len(batchNames),
+		Success: int(okCount), Failed: int(failCount),
 	})
 
 	// Cache hit

@@ -67,16 +67,29 @@ static BenchResult bench_single(xDnsClient client, const char *name) {
 }
 
 static BenchResult bench_batch(xDnsClient client, const char **names, int count) {
-  long long total = 0;
-  int ok = 0, fail = 0;
+  /* True concurrent: fire all queries, wait for slowest. */
+  struct {
+    std::atomic<int> ok{0};
+    std::atomic<int> pending{0};
+  } ctx;
+  ctx.pending.store(count);
+  xEventLoop loop = xEventLoopCurrent();
+
+  Clock::time_point start = Clock::now();
 
   for (int i = 0; i < count; i++) {
-    auto r = bench_single(client, names[i]);
-    total += r.latency_us;
-    ok    += r.success;
-    fail  += r.failed;
+    xDnsClientDo(client, names[i], xDnsType_A,
+      [](xErrno err, const xDnsRecord *, void *arg) {
+        auto *c = (decltype(&ctx))arg;
+        if (err == xErrno_Ok) c->ok.fetch_add(1);
+        if (c->pending.fetch_sub(1) == 1) xEventLoopStop(xEventLoopCurrent());
+      }, &ctx);
   }
-  return BenchResult{"batch", total, count, ok, fail};
+
+  xEventLoopRun(loop, X_RUN_DEFAULT);
+
+  auto wall = std::chrono::duration_cast<us>(Clock::now() - start);
+  return BenchResult{"batch", wall.count(), count, ctx.ok.load(), count - ctx.ok.load()};
 }
 
 static BenchResult bench_cache(xDnsClient client, const char *name) {
@@ -116,7 +129,7 @@ int main(int argc, char **argv) {
     conf.retries = 1;
   } else {
     conf.nameservers[0] = "8.8.8.8";
-    conf.timeout_ms = 5000;
+    conf.timeout_ms = 3000;
     conf.retries = 1;
   }
 
@@ -138,9 +151,8 @@ int main(int argc, char **argv) {
     for (int i = 0; i < batch_count; i++) batch_names[i] = remote_hosts[i];
   }
 
-  /* Warmup: one query to prime the socket (use a different name to avoid
-   * polluting the cache for the real measurement) */
-  bench_single(client, local ? "bench-99.local" : "microsoft.com");
+  /* Warmup: prime socket + cache with the same domain as measurement */
+  bench_single(client, single_host);
 
   /* Real measurements */
   auto r_single = bench_single(client, single_host);

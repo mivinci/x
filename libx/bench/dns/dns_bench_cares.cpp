@@ -89,16 +89,37 @@ static BenchResult bench_single(ares_channel_t *ch, const char *name) {
 }
 
 static BenchResult bench_batch(ares_channel_t *ch, const char **names, int count) {
-  long long total = 0;
-  int ok = 0, fail = 0;
+  struct {
+    std::atomic<int> ok{0};
+    std::atomic<int> pending{0};
+  } ctx;
+  ctx.pending.store(count);
+
+  Clock::time_point start = Clock::now();
 
   for (int i = 0; i < count; i++) {
-    auto r = bench_single(ch, names[i]);
-    total += r.latency_us;
-    ok    += r.success;
-    fail  += r.failed;
+    ares_getaddrinfo(ch, names[i], NULL, NULL,
+      [](void *arg, int status, int, struct ares_addrinfo *res) {
+        auto *c = (decltype(&ctx))arg;
+        if (status == ARES_SUCCESS) c->ok.fetch_add(1);
+        if (res) ares_freeaddrinfo(res);
+        c->pending.fetch_sub(1);
+      }, &ctx);
   }
-  return BenchResult{"batch", total, count, ok, fail};
+
+  /* Pump until all complete */
+  while (ctx.pending.load() > 0) {
+    fd_set read_fds, write_fds;
+    struct timeval tv, *tvp;
+    FD_ZERO(&read_fds); FD_ZERO(&write_fds);
+    (void)ares_fds(ch, &read_fds, &write_fds);
+    tvp = ares_timeout(ch, NULL, &tv);
+    select(FD_SETSIZE, &read_fds, &write_fds, NULL, tvp);
+    ares_process(ch, &read_fds, &write_fds);
+  }
+
+  auto wall = std::chrono::duration_cast<us>(Clock::now() - start);
+  return BenchResult{"batch", wall.count(), count, ctx.ok.load(), count - ctx.ok.load()};
 }
 
 int main(int argc, char **argv) {
@@ -106,29 +127,32 @@ int main(int argc, char **argv) {
   if (argc > 1 && strcmp(argv[1], "remote") == 0) local = false;
   const char *mode = local ? "local" : "remote";
 
-  if (local) {
-    /* c-ares uses /etc/resolv.conf, not a custom UDP address */
-    printf("[{\"resolver\":\"cares\",\"mode\":\"local\",\"skipped\":true,"
-           "\"reason\":\"c-ares uses system resolver config\"}]\n");
-    return 0;
-  }
-
   ares_channel_t *ch = NULL;
   struct ares_options opts = {};
-  opts.timeout = 5000;
-  opts.tries = 2;
+  opts.timeout = 2000;
+  opts.tries = 1;
 
   int status = ares_init_options(&ch, &opts, ARES_OPT_TIMEOUTMS | ARES_OPT_TRIES);
   if (status != ARES_SUCCESS) {
     fprintf(stderr, "ares_init_options failed: %d\n", status);
     return 1;
   }
+  ares_set_servers_csv(ch, local ? "127.0.0.1:15353" : "8.8.8.8");
 
-  const char *single_host = "google.com";
+  const char *single_host = local ? "bench-0.local" : "google.com";
 
-  int batch_count = n_remote_hosts;
+  /* Build batch names */
+  int batch_count = local ? 100 : n_remote_hosts;
   const char **batch_names = (const char **)malloc((size_t)batch_count * sizeof(char *));
-  for (int i = 0; i < batch_count; i++) batch_names[i] = remote_hosts[i];
+  if (local) {
+    for (int i = 0; i < 100; i++) {
+      char *buf = (char *)malloc(64);
+      snprintf(buf, 64, "bench-%d.local", i);
+      batch_names[i] = buf;
+    }
+  } else {
+    for (int i = 0; i < batch_count; i++) batch_names[i] = remote_hosts[i];
+  }
 
   /* Warmup */
   bench_single(ch, single_host);
@@ -140,6 +164,7 @@ int main(int argc, char **argv) {
   auto r_batch = bench_batch(ch, batch_names, batch_count);
   json_out("cares", mode, r_batch);
 
+  if (local) for (int i = 0; i < 100; i++) free((void *)batch_names[i]);
   free(batch_names);
   ares_destroy(ch);
 

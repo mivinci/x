@@ -68,16 +68,29 @@ static BenchResult bench_single(const char *name) {
 }
 
 static BenchResult bench_batch(const char **names, int count) {
-  long long total = 0;
-  int ok = 0, fail = 0;
+  struct {
+    std::atomic<int> ok{0};
+    std::atomic<int> pending{0};
+  } ctx;
+  ctx.pending.store(count);
+  xEventLoop loop = xEventLoopCurrent();
+
+  Clock::time_point start = Clock::now();
 
   for (int i = 0; i < count; i++) {
-    auto r = bench_single(names[i]);
-    total += r.latency_us;
-    ok    += r.success;
-    fail  += r.failed;
+    xDnsResolve(names[i], nullptr, nullptr,
+      [](xDnsResult *result, void *arg) {
+        auto *c = (decltype(&ctx))arg;
+        if (result->error == xErrno_Ok) c->ok.fetch_add(1);
+        xDnsResultFree(result);
+        if (c->pending.fetch_sub(1) == 1) xEventLoopStop(xEventLoopCurrent());
+      }, &ctx);
   }
-  return BenchResult{"batch", total, count, ok, fail};
+
+  xEventLoopRun(loop, X_RUN_DEFAULT);
+
+  auto wall = std::chrono::duration_cast<us>(Clock::now() - start);
+  return BenchResult{"batch", wall.count(), count, ctx.ok.load(), count - ctx.ok.load()};
 }
 
 int main(int argc, char **argv) {
@@ -101,8 +114,8 @@ int main(int argc, char **argv) {
   const char **batch_hosts = (const char **)malloc((size_t)batch_count * sizeof(char *));
   for (int i = 0; i < batch_count; i++) batch_hosts[i] = remote_hosts[i];
 
-  /* Warmup: prime the resolver (use different name) */
-  bench_single("microsoft.com");
+  /* Warmup: prime system resolver cache with same domain */
+  bench_single(single_host);
 
   auto r_single = bench_single(single_host);
   r_single.scenario = "single_query";
