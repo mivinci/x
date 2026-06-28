@@ -8,7 +8,9 @@
 
 #include "event_private.h"
 #include <limits.h>
+#include <signal.h>
 #include <string.h>
+#include <pthread.h>
 
 /* ───────────────── Backend selection ───────────────── */
 
