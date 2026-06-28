@@ -115,6 +115,7 @@ graph TD
 | `array.h` | [array.md](array.md) | Generic auto-growing array — type-erased contiguous storage with optional lifecycle callbacks (retain/release/equal) |
 | `hex.h` | [hex.md](hex.md) | Hex (base16) encode/decode — binary to/from ASCII hex string (lower-case output, case-insensitive decode) |
 | `base64.h` | [base64.md](base64.md) | Base64 encode/decode (RFC 4648) — standard and URL-safe alphabets, with or without `=` padding |
+| `random.h` | [random.md](random.md) | Cross-platform cryptographically secure random bytes — `getrandom` / `getentropy` / `BCryptGenRandom` with `/dev/urandom` fallback |
 | `time.h` | — | Time utilities: `xMonoMs()` (monotonic) and `xWallMs()` (wall-clock) in milliseconds |
 | `cmd.h` | [cmd.md](cmd.md) | Async command executor over xEventLoop — spawn child processes with stdout/stderr capture, streaming, discard, and PTY modes |
 | `flag.h` | [flag.md](flag.md) | POSIX/GNU-style command-line flag parser — typed storage, auto-generated `--help`, choice validation, counter and positional support |

@@ -106,8 +106,7 @@ When set to `auto`, CMake probes for OpenSSL first, then mbedTLS, and falls back
 | `hmac_sha1.h` | HMAC-SHA1 convenience wrapper |
 | `hmac_sha256.h` | HMAC-SHA256 convenience wrapper |
 | `hmac_md5.h` | HMAC-MD5 convenience wrapper |
-
-## API Reference
+| `uuid.h` | UUID generation (RFC 4122 / RFC 9562) — v4 random, v7 time-ordered, v5 namespace+SHA-1 ([docs](uuid.md)) |
 
 ### Hash Constants
 

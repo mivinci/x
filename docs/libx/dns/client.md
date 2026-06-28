@@ -1,50 +1,35 @@
-# xDnsClient — Async DNS Resolver
+# dns.h — DNS Client API
 
-## Overview
+## Introduction
 
 `xDnsClient` provides truly asynchronous DNS resolution over UDP. It implements the DNS protocol directly (RFC 1035 + RFC 6891 EDNS0), with no `getaddrinfo` and no thread pool. All I/O is non-blocking and driven by the event loop.
 
 ## Types
 
-### xDnsType — bitmask query flags
-
-```c
-typedef enum {
-  xDnsType_A     = 1 << 0,   // IPv4 (QTYPE=1)
-  xDnsType_AAAA  = 1 << 1,   // IPv6 (QTYPE=28)
-  xDnsType_CNAME = 1 << 2,   // Canonical name (QTYPE=5)
-} xDnsType;
-```
-
-Flags can be OR'd together: `xDnsType_A | xDnsType_AAAA` sends two parallel queries and merges results.
-
-### xDnsRecord — resolved record
-
-```c
-XDEF_STRUCT(xDnsRecord) {
-  uint16_t    qtype;      // DNS QTYPE: 1=A, 28=AAAA, 5=CNAME
-  uint32_t    ttl;        // Time-to-live in seconds
-  const char *name;       // Record name (NUL-terminated)
-  const void *rdata;      // Record data (A: 4 bytes, AAAA: 16 bytes)
-  size_t      rdlength;   // Length of rdata
-  xDnsRecord *next;       // Next record in list, or NULL
-};
-```
-
-### xDnsClientConf — configuration
+### xDnsClientConf — Configuration
 
 ```c
 XDEF_STRUCT(xDnsClientConf) {
-  const char *nameservers[8];  // "8.8.8.8", "1.1.1.1", ... (NULL = auto-detect)
+  const char *nameservers[8];  // Up to 8 nameservers ("8.8.8.8", ...)
   int          timeout_ms;     // Per-query timeout (default 5000)
-  int          retries;        // Retry count per nameserver (default 2)
+  int          retries;        // Retries with next nameserver (default 2)
   int          enable_cache;   // 1 = enable TTL cache (default 1)
 };
 ```
 
-When `nameservers[0]` is NULL, the client auto-discovers DNS servers from `/etc/resolv.conf` (POSIX) or `GetNetworkParams()` (Windows), falling back to `8.8.8.8`.
+Zero-initialize for defaults. When `nameservers[0]` is NULL, the client auto-discovers DNS servers from `/etc/resolv.conf` (POSIX) or `GetNetworkParams()` (Windows), falling back to `8.8.8.8`.
 
 Nameserver strings support optional port: `"8.8.8.8:53"` or `"127.0.0.1:5353"`.
+
+### xDnsCallback — Completion callback
+
+```c
+typedef void (*xDnsCallback)(xErrno err, const xDnsRecord *records, void *arg);
+```
+
+- `err` — `xErrno_Ok` on success (including partial success where some record types resolved and others timed out)
+- `records` — Linked list of resolved records, valid only during the callback
+- `arg` — User-provided argument from `xDnsClientDo()`
 
 ## API
 
@@ -52,18 +37,16 @@ Nameserver strings support optional port: `"8.8.8.8:53"` or `"127.0.0.1:5353"`.
 XCAPI(xDnsClient) xDnsClientCreate(const xDnsClientConf *conf);
 XCAPI(void)        xDnsClientDestroy(xDnsClient client);
 XCAPI(xErrno)      xDnsClientDo(xDnsClient client, const char *name,
-                                xDnsType type, xDnsCallback callback, void *arg);
+                                xDnsType type, xDnsCallback cb, void *arg);
 ```
 
-### Callback
+### Lifecycle
 
-```c
-typedef void (*xDnsCallback)(xErrno err, const xDnsRecord *records, void *arg);
-```
-
-- `err` is `xErrno_Ok` on success (including partial success where some record types resolved and others timed out)
-- `records` is a linked list of resolved records, valid only during the callback
-- The callback is invoked on the event loop thread
+| Function | Description |
+| --- | --- |
+| `xDnsClientCreate(conf)` | Create a client bound to the current event loop. `conf` may be NULL for defaults. |
+| `xDnsClientDestroy(client)` | Destroy the client. In-flight queries are cancelled; their callbacks are NOT invoked. Safe with NULL. |
+| `xDnsClientDo(client, name, type, cb, arg)` | Resolve a hostname. `type` is a bitmask of `xDnsType_A`, `xDnsType_AAAA`, `xDnsType_CNAME`. `cb` must not be NULL. |
 
 ## Usage Examples
 
@@ -83,22 +66,18 @@ void on_resolve(xErrno err, const xDnsRecord *records, void *arg) {
 
 xDnsClientConf conf = {};
 conf.nameservers[0] = "8.8.8.8";
-conf.timeout_ms     = 5000;
+conf.timeout_ms = 5000;
 
 xDnsClient client = xDnsClientCreate(&conf);
 xDnsClientDo(client, "example.com", xDnsType_A, on_resolve, NULL);
-
-// Pump event loop...
-xEventLoopRun(loop, X_RUN_DEFAULT);
-
-xDnsClientDestroy(client);
 ```
 
 ### Query A + AAAA together
 
 ```c
 // Send both A and AAAA queries in parallel, get merged results
-xDnsClientDo(client, "google.com", xDnsType_A | xDnsType_AAAA, on_resolve, NULL);
+xDnsClientDo(client, "google.com", xDnsType_A | xDnsType_AAAA,
+             on_resolve, NULL);
 ```
 
 ### Auto-discover nameservers
@@ -106,17 +85,16 @@ xDnsClientDo(client, "google.com", xDnsType_A | xDnsType_AAAA, on_resolve, NULL)
 ```c
 xDnsClientConf conf = {};  // nameservers[0] = NULL → auto-detect
 xDnsClient client = xDnsClientCreate(&conf);
-// Reads /etc/resolv.conf on Linux/macOS
-// Uses GetNetworkParams() on Windows
+// Reads /etc/resolv.conf on Linux/macOS, GetNetworkParams() on Windows
 // Falls back to 8.8.8.8
 ```
 
-### With caching
+### With TTL caching
 
 ```c
 xDnsClientConf conf = {};
 conf.nameservers[0] = "8.8.8.8";
-conf.enable_cache   = 1;  // default
+conf.enable_cache = 1;  // default
 
 xDnsClient client = xDnsClientCreate(&conf);
 // First query: sends UDP, caches result with TTL
@@ -127,18 +105,16 @@ xDnsClientDo(client, "example.com", xDnsType_A, cb2, NULL);
 
 ## How It Works
 
-1. **Cache check**: If caching is enabled and a non-expired entry exists, the callback is invoked immediately without network I/O.
-2. **Query**: For each bit in `xDnsType`, a DNS query packet is built (with EDNS0 OPT record, UDP payload size 4096) and sent via `xSocketSendTo` to the first nameserver.
-3. **Wait**: Each query has a timeout timer. The event loop drives I/O — when the UDP socket becomes readable, the response is parsed and matched by transaction ID.
-4. **Merge**: For multi-type queries, results are accumulated. The callback fires once when all queries complete (or timeout).
-5. **Retry**: On timeout, the client tries the next nameserver (up to `retries` times).
-6. **Cache**: Successful results are stored in the TTL cache for future queries.
+1. **Cache check** — If caching is enabled and a non-expired entry exists, the callback is invoked immediately without network I/O.
+2. **Query** — For each bit in `xDnsType`, a DNS query packet is built (with EDNS0 OPT record, UDP payload size 4096) and sent via `xSocketSendTo` to the first nameserver.
+3. **Wait** — Each query has a timeout timer. The event loop drives I/O — when the UDP socket becomes readable, the response is parsed and matched by transaction ID.
+4. **Merge** — For multi-type queries, results are accumulated. The callback fires once when all queries complete (or time out).
+5. **Retry** — On timeout, the client tries the next nameserver (up to `retries` times).
+6. **Cache** — Successful results are stored in the TTL cache for future queries.
 
-## RFC Compliance
+## Best Practices
 
-| RFC | Compliance |
-|-----|-----------|
-| RFC 1034 | Caching behavior, CNAME chains |
-| RFC 1035 | Packet format, name encoding, compression pointers |
-| RFC 3596 | AAAA record type (QTYPE=28) |
-| RFC 6891 | EDNS0 OPT record, UDP payload size 4096 |
+- **Create one client per event loop** — A single client multiplexes all queries over one UDP socket.
+- **Register before the event loop runs** — All queries must be initiated from the event loop thread.
+- **Copy data in callbacks** — `xDnsRecord` pointers are valid only during the callback.
+- **Handle partial success** — `xDnsType_A | xDnsType_AAAA` may succeed for A and time out for AAAA; check each record's `qtype`.

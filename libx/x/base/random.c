@@ -38,41 +38,44 @@ xErrno xRandomBytes(void *buf, size_t len) {
 
 #elif defined(__linux__) && defined(SYS_getrandom)
   /* getrandom() — Linux 3.17+ */
-  char  *p   = (char *)buf;
-  size_t rem = len;
-  while (rem > 0) {
-    ssize_t n = syscall(SYS_getrandom, p, rem, 0);
-    if (n < 0) {
-      if (errno == EINTR) continue;
-      break; /* fall through to /dev/urandom */
+  {
+    char  *p   = (char *)buf;
+    size_t rem = len;
+    while (rem > 0) {
+      ssize_t n = syscall(SYS_getrandom, p, rem, 0);
+      if (n < 0) {
+        if (errno == EINTR) continue;
+        break; /* fall through to /dev/urandom */
+      }
+      p += n;
+      rem -= (size_t)n;
     }
-    p += n;
-    rem -= (size_t)n;
+    if (rem == 0) return xErrno_Ok;
   }
-  if (rem == 0) return xErrno_Ok;
-
 #elif defined(__APPLE__)
   /* getentropy() — macOS 10.12+ */
   if (getentropy(buf, len) == 0) return xErrno_Ok;
 #endif
 
   /* Fallback: /dev/urandom */
-  int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
-  if (fd < 0) return xErrno_SysError;
+  {
+    int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return xErrno_SysError;
 
-  char  *p   = (char *)buf;
-  size_t rem = len;
-  while (rem > 0) {
-    ssize_t n = read(fd, p, rem);
-    if (n < 0) {
-      if (errno == EINTR) continue;
-      close(fd);
-      return xErrno_SysError;
+    char  *p   = (char *)buf;
+    size_t rem = len;
+    while (rem > 0) {
+      ssize_t n = read(fd, p, rem);
+      if (n < 0) {
+        if (errno == EINTR) continue;
+        close(fd);
+        return xErrno_SysError;
+      }
+      if (n == 0) break;
+      p += n;
+      rem -= (size_t)n;
     }
-    if (n == 0) break;
-    p += n;
-    rem -= (size_t)n;
+    close(fd);
+    return (rem == 0) ? xErrno_Ok : xErrno_SysError;
   }
-  close(fd);
-  return (rem == 0) ? xErrno_Ok : xErrno_SysError;
 }
