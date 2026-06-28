@@ -143,6 +143,72 @@ run_http() {
   info "HTTP benchmark completed → $out"
 }
 
+# ── DNS benchmark ──
+
+run_dns() {
+  local port="${DNS_PORT:-15353}"
+
+  local server_bin="$BUILD_DIR/libx/bench/dns_bench_server"
+  local xdns_bin="$BUILD_DIR/libx/bench/dns_bench_xdns"
+  local xnet_bin="$BUILD_DIR/libx/bench/dns_bench_xnet"
+  local go_bin="$SCRIPT_DIR/dns/dns_bench_client.go"
+
+  if [ ! -x "$server_bin" ] || [ ! -x "$xdns_bin" ] || [ ! -x "$xnet_bin" ]; then
+    error "DNS bench binaries not found. Build with -DX_BUILD_BENCHMARKS=ON"
+    return 1
+  fi
+
+  # ── Local mode ──
+  info "Starting local DNS bench server on port $port..."
+  "$server_bin" "$port" &
+  local server_pid=$!
+  sleep 1
+
+  if ! kill -0 "$server_pid" 2>/dev/null; then
+    error "DNS bench server failed to start"
+    return 1
+  fi
+
+  local out="$RESULTS_DIR/dns_bench_local_${TIMESTAMP}.json"
+
+  info "Running xdns benchmark (local)..."
+  "$xdns_bin" local | tee "$out"
+  echo
+
+  info "Running xnet/dns benchmark (local)..."
+  "$xnet_bin" local | tee -a "$out"
+
+  if command -v go &>/dev/null && [ -f "$go_bin" ]; then
+    echo
+    info "Running Go DNS benchmark (local)..."
+    GODEBUG=netdns=go go run "$go_bin" local | tee -a "$out"
+  else
+    warn "Go not available — skipping Go benchmark"
+  fi
+
+  info "Stopping local DNS bench server..."
+  kill "$server_pid" 2>/dev/null || true
+  wait "$server_pid" 2>/dev/null || true
+
+  # ── Remote mode ──
+  out="$RESULTS_DIR/dns_bench_remote_${TIMESTAMP}.json"
+
+  info "Running xdns benchmark (remote)..."
+  "$xdns_bin" remote | tee "$out"
+  echo
+
+  info "Running xnet/dns benchmark (remote)..."
+  "$xnet_bin" remote | tee -a "$out"
+
+  if command -v go &>/dev/null && [ -f "$go_bin" ]; then
+    echo
+    info "Running Go DNS benchmark (remote)..."
+    GODEBUG=netdns=go go run "$go_bin" remote | tee -a "$out"
+  fi
+
+  info "DNS benchmark completed → $RESULTS_DIR"
+}
+
 # ── Main ──
 
 MODE="${1:-all}"
@@ -154,13 +220,16 @@ case "$MODE" in
   http)
     run_http
     ;;
+  dns)
+    run_dns
+    ;;
   all)
     run_tcp
     echo ""
     run_http
     ;;
   *)
-    echo "Usage: $0 [tcp|http|all]"
+    echo "Usage: $0 [tcp|http|dns|all]"
     exit 1
     ;;
 esac

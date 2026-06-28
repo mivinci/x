@@ -1,5 +1,19 @@
 # bench/CMakeLists.txt - moo End-to-End Benchmark Suite
 
+# ── DNS benchmark server & client ──
+
+add_executable(dns_bench_server dns/dns_bench_server.cpp)
+target_link_libraries(dns_bench_server PRIVATE xdns xbase)
+target_compile_options(dns_bench_server PRIVATE -Wno-error)
+
+add_executable(dns_bench_xdns dns/dns_bench_xdns.cpp)
+target_link_libraries(dns_bench_xdns PRIVATE xdns xbase)
+target_compile_options(dns_bench_xdns PRIVATE -Wno-error)
+
+add_executable(dns_bench_xnet dns/dns_bench_xnet.cpp)
+target_link_libraries(dns_bench_xnet PRIVATE xnet xbase)
+target_compile_options(dns_bench_xnet PRIVATE -Wno-error)
+
 # ── TCP echo server & client (always available since xnet is always built) ──
 
 add_executable(tcp_echo_server net/tcp_echo_server.cpp)
