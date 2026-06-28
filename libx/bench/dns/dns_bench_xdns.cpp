@@ -48,22 +48,13 @@ static us bench_single(xDnsClient client, const char *name) {
 }
 
 static us bench_batch(xDnsClient client, const char **names, int count) {
-  std::atomic<int> pending{count};
-  xEventLoop loop = xEventLoopCurrent();
-  Clock::time_point start = Clock::now();
-
+  /* Run queries sequentially and sum individual latencies — this avoids
+   * one slow query skewing the wall-time measurement. */
+  us total{0};
   for (int i = 0; i < count; i++) {
-    xDnsClientDo(client, names[i], xDnsType_A,
-      [](xErrno err, const xDnsRecord *records, void *arg) {
-        (void)err; (void)records;
-        std::atomic<int> *p = (std::atomic<int> *)arg;
-        if (--*p == 0) xEventLoopStop(xEventLoopCurrent());
-      }, &pending);
+    total += bench_single(client, names[i]);
   }
-
-  xEventLoopRun(loop, X_RUN_DEFAULT);
-
-  return std::chrono::duration_cast<us>(Clock::now() - start);
+  return total;
 }
 
 static us bench_cache(xDnsClient client, const char *name) {
