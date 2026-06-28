@@ -87,6 +87,8 @@ XDEF_STRUCT(xDnsClientConf) {
   int          udp_max_queries; /**< Max queries per UDP connection before
                                      rotating to a new source port.
                                      0 = unlimited (default).             */
+  int          enable_hosts;  /**< 1=load and use /etc/hosts (default),
+                                     0=disable.                           */
 };
 
 /**
@@ -119,6 +121,17 @@ XCAPI(xDnsClient) xDnsClientCreate(const xDnsClientConf *conf);
  * Safe to call with NULL.
  */
 XCAPI(void) xDnsClientDestroy(xDnsClient client);
+
+/**
+ * @brief Reload /etc/hosts into the client's hosts table.
+ *
+ * Frees the old table and re-parses the hosts file. Does nothing if
+ * hosts support was disabled at creation time (enable_hosts = 0).
+ * Safe to call with NULL.
+ *
+ * @param client  The DNS client.
+ */
+XCAPI(void) xDnsClientReloadHosts(xDnsClient client);
 
 /**
  * @brief Resolve a hostname asynchronously.

@@ -12,6 +12,7 @@
 
 #include "dns_private.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -72,6 +73,7 @@ struct xDnsClient_ {
   int        sock_family;          /* AF_INET or AF_INET6               */
   xMap       queries;              /* id (void*) → query_t*              */
   xMap       cache;                /* NULL if disabled                   */
+  xMap       hosts;                /* NULL if disabled                   */
   /* Nameserver addresses (pre-resolved) */
   struct sockaddr_storage ns_addr[8];
   socklen_t               ns_len[8];
@@ -79,6 +81,7 @@ struct xDnsClient_ {
   int      timeout_ms;
   int      retries;
   int      enable_cache;
+  int      enable_hosts;
   uint16_t next_id;
 };
 
@@ -208,6 +211,124 @@ static const struct sockaddr *resolve_ns(struct xDnsClient_ *c, int idx,
   return (const struct sockaddr *)ss;
 }
 
+/* ───────────────────── Hosts file ───────────────────── */
+
+static xMap hosts_load(void) {
+  FILE *fp;
+#ifdef _WIN32
+  fp = fopen("C:\\Windows\\System32\\drivers\\etc\\hosts", "r");
+#else
+  fp = fopen("/etc/hosts", "r");
+#endif
+  if (!fp) return NULL;
+
+  xMap m = xMapCreate(xMapType_Hash, 64, xMapStrHash, xMapStrEq);
+  if (!m) { fclose(fp); return NULL; }
+
+  char line[1024];
+  while (fgets(line, sizeof(line), fp)) {
+    /* Strip comment */
+    char *c = strchr(line, '#');
+    if (c) *c = '\0';
+
+    /* Parse: IP hostname [alias...] */
+    char ip[64], name[256];
+    int n = 0;
+    if (sscanf(line, "%63s %255s%n", ip, name, &n) < 2) continue;
+    if (ip[0] == '\0' || name[0] == '\0') continue;
+
+    /* Only support IPv4 for now */
+    struct sockaddr_in sin;
+    if (inet_pton(AF_INET, ip, &sin.sin_addr) != 1) continue;
+
+    /* Build xDnsRecord */
+    xDnsRecord *rec = (xDnsRecord *)calloc(1, sizeof(xDnsRecord));
+    if (!rec) continue;
+    rec->qtype = DNS_QTYPE_A;
+    rec->ttl   = 0; /* hosts entries never expire */
+    rec->name  = strdup(name);
+    rec->rdata = malloc(4);
+    if (!rec->name || !rec->rdata) {
+      free((void *)rec->name); free((void *)rec->rdata); free(rec); continue;
+    }
+    memcpy((void *)rec->rdata, &sin.sin_addr, 4);
+    rec->rdlength = 4;
+
+    /* Insert — support multiple IPs per hostname via linked list */
+    xDnsRecord *existing = (xDnsRecord *)xMapGet(m, name);
+    if (existing) {
+      xDnsRecord *tail = existing;
+      while (tail->next) tail = tail->next;
+      tail->next = rec;
+    } else {
+      xMapSet(m, name, rec);
+    }
+
+    /* Also add alias entries. e.g. "127.0.0.1 localhost myapp.local" */
+    char *alias = line + n;
+    while (*alias) {
+      char aname[256];
+      if (sscanf(alias, "%255s%n", aname, &n) != 1) break;
+      if (aname[0] == '\0') break;
+      if (strcasecmp(aname, name) == 0) { alias += n; continue; }
+      /* Create a duplicate record for the alias */
+      xDnsRecord *arec = (xDnsRecord *)calloc(1, sizeof(xDnsRecord));
+      if (!arec) break;
+      arec->qtype    = DNS_QTYPE_A;
+      arec->ttl      = 0;
+      arec->name     = strdup(aname);
+      arec->rdata    = malloc(4);
+      if (!arec->name || !arec->rdata) {
+        free((void *)arec->name); free((void *)arec->rdata); free(arec); break;
+      }
+      memcpy((void *)arec->rdata, &sin.sin_addr, 4);
+      arec->rdlength = 4;
+      xDnsRecord *aexist = (xDnsRecord *)xMapGet(m, aname);
+      if (aexist) {
+        xDnsRecord *atail = aexist;
+        while (atail->next) atail = atail->next;
+        atail->next = arec;
+      } else {
+        xMapSet(m, aname, arec);
+      }
+      alias += n;
+    }
+  }
+  fclose(fp);
+  return m;
+}
+
+static xDnsRecord *hosts_lookup(xMap m, const char *name, uint16_t qtype) {
+  if (!m || !name) return NULL;
+  xDnsRecord *rec = (xDnsRecord *)xMapGet(m, name);
+  if (!rec) return NULL;
+  /* Filter by qtype */
+  for (; rec; rec = rec->next) if (rec->qtype == qtype) break;
+  return rec;
+}
+
+static void hosts_record_free(xDnsRecord *rec) {
+  xDnsRecord *next;
+  for (; rec; rec = next) {
+    next = rec->next;
+    free((void *)rec->name);
+    free((void *)rec->rdata);
+    free(rec);
+  }
+}
+
+static bool hosts_free_cb(const void *key, void *val, void *arg) {
+  (void)key; (void)arg;
+  hosts_record_free((xDnsRecord *)val);
+  return true;
+}
+
+static void hosts_destroy(xMap m) {
+  if (!m) return;
+  xMapIterate(m, hosts_free_cb, NULL);
+  xMapDestroy(m);
+}
+
 /* ───────────────────── Lifecycle ───────────────────── */
 
 xDnsClient xDnsClientCreate(const xDnsClientConf *conf) {
@@ -223,6 +344,7 @@ xDnsClient xDnsClientCreate(const xDnsClientConf *conf) {
   c->timeout_ms   = 5000;
   c->retries      = 2;
   c->enable_cache = 1;
+  c->enable_hosts = 1;
 
   /* Nameservers from config or system discovery. */
   char nss[8][46];
@@ -231,6 +353,7 @@ xDnsClient xDnsClientCreate(const xDnsClientConf *conf) {
     c->timeout_ms   = conf->timeout_ms   > 0 ? conf->timeout_ms : 5000;
     c->retries      = conf->retries      >= 0 ? conf->retries    : 2;
     c->enable_cache = conf->enable_cache    ? 1 : 0;
+    c->enable_hosts = conf->enable_hosts    ? 1 : 0;
     for (int i = 0; i < 8 && conf->nameservers[i]; ++i) {
       strncpy(nss[i], conf->nameservers[i], 45);
       nss[i][45] = '\0';
@@ -330,6 +453,9 @@ xDnsClient xDnsClientCreate(const xDnsClientConf *conf) {
   int max_q = conf ? conf->udp_max_queries : 0;
   for (int i = 0; i < c->ns_count; ++i) c->conns[i].max_queries = max_q;
 
+  /* Load hosts file if enabled. */
+  if (c->enable_hosts) c->hosts = hosts_load();
+
   return (xDnsClient)c;
 }
 
@@ -372,8 +498,17 @@ void xDnsClientDestroy(xDnsClient client) {
   }
 
   if (c->cache) dns_cache_destroy(c->cache);
+  if (c->hosts) hosts_destroy(c->hosts);
   conns_cleanup(c);
   free(c);
+}
+
+void xDnsClientReloadHosts(xDnsClient client) {
+  if (!client) return;
+  struct xDnsClient_ *c = (struct xDnsClient_ *)client;
+  if (!c->enable_hosts) return;
+  if (c->hosts) hosts_destroy(c->hosts);
+  c->hosts = hosts_load();
 }
 
 /* ───────────────────── Query lifecycle ───────────────────── */
@@ -411,11 +546,14 @@ static void on_query_timeout(void *arg) {
 
   struct xDnsClient_ *c = (struct xDnsClient_ *)q->req->client;
 
-  if (q->retries_left > 0 && c->ns_count > 1) {
+  if (q->retries_left > 0) {
     --q->retries_left;
-    q->ns_index = (q->ns_index + 1) % c->ns_count;
+    /* If multiple nameservers, rotate to next. Single nameserver: retry same. */
+    if (c->ns_count > 1) q->ns_index = (q->ns_index + 1) % c->ns_count;
     if (send_query(c, q) == xErrno_Ok) {
-      q->timer = xTimerStart(on_query_timeout, q, (uint64_t)c->timeout_ms, 0);
+      /* Exponential backoff: 2x timeout for subsequent retries */
+      int to = c->retries - q->retries_left > 1 ? c->timeout_ms * 2 : c->timeout_ms;
+      q->timer = xTimerStart(on_query_timeout, q, (uint64_t)to, 0);
       return;
     }
     /* fall through to failure */
@@ -485,6 +623,17 @@ xErrno xDnsClientDo(xDnsClient client, const char *name, xDnsType type,
   strncpy(lname, name, sizeof(lname) - 1);
   lname[sizeof(lname) - 1] = '\0';
   lowercase(lname);
+
+  /* Hosts file lookup: check before cache and DNS. */
+  if (c->hosts) {
+    xDnsType t = type;
+    uint16_t qt = dns_qtype_take_next(&t);
+    xDnsRecord *rec = hosts_lookup(c->hosts, lname, qt);
+    if (rec) {
+      cb(xErrno_Ok, rec, arg);
+      return xErrno_Ok;
+    }
+  }
 
   /* Cache check: if every requested type is cached, merge and return. */
   if (c->cache) {
