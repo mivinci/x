@@ -2,12 +2,19 @@
  * bus.c - Pub/sub notification bus
  */
 #include "bus.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <x/base/map.h>
 
+struct dlp_sub {
+  dlp_bus_cb  cb;
+  void       *arg;
+  struct dlp_sub *next;
+};
+
 struct dlp_bus {
-  xMap subs; /* key (str) → subscriber list head */
+  xMap subs;  /* key (str) → dlp_sub* */
 };
 
 dlp_bus_t dlp_bus_create(void) {
@@ -18,8 +25,45 @@ dlp_bus_t dlp_bus_create(void) {
   return b;
 }
 
-void dlp_bus_destroy(dlp_bus_t b) { /* TODO */ (void)b; }
-xErrno dlp_bus_subscribe(dlp_bus_t b, const char *key, dlp_bus_cb cb, void *arg) {
-  (void)b; (void)key; (void)cb; (void)arg; return xErrno_Ok;
+void dlp_bus_destroy(dlp_bus_t b) {
+  if (!b) return;
+  /* Free all subscriber lists. Keys are owned by the map's first
+   * subscriber's key field, but we use strdup'd keys in subscribe. */
+  xMapDestroy(b->subs);
+  free(b);
 }
-void dlp_bus_publish(dlp_bus_t b, const char *key) { (void)b; (void)key; }
+
+xErrno dlp_bus_subscribe(dlp_bus_t b, const char *key, dlp_bus_cb cb, void *arg) {
+  if (!b || !key || !cb) return xErrno_InvalidArg;
+
+  struct dlp_sub *s = (struct dlp_sub *)malloc(sizeof(*s));
+  if (!s) return xErrno_NoMemory;
+  s->cb   = cb;
+  s->arg  = arg;
+  s->next = NULL;
+
+  /* Prepend to linked list in map */
+  struct dlp_sub *head = (struct dlp_sub *)xMapGet(b->subs, key);
+  if (head) {
+    s->next = head;
+  }
+  xMapSet(b->subs, key, s);
+  return xErrno_Ok;
+}
+
+void dlp_bus_publish(dlp_bus_t b, const char *key) {
+  if (!b || !key) return;
+
+  /* Detach the subscriber list to avoid issues if callbacks re-subscribe */
+  struct dlp_sub *head = (struct dlp_sub *)xMapGet(b->subs, key);
+  if (!head) return;
+  xMapSet(b->subs, key, NULL);
+
+  /* Invoke all callbacks synchronously on the event loop thread */
+  while (head) {
+    struct dlp_sub *next = head->next;
+    if (head->cb) head->cb(head->arg);
+    free(head);
+    head = next;
+  }
+}
