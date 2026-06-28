@@ -12,6 +12,23 @@
 #include <x/base/map.h>
 #include <x/base/thread.h>
 
+struct dlp_task {
+  char            rid[64];
+  char            url[512];
+  struct dlp_ctx *ctx;
+  bool            running;
+  xTimer          tick_timer;      /* 1-second scheduling timer           */
+
+  /* Scheduling state */
+  uint64_t        read_offset;     /* player current byte position         */
+  int             remain_time_ms;  /* remaining playable time in buffer    */
+  int             emergency_ms;    /* emergency buffer threshold            */
+  int             safe_ms;         /* safe buffer target                    */
+  uint32_t        bitrate;         /* estimated bitrate (bytes/sec)         */
+  bool            was_pulling;     /* hysteresis: was pulling last tick      */
+  xHttpClient     dl_client;       /* dedicated HTTP client for this task   */
+};
+
 struct dlp_ctx {
   xEventLoop        loop;
   dlp_mode_t        mode;
