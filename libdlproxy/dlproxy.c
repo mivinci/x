@@ -38,7 +38,7 @@ dlp_ctx_t dlp_init(const dlp_conf_t *conf) {
   xEventLoopEnter(ctx->loop);
 
   /* TODO: init bus, cache (xfs needs event loop), scheduler, proxy */
-  c->cache = dlp_cache_init(ctx->conf.cache_dir, ctx->loop);
+  ctx->cache = dlp_cache_init(ctx->conf.cache_dir, ctx->loop);
 
   xEventLoopLeave();
   return ctx;
