@@ -12,12 +12,24 @@
 #include <x/base/map.h>
 #include <x/base/thread.h>
 
+struct dlp_task;
+
+struct dlp_scheduler_vtable {
+  void (*on_tick)(struct dlp_task *task);
+  void (*on_block_done)(struct dlp_task *task, uint64_t offset, size_t len);
+  void (*on_start)(struct dlp_task *task);
+  void (*on_stop)(struct dlp_task *task);
+};
+
+extern const struct dlp_scheduler_vtable dlp_sched_mp4;
+
 struct dlp_task {
   char            rid[64];
   char            url[512];
   struct dlp_ctx *ctx;
   bool            running;
-  xTimer          tick_timer;      /* 1-second scheduling timer           */
+  xTimer          tick_timer;
+  const struct dlp_scheduler_vtable *sched;
 
   /* Scheduling state */
   uint64_t        read_offset;     /* player current byte position         */

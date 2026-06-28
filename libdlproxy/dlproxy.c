@@ -102,7 +102,8 @@ dlp_task_t dlp_task_create(dlp_ctx_t ctx, const dlp_task_conf_t *conf) {
   t->ctx          = c;
   t->emergency_ms = c->conf.emergency_ms;
   t->safe_ms      = c->conf.safe_ms;
-  t->bitrate      = conf->bitrate ? conf->bitrate : 500 * 1024; /* default 500KB/s */
+  t->bitrate      = conf->bitrate ? conf->bitrate : 500 * 1024;
+  t->sched        = &dlp_sched_mp4; /* default 500KB/s */
 
   /* Store mapping and open cache */
   xMapSet(c->url_map, t->rid, strdup(t->url));
@@ -119,44 +120,8 @@ dlp_task_t dlp_task_create(dlp_ctx_t ctx, const dlp_task_conf_t *conf) {
 
 static void on_scheduler_tick(void *arg) {
   struct dlp_task *t = (struct dlp_task *)arg;
-  struct dlp_ctx *c = t->ctx;
-  if (!t->running) return;
-
-  int remain    = t->remain_time_ms;
-  int emergency = t->emergency_ms;
-  int safe      = t->safe_ms;
-  (void)remain; (void)emergency; (void)safe;
-
-  /* Three-zone decision:
-   *   remain < emergency → FORCE download next unfinished block
-   *   remain < safe && was pulling → CONTINUE downloading
-   *   otherwise → PAUSE
-   */
-  bool should_pull = false;
-  if (remain < emergency) {
-    should_pull = true;
-  } else if (remain < safe && t->was_pulling) {
-    should_pull = true;
-  }
-
-  if (should_pull) {
-    /* Find first unfinished block starting from read_offset */
-    uint32_t start_block = (uint32_t)(t->read_offset / DL_BLOCK_SIZE);
-    uint64_t boff       = (uint64_t)start_block * DL_BLOCK_SIZE;
-
-    /* Check if this block is already cached */
-    if (dlp_cache_is_ready(c->cache, t->rid, "0", boff, DL_BLOCK_SIZE)) {
-      t->was_pulling = true;
-      return;
-    }
-
-    XDEBUGL0("scheduler tick: rid=%s remain=%dms emergency=%dms fetch block=%u offset=%llu",
-             t->rid, remain, emergency, start_block, (unsigned long long)boff);
-    dlp_scheduler_fetch(c->scheduler, t->rid, "0", t->url, boff, DL_BLOCK_SIZE, t);
-    t->was_pulling = true;
-  } else {
-    t->was_pulling = false;
-  }
+  if (!t->running || !t->sched) return;
+  t->sched->on_tick(t);
 }
 
 xErrno dlp_task_start(dlp_task_t task) {

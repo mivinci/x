@@ -58,22 +58,9 @@ static void on_http_done(xHttpCtx *ctx, void *arg) {
   snprintf(key, sizeof(key), "%s", fc->rid);
   dlp_bus_publish(c->bus, key);
 
-  /* Update task remain_time: scan forward from read_offset,
-   * count consecutive cached blocks, convert to ms */
-  if (fc->task) {
-    #define BLK (256u * 1024u)
-    int cached_blocks = 0;
-    uint64_t pos = fc->task->read_offset;
-    for (int i = 0; i < 256; i++) {
-      if (!dlp_cache_is_ready(c->cache, fc->rid, fc->clip_id, pos, BLK))
-        break;
-      cached_blocks++;
-      pos += BLK;
-    }
-    fc->task->remain_time_ms = (int)
-      ((uint64_t)cached_blocks * BLK * 1000 / 
-       (fc->task->bitrate > 0 ? fc->task->bitrate : 1));
-    #undef BLK
+  /* Update task remain_time via vtable */
+  if (fc->task && fc->task->sched && fc->task->sched->on_block_done) {
+    fc->task->sched->on_block_done(fc->task, fc->offset, fc->received);
   }
 
   free(fc);
