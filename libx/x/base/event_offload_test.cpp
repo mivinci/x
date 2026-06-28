@@ -296,11 +296,11 @@ TEST_F(EventOffloadTest, CancelQueuedWork) {
   xWork        work = xWorkSubmit(small, [](void *arg) -> void * {
                 static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
                 return nullptr;
-              }, NULL, [](void *arg, void *) {
+              }, [](void *arg, void *) {
                 /* This is the done_fn — should NOT be called if cancelled. */
                 static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
-              },
-              &work_called);
+              }, NULL,
+              &done_called);
   ASSERT_NE(work, nullptr);
 
   /* Cancel should succeed — task is still queued */
@@ -313,6 +313,9 @@ TEST_F(EventOffloadTest, CancelQueuedWork) {
   /* done_fn should NOT have been called (guaranteed by cancel).
    * work_fn may or may not have run depending on race with cancel. */
   EXPECT_FALSE(done_called.load());
+
+  /* Give worker time to dequeue cancelled task and decrement pending */
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
   xTaskGroupDestroy(small);
 }
@@ -338,9 +341,9 @@ TEST_F(EventOffloadTest, CancelRunningWorkReturnsOkAndSkipsDone) {
                   std::this_thread::sleep_for(std::chrono::microseconds(100));
                 }
                 return nullptr;
-              }, NULL, [](void *arg, void *) {
+              }, [](void *arg, void *) {
                 static_cast<std::atomic<bool> *>(arg)->store(true);
-              }, &done_fired);
+              }, NULL, &done_fired);
   ASSERT_NE(work, nullptr);
 
   /* Wait until the task is actually running */
