@@ -177,15 +177,15 @@ XCAPI(xErrno) xHttpCtxSend(xHttpCtx *ctx, const char *body, size_t body_len);
 XCAPI(xErrno) xHttpCtxWrite(xHttpCtx *ctx, const char *data, size_t len);
 
 /**
- * @brief Defer the response to be sent later from a callback.
+ * @brief Yield the response, to be sent later from a callback.
  *
  * Prevents auto-200. The caller must later call xHttpCtxSend() (or
  * xHttpCtxWrite + return) followed by xHttpCtxResume().
  */
-XCAPI(void) xHttpCtxDefer(xHttpCtx *ctx);
+XCAPI(void) xHttpCtxYield(xHttpCtx *ctx);
 
 /**
- * @brief Resume a deferred connection after sending the response.
+ * @brief Resume a yielded connection after sending the response.
  */
 XCAPI(void) xHttpCtxResume(xHttpCtx *ctx);
 

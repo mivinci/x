@@ -16,7 +16,7 @@ Routing is decoupled from the server: `xHttpServerCreate(conf)` takes a resolver
 
 4. **Streaming Request Body** — Request body chunks arrive via `on_data`; the request is complete when `on_done` fires. There is no `body`/`body_len` field on `xHttpCtx` and no `max_body_size` limit — the application decides how much to buffer.
 
-5. **Response via `xHttpCtx*` functions** — `xHttpCtxSetStatus`, `xHttpCtxSetHeader`, `xHttpCtxSend` (one-shot), `xHttpCtxWrite` (streaming), `xHttpCtxDefer` / `xHttpCtxResume` (async response), `xHttpCtxParam` (path parameters). No separate response writer handle.
+5. **Response via `xHttpCtx*` functions** — `xHttpCtxSetStatus`, `xHttpCtxSetHeader`, `xHttpCtxSend` (one-shot), `xHttpCtxWrite` (streaming), `xHttpCtxYield` / `xHttpCtxResume` (async response), `xHttpCtxParam` (path parameters). No separate response writer handle.
 
 6. **Defensive Limits** — Configurable limits on header size (default 8 KiB) and idle timeout (default 60 s) protect against slow clients. Violations produce appropriate 4xx error responses.
 
@@ -176,8 +176,8 @@ Routes are matched in registration order (first match wins). Path segments suppo
 | `xHttpCtxSetHeader` | `xErrno xHttpCtxSetHeader(xHttpCtx *ctx, const char *key, const char *value)` | Add a response header. Call before `Send` or the first `Write`. |
 | `xHttpCtxSend` | `xErrno xHttpCtxSend(xHttpCtx *ctx, const char *body, size_t body_len)` | Send a complete response (status + headers + body). Mutually exclusive with `Write`. May only be called once. |
 | `xHttpCtxWrite` | `xErrno xHttpCtxWrite(xHttpCtx *ctx, const char *data, size_t len)` | Write streaming response data (no Content-Length). First call flushes status + headers. Mutually exclusive with `Send`. Stream is auto-ended when `on_done` returns. |
-| `xHttpCtxDefer` | `void xHttpCtxDefer(xHttpCtx *ctx)` | Prevent the auto-200 sent when `on_done` returns without writing. Use when the response will be sent later from another callback. |
-| `xHttpCtxResume` | `void xHttpCtxResume(xHttpCtx *ctx)` | Resume a deferred connection after sending the response. |
+| `xHttpCtxYield` | `void xHttpCtxYield(xHttpCtx *ctx)` | Prevent the auto-200 sent when `on_done` returns without writing. Use when the response will be sent later from another callback. |
+| `xHttpCtxResume` | `void xHttpCtxResume(xHttpCtx *ctx)` | Resume a yielded connection after sending the response. |
 | `xHttpCtxParam` | `const char *xHttpCtxParam(xHttpCtx *ctx, const char *name, size_t *len)` | Look up a path parameter by name. Returns a pointer (NOT NUL-terminated) and sets `*len`, or NULL if not found. |
 
 ### TLS Configuration
@@ -353,16 +353,16 @@ xHttpRouteConf route = {
 xHttpMuxHandle(mux, &route);
 ```
 
-For long-lived streams driven by external events, call `xHttpCtxDefer(ctx)` in `on_request`, write chunks from other callbacks with `xHttpCtxWrite`, and call `xHttpCtxResume(ctx)` when finished (see [Deferred responses](#deferred-responses) below).
+For long-lived streams driven by external events, call `xHttpCtxYield(ctx)` in `on_request`, write chunks from other callbacks with `xHttpCtxWrite`, and call `xHttpCtxResume(ctx)` when finished (see [Yielded responses](#yielded-responses) below).
 
-### Deferred responses
+### Yielded responses
 
-When the response cannot be sent synchronously from `on_request`/`on_done` — for example, it depends on another async operation (a database query, a sub-request via `xHttpClient`) — call `xHttpCtxDefer(ctx)` to prevent the auto-200, then later call `xHttpCtxSend` (or `xHttpCtxWrite` + `xHttpCtxResume`) from a callback.
+When the response cannot be sent synchronously from `on_request`/`on_done` — for example, it depends on another async operation (a database query, a sub-request via `xHttpClient`) — call `xHttpCtxYield(ctx)` to prevent the auto-200, then later call `xHttpCtxSend` (or `xHttpCtxWrite` + `xHttpCtxResume`) from a callback.
 
 ```c
 static int on_start_async(xHttpCtx *ctx, void *arg) {
     (void)arg;
-    xHttpCtxDefer(ctx);                      /* don't auto-respond on return */
+    xHttpCtxYield(ctx);                      /* don't auto-respond on return */
 
     /* Stash ctx somewhere and continue the work from another callback.
      * When ready:
@@ -475,7 +475,7 @@ xHttpServer server = xHttpServerCreate(&sconf);
 - **Don't block in handlers.** All callbacks run on the event loop thread. Blocking delays every other connection.
 - **Always call `xHttpCtxSend()` or `xHttpCtxWrite()`.** If `on_done` returns without writing, a default 200 OK with empty body is sent automatically — but it's better to be explicit.
 - **Don't mix `Send` and `Write`.** `Send` is for one-shot responses (sets `Content-Length`); `Write` is for streaming (no `Content-Length`). They are mutually exclusive.
-- **Use `xHttpCtxDefer()` for async responses.** It prevents the auto-200 and lets you respond from a later callback. Always pair with `xHttpCtxResume()` when done.
+- **Use `xHttpCtxYield()` for async responses.** It prevents the auto-200 and lets you respond from a later callback. Always pair with `xHttpCtxResume()` when done.
 - **Configure limits before listening.** `xHttpServerSetMaxHeaderSize()` and the `idle_timeout_ms` / `max_header_size` fields of `xHttpServerConf` must be set before `Listen` / `ListenTls`.
 - **Register routes before listening.** Add all `xHttpMuxHandle()` calls before `xHttpServerListen()` — the mux is read on every request.
 - **Free per-request state in `on_done`.** Memory allocated in `on_request` or `on_data` for a single request should be freed in `on_done`.

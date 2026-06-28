@@ -162,12 +162,12 @@ protected:
       ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
     }
 
-    /* GET /ping — used by DoWithTimeout; server defers, client times out */
+    /* GET /ping — used by DoWithTimeout; server yields, client times out */
     {
       xHttpRouteConf rc = {};
       rc.pattern = "GET /ping";
       rc.on_done = [](xHttpCtx *ctx, void *arg) {
-        xHttpCtxDefer(ctx);
+        xHttpCtxYield(ctx);
       };
       ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
     }

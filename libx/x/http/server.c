@@ -903,8 +903,8 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
     return;
   }
 
-  /* If the handler deferred the response, keep the connection alive */
-  if (conn->deferred) {
+  /* If the handler yielded the response, keep the connection alive */
+  if (conn->yielded) {
     return;
   }
 
@@ -997,11 +997,11 @@ xErrno xHttpCtxWrite(xHttpCtx *ctx, const char *data, size_t len) {
   return xErrno_Ok;
 }
 
-void xHttpCtxDefer(xHttpCtx *ctx) {
+void xHttpCtxYield(xHttpCtx *ctx) {
   if (!ctx) return;
   struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
   if (!stream) return;
-  stream->conn->deferred = 1;
+  stream->conn->yielded = 1;
 }
 
 void xHttpCtxResume(xHttpCtx *ctx) {
@@ -1009,8 +1009,8 @@ void xHttpCtxResume(xHttpCtx *ctx) {
   struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
   if (!stream) return;
   struct xHttpConn_   *conn = stream->conn;
-  if (!conn->deferred) return;
-  conn->deferred = 0;
+  if (!conn->yielded) return;
+  conn->yielded = 0;
   conn_after_response(conn);
 }
 
