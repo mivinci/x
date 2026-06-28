@@ -187,11 +187,11 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
 
   dlp_bus_subscribe(c->bus, rid_buf, on_chunk_ready, pr);
 
-  /* Trigger scheduler with the CDN URL from the task mapping */
-  const char *cdn_url = (const char *)xMapGet(c->url_map, rid_buf);
-  if (cdn_url) {
-    dlp_scheduler_fetch(c->scheduler, rid_buf, "0", cdn_url,
-                        range_start, length);
+  /* Trigger immediate download on cache miss */
+  if (task) {
+    uint64_t boff = (range_start / DL_BLOCK_SIZE) * DL_BLOCK_SIZE;
+    dlp_scheduler_fetch(c->scheduler, task->rid, "0", task->url,
+                        boff, DL_BLOCK_SIZE);
   }
 
   return 0;

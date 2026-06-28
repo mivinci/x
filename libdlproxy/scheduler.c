@@ -55,7 +55,7 @@ static void on_http_done(xHttpCtx *ctx, void *arg) {
   /* Publish completion on bus — any deferred proxy connections
    * waiting for this chunk will wake up. */
   char key[128];
-  snprintf(key, sizeof(key), "%s:%s", fc->rid, fc->clip_id);
+  snprintf(key, sizeof(key), "%s", fc->rid);
   dlp_bus_publish(c->bus, key);
 
   free(fc);
