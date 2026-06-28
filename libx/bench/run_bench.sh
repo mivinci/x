@@ -151,6 +151,7 @@ run_dns() {
   local server_bin="$BUILD_DIR/libx/bench/dns_bench_server"
   local xdns_bin="$BUILD_DIR/libx/bench/dns_bench_xdns"
   local xnet_bin="$BUILD_DIR/libx/bench/dns_bench_xnet"
+  local cares_bin="$BUILD_DIR/libx/bench/dns_bench_cares"
   local go_bin="$SCRIPT_DIR/dns/dns_bench_client.go"
 
   if [ ! -x "$server_bin" ] || [ ! -x "$xdns_bin" ] || [ ! -x "$xnet_bin" ]; then
@@ -176,6 +177,10 @@ run_dns() {
   "$xdns_bin" local > "${out}.xdns"
   info "Running xnet/dns benchmark (local)..."
   "$xnet_bin" local > "${out}.xnet"
+  if [ -x "$cares_bin" ]; then
+    info "Running c-ares benchmark (local)..."
+    "$cares_bin" local > "${out}.cares"
+  fi
   if command -v go &>/dev/null && [ -f "$go_bin" ]; then
     info "Running Go DNS benchmark (local)..."
     GODEBUG=netdns=go go run "$go_bin" local > "${out}.go"
@@ -185,12 +190,12 @@ run_dns() {
 
   # Merge into single JSON array
   if command -v jq &>/dev/null; then
-    jq -s 'add' "${out}".xdns "${out}".xnet "${out}".go 2>/dev/null > "$out" || true
+    jq -s 'add' "${out}".xdns "${out}".xnet "${out}".go "${out}".cares 2>/dev/null > "$out" || true
   else
     # Fallback: strip brackets, join with commas, wrap
     printf '[\n' > "$out"
     local first=1
-    for f in "${out}".xdns "${out}".xnet "${out}".go; do
+    for f in "${out}".xdns "${out}".xnet "${out}".go "${out}".cares; do
       [ -f "$f" ] || continue
       [ "$first" -eq 1 ] || printf ',\n' >> "$out"
       first=0
@@ -210,6 +215,10 @@ run_dns() {
   "$xdns_bin" remote > "${out}.xdns"
   info "Running xnet/dns benchmark (remote)..."
   "$xnet_bin" remote > "${out}.xnet"
+  if [ -x "$cares_bin" ]; then
+    info "Running c-ares benchmark (remote)..."
+    "$cares_bin" remote > "${out}.cares"
+  fi
   if command -v go &>/dev/null && [ -f "$go_bin" ]; then
     info "Running Go DNS benchmark (remote)..."
     GODEBUG=netdns=go go run "$go_bin" remote > "${out}.go"
@@ -217,11 +226,11 @@ run_dns() {
 
   # Merge
   if command -v jq &>/dev/null; then
-    jq -s 'add' "${out}".xdns "${out}".xnet "${out}".go 2>/dev/null > "$out" || true
+    jq -s 'add' "${out}".xdns "${out}".xnet "${out}".go "${out}".cares 2>/dev/null > "$out" || true
   else
     printf '[\n' > "$out"
     local first=1
-    for f in "${out}".xdns "${out}".xnet "${out}".go; do
+    for f in "${out}".xdns "${out}".xnet "${out}".go "${out}".cares; do
       [ -f "$f" ] || continue
       [ "$first" -eq 1 ] || printf ',\n' >> "$out"
       first=0

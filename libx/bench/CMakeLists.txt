@@ -14,6 +14,14 @@ add_executable(dns_bench_xnet dns/dns_bench_xnet.cpp)
 target_link_libraries(dns_bench_xnet PRIVATE xnet xbase)
 target_compile_options(dns_bench_xnet PRIVATE -Wno-error)
 
+# c-ares benchmark (only when c-ares is available)
+find_package(CAres QUIET)
+if(CAres_FOUND)
+  add_executable(dns_bench_cares dns/dns_bench_cares.cpp)
+  target_link_libraries(dns_bench_cares PRIVATE CAres::CAres)
+  target_compile_options(dns_bench_cares PRIVATE -Wno-error)
+endif()
+
 # ── TCP echo server & client (always available since xnet is always built) ──
 
 add_executable(tcp_echo_server net/tcp_echo_server.cpp)
