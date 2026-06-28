@@ -3,26 +3,18 @@
  */
 #include "dlproxy.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <x/base/event.h>
+#include <x/base/map.h>
 #include <x/base/thread.h>
 
 #include "bus.h"
 #include "cache.h"
+#include "dlproxy_internal.h"
 #include "proxy.h"
 #include "scheduler.h"
-
-struct dlp_ctx {
-  xEventLoop loop;
-  dlp_mode_t mode;
-  dlp_conf_t conf;
-  dlp_bus_t bus;
-  dlp_cache_t cache;
-  dlp_scheduler_t scheduler;
-  dlp_proxy_t proxy;
-  xThread thread;
-};
 
 dlp_ctx_t dlp_init(const dlp_conf_t *conf) {
   struct dlp_ctx *ctx = (struct dlp_ctx *)calloc(1, sizeof(*ctx));
@@ -37,8 +29,10 @@ dlp_ctx_t dlp_init(const dlp_conf_t *conf) {
 
   xEventLoopEnter(ctx->loop);
 
-  /* TODO: init bus, cache (xfs needs event loop), scheduler, proxy */
-  ctx->cache = dlp_cache_init(ctx->conf.cache_dir, ctx->loop);
+  ctx->url_map  = xMapCreate(xMapType_Hash, 64, xMapStrHash, xMapStrEq);
+  ctx->bus      = dlp_bus_create();
+  ctx->cache    = dlp_cache_init(ctx->conf.cache_dir, ctx->loop);
+  ctx->scheduler = dlp_scheduler_init(ctx, ctx->loop);
 
   xEventLoopLeave();
   return ctx;
@@ -84,6 +78,17 @@ uint16_t dlp_port(dlp_ctx_t ctx) {
 }
 
 xErrno dlp_task_add(dlp_ctx_t ctx, const dlp_task_conf_t *conf) {
-  (void)ctx; (void)conf;
-  return xErrno_Ok; /* TODO */
+  if (!ctx || !conf || !conf->rid || !conf->url) return xErrno_InvalidArg;
+  struct dlp_ctx *c = (struct dlp_ctx *)ctx;
+
+  /* Store rid → cdn_url mapping */
+  xMapSet(c->url_map, conf->rid, strdup(conf->url));
+
+  /* Open cache resource and default clip */
+  dlp_cache_open_resource(c->cache, conf->rid);
+  dlp_cache_open_clip(c->cache, conf->rid, "0", conf->size);
+
+  fprintf(stderr, "dlproxy: task added rid=%s url=%s size=%llu\n",
+          conf->rid, conf->url, (unsigned long long)conf->size);
+  return xErrno_Ok;
 }

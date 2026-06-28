@@ -9,6 +9,7 @@
 #include "scheduler.h"
 #include "proxy.h"
 #include <x/base/event.h>
+#include <x/base/map.h>
 #include <x/base/thread.h>
 
 struct dlp_ctx {
@@ -19,6 +20,7 @@ struct dlp_ctx {
   dlp_cache_t       cache;
   dlp_scheduler_t   scheduler;
   dlp_proxy_t       proxy;
+  xMap              url_map;   /* rid → cdn_url (strdup'd) */
   xThread           thread;
 };
 

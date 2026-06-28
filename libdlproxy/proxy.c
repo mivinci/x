@@ -11,6 +11,7 @@
 #include <string.h>
 #include <strings.h>
 #include <x/base/event.h>
+#include <x/base/map.h>
 #include <x/http/server.h>
 
 /* ── Per-request context for cache-miss deferral ── */
@@ -167,6 +168,13 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
   snprintf(pr->rid, sizeof(pr->rid), "%s", rid_buf);
 
   dlp_bus_subscribe(c->bus, rid_buf, on_chunk_ready, pr);
+
+  /* Trigger scheduler with the CDN URL from the task mapping */
+  const char *cdn_url = (const char *)xMapGet(c->url_map, rid_buf);
+  if (cdn_url) {
+    dlp_scheduler_fetch(c->scheduler, rid_buf, "0", cdn_url,
+                        range_start, length);
+  }
 
   return 0;
 }
