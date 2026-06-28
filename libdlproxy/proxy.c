@@ -14,6 +14,8 @@
 #include <x/base/map.h>
 #include <x/http/server.h>
 
+#define DL_BLOCK_SIZE (256 * 1024)
+
 /* ── Per-request context for cache-miss deferral ── */
 
 struct proxy_req {
@@ -127,11 +129,20 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
     }
   }
 
-  /* Look up task and sync playback position */
+  /* Look up task — sync playback position from Range request */
   struct dlp_task *task = (struct dlp_task *)xMapGet(c->task_map, rid_buf);
   if (task) {
-    int cached_bytes = 0;
-    dlp_task_update_position(task, range_start, cached_bytes > 0 ? 10000 : 0);
+    task->read_offset = range_start;
+    /* Estimate remain_time from cache readiness ahead of play head */
+    int cached_blocks = 0;
+    uint64_t pos = range_start;
+    while (dlp_cache_is_ready(c->cache, rid_buf, "0", pos, DL_BLOCK_SIZE)) {
+      cached_blocks++;
+      pos += DL_BLOCK_SIZE;
+    }
+    task->remain_time_ms = cached_blocks > 0
+      ? (int)(cached_blocks * DL_BLOCK_SIZE / (task->bitrate > 0 ? task->bitrate : 1) * 1000)
+      : 0;
   }
 
   size_t max_read = 2 * 1024 * 1024;

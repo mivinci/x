@@ -67,19 +67,6 @@ XCAPI(xErrno) dlp_task_start(dlp_task_t task);
 XCAPI(xErrno) dlp_task_stop(dlp_task_t task);
 
 /**
- * @brief Update the player's current playback position and buffer level.
- *
- * Call this every ~1 second. The scheduler uses @p byte_offset and
- * @p remain_ms to decide whether to download more data.
- *
- * @param task        Task handle.
- * @param byte_offset Current playback byte position.
- * @param remain_ms   Remaining playable time in the buffer (player side).
- */
-XCAPI(void) dlp_task_update_position(dlp_task_t task, uint64_t byte_offset,
-                                      int remain_ms);
-
-/**
  * @brief Destroy a task: stop scheduling, remove from proxy, free resources.
  */
 XCAPI(void) dlp_task_destroy(dlp_task_t task);
