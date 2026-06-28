@@ -11,6 +11,7 @@
 #include <string.h>
 #include <strings.h>
 #include <x/base/event.h>
+#include <x/base/log.h>
 #include <x/base/map.h>
 #include <x/http/server.h>
 
@@ -191,7 +192,7 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
   if (task) {
     uint64_t boff = (range_start / DL_BLOCK_SIZE) * DL_BLOCK_SIZE;
     dlp_scheduler_fetch(c->scheduler, task->rid, "0", task->url,
-                        boff, DL_BLOCK_SIZE);
+                        boff, DL_BLOCK_SIZE, task);
   }
 
   return 0;
@@ -230,7 +231,7 @@ dlp_proxy_t dlp_proxy_init(dlp_ctx_t ctx, xEventLoop loop, uint16_t port) {
   if (xHttpServerListen(p->server, "127.0.0.1", port) != xErrno_Ok)
     goto fail;
 
-  fprintf(stderr, "dlproxy listening on 127.0.0.1:%d\n", port);
+  XDEBUGL0("dlproxy listening on 127.0.0.1:%d", port);
   xEventLoopLeave();
   return p;
 

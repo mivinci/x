@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <x/base/event.h>
+#include <x/base/log.h>
 #include <x/base/map.h>
 #include <x/base/thread.h>
 #include <x/http/client.h>
@@ -109,7 +110,7 @@ dlp_task_t dlp_task_create(dlp_ctx_t ctx, const dlp_task_conf_t *conf) {
   dlp_cache_open_resource(c->cache, t->rid);
   dlp_cache_open_clip(c->cache, t->rid, "0", conf->size);
 
-  fprintf(stderr, "dlproxy: task created rid=%s url=%s size=%llu\n",
+  XDEBUGL0("task created rid=%s url=%s size=%llu",
           conf->rid, conf->url, (unsigned long long)conf->size);
   return t;
 }
@@ -141,19 +142,17 @@ static void on_scheduler_tick(void *arg) {
   if (should_pull) {
     /* Find first unfinished block starting from read_offset */
     uint32_t start_block = (uint32_t)(t->read_offset / DL_BLOCK_SIZE);
+    uint64_t boff       = (uint64_t)start_block * DL_BLOCK_SIZE;
 
     /* Check if this block is already cached */
-    if (dlp_cache_is_ready(c->cache, t->rid, "0",
-                           (uint64_t)start_block * DL_BLOCK_SIZE, DL_BLOCK_SIZE)) {
-      /* Already cached — skip to next */
-      /* Simple: advance one block and try again next tick */
+    if (dlp_cache_is_ready(c->cache, t->rid, "0", boff, DL_BLOCK_SIZE)) {
       t->was_pulling = true;
       return;
     }
 
-    /* Issue download */
-    uint64_t boff = (uint64_t)start_block * DL_BLOCK_SIZE;
-    dlp_scheduler_fetch(c->scheduler, t->rid, "0", t->url, boff, DL_BLOCK_SIZE);
+    XDEBUGL0("scheduler tick: rid=%s remain=%dms emergency=%dms fetch block=%u offset=%llu",
+             t->rid, remain, emergency, start_block, (unsigned long long)boff);
+    dlp_scheduler_fetch(c->scheduler, t->rid, "0", t->url, boff, DL_BLOCK_SIZE, t);
     t->was_pulling = true;
   } else {
     t->was_pulling = false;
@@ -171,7 +170,7 @@ xErrno dlp_task_start(dlp_task_t task) {
   t->tick_timer = xTimerStart(on_scheduler_tick, t, DL_TICK_MS, DL_TICK_MS);
   if (!t->tick_timer) return xErrno_SysError;
 
-  fprintf(stderr, "dlproxy: task started rid=%s\n", t->rid);
+  XDEBUGL0("task started rid=%s", t->rid);
   return xErrno_Ok;
 }
 

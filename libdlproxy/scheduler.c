@@ -23,8 +23,9 @@ struct fetch_ctx {
   char            clip_id[64];
   uint64_t        offset;
   size_t          len;
-  size_t          received;  /* bytes received so far */
-  int             status_ok; /* HTTP 2xx */
+  size_t          received;
+  int             status_ok;
+  struct dlp_task *task;     /* for remain_time update on completion */
 };
 
 static int on_http_response(xHttpCtx *ctx, void *arg) {
@@ -52,11 +53,28 @@ static void on_http_done(xHttpCtx *ctx, void *arg) {
   struct fetch_ctx *fc = (struct fetch_ctx *)arg;
   struct dlp_ctx  *c  = (struct dlp_ctx *)fc->s->ctx;
 
-  /* Publish completion on bus — any deferred proxy connections
-   * waiting for this chunk will wake up. */
+  /* Publish completion on bus */
   char key[128];
   snprintf(key, sizeof(key), "%s", fc->rid);
   dlp_bus_publish(c->bus, key);
+
+  /* Update task remain_time: scan forward from read_offset,
+   * count consecutive cached blocks, convert to ms */
+  if (fc->task) {
+    #define BLK (256u * 1024u)
+    int cached_blocks = 0;
+    uint64_t pos = fc->task->read_offset;
+    for (int i = 0; i < 256; i++) {
+      if (!dlp_cache_is_ready(c->cache, fc->rid, fc->clip_id, pos, BLK))
+        break;
+      cached_blocks++;
+      pos += BLK;
+    }
+    fc->task->remain_time_ms = (int)
+      ((uint64_t)cached_blocks * BLK * 1000 / 
+       (fc->task->bitrate > 0 ? fc->task->bitrate : 1));
+    #undef BLK
+  }
 
   free(fc);
   (void)ctx;
@@ -82,12 +100,14 @@ void dlp_scheduler_deinit(dlp_scheduler_t s) {
 
 xErrno dlp_scheduler_fetch(dlp_scheduler_t s, const char *rid,
                             const char *clip_id, const char *url,
-                            uint64_t offset, size_t len) {
+                            uint64_t offset, size_t len,
+                            struct dlp_task *task) {
   if (!s || !rid || !url || len == 0) return xErrno_InvalidArg;
 
   struct fetch_ctx *fc = (struct fetch_ctx *)calloc(1, sizeof(*fc));
   if (!fc) return xErrno_NoMemory;
   fc->s      = s;
+  fc->task   = task;
   fc->offset = offset;
   fc->len    = len;
   snprintf(fc->rid, sizeof(fc->rid), "%s", rid);
