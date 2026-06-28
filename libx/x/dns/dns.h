@@ -84,6 +84,9 @@ XDEF_STRUCT(xDnsClientConf) {
   int          timeout_ms;    /**< Per-query timeout (default 5000).       */
   int          retries;       /**< Retries with next nameserver (default 2).*/
   int          enable_cache;  /**< 1=enable TTL cache (default), 0=disable.*/
+  int          udp_max_queries; /**< Max queries per UDP connection before
+                                     rotating to a new source port.
+                                     0 = unlimited (default).             */
 };
 
 /**

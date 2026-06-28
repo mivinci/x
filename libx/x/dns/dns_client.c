@@ -35,6 +35,15 @@
 typedef struct query query_t;
 typedef struct request request_t;
 
+/** Per-nameserver UDP connection. */
+typedef struct {
+  xSocket                 sock;         /* UDP socket, or NULL if not open */
+  struct sockaddr_storage addr;         /* nameserver address              */
+  socklen_t               addrlen;      /* length of addr                  */
+  int                     query_count;  /* sent since open                 */
+  int                     max_queries;  /* rotation threshold (0=unlim)    */
+} conn_t;
+
 struct query {
   uint16_t    id;
   uint16_t    qtype;       /* wire QTYPE                                */
@@ -59,7 +68,7 @@ struct request {
 };
 
 struct xDnsClient_ {
-  xSocket    sock;
+  conn_t     conns[8];             /* per-nameserver connections          */
   int        sock_family;          /* AF_INET or AF_INET6               */
   xMap       queries;              /* id (void*) → query_t*              */
   xMap       cache;                /* NULL if disabled                   */
@@ -102,40 +111,80 @@ static uint16_t alloc_id(struct xDnsClient_ *c) {
   return 0; /* exhausted (extremely unlikely) */
 }
 
-/* ───────────────────── Socket setup ───────────────────── */
+/* ───────────────────── Connection management ───────────────────── */
 
-static int ensure_socket(struct xDnsClient_ *c) {
-  if (c->sock) return 0;
+/** Open a UDP socket for conn and register with the event loop. */
+static int conn_open(struct xDnsClient_ *c, conn_t *conn) {
+  xSocket s = xSocketCreate(c->sock_family, SOCK_DGRAM, 0, xEvent_Read,
+                            on_readable, c);
+  if (!s) return -1;
+  int fd = xSocketFd(s);
+  if (c->sock_family == AF_INET6) {
+    int v6only = 0;
+#ifdef _WIN32
+    setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&v6only, sizeof(v6only));
+#else
+    setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only));
+#endif
+  }
+  conn->sock        = s;
+  conn->query_count = 0;
+  return 0;
+}
 
-  /* Decide socket family: if every nameserver is IPv4, use AF_INET
-   * (simplest, avoids v4-mapped address conversion). If any is IPv6,
-   * use AF_INET6 dual-stack. */
+/** Close an existing connection and free its socket. */
+static void conn_close(conn_t *conn) {
+  if (conn->sock) {
+    xSocketDestroy(conn->sock);
+    conn->sock = NULL;
+  }
+  conn->query_count = 0;
+}
+
+/** Rotate a connection: close old socket, open new with fresh source port. */
+static int conn_rotate(struct xDnsClient_ *c, conn_t *conn) {
+  conn_close(conn);
+  return conn_open(c, conn);
+}
+
+/** Initialize all connections with nameserver addresses. */
+static int conns_init(struct xDnsClient_ *c) {
+  /* Determine socket family */
   int need_v6 = 0;
   for (int i = 0; i < c->ns_count; ++i)
     if (c->ns_addr[i].ss_family == AF_INET6) { need_v6 = 1; break; }
+  c->sock_family = need_v6 ? AF_INET6 : AF_INET;
 
-  if (need_v6) {
-    xSocket s = xSocketCreate(AF_INET6, SOCK_DGRAM, 0, xEvent_Read,
-                              on_readable, c);
-    if (s) {
-      int fd = xSocketFd(s);
-      int v6only = 0;
-#ifdef _WIN32
-      setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&v6only, sizeof(v6only));
-#else
-      setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only));
-#endif
-      c->sock        = s;
-      c->sock_family = AF_INET6;
-      return 0;
-    }
+  for (int i = 0; i < c->ns_count; ++i) {
+    memcpy(&c->conns[i].addr, &c->ns_addr[i], sizeof(c->ns_addr[i]));
+    c->conns[i].addrlen    = c->ns_len[i];
+    c->conns[i].max_queries = 0; /* set below from config */
+    if (conn_open(c, &c->conns[i]) != 0) return -1;
   }
-
-  xSocket s = xSocketCreate(AF_INET, SOCK_DGRAM, 0, xEvent_Read, on_readable, c);
-  if (!s) return -1;
-  c->sock        = s;
-  c->sock_family = AF_INET;
   return 0;
+}
+
+/** Close all connections. */
+static void conns_cleanup(struct xDnsClient_ *c) {
+  for (int i = 0; i < c->ns_count; ++i) conn_close(&c->conns[i]);
+}
+
+/** Find the connection belonging to a given socket fd. */
+static conn_t *conn_find(struct xDnsClient_ *c, xSocket sock) {
+  for (int i = 0; i < c->ns_count; ++i)
+    if (c->conns[i].sock == sock) return &c->conns[i];
+  return NULL;
+}
+
+/** Ensure a connection is ready: open if needed, rotate if over limit. */
+static conn_t *conn_ready(struct xDnsClient_ *c, int ns_index) {
+  if (ns_index < 0 || ns_index >= c->ns_count) return NULL;
+  conn_t *conn = &c->conns[ns_index];
+  if (!conn->sock && conn_open(c, conn) != 0) return NULL;
+  if (conn->max_queries > 0 && conn->query_count >= conn->max_queries) {
+    if (conn_rotate(c, conn) != 0) return NULL;
+  }
+  return conn;
 }
 
 /* Resolve the nameserver address for sending. If the socket is AF_INET6
@@ -149,7 +198,6 @@ static const struct sockaddr *resolve_ns(struct xDnsClient_ *c, int idx,
     memset(mapped, 0, sizeof(*mapped));
     mapped->sin6_family   = AF_INET6;
     mapped->sin6_port     = in->sin_port;
-    /* IPv4-mapped IPv6: ::ffff:a.b.c.d */
     ((uint8_t *)&mapped->sin6_addr)[10] = 0xff;
     ((uint8_t *)&mapped->sin6_addr)[11] = 0xff;
     memcpy(&mapped->sin6_addr.s6_addr[12], &in->sin_addr, 4);
@@ -270,6 +318,18 @@ xDnsClient xDnsClientCreate(const xDnsClientConf *conf) {
     }
   }
 
+  /* Initialize per-nameserver connections. */
+  if (conns_init(c) != 0) {
+    if (c->cache) dns_cache_destroy(c->cache);
+    xMapDestroy(c->queries);
+    free(c);
+    return NULL;
+  }
+
+  /* Apply per-connection max_queries from config. */
+  int max_q = conf ? conf->udp_max_queries : 0;
+  for (int i = 0; i < c->ns_count; ++i) c->conns[i].max_queries = max_q;
+
   return (xDnsClient)c;
 }
 
@@ -312,7 +372,7 @@ void xDnsClientDestroy(xDnsClient client) {
   }
 
   if (c->cache) dns_cache_destroy(c->cache);
-  if (c->sock) xSocketDestroy(c->sock);
+  conns_cleanup(c);
   free(c);
 }
 
@@ -328,6 +388,9 @@ static void query_destroy(query_t *q) {
 }
 
 static xErrno send_query(struct xDnsClient_ *c, query_t *q) {
+  conn_t *conn = conn_ready(c, q->ns_index);
+  if (!conn) return xErrno_SysError;
+
   uint8_t buf[512];
   int n = dns_build_query(buf, sizeof(buf), q->id, q->name, q->qtype);
   if (n < 0) return xErrno_DnsError;
@@ -335,8 +398,10 @@ static xErrno send_query(struct xDnsClient_ *c, query_t *q) {
   struct sockaddr_in6     mapped;
   socklen_t               addrlen;
   const struct sockaddr  *addr = resolve_ns(c, q->ns_index, &mapped, &addrlen);
-  ssize_t s = xSocketSendTo(c->sock, buf, (size_t)n, addr, addrlen);
+  ssize_t s = xSocketSendTo(conn->sock, buf, (size_t)n, addr, addrlen);
   if (s < 0) return xErrno_SysError;
+
+  conn->query_count++;
   return xErrno_Ok;
 }
 
@@ -452,8 +517,6 @@ xErrno xDnsClientDo(xDnsClient client, const char *name, xDnsType type,
     if (merged) dns_records_free(merged);
   }
 
-  if (ensure_socket(c) != 0) return xErrno_SysError;
-
   request_t *req = (request_t *)calloc(1, sizeof(request_t));
   if (!req) return xErrno_NoMemory;
   req->client   = client;
@@ -514,9 +577,10 @@ xErrno xDnsClientDo(xDnsClient client, const char *name, xDnsType type,
 /* ───────────────────── Readable callback ───────────────────── */
 
 static void on_readable(xSocket sock, xEventMask mask, void *arg) {
-  (void)sock;
   if (!(mask & xEvent_Read)) return;
   struct xDnsClient_ *c = (struct xDnsClient_ *)arg;
+  conn_t *conn = conn_find(c, sock);
+  if (!conn) return;
 
   uint8_t buf[DNS_EDNS0_SIZE + 1];
   struct sockaddr_storage src;
@@ -524,7 +588,7 @@ static void on_readable(xSocket sock, xEventMask mask, void *arg) {
 
   for (;;) {
     srclen = sizeof(src);
-    ssize_t n = xSocketRecvFrom(c->sock, buf, sizeof(buf),
+    ssize_t n = xSocketRecvFrom(conn->sock, buf, sizeof(buf),
                                 (struct sockaddr *)&src, &srclen);
     if (n < 0) break; /* EAGAIN / error — stop draining */
 

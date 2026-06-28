@@ -102,6 +102,7 @@ int main(int argc, char **argv) {
     conf.nameservers[0] = "8.8.8.8";
     conf.timeout_ms = 1000;
     conf.retries = 0;
+    conf.udp_max_queries = 5;  /* rotate every 5 queries */
   }
 
   xDnsClient client = xDnsClientCreate(&conf);
