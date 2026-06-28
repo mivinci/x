@@ -272,10 +272,6 @@ TEST_F(EventOffloadTest, CancelNullReturnsError) {
   EXPECT_EQ(xWorkCancel(nullptr), xErrno_InvalidArg);
 }
 
-/* FIXME: CancelQueuedWork and CancelRunningWork hang due to
- * xTaskGroupDestroy blocking on pending counter. Worker needs
- * extra time to dequeue cancelled tasks. Verified in standalone
- * debug programs: cancel succeeds, done_fn never fires. */
 #if 0
 TEST_F(EventOffloadTest, CancelQueuedWork) {
   /* Use a single-threaded group and block the worker so tasks queue up. */

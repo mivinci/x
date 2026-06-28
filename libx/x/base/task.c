@@ -148,31 +148,29 @@ static void *worker_loop(void *arg) {
     /* Try to transition QUEUED → RUNNING.  If the task was cancelled
      * between enqueue and here, the CAS fails and we skip execution. */
     long expected = TASK_QUEUED;
+    int  executed = 0;
     if (xAtomicCasStrong(&task->state, &expected, TASK_RUNNING, xAtomicAcqRel)) {
       /* Execute the task */
       void *result = task->fn(task->arg);
       task->result = result;
       xAtomicStore(&task->state, TASK_DONE, xAtomicRelease);
+      executed = 1;
     }
-    /* else: task was cancelled — skip execution, result stays NULL. */
+    /* else: task was cancelled — xTaskCancel already decremented pending */
 
-    /* Append to done list (lock-free) BEFORE signaling the note.
-     *
-     * xMpscPush is wait-free for producers.  The task must be on the
-     * done list before anyone can observe completion, so that
-     * xTaskGroupDestroy can always find and free it. */
+    /* Append to done list (lock-free) BEFORE signaling the note. */
     xMpscPush(&g->done_head, &g->done_tail, &task->done_link);
-
-    /* Signal the note so xTaskWait unblocks. */
     xNoteSignal(&task->note);
 
-    /* Update counters and wake GroupWait if all done.
-     * These use group-level atomics, not the task pointer. */
-    xAtomicFetchAdd(&g->done_count, 1, xAtomicRelaxed);
-    if (xAtomicFetchSub(&g->pending, 1, xAtomicRelaxed) == 1) {
-      xMutexLock(&g->qlock);
-      xCondSignal(&g->wcond);
-      xMutexUnlock(&g->qlock);
+    /* Update counters only for executed tasks. Cancelled tasks
+     * have their pending decremented by xTaskCancel. */
+    if (executed) {
+      xAtomicFetchAdd(&g->done_count, 1, xAtomicRelaxed);
+      if (xAtomicFetchSub(&g->pending, 1, xAtomicRelaxed) == 1) {
+        xMutexLock(&g->qlock);
+        xCondSignal(&g->wcond);
+        xMutexUnlock(&g->qlock);
+      }
     }
   }
 }
@@ -365,6 +363,8 @@ xErrno xTaskCancel(xTask t_) {
   if (xAtomicCasStrong(&t->state, &expected, TASK_CANCELLED, xAtomicAcqRel)) {
     /* Signal the note so xTaskWait unblocks immediately. */
     xNoteSignal(&t->note);
+    /* Decrement pending — the worker will skip this task. */
+    xAtomicFetchSub(&t->group->pending, 1, xAtomicRelaxed);
     return xErrno_Ok;
   }
 
