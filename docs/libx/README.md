@@ -1,4 +1,4 @@
-# Libraries
+# LibX
 
 libx is organized into eight libraries, layered from low-level core primitives up to high-level async networking, crypto, and DNS.
 
@@ -6,9 +6,9 @@ libx is organized into eight libraries, layered from low-level core primitives u
 ┌─────────────────────────────────────────────────────────┐
 │                    Application Layer                    │
 ├──────────────────────┬──────────────────┬───────────────┤
-│   xhttp              │   xp2p           │   xdns        │
-│   HTTP Client/Server │   ICE/STUN/TURN  │   DNS Client  │
-│   WebSocket / SSE    │   Peer Connection│   DNS Server  │
+│   xhttp              │  xp2p            │   xdns        │
+│   HTTP Client/Server │  ICE/STUN/TURN   │   DNS Client  │
+│   WebSocket / SSE    │  Peer Connection │   DNS Server  │
 ├──────────────────────┼──────────────────┼───────────────┤
 │   xnet               │   xlog           │               │
 │   URL / TCP / TLS    │   Async Logging  │               │
@@ -16,7 +16,7 @@ libx is organized into eight libraries, layered from low-level core primitives u
 │   xbuf — Linear / Ring / Block-Chain Buffer             │
 ├──────────────────────┬──────────────────────────────────┤
 │   xbase              │   xcrypto                        │
-│   Event Loop / Timer │   SHA-1/256 MD5 CRC-32          │
+│   Event Loop / Timer │   SHA-1/256 MD5 CRC-32           │
 │   Task / Memory / IO │   HMAC / UUID                    │
 └──────────────────────┴──────────────────────────────────┘
 ```
