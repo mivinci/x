@@ -41,6 +41,7 @@ dlp_ctx_t dlp_init(const dlp_conf_t *conf) {
   xEventLoopEnter(ctx->loop);
 
   ctx->url_map   = xMapCreate(xMapType_Hash, 64, xMapStrHash, xMapStrEq);
+  ctx->task_map  = xMapCreate(xMapType_Hash, 64, xMapStrHash, xMapStrEq);
   ctx->bus       = dlp_bus_create();
   ctx->cache     = dlp_cache_init(ctx->conf.cache_dir, ctx->loop);
   ctx->scheduler = dlp_scheduler_init(ctx, ctx->loop);
@@ -104,6 +105,7 @@ dlp_task_t dlp_task_create(dlp_ctx_t ctx, const dlp_task_conf_t *conf) {
 
   /* Store mapping and open cache */
   xMapSet(c->url_map, t->rid, strdup(t->url));
+  xMapSet(c->task_map, t->rid, t);
   dlp_cache_open_resource(c->cache, t->rid);
   dlp_cache_open_clip(c->cache, t->rid, "0", conf->size);
 

@@ -115,6 +115,16 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
   char rid_buf[64];
   snprintf(rid_buf, sizeof(rid_buf), "%.*s", (int)rid_len, rid);
 
+  /* Look up task and sync playback position */
+  struct dlp_task *task = (struct dlp_task *)xMapGet(c->task_map, rid_buf);
+  if (task) {
+    /* Approximate remain_time from cache readiness around read point */
+    int cached_bytes = 0;
+    /* Simple: scan forward from read_offset, count cached blocks */
+    /* TODO: better remain_time estimation */
+    dlp_task_update_position(task, range_start, cached_bytes > 0 ? 10000 : 0);
+  }
+
   /* Parse Range header from raw headers */
   uint64_t range_start = 0;
   uint64_t range_end   = (uint64_t)(-1);

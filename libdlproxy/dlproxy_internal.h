@@ -37,7 +37,8 @@ struct dlp_ctx {
   dlp_cache_t       cache;
   dlp_scheduler_t   scheduler;
   dlp_proxy_t       proxy;
-  xMap              url_map;   /* rid → cdn_url (strdup'd) */
+  xMap              url_map;    /* rid → cdn_url (strdup'd) */
+  xMap              task_map;   /* rid → dlp_task_t          */
   xThread           thread;
 };
 
