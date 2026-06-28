@@ -6,7 +6,7 @@
 
 #include "bus.h"
 #include "cache.h"
-#include "scheduler.h"
+#include "http.h"
 #include "proxy.h"
 #include <x/base/event.h>
 #include <x/base/map.h>
@@ -47,7 +47,7 @@ struct dlp_ctx {
   dlp_conf_t        conf;
   dlp_bus_t         bus;
   dlp_cache_t       cache;
-  dlp_scheduler_t   scheduler;
+  dlp_http_t   dl_http;
   dlp_proxy_t       proxy;
   xMap              url_map;    /* rid → cdn_url (strdup'd) */
   xMap              task_map;   /* rid → dlp_task_t          */

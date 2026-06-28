@@ -45,7 +45,7 @@ static void mp4_on_tick(struct dlp_task *task) {
 
   XDEBUGL0("mp4 tick: rid=%s remain=%dms emergency=%dms block=%u offset=%llu",
            task->rid, remain, emergency, block, (unsigned long long)boff);
-  dlp_scheduler_fetch(c->scheduler, task->rid, "0", task->url, boff,
+  dlp_http_fetch(c->dl_http, task->rid, "0", task->url, boff,
                        DL_BLOCK_SIZE, task);
   task->was_pulling = true;
 }

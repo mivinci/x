@@ -5,7 +5,7 @@
 #include "bus.h"
 #include "cache.h"
 #include "dlproxy_internal.h"
-#include "scheduler.h"
+#include "http.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -191,7 +191,7 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
   /* Trigger immediate download on cache miss */
   if (task) {
     uint64_t boff = (range_start / DL_BLOCK_SIZE) * DL_BLOCK_SIZE;
-    dlp_scheduler_fetch(c->scheduler, task->rid, "0", task->url,
+    dlp_http_fetch(c->dl_http, task->rid, "0", task->url,
                         boff, DL_BLOCK_SIZE, task);
   }
 

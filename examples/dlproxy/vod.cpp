@@ -1,5 +1,7 @@
 /*
  * vod.cpp - dlproxy POLL mode example
+ *
+ * Usage: vod [port] [cache_dir] [test_url]
  */
 #include <cstdio>
 #include <cstdlib>
@@ -32,10 +34,25 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  /* Create a test task if a URL is provided */
+  if (argc > 3) {
+    dlp_task_conf_t tc = {0};
+    tc.rid  = "test";
+    tc.url  = argv[3];
+    tc.size = 0;
+
+    dlp_task_t task = dlp_task_create(g_ctx, &tc);
+    if (task) {
+      dlp_task_start(task);
+      fprintf(stderr, "Task 'test' created: %s\n", argv[3]);
+    }
+  }
+
   signal(SIGINT, on_signal);
   signal(SIGTERM, on_signal);
 
-  fprintf(stderr, "Starting dlproxy in POLL mode (port=%d, cache=%s)...\n", port, cache_dir);
+  fprintf(stderr, "Starting dlproxy (port=%d, cache=%s)...\n", port, cache_dir);
+  fprintf(stderr, "Test with: curl -H 'Range: bytes=0-262143' http://127.0.0.1:%d/test\n", port);
   dlp_run(g_ctx, DL_MODE_POLL);
 
   fprintf(stderr, "dlproxy stopped\n");

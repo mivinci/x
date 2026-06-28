@@ -22,7 +22,7 @@
 
 /* ── Forward declarations ──────────────────────────────────────────── */
 
-static void on_scheduler_tick(void *arg);
+static void on_tick(void *arg);
 
 /* ── Context lifecycle ─────────────────────────────────────────────── */
 
@@ -45,7 +45,7 @@ dlp_ctx_t dlp_init(const dlp_conf_t *conf) {
   ctx->task_map  = xMapCreate(xMapType_Hash, 64, xMapStrHash, xMapStrEq);
   ctx->bus       = dlp_bus_create();
   ctx->cache     = dlp_cache_init(ctx->conf.cache_dir, ctx->loop);
-  ctx->scheduler = dlp_scheduler_init(ctx, ctx->loop);
+  ctx->dl_http = dlp_http_init(ctx);
 
   xEventLoopLeave();
   return ctx;
@@ -118,7 +118,7 @@ dlp_task_t dlp_task_create(dlp_ctx_t ctx, const dlp_task_conf_t *conf) {
 
 /* ── Scheduling tick ────────────────────────────────────────────────── */
 
-static void on_scheduler_tick(void *arg) {
+static void on_tick(void *arg) {
   struct dlp_task *t = (struct dlp_task *)arg;
   if (!t->running || !t->sched) return;
   t->sched->on_tick(t);
@@ -132,7 +132,7 @@ xErrno dlp_task_start(dlp_task_t task) {
   t->was_pulling = false;
 
   /* Start 1-second scheduling timer */
-  t->tick_timer = xTimerStart(on_scheduler_tick, t, DL_TICK_MS, DL_TICK_MS);
+  t->tick_timer = xTimerStart(on_tick, t, DL_TICK_MS, DL_TICK_MS);
   if (!t->tick_timer) return xErrno_SysError;
 
   XDEBUGL0("task started rid=%s", t->rid);
