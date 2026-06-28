@@ -116,6 +116,7 @@ int loop_run_done(struct xEventLoop_ *loop, int max_batch) {
     if (w->task) {
       if (w->cancelled) {
         if (w->on_cancel) w->on_cancel(w->arg, w->result);
+        xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
         goto free_it;
       }
       xErrno err = xTaskWait(w->task, NULL);
