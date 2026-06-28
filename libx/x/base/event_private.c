@@ -114,11 +114,11 @@ int loop_run_done(struct xEventLoop_ *loop, int max_batch) {
     if (!node) break;
     struct xWork_ *w = xContainerOf(node, struct xWork_, mpsc);
     if (w->task) {
-      xErrno err = xTaskWait(w->task, NULL);
       if (w->cancelled) {
         if (w->on_cancel) w->on_cancel(w->arg, w->result);
         goto free_it;
       }
+      xErrno err = xTaskWait(w->task, NULL);
       if (err != xErrno_Cancelled && w->done_fn) w->done_fn(w->arg, w->result);
       xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
     } else {
