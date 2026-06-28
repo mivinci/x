@@ -87,13 +87,13 @@ XCAPI(xErrno) xTaskWait(xTask t, void **result);
  * argument after a successful cancel.
  *
  * If the task is already running or has completed, the cancel fails
- * and xErrno_Busy is returned.  In that case the caller must call
+ * and xErrno_InProgress is returned.  In that case the caller must call
  * xTaskWait() before releasing the argument.
  *
  * @ingroup xTask
  * @param t The task handle.
- * @return xErrno_Ok if cancelled successfully, xErrno_Busy if the task
- *         is already running or finished.
+ * @return xErrno_Ok if cancelled successfully, xErrno_InProgress if
+ *         the task is already running or finished.
  */
 XCAPI(xErrno) xTaskCancel(xTask t);
 

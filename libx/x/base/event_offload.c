@@ -78,24 +78,21 @@ xErrno xWorkCancel(xWork work) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)xEventLoopCurrent();
 
   /* The work item must belong to this loop. */
-  if (w->loop != (xEventLoop)loop) return xErrno_InvalidArg;
+  if (w->loop != (xEventLoop)loop) return xErrno_InvalidContext;
 
-  /* Attempt to cancel the underlying task.  If the task is still
-   * queued in the thread pool, xTaskCancel succeeds and the
-   * offload_worker will never execute. */
+  /* Mark as cancelled — done_fn will be skipped regardless of task state. */
+  w->cancelled = 1;
+
+  /* Attempt to cancel the underlying task. If successful, the
+   * offload_worker will never execute and we must push the work item
+   * to the done queue ourselves for cleanup. */
   xErrno err = xTaskCancel(w->task);
-  if (err != xErrno_Ok) return xErrno_Busy;
-
-  /* Cancel succeeded — offload_worker will NOT run, so the work item
-   * will never be pushed to the done queue by the worker.  We must
-   * push it ourselves so that loop_run_done can clean it up.
-   *
-   * Mark result as NULL (work_fn was never called). */
-  w->result = NULL;
-
-  struct xEventLoop_ *l = (struct xEventLoop_ *)xEventLoopCurrent();
-  xMpscPush(&l->done_head, &l->done_tail, &w->mpsc);
-  xEventLoopWake(w->loop);
+  if (err == xErrno_Ok) {
+    w->result = NULL;
+    struct xEventLoop_ *l = (struct xEventLoop_ *)xEventLoopCurrent();
+    xMpscPush(&l->done_head, &l->done_tail, &w->mpsc);
+    xEventLoopWake(w->loop);
+  }
 
   return xErrno_Ok;
 }

@@ -153,6 +153,7 @@ struct xWork_ {
   
   void          *arg;
   void          *result;
+  int            cancelled; /* set by xWorkCancel; loop_run_done skips done_fn */
   xEventLoop     loop;      /* back-pointer to the owning event loop    */
   xTask          task;      /* handle returned by xTaskSubmit           */
   struct xWork_ *next_free; /* freelist link (when on the pool) */

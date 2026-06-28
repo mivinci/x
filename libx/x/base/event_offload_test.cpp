@@ -333,10 +333,13 @@ TEST_F(EventOffloadTest, CancelQueuedWork) {
   xTaskGroupDestroy(small);
 }
 
-TEST_F(EventOffloadTest, CancelRunningWorkFails) {
-  /* Submit a long-running task and try to cancel it while it runs. */
+TEST_F(EventOffloadTest, CancelRunningWorkReturnsOkAndSkipsDone) {
+  /* Submit a long-running task and cancel it while it runs.
+   * After the fix, cancel returns Ok even for running work, and
+   * done_fn must NOT fire. */
   std::atomic<bool> started{false};
   std::atomic<bool> unblock{false};
+  std::atomic<bool> done_fired{false};
 
   struct Ctx {
     std::atomic<bool> *started;
@@ -353,7 +356,9 @@ TEST_F(EventOffloadTest, CancelRunningWorkFails) {
                 }
                 return nullptr;
               },
-              nullptr, &ctx);
+              [](void *arg, void *) {
+                static_cast<std::atomic<bool> *>(arg)->store(true);
+              }, &done_fired);
   ASSERT_NE(work, nullptr);
 
   /* Wait until the task is actually running */
@@ -361,12 +366,15 @@ TEST_F(EventOffloadTest, CancelRunningWorkFails) {
     std::this_thread::sleep_for(std::chrono::microseconds(100));
   }
 
-  /* Cancel should fail — task is already running */
-  EXPECT_EQ(xWorkCancel( work), xErrno_Busy);
+  /* Cancel should succeed — cancelled flag prevents done_fn */
+  EXPECT_EQ(xWorkCancel(work), xErrno_Ok);
 
   /* Let it finish and pump the loop */
   unblock.store(true, std::memory_order_release);
   run_for(loop, 2000);
+
+  /* done_fn should NOT have been called */
+  EXPECT_FALSE(done_fired.load());
 }
 
 TEST_F(EventOffloadTest, CancelSubmitOutHandle) {

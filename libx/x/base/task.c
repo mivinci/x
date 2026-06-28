@@ -359,14 +359,16 @@ xErrno xTaskCancel(xTask t_) {
    * safely release the arg.
    *
    * If the CAS fails the task is already RUNNING or DONE — we
-   * return xErrno_Busy so the caller knows fn() is (or was) in
+   * return xErrno_InProgress so the caller knows fn() is (or was) in
    * flight and must xTaskWait() before releasing the arg. */
   long expected = TASK_QUEUED;
   if (xAtomicCasStrong(&t->state, &expected, TASK_CANCELLED, xAtomicAcqRel)) {
+    /* Signal the note so xTaskWait unblocks immediately. */
+    xNoteSignal(&t->note);
     return xErrno_Ok;
   }
 
-  return xErrno_Busy;
+  return xErrno_InProgress;
 }
 
 xErrno xTaskGroupWait(xTaskGroup g_) {

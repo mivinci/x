@@ -235,20 +235,16 @@ XCAPI(xWork) xWorkSubmit(xTaskGroup group, xTaskFunc work_fn, xWorkDoneFunc done
 /**
  * @brief Cancel a previously submitted offload work item.
  *
- * If the work function has not yet started on a worker thread, it is
- * cancelled and @p done_fn will NOT be invoked. The caller may safely
- * release the argument after a successful cancel.
- *
- * If the work function is already running or has completed, the cancel
- * fails and xErrno_InvalidState is returned. In that case @p done_fn
- * will still be called normally on the loop thread.
+ * Sets a cancelled flag that prevents @p done_fn from being invoked,
+ * regardless of whether the task was queued or already executing.
+ * After a successful cancel, the caller may safely release the
+ * argument immediately — @p done_fn will never fire.
  *
  * Thread-safe: may be called from any thread.
  *
- * @param loop  The event loop (must not be NULL).
- * @param work  Work handle returned by xWorkSubmit().
- * @return      xErrno_Ok if cancelled, xErrno_InvalidState if already
- *              running or done, xErrno_InvalidArg if arguments are NULL.
+ * @param work  Work handle returned by xWorkSubmit(). NULL is safe.
+ * @return      xErrno_Ok on success, xErrno_InvalidArg if work is NULL,
+ *              xErrno_InvalidContext if work belongs to a different loop.
  */
 XCAPI(xErrno) xWorkCancel(xWork work);
 

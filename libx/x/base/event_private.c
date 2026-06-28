@@ -115,11 +115,13 @@ int loop_run_done(struct xEventLoop_ *loop, int max_batch) {
     struct xWork_ *w = xContainerOf(node, struct xWork_, mpsc);
     if (w->task) {
       xErrno err = xTaskWait(w->task, NULL);
+      if (w->cancelled) goto free_it;
       if (err != xErrno_Cancelled && w->done_fn) w->done_fn(w->arg, w->result);
       xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
     } else {
-      if (w->post_fn) w->post_fn(w->arg);
+      if (!w->cancelled && w->post_fn) w->post_fn(w->arg);
     }
+free_it:
     event_work_free(loop, w);
     dispatched++;
   } while (1);

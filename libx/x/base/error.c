@@ -25,6 +25,8 @@ static const char *xErrnoStrings[] = {
   [xErrno_Timeout]       = "operation timed out",
   [xErrno_Again]         = "try again",
   [xErrno_Busy]          = "resource busy",
+  [xErrno_InProgress]    = "operation in progress",
+  [xErrno_InvalidContext] = "invalid context (wrong thread/loop)",
   [xErrno_Pending]       = "operation pending",
   [xErrno_PromptTooLong] = "prompt exceeds context budget",
 };
