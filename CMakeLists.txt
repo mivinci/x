@@ -73,3 +73,11 @@ endif()
 
 # ── Modules ───────────────────────────────────────────────────────────
 add_subdirectory(libx)
+add_subdirectory(libdlproxy)
+
+# ── Examples ──────────────────────────────────────────────────────────
+# dlproxy VOD example (depends on libdlproxy)
+add_executable(vod examples/dlproxy/vod.cpp)
+target_link_libraries(vod PRIVATE dlproxy)
+target_include_directories(vod PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_options(vod PRIVATE -Wno-error)
