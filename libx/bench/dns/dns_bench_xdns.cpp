@@ -8,6 +8,7 @@
 #include <cstring>
 #include <chrono>
 #include <atomic>
+#include <unistd.h>
 
 extern "C" {
 #include <x/base/event.h>
@@ -59,6 +60,8 @@ static us bench_batch(xDnsClient client, const char **names, int count) {
         std::atomic<int> *p = (std::atomic<int> *)arg;
         if (--*p == 0) xEventLoopStop(xEventLoopCurrent());
       }, &pending);
+    /* Small gap between submits — some public DNS servers rate-limit */
+    usleep(1000); /* 1ms */
   }
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
@@ -109,8 +112,8 @@ int main(int argc, char **argv) {
     conf.retries = 1;
   } else {
     conf.nameservers[0] = "8.8.8.8";
-    conf.timeout_ms = 5000;
-    conf.retries = 2;
+    conf.timeout_ms = 1000;
+    conf.retries = 0;
   }
 
   xDnsClient client = xDnsClientCreate(&conf);
