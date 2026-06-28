@@ -209,6 +209,26 @@ run_dns() {
   wait "$server_pid" 2>/dev/null || true
 
   # ── Remote mode ──
+  # Flush system DNS cache for fair comparison (xdns doesn't use it)
+  if [ "$(uname -s)" = "Darwin" ]; then
+    if sudo -n true 2>/dev/null; then
+      info "Flushing macOS DNS cache..."
+      sudo dscacheutil -flushcache 2>/dev/null || true
+      sudo killall -HUP mDNSResponder 2>/dev/null || true
+    else
+      warn "sudo not available — system DNS cache may skew results"
+    fi
+  elif [ "$(uname -s)" = "Linux" ]; then
+    if sudo -n true 2>/dev/null; then
+      info "Flushing Linux DNS cache..."
+      sudo resolvectl flush-caches 2>/dev/null || \
+      sudo systemd-resolve --flush-caches 2>/dev/null || true
+    else
+      warn "sudo not available — system DNS cache may skew results"
+    fi
+  fi
+
+  # ── Remote mode ──
   out="$RESULTS_DIR/dns_bench_remote_${TIMESTAMP}.json"
 
   info "Running xdns benchmark (remote)..."
