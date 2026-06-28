@@ -165,6 +165,7 @@ struct xEventLoop_ {
   struct xEventLoop_          *prev;           /* saved thread-local loop on Enter */
   uint64_t                     time;           /* monotonic ms, updated once per iteration */
   int                          active_handles; /* ref-count: fds + timers + pending work */
+  char                         name[16];       /* thread name, from xEventLoopConf */
 
   struct xEventSourceArray_ sources;
 #ifdef _WIN32

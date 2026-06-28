@@ -142,7 +142,6 @@ struct ParamHandlerCtx {
 class HttpServerTest : public ::testing::Test {
 protected:
   xEventLoop  loop     = nullptr;
-  xEventLoop  old_loop = nullptr;
   xHttpServer server   = nullptr;
   xHttpMux    mux      = nullptr;
   uint16_t    port     = 0;
@@ -150,7 +149,7 @@ protected:
   void SetUp() override {
     loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
-    old_loop = xEventLoopEnter(loop);
+    xEventLoopEnter(loop);
 
     mux = xHttpMuxCreate();
     ASSERT_NE(mux, nullptr);
@@ -170,7 +169,7 @@ protected:
   void TearDown() override {
     if (server) xHttpServerDestroy(server);
     if (mux) xHttpMuxDestroy(mux);
-    xEventLoopEnter(old_loop);
+    xEventLoopLeave();
     if (loop) xEventLoopDestroy(loop);
   }
 

@@ -18,6 +18,8 @@
 
 6. **Self-Pipe Trick for Signals** — On epoll and poll backends, signal delivery uses the self-pipe trick (a `sigaction` handler writes to a pipe) rather than `signalfd`, avoiding the fragile requirement of blocking signals in every thread. On kqueue, `EVFILT_SIGNAL` is used natively.
 
+7. **Named Loop → Named Thread** — `xEventLoopEnter()` sets the calling thread's OS name (via `pthread_setname_np`) to the loop's configured name, making loops visible in `ps`, `htop`, and debuggers. The name is restored from the previous loop on `xEventLoopLeave()`. The default is `"xEventLoop"` — override via `xEventLoopConf.name`.
+
 ## Architecture
 
 ```mermaid
@@ -149,12 +151,13 @@ sequenceDiagram
 | Function | Signature | Thread Safety |
 | --- | --- | --- |
 | `xEventLoopCreate` | `xEventLoop xEventLoopCreate(void)` | Not thread-safe |
+| `xEventLoopCreateWithConf` | `xEventLoop xEventLoopCreateWithConf(const xEventLoopConf *conf)` | Not thread-safe |
 | `xEventLoopCreateWithGroup` | `xEventLoop xEventLoopCreateWithGroup(xTaskGroup group)` | Not thread-safe |
 | `xEventLoopDestroy` | `void xEventLoopDestroy(xEventLoop loop)` | Not thread-safe |
 | `xEventLoopRun` | `int xEventLoopRun(xEventLoop loop, int mode)` | Not thread-safe (call from one thread) |
 | `xEventLoopStop` | `void xEventLoopStop(xEventLoop loop)` | **Thread-safe** |
-| `xEventLoopEnter` | `xEventLoop xEventLoopEnter(xEventLoop loop)` | Not thread-safe |
-| `xEventLoopLeave` | `xEventLoop xEventLoopLeave(void)` | Not thread-safe |
+| `xEventLoopEnter` | `void xEventLoopEnter(xEventLoop loop)` | Not thread-safe |
+| `xEventLoopLeave` | `void xEventLoopLeave(void)` | Not thread-safe |
 | `xEventLoopCurrent` | `xEventLoop xEventLoopCurrent(void)` | **Thread-safe** |
 | `xEventLoopGlobal` | `xEventLoop xEventLoopGlobal(void)` | Not thread-safe |
 | `xEventLoopFd` | `int xEventLoopFd(xEventLoop loop)` | Not thread-safe |

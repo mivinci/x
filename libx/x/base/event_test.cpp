@@ -20,11 +20,13 @@
 #include <ws2tcpip.h>
 #else
 #include <fcntl.h>
+#include <pthread.h>
 #include <unistd.h>
 #endif
 
 #include <gtest/gtest.h>
 
+#include <x/base/task.h>
 #include <x/base/test_helper.h>
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -1025,4 +1027,184 @@ TEST(EventLoopNextTimeout, ReturnsZeroForExpiredTimer) {
 
 TEST(EventLoopNextTimeout, NullLoopReturnsNegOne) {
   EXPECT_EQ(xEventLoopNextTimeout(nullptr), -1);
+}
+
+/* ───────────────────── EventLoopConf ───────────────────── */
+
+TEST(EventLoopConf, CreateWithNullConf) {
+  xEventLoop loop = xEventLoopCreateWithConf(NULL);
+  ASSERT_NE(loop, nullptr);
+
+  /* Default name is "xEventLoop" */
+  xEventLoopEnter(loop);
+#if defined(__linux__) || defined(__APPLE__)
+  char name[32] = {0};
+  pthread_getname_np(pthread_self(), name, sizeof(name));
+  EXPECT_STREQ(name, "xEventLoop");
+#endif
+  xEventLoopLeave();
+  xEventLoopDestroy(loop);
+}
+
+TEST(EventLoopConf, CreateWithGroupAndName) {
+  xEventLoopConf conf = {};
+  conf.name  = "test-looper";
+  xEventLoop loop = xEventLoopCreateWithConf(&conf);
+  ASSERT_NE(loop, nullptr);
+
+  xEventLoopEnter(loop);
+#if defined(__linux__)
+  char name[32] = {0};
+  pthread_getname_np(pthread_self(), name, sizeof(name));
+  EXPECT_STREQ(name, "test-looper");
+#elif defined(__APPLE__)
+  char name[32] = {0};
+  pthread_getname_np(pthread_self(), name, sizeof(name));
+  EXPECT_STREQ(name, "test-looper");
+#endif
+  xEventLoopLeave();
+  xEventLoopDestroy(loop);
+}
+
+TEST(EventLoopConf, NameTruncation) {
+  xEventLoopConf conf = {};
+  conf.name = "this-name-is-way-too-long-for-a-thread";
+  xEventLoop loop = xEventLoopCreateWithConf(&conf);
+  ASSERT_NE(loop, nullptr);
+
+  xEventLoopEnter(loop);
+#if defined(__linux__)
+  char name[32] = {0};
+  pthread_getname_np(pthread_self(), name, sizeof(name));
+  /* Should be truncated to 15 chars */
+  EXPECT_LE(strlen(name), 15);
+  EXPECT_EQ(strncmp(name, "this-name-is-wa", 15), 0);
+#elif defined(__APPLE__)
+  char name[32] = {0};
+  pthread_getname_np(pthread_self(), name, sizeof(name));
+  EXPECT_LE(strlen(name), 15);
+  EXPECT_EQ(strncmp(name, "this-name-is-wa", 15), 0);
+#endif
+  xEventLoopLeave();
+  xEventLoopDestroy(loop);
+}
+
+TEST(EventLoopConf, WrappersWorkIdentically) {
+  /* xEventLoopCreate() should be equivalent to CreateWithConf(NULL) */
+  xEventLoop loop1 = xEventLoopCreate();
+  ASSERT_NE(loop1, nullptr);
+  xEventLoopDestroy(loop1);
+
+  /* xEventLoopCreateWithGroup should set the group */
+  xTaskGroupConf tgconf = {};
+  tgconf.nthreads = 1;
+  xTaskGroup tg = xTaskGroupCreate(&tgconf);
+  ASSERT_NE(tg, nullptr);
+
+  xEventLoopConf conf = {};
+  conf.group = tg;
+  xEventLoop loop2 = xEventLoopCreateWithConf(&conf);
+  ASSERT_NE(loop2, nullptr);
+  xEventLoopDestroy(loop2);
+
+  /* xEventLoopCreateWithGroup should behave identically */
+  xEventLoop loop3 = xEventLoopCreateWithGroup(tg);
+  ASSERT_NE(loop3, nullptr);
+  xEventLoopDestroy(loop3);
+
+  xTaskGroupDestroy(tg);
+}
+
+TEST(EventLoopConf, ThreadNameClearedAfterLeave) {
+  xEventLoopConf conf = {};
+  conf.name = "restore-loop";
+  xEventLoop loop = xEventLoopCreateWithConf(&conf);
+  ASSERT_NE(loop, nullptr);
+
+  xEventLoopEnter(loop);
+  xEventLoopLeave();
+  xEventLoopDestroy(loop);
+
+  /* Thread name should be cleared after outermost Leave */
+#if defined(__linux__) || defined(__APPLE__)
+  char name[32] = {0};
+  pthread_getname_np(pthread_self(), name, sizeof(name));
+  EXPECT_STREQ(name, "")
+      << "Thread name should be cleared after outermost Leave";
+#endif
+}
+
+TEST(EventLoopConf, ThreadNameRestoredOnNestedLeave) {
+  xEventLoopConf outer_conf = {};
+  outer_conf.name = "outer-loop";
+  xEventLoop outer = xEventLoopCreateWithConf(&outer_conf);
+  ASSERT_NE(outer, nullptr);
+
+  xEventLoopConf inner_conf = {};
+  inner_conf.name = "inner-loop";
+  xEventLoop inner = xEventLoopCreateWithConf(&inner_conf);
+  ASSERT_NE(inner, nullptr);
+
+  xEventLoopEnter(outer);
+#if defined(__linux__) || defined(__APPLE__)
+  {
+    char name[32] = {0};
+    pthread_getname_np(pthread_self(), name, sizeof(name));
+    EXPECT_STREQ(name, "outer-loop");
+  }
+#endif
+
+  xEventLoopEnter(inner);
+#if defined(__linux__) || defined(__APPLE__)
+  {
+    char name[32] = {0};
+    pthread_getname_np(pthread_self(), name, sizeof(name));
+    EXPECT_STREQ(name, "inner-loop");
+  }
+#endif
+
+  /* Leave inner — should restore outer's name */
+  xEventLoopLeave();
+#if defined(__linux__) || defined(__APPLE__)
+  {
+    char name[32] = {0};
+    pthread_getname_np(pthread_self(), name, sizeof(name));
+    EXPECT_STREQ(name, "outer-loop");
+  }
+#endif
+
+  /* Leave outer — should clear */
+  xEventLoopLeave();
+#if defined(__linux__) || defined(__APPLE__)
+  {
+    char name[32] = {0};
+    pthread_getname_np(pthread_self(), name, sizeof(name));
+    EXPECT_STREQ(name, "");
+  }
+#endif
+
+  xEventLoopDestroy(inner);
+  xEventLoopDestroy(outer);
+}
+
+TEST(EventLoopConf, DefaultNameIsSet) {
+  /* Set a different name first */
+#if defined(__APPLE__)
+  pthread_setname_np("before");
+#elif defined(__linux__)
+  pthread_setname_np(pthread_self(), "before");
+#endif
+
+  xEventLoop loop = xEventLoopCreate(); /* default name "xEventLoop" */
+  ASSERT_NE(loop, nullptr);
+
+  xEventLoopEnter(loop);
+  /* Default name "xEventLoop" should overwrite "before" */
+#if defined(__linux__) || defined(__APPLE__)
+  char name[32] = {0};
+  pthread_getname_np(pthread_self(), name, sizeof(name));
+  EXPECT_STREQ(name, "xEventLoop");
+#endif
+  xEventLoopLeave();
+  xEventLoopDestroy(loop);
 }

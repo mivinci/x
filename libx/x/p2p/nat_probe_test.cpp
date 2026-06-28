@@ -358,12 +358,12 @@ TEST(NatProbeTypeStr, InvalidType) {
 TEST(NatProbeAPI, NullLoopReturnsNull) {
   /* xNatProbeStart uses xEventLoopCurrent().  Ensure no stale
    * loop from a previous test fixture contaminates the NULL check. */
-  xEventLoop old = xEventLoopEnter(NULL);
+  xEventLoopEnter(NULL);
   ProbeCtx ctx;
   EXPECT_EQ(xNatProbeStart("stun.l.google.com", 3478, "stun1.l.google.com", 3478, 1000,
                            probe_callback, &ctx),
             nullptr);
-  xEventLoopEnter(old);
+  xEventLoopLeave();
 }
 
 TEST(NatProbeAPI, NullHost1ReturnsNull) {

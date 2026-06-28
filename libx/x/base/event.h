@@ -88,13 +88,36 @@ typedef void (*xTimerFunc)(void *arg);
 typedef void (*xSignalFunc)(int signo, void *arg);
 
 /**
- * @brief Create an event loop.
+ * @brief Configuration for creating an event loop.
+ *
+ * Zero-initialize for defaults: no task group, no thread name.
+ */
+XDEF_STRUCT(xEventLoopConf) {
+  xTaskGroup   group; /**< Default task group for offload, or NULL            */
+  const char  *name;  /**< Thread name (max 15 chars, truncated), NULL = no-op */
+};
+
+/**
+ * @brief Create an event loop with configuration.
+ *
+ * @param conf  Configuration, or NULL for defaults.
+ * @return      A new event loop, or NULL on failure.
+ */
+XCAPI(xEventLoop) xEventLoopCreateWithConf(const xEventLoopConf *conf);
+
+/**
+ * @brief Create an event loop (convenience wrapper).
+ *
+ * Equivalent to @c xEventLoopCreateWithConf(NULL).
+ *
  * @return A new event loop, or NULL on failure.
  */
 XCAPI(xEventLoop) xEventLoopCreate(void);
 
 /**
- * @brief Create an event loop with a default task group for offloading.
+ * @brief Create an event loop with a default task group (convenience wrapper).
+ *
+ * Equivalent to @c xEventLoopCreateWithConf(&(xEventLoopConf){.group = group}).
  *
  * When xWorkSubmit() is called with a NULL group, the loop will
  * use @p group instead of falling back to xTaskGroupGlobal().
@@ -306,9 +329,14 @@ XCAPI(xErrno) xSignal(int signo, xSignalFunc fn, void *arg);
  * @brief Register an event loop on the current thread.
  *
  * Associates @p loop with the calling thread via thread-local storage.
- * If a loop was already registered, it is returned; the caller should
- * restore it when done (by calling xEventLoopEnter() again with the
- * old value), enabling safe nesting of event loops on the same thread.
+ * If a loop was already registered, it is pushed onto an internal stack;
+ * the caller must call xEventLoopLeave() to restore it. This enables
+ * safe nesting of event loops on the same thread.
+ *
+ * If the loop has a non-empty name, the calling thread's OS name is
+ * set (via @c pthread_setname_np).  On xEventLoopLeave(), the name
+ * is restored from the previous loop in the chain (or cleared if
+ * there is none).
  *
  * xEventLoopRun() calls this internally, so code
  * that uses those functions rarely needs to call xEventLoopEnter()
@@ -317,18 +345,19 @@ XCAPI(xErrno) xSignal(int signo, xSignalFunc fn, void *arg);
  * to pump the event loop manually in small bursts.
  *
  * @param loop  The event loop to register, or NULL to unregister.
- * @return      The previously registered loop, or NULL if none.
  */
-XCAPI(xEventLoop) xEventLoopEnter(xEventLoop loop);
+XCAPI(void) xEventLoopEnter(xEventLoop loop);
 
 /**
  * @brief Unregister the current thread's event loop.
  *
- * Convenience wrapper: equivalent to xEventLoopEnter(NULL).
+ * Restores the loop that was active before the matching
+ * xEventLoopEnter() call. Also restores the thread's OS name.
  *
- * @return The loop that was previously registered, or NULL.
+ * This replaces the previous pattern of saving Enter's return value
+ * and re-entering with it.
  */
-XCAPI(xEventLoop) xEventLoopLeave(void);
+XCAPI(void) xEventLoopLeave(void);
 
 /**
  * @brief Return the event loop registered on the current thread.

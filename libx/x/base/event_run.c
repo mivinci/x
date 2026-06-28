@@ -8,7 +8,7 @@
 
 #include "event_private.h"
 #include <limits.h>
-#include <signal.h>
+#include <string.h>
 
 /* ───────────────── Backend selection ───────────────── */
 
@@ -30,24 +30,46 @@ static __declspec(thread) xEventLoop tl_loop;
 static __thread xEventLoop tl_loop;
 #endif
 
-xEventLoop xEventLoopEnter(xEventLoop loop) {
-  xEventLoop          old = tl_loop;
+void xEventLoopEnter(xEventLoop loop) {
   struct xEventLoop_ *l   = (struct xEventLoop_ *)loop;
-  if (l) l->prev = (struct xEventLoop_ *)old;
+  if (l) l->prev = (struct xEventLoop_ *)tl_loop;
   tl_loop = loop;
-  return old;
+
+  /* Set OS thread name if the loop has one configured */
+  if (l && l->name[0]) {
+#if defined(__linux__)
+    pthread_setname_np(pthread_self(), l->name);
+#elif defined(__APPLE__)
+    pthread_setname_np(l->name);
+#endif
+  }
 }
 
-xEventLoop xEventLoopLeave(void) {
+void xEventLoopLeave(void) {
   struct xEventLoop_ *cur  = (struct xEventLoop_ *)tl_loop;
-  xEventLoop          old  = tl_loop;
-  xEventLoop          prev = NULL;
-  if (cur) {
-    prev        = (xEventLoop)cur->prev;
-    cur->prev   = NULL; /* sever back-link */
+  if (!cur) return;
+
+  struct xEventLoop_ *prev = cur->prev;
+  cur->prev                 = NULL;
+  tl_loop                   = (xEventLoop)prev;
+
+  /* Restore thread name from the previous loop in the chain */
+#if defined(__linux__) || defined(__APPLE__)
+  if (prev && prev->name[0]) {
+#if defined(__linux__)
+    pthread_setname_np(pthread_self(), prev->name);
+#elif defined(__APPLE__)
+    pthread_setname_np(prev->name);
+#endif
+  } else {
+    /* No previous named loop — clear the thread name */
+#if defined(__linux__)
+    pthread_setname_np(pthread_self(), "");
+#elif defined(__APPLE__)
+    pthread_setname_np("");
+#endif
   }
-  tl_loop = prev;
-  return old;
+#endif
 }
 xEventLoop xEventLoopCurrent(void) {
   return tl_loop;
@@ -55,23 +77,40 @@ xEventLoop xEventLoopCurrent(void) {
 
 /* ───────────────── Create / Destroy ───────────────── */
 
-xEventLoop xEventLoopCreate(void) {
-  return xEventLoopCreateWithGroup(NULL);
-}
-
-xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
+xEventLoop xEventLoopCreateWithConf(const xEventLoopConf *conf) {
   const struct xEventBackend_ *be   = X_BACKEND;
   struct xEventLoop_          *loop = (struct xEventLoop_ *)calloc(1, be->size);
   if (!loop) return NULL;
 
-  loop->backend    = be;
-  loop->task_group = group;
+  loop->backend = be;
+
+  /* Set the loop name: use user-provided name, or default to "xEventLoop" */
+  if (conf && conf->name && conf->name[0]) {
+    strncpy(loop->name, conf->name, sizeof(loop->name) - 1);
+    loop->name[sizeof(loop->name) - 1] = '\0';
+  } else {
+    strncpy(loop->name, "xEventLoop", sizeof(loop->name) - 1);
+    loop->name[sizeof(loop->name) - 1] = '\0';
+  }
+
+  if (conf) {
+    loop->task_group = conf->group;
+  }
 
   if (be->init(loop) != xErrno_Ok) {
     free(loop);
     return NULL;
   }
   return (xEventLoop)loop;
+}
+
+xEventLoop xEventLoopCreate(void) {
+  return xEventLoopCreateWithConf(NULL);
+}
+
+xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
+  xEventLoopConf conf = { .group = group };
+  return xEventLoopCreateWithConf(&conf);
 }
 
 void xEventLoopDestroy(xEventLoop loop_) {
