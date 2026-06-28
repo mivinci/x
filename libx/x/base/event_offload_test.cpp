@@ -136,10 +136,10 @@ TEST_F(EventOffloadTest, ConcurrentSubmits) {
             auto *ctx = static_cast<SubmitCtx *>(arg);
             ctx->work_cnt->fetch_add(1, std::memory_order_relaxed);
             return nullptr;
-          }, NULL, [](void *arg, void *) {
+          }, [](void *arg, void *) {
             auto *ctx = static_cast<SubmitCtx *>(arg);
             ctx->done_cnt->fetch_add(1, std::memory_order_relaxed);
-          },
+          }, NULL,
           &sctx);
       }
       xEventLoopLeave();
