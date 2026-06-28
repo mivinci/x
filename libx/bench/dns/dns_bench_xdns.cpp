@@ -19,61 +19,6 @@ using us    = std::chrono::microseconds;
 
 /* ─────────────────── Helpers ─────────────────── */
 
-static void json_out(const char *resolver, const char *mode,
-                     const char *scenario, long long us_val,
-                     int queries = 0) {
-  static int first = 1;
-  if (first) { printf("[\n"); first = 0; }
-  else printf(",\n");
-
-  printf("  {\"resolver\":\"%s\",\"mode\":\"%s\",\"scenario\":\"%s\",\"latency_us\":%lld",
-         resolver, mode, scenario, us_val);
-  if (queries > 0) printf(",\"queries\":%d", queries);
-  printf("}");
-}
-
-static us bench_single(xDnsClient client, const char *name) {
-  xEventLoop loop = xEventLoopCurrent();
-  Clock::time_point start = Clock::now();
-
-  xDnsClientDo(client, name, xDnsType_A,
-    [](xErrno err, const xDnsRecord *records, void *arg) {
-      (void)err; (void)records; (void)arg;
-      xEventLoopStop(xEventLoopCurrent());
-    }, nullptr);
-
-  xEventLoopRun(loop, X_RUN_DEFAULT);
-
-  return std::chrono::duration_cast<us>(Clock::now() - start);
-}
-
-static us bench_batch(xDnsClient client, const char **names, int count) {
-  /* Run queries sequentially and sum individual latencies — this avoids
-   * one slow query skewing the wall-time measurement. */
-  us total{0};
-  for (int i = 0; i < count; i++) {
-    total += bench_single(client, names[i]);
-  }
-  return total;
-}
-
-static us bench_cache(xDnsClient client, const char *name) {
-  bench_single(client, name); /* cold */
-
-  xEventLoop loop = xEventLoopCurrent();
-  Clock::time_point start = Clock::now();
-
-  xDnsClientDo(client, name, xDnsType_A,
-    [](xErrno err, const xDnsRecord *records, void *arg) {
-      (void)err; (void)records; (void)arg;
-      xEventLoopStop(xEventLoopCurrent());
-    }, nullptr);
-
-  xEventLoopRun(loop, X_RUN_DEFAULT);
-
-  return std::chrono::duration_cast<us>(Clock::now() - start);
-}
-
 static const char *remote_hosts[] = {
   "google.com","github.com","amazon.com","microsoft.com",
   "apple.com","netflix.com","stackoverflow.com","youtube.com",
@@ -82,6 +27,77 @@ static const char *remote_hosts[] = {
   "adobe.com","oracle.com","ibm.com","intel.com",
 };
 static const int n_remote_hosts = (int)(sizeof(remote_hosts) / sizeof(remote_hosts[0]));
+
+struct BenchResult {
+  const char *scenario;
+  long long   latency_us;
+  int         queries;
+  int         success;
+  int         failed;
+};
+
+static void json_out(const char *resolver, const char *mode, const BenchResult &r) {
+  static int first = 1;
+  if (first) { printf("[\n"); first = 0; }
+  else printf(",\n");
+  printf("  {\"resolver\":\"%s\",\"mode\":\"%s\",\"scenario\":\"%s\",\"latency_us\":%lld",
+         resolver, mode, r.scenario, r.latency_us);
+  if (r.queries > 1) printf(",\"queries\":%d", r.queries);
+  printf(",\"success\":%d,\"failed\":%d", r.success, r.failed);
+  printf("}");
+}
+
+static BenchResult bench_single(xDnsClient client, const char *name) {
+  xEventLoop loop    = xEventLoopCurrent();
+  int        success = 0;
+
+  Clock::time_point start = Clock::now();
+
+  xDnsClientDo(client, name, xDnsType_A,
+    [](xErrno err, const xDnsRecord *, void *arg) {
+      int *ok = (int *)arg;
+      *ok = (err == xErrno_Ok) ? 1 : 0;
+      xEventLoopStop(xEventLoopCurrent());
+    }, &success);
+
+  xEventLoopRun(loop, X_RUN_DEFAULT);
+
+  auto lat = std::chrono::duration_cast<us>(Clock::now() - start);
+  return BenchResult{nullptr, lat.count(), 1, success, success ? 0 : 1};
+}
+
+static BenchResult bench_batch(xDnsClient client, const char **names, int count) {
+  long long total = 0;
+  int ok = 0, fail = 0;
+
+  for (int i = 0; i < count; i++) {
+    auto r = bench_single(client, names[i]);
+    total += r.latency_us;
+    ok    += r.success;
+    fail  += r.failed;
+  }
+  return BenchResult{"batch", total, count, ok, fail};
+}
+
+static BenchResult bench_cache(xDnsClient client, const char *name) {
+  bench_single(client, name); /* cold */
+
+  xEventLoop loop    = xEventLoopCurrent();
+  int        success = 0;
+  Clock::time_point start = Clock::now();
+
+  xDnsClientDo(client, name, xDnsType_A,
+    [](xErrno err, const xDnsRecord *, void *arg) {
+      int *ok = (int *)arg;
+      *ok = (err == xErrno_Ok) ? 1 : 0;
+      xEventLoopStop(xEventLoopCurrent());
+    }, &success);
+
+  xEventLoopRun(loop, X_RUN_DEFAULT);
+
+  auto lat = std::chrono::duration_cast<us>(Clock::now() - start);
+  return BenchResult{"cache_hit", lat.count(), 1, success, success ? 0 : 1};
+}
 
 int main(int argc, char **argv) {
   bool local = true;
@@ -100,9 +116,8 @@ int main(int argc, char **argv) {
     conf.retries = 1;
   } else {
     conf.nameservers[0] = "8.8.8.8";
-    conf.timeout_ms = 1000;
-    conf.retries = 0;
-    conf.udp_max_queries = 5;  /* rotate every 5 queries */
+    conf.timeout_ms = 5000;
+    conf.retries = 1;
   }
 
   xDnsClient client = xDnsClientCreate(&conf);
@@ -123,14 +138,20 @@ int main(int argc, char **argv) {
     for (int i = 0; i < batch_count; i++) batch_names[i] = remote_hosts[i];
   }
 
-  auto us_single = bench_single(client, single_host);
-  json_out("xdns", mode, "single_query", us_single.count());
+  /* Warmup: one query to prime the socket (use a different name to avoid
+   * polluting the cache for the real measurement) */
+  bench_single(client, local ? "bench-99.local" : "microsoft.com");
 
-  auto us_batch = bench_batch(client, batch_names, batch_count);
-  json_out("xdns", mode, "batch", us_batch.count(), batch_count);
+  /* Real measurements */
+  auto r_single = bench_single(client, single_host);
+  r_single.scenario = "single_query";
+  json_out("xdns", mode, r_single);
 
-  auto us_cache = bench_cache(client, single_host);
-  json_out("xdns", mode, "cache_hit", us_cache.count());
+  auto r_batch = bench_batch(client, batch_names, batch_count);
+  json_out("xdns", mode, r_batch);
+
+  auto r_cache = bench_cache(client, single_host);
+  json_out("xdns", mode, r_cache);
 
   if (local) for (int i = 0; i < 100; i++) free((void *)batch_names[i]);
   free(batch_names);

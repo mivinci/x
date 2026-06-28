@@ -171,19 +171,32 @@ run_dns() {
 
   local out="$RESULTS_DIR/dns_bench_local_${TIMESTAMP}.json"
 
+  # Each benchmark outputs one valid JSON array; merge with jq if available
   info "Running xdns benchmark (local)..."
-  "$xdns_bin" local | tee "$out"
-  echo
-
+  "$xdns_bin" local > "${out}.xdns"
   info "Running xnet/dns benchmark (local)..."
-  "$xnet_bin" local | tee -a "$out"
-
+  "$xnet_bin" local > "${out}.xnet"
   if command -v go &>/dev/null && [ -f "$go_bin" ]; then
-    echo
     info "Running Go DNS benchmark (local)..."
-    GODEBUG=netdns=go go run "$go_bin" local | tee -a "$out"
+    GODEBUG=netdns=go go run "$go_bin" local > "${out}.go"
   else
     warn "Go not available — skipping Go benchmark"
+  fi
+
+  # Merge into single JSON array
+  if command -v jq &>/dev/null; then
+    jq -s 'add' "${out}".xdns "${out}".xnet "${out}".go 2>/dev/null > "$out" || true
+  else
+    # Fallback: strip brackets, join with commas, wrap
+    printf '[\n' > "$out"
+    local first=1
+    for f in "${out}".xdns "${out}".xnet "${out}".go; do
+      [ -f "$f" ] || continue
+      [ "$first" -eq 1 ] || printf ',\n' >> "$out"
+      first=0
+      sed '1d;$d' "$f" >> "$out"
+    done
+    printf '\n]\n' >> "$out"
   fi
 
   info "Stopping local DNS bench server..."
@@ -194,19 +207,30 @@ run_dns() {
   out="$RESULTS_DIR/dns_bench_remote_${TIMESTAMP}.json"
 
   info "Running xdns benchmark (remote)..."
-  "$xdns_bin" remote | tee "$out"
-  echo
-
+  "$xdns_bin" remote > "${out}.xdns"
   info "Running xnet/dns benchmark (remote)..."
-  "$xnet_bin" remote | tee -a "$out"
-
+  "$xnet_bin" remote > "${out}.xnet"
   if command -v go &>/dev/null && [ -f "$go_bin" ]; then
-    echo
     info "Running Go DNS benchmark (remote)..."
-    GODEBUG=netdns=go go run "$go_bin" remote | tee -a "$out"
+    GODEBUG=netdns=go go run "$go_bin" remote > "${out}.go"
   fi
 
-  info "DNS benchmark completed → $RESULTS_DIR"
+  # Merge
+  if command -v jq &>/dev/null; then
+    jq -s 'add' "${out}".xdns "${out}".xnet "${out}".go 2>/dev/null > "$out" || true
+  else
+    printf '[\n' > "$out"
+    local first=1
+    for f in "${out}".xdns "${out}".xnet "${out}".go; do
+      [ -f "$f" ] || continue
+      [ "$first" -eq 1 ] || printf ',\n' >> "$out"
+      first=0
+      sed '1d;$d' "$f" >> "$out"
+    done
+    printf '\n]\n' >> "$out"
+  fi
+
+  info "DNS benchmark completed → $out"
 }
 
 # ── Main ──
