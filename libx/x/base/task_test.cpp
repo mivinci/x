@@ -331,7 +331,7 @@ TEST_F(TaskTest, CancelQueuedTask) {
   xTaskGroupDestroy(single);
 }
 
-TEST_F(TaskTest, CancelRunningTaskReturnsBusy) {
+TEST_F(TaskTest, CancelRunningTaskReturnsInProgress) {
   /* Submit a long-running task and try to cancel it while it runs. */
   std::atomic<bool> started{false};
   std::atomic<bool> unblock{false};
@@ -360,22 +360,22 @@ TEST_F(TaskTest, CancelRunningTaskReturnsBusy) {
   }
 
   /* Cancel should fail — task is already running */
-  EXPECT_EQ(xTaskCancel(t), xErrno_Busy);
+  EXPECT_EQ(xTaskCancel(t), xErrno_InProgress);
 
   /* Let it finish and wait */
   unblock.store(true, std::memory_order_release);
   EXPECT_EQ(xTaskWait(t, nullptr), xErrno_Ok);
 }
 
-TEST_F(TaskTest, CancelAlreadyDoneReturnsBusy) {
+TEST_F(TaskTest, CancelAlreadyDoneReturnsInProgress) {
   xTask t = xTaskSubmit(g, noop, nullptr);
   ASSERT_NE(t, nullptr);
 
   /* Wait for it to complete first */
   EXPECT_EQ(xTaskWait(t, nullptr), xErrno_Ok);
 
-  /* Cancel after completion should return Busy */
-  EXPECT_EQ(xTaskCancel(t), xErrno_Busy);
+  /* Cancel after completion should return InProgress */
+  EXPECT_EQ(xTaskCancel(t), xErrno_InProgress);
 }
 
 TEST_F(TaskTest, CancelSafeArgRelease) {
