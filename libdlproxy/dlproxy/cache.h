@@ -49,6 +49,13 @@ xErrno dlp_cache_read(dlp_cache_t c, const char *rid, const char *clip_id,
                        dlp_cache_cb cb, void *arg);
 
 /**
+ * @brief Update the total file size for a clip (when discovered from CDN).
+ * Recalculates the last block's size and re-checks its done status.
+ */
+xErrno dlp_cache_set_file_size(dlp_cache_t c, const char *rid, const char *clip_id,
+                                uint64_t file_size);
+
+/**
  * @brief Synchronous readiness check. O(1) for block-aligned queries.
  * @return 1 if all data in [offset, offset+len) is cached, 0 otherwise.
  */

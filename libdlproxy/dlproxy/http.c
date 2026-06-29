@@ -64,6 +64,10 @@ static int on_http_response(xHttpCtx *ctx, void *arg) {
         total = strtoull(slash + 1, &end, 10);
         if (total > 0 && end != slash + 1) {
           fc->task->file_size = total;
+          /* Propagate file size to cache so the last block's size
+           * is recalculated and can be marked as done. */
+          struct dlp_ctx *c = (struct dlp_ctx *)fc->h->ctx;
+          dlp_cache_set_file_size(c->cache, fc->rid, fc->clip_id, total);
         }
       }
     }

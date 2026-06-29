@@ -465,13 +465,6 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
   curl_easy_setopt(req->easy, CURLOPT_WRITEFUNCTION, write_callback);
   curl_easy_setopt(req->easy, CURLOPT_WRITEDATA, req);
 
-  /* Forbid connection reuse — each request gets a fresh TCP+TLS
-   * connection.  The threaded DNS resolver + multi-socket event
-   * loop integration stalls when curl tries to reuse a connection
-   * from a completed transfer.  This is a known limitation of
-   * curl's threaded resolver with the multi-socket API. */
-  curl_easy_setopt(req->easy, CURLOPT_FORBID_REUSE, 1L);
-
   /* Header callback: always buffers into header_buf */
   curl_easy_setopt(req->easy, CURLOPT_HEADERFUNCTION, header_callback);
   curl_easy_setopt(req->easy, CURLOPT_HEADERDATA, req);

@@ -332,6 +332,26 @@ static void cache_check_all_done(struct dlp_clip *cl, struct dlp_resource *r) {
   meta_delete(cl, r->dir);
 }
 
+xErrno dlp_cache_set_file_size(dlp_cache_t c, const char *rid, const char *clip_id,
+                                uint64_t file_size) {
+  if (!c || !rid || file_size == 0) return xErrno_InvalidArg;
+  struct dlp_clip *cl = cache_find_clip(c, rid, clip_id);
+  if (!cl) return xErrno_NotFound;
+
+  cl->total_size = file_size;
+
+  /* Recalculate last block's size and re-check done status */
+  uint32_t last_bno = (uint32_t)((file_size - 1) / DL_BLOCK_SIZE);
+  if (last_bno < cl->block_count && cl->blocks[last_bno]) {
+    struct dlp_block *b = cl->blocks[last_bno];
+    uint64_t rem = file_size - b->offset;
+    b->size = (uint32_t)(rem > 0 ? rem : DL_BLOCK_SIZE);
+    dlp_block_check_done(b);
+  }
+
+  return xErrno_Ok;
+}
+
 /* -- Async I/O ---------------------------------------------------- */
 
 struct write_ctx {
