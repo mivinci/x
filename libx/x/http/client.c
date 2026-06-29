@@ -285,15 +285,13 @@ static int timer_callback(CURLM *multi, long timeout_ms, void *userp) {
    */
   if (timeout_ms == 0) timeout_ms = 1;
 
-  /*
-   * Cap the timer at 200 ms. Without this, curl may report a long
-   * timeout (e.g. the request-level 30 s CURLOPT_TIMEOUT_MS) while
-   * waiting for an asynchronous step like the threaded DNS resolver.
-   * The resolver completes on a background thread but may not update
-   * the timer — the event loop would then stall for the full timeout
-   * before calling curl_multi_socket_action again.  A 200 ms cap
-   * bounds the stall to at most 200 ms per poll cycle.
-   */
+  /* Cap the timer at 200 ms.  When curl uses the threaded DNS resolver,
+   * it may report a long timeout (e.g. the request-level CURLOPT_TIMEOUT_MS)
+   * while the resolver runs on a background thread.  The resolver's
+   * completion is only observed when curl_multi_socket_action is called,
+   * so capping the timer bounds the stall.  The 200 ms cap is harmless
+   * for normal I/O — curl_multi_socket_action(TIMEOUT) is cheap when no
+   * timers have actually expired. */
   if (timeout_ms > 200) timeout_ms = 200;
 
   /* Schedule a new timer */
@@ -308,24 +306,14 @@ static void on_timeout(void *arg) {
   c->timer               = NULL;
 
   int running = 0;
-  /* curl_multi_socket_action with CURL_SOCKET_TIMEOUT processes
-   * expired timers.  For concurrent requests on a shared connection,
-   * this alone may not advance pending handles that don't have
-   * expired timers yet.  Fall back to curl_multi_perform (which
-   * processes ALL sockets + timers) when the lightweight call
-   * didn't set a new timer. */
   curl_multi_socket_action(c->multi, CURL_SOCKET_TIMEOUT, 0, &running);
   check_multi_info(c);
 
+  /* Fallback timer: if curl has running transfers but didn't set a
+   * new timer (e.g. during threaded DNS resolution, curl may report
+   * timeout_ms=-1), set a short polling timer to ensure progress. */
   if (running > 0 && !c->timer) {
-    /* curl didn't set a timer — use curl_multi_perform to ensure
-     * all handles are processed (handles concurrent request stalls
-     * where pending handles wait for a freed connection). */
-    curl_multi_perform(c->multi, &running);
-    check_multi_info(c);
-    if (running > 0 && !c->timer) {
-      c->timer = xTimerStart(on_timeout, c, 100, 0);
-    }
+    c->timer = xTimerStart(on_timeout, c, 100, 0);
   }
 }
 
@@ -514,29 +502,6 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
     if (req->req_headers) curl_slist_free_all(req->req_headers);
     free(req);
     return xErrno_Unknown;
-  }
-
-  /*
-   * Drive the initial state machine.  curl_multi_perform is non-blocking
-   * and processes socket I/O + timers up to the first blocking point.
-   *
-   * If the state machine stops at DNS (threaded resolver still running),
-   * curl_multi_perform returns with no progress and Curl_update_timer
-   * sets the request-level timeout (e.g. 30s) instead of a DNS-level
-   * short timeout.  The event loop would then stall for the full request
-   * timeout before calling curl_multi_socket_action again.
-   *
-   * To avoid this: after curl_multi_perform, call socket_action with
-   * CURL_SOCKET_TIMEOUT in a short loop until the handle has made
-   * progress (a socket is open) or we give up (event loop will retry).
-   */
-  int running = 0;
-  curl_multi_perform(c->multi, &running);
-
-  for (int retry = 0; retry < 10; retry++) {
-    curl_multi_wait(c->multi, NULL, 0, 10, NULL);
-    curl_multi_socket_action(c->multi, CURL_SOCKET_TIMEOUT, 0, &running);
-    if (running > 0) break;
   }
 
   /* Track in client's request list */
