@@ -34,10 +34,13 @@ struct fetch_ctx {
 static void on_fetch_write_done(xErrno err, void *arg) {
   struct fetch_ctx *fc = (struct fetch_ctx *)arg;
   (void)err;
-  if (--fc->pending_writes == 0 && fc->all_received) {
+  int remaining = --fc->pending_writes;
+  XDEBUGL0("write_done: pending=%d all_recv=%d", remaining, fc->all_received);
+  if (remaining == 0 && fc->all_received) {
     struct dlp_ctx *c = (struct dlp_ctx *)fc->h->ctx;
     char key[128];
     snprintf(key, sizeof(key), "%s", fc->rid);
+    XDEBUGL0("write_done: publishing bus key=%s", key);
     dlp_bus_publish(c->bus, key);
     if (fc->task && fc->task->sched && fc->task->sched->on_block_done)
       fc->task->sched->on_block_done(fc->task, fc->offset, fc->received);
@@ -86,6 +89,7 @@ static int on_http_data(const char *data, size_t len, void *arg) {
 static void on_http_done(xHttpCtx *ctx, void *arg) {
   struct fetch_ctx *fc = (struct fetch_ctx *)arg;
   fc->all_received = 1;
+  XDEBUGL0("http_done: pending=%d all_recv=1", fc->pending_writes);
   /* If no pending writes, publish now directly */
   if (fc->pending_writes == 0) {
     struct dlp_ctx *c = (struct dlp_ctx *)fc->h->ctx;

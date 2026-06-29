@@ -285,6 +285,17 @@ static int timer_callback(CURLM *multi, long timeout_ms, void *userp) {
    */
   if (timeout_ms == 0) timeout_ms = 1;
 
+  /*
+   * Cap the timer at 200 ms. Without this, curl may report a long
+   * timeout (e.g. the request-level 30 s CURLOPT_TIMEOUT_MS) while
+   * waiting for an asynchronous step like the threaded DNS resolver.
+   * The resolver completes on a background thread but may not update
+   * the timer — the event loop would then stall for the full timeout
+   * before calling curl_multi_socket_action again.  A 200 ms cap
+   * bounds the stall to at most 200 ms per poll cycle.
+   */
+  if (timeout_ms > 200) timeout_ms = 200;
+
   /* Schedule a new timer */
   c->timer = xTimerStart(on_timeout, c, (uint64_t)timeout_ms, 0);
   return 0;
@@ -297,8 +308,16 @@ static void on_timeout(void *arg) {
   c->timer               = NULL; /* timer has fired, handle is now invalid */
 
   int running = 0;
-  curl_multi_socket_action(c->multi, CURL_SOCKET_TIMEOUT, 0, &running);
+  curl_multi_perform(c->multi, &running);
   check_multi_info(c);
+
+  /* If there are running transfers but curl didn't set a timer
+   * (happens when threaded DNS resolver is still in progress and
+   * Curl_update_timer returns -1), set a fallback 100ms timer to
+   * keep polling until DNS completes and sockets are created. */
+  if (running > 0 && !c->timer) {
+    c->timer = xTimerStart(on_timeout, c, 100, 0);
+  }
 }
 
 /* ── Lifecycle: Create / Destroy ───────────────────────────────────────── */
@@ -446,6 +465,13 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
   curl_easy_setopt(req->easy, CURLOPT_WRITEFUNCTION, write_callback);
   curl_easy_setopt(req->easy, CURLOPT_WRITEDATA, req);
 
+  /* Forbid connection reuse — each request gets a fresh TCP+TLS
+   * connection.  The threaded DNS resolver + multi-socket event
+   * loop integration stalls when curl tries to reuse a connection
+   * from a completed transfer.  This is a known limitation of
+   * curl's threaded resolver with the multi-socket API. */
+  curl_easy_setopt(req->easy, CURLOPT_FORBID_REUSE, 1L);
+
   /* Header callback: always buffers into header_buf */
   curl_easy_setopt(req->easy, CURLOPT_HEADERFUNCTION, header_callback);
   curl_easy_setopt(req->easy, CURLOPT_HEADERDATA, req);
@@ -505,8 +531,8 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
   int running = 0;
   curl_multi_perform(c->multi, &running);
 
-  for (int retry = 0; retry < 200; retry++) {
-    curl_multi_wait(c->multi, NULL, 0, 1, NULL);
+  for (int retry = 0; retry < 10; retry++) {
+    curl_multi_wait(c->multi, NULL, 0, 10, NULL);
     curl_multi_socket_action(c->multi, CURL_SOCKET_TIMEOUT, 0, &running);
     if (running > 0) break;
   }
