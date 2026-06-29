@@ -485,10 +485,24 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
     return xErrno_Unknown;
   }
 
-  /* Kick libcurl's state machine so socket/timer callbacks fire
-   * and the new sockets are registered with the event loop. */
+  /*
+   * Drive the initial state machine with curl_multi_perform instead of
+   * curl_multi_socket_action(CURL_SOCKET_TIMEOUT).  CURL_SOCKET_TIMEOUT
+   * only processes expired timers — it never touches actual socket I/O.
+   *
+   * When a request is submitted from deep inside an event-loop callback
+   * (HTTP handler → timer → dlp_http_fetch → http_submit), the synchronous
+   * call chain means curl_multi_socket_action(CURL_SOCKET_TIMEOUT) calls
+   * the timer callback recursively but never gets a real sockfd, so the
+   * state machine stalls at MSTATE_CONNECT / MSTATE_PROTOCONNECT and never
+   * reaches MSTATE_PERFORMING.  CURLMSG_DONE is never enqueued.
+   *
+   * curl_multi_perform is non-blocking (timeout=0 internally) and iterates
+   * both socket I/O AND timers, advancing the state machine until the first
+   * blocking point (where it returns and lets the event loop take over).
+   */
   int running = 0;
-  curl_multi_socket_action(c->multi, CURL_SOCKET_TIMEOUT, 0, &running);
+  curl_multi_perform(c->multi, &running);
 
   /* Track in client's request list */
   req->next = c->reqs;

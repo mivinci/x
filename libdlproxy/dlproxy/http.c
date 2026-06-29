@@ -144,7 +144,6 @@ xErrno dlp_http_fetch(dlp_http_t h, const char *rid,
   conf.on_data        = on_http_data;
   conf.on_done        = on_http_done;
   conf.timeout_ms     = 30000;
-  conf.http_version   = xHttpVersion_H1;  /* HTTP/1.1 for now */
 
   const char *headers[] = { range, NULL };
   conf.headers = headers;
