@@ -217,7 +217,7 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
           rid_buf, has_range, (unsigned long long)range_start, length);
 
   /* Cache hit — async read, response sent in on_cache_read_done */
-  if (dlp_cache_is_ready(c->cache, rid_buf, "0", range_start, length)) {
+  if (dlp_cache_is_ready(c->cache, rid_buf, "0.mp4", range_start, length)) {
     XDEBUGL0("cache HIT offset=%llu len=%zu", (unsigned long long)range_start, length);
     uint8_t *buf = (uint8_t *)malloc(length);
     if (!buf) {
@@ -240,7 +240,7 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
     rd->offset    = range_start;
     rd->has_range = has_range;
     rd->content_type = 0; /* mp4 */
-    dlp_cache_read(c->cache, rid_buf, "0", range_start, buf, length,
+    dlp_cache_read(c->cache, rid_buf, "0.mp4", range_start, buf, length,
                     on_cache_read_done, rd);
     return 0;  /* no response sent yet — on_cache_read_done will send */
   }
@@ -262,14 +262,14 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
   pr->has_range = has_range;
   pr->content_type = 0; /* mp4 */
   snprintf(pr->rid, sizeof(pr->rid), "%s", rid_buf);
-  snprintf(pr->clip_id, sizeof(pr->clip_id), "0");
+  snprintf(pr->clip_id, sizeof(pr->clip_id), "0.mp4");
 
   char bus_key[192];
-  snprintf(bus_key, sizeof(bus_key), "%s:0", rid_buf);
+  snprintf(bus_key, sizeof(bus_key), "%s:0.mp4", rid_buf);
   dlp_bus_subscribe(c->bus, bus_key, on_chunk_ready, pr);
 
   /* Re-check cache — may have become ready since initial check */
-  if (dlp_cache_is_ready(c->cache, rid_buf, "0", range_start, length)) {
+  if (dlp_cache_is_ready(c->cache, rid_buf, "0.mp4", range_start, length)) {
     on_chunk_ready(pr);
     return 0;
   }
@@ -329,15 +329,9 @@ static void serve_hls(xHttpCtx *http_ctx, void *arg) {
   if (strcmp(seg_buf, "playlist.m3u8") == 0) {
     serve_m3u8(http_ctx, task, c);
   } else {
-    /* Strip .ts suffix and parse segment number */
-    size_t slen = strlen(seg_buf);
-    if (slen < 4 || strcmp(seg_buf + slen - 3, ".ts") != 0) {
-      xHttpCtxSetStatus(http_ctx, 404);
-      xHttpCtxSend(http_ctx, "not a ts segment\n", 17);
-      return;
-    }
-    seg_buf[slen - 3] = '\0'; /* strip .ts */
+    /* Parse segment number from "N.ts" — strtoul stops at '.' */
     uint32_t seq = (uint32_t)strtoul(seg_buf, NULL, 10);
+    /* clip_id = "N.ts" (used as cache filename directly) */
     serve_segment(http_ctx, task, c, seq, seg_buf);
   }
 }
@@ -380,7 +374,7 @@ static void serve_m3u8(xHttpCtx *http_ctx, struct dlp_task *task,
     memcpy(m3u8 + len, (s), (n)); len += (n); \
   } while (0)
 
-  APPEND("#EXTM3U\n", 7);
+  APPEND("#EXTM3U\n", 8);
   {
     char line[64];
     int nl = snprintf(line, sizeof(line), "#EXT-X-VERSION:%u\n", pl->version);

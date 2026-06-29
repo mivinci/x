@@ -37,7 +37,7 @@ static void mp4_on_tick(struct dlp_task *task) {
   uint32_t block  = (uint32_t)(task->read_offset / DL_BLOCK_SIZE);
   uint64_t boff   = (uint64_t)block * DL_BLOCK_SIZE;
 
-  if (dlp_cache_is_ready(c->cache, task->rid, "0", boff, DL_BLOCK_SIZE)) {
+  if (dlp_cache_is_ready(c->cache, task->rid, "0.mp4", boff, DL_BLOCK_SIZE)) {
     task->was_pulling = true;
     return;
   }
@@ -48,7 +48,7 @@ static void mp4_on_tick(struct dlp_task *task) {
   XDEBUGL0("mp4 tick: rid=%s remain=%dms emergency=%dms block=%u offset=%llu",
            task->rid, remain, emergency, block, (unsigned long long)boff);
   task->downloading_off = boff;
-  xErrno rc = dlp_http_fetch(c->dl_http, task->rid, "0", task->url, boff,
+  xErrno rc = dlp_http_fetch(c->dl_http, task->rid, "0.mp4", task->url, boff,
                        DL_BLOCK_SIZE, task);
   XDEBUGL0("mp4 tick: rc=%d block=%u offset=%llu", rc, block, (unsigned long long)boff);
   task->was_pulling = true;
@@ -64,7 +64,7 @@ static void mp4_on_block_done(struct dlp_task *task, uint64_t offset, size_t len
   int cached_blocks = 0;
   uint64_t pos = task->read_offset;
   for (int i = 0; i < 256; i++) {
-    if (!dlp_cache_is_ready(c->cache, task->rid, "0", pos, DL_BLOCK_SIZE))
+    if (!dlp_cache_is_ready(c->cache, task->rid, "0.mp4", pos, DL_BLOCK_SIZE))
       break;
     cached_blocks++;
     pos += DL_BLOCK_SIZE;

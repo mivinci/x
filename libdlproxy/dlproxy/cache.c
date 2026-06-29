@@ -299,7 +299,7 @@ xErrno dlp_cache_open_clip(dlp_cache_t c, const char *rid, const char *clip_id, 
   if (!cl->blocks) { free(cl); return xErrno_NoMemory; }
 
   char path[512];
-  snprintf(path, sizeof(path), "%s/%s.data", r->dir, clip_id);
+  snprintf(path, sizeof(path), "%s/%s", r->dir, clip_id);
   cl->fd = open(path, O_RDWR | O_CREAT, 0644);
   if (cl->fd < 0) { free(cl->blocks); free(cl); return xErrno_SysError; }
 

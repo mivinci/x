@@ -120,7 +120,7 @@ static void hls_on_tick(struct dlp_task *task) {
   uint32_t seg_count = (uint32_t)task->playlist->segment_count;
   for (uint32_t i = task->read_segment; i < seg_count; i++) {
     char clip_id[32];
-    snprintf(clip_id, sizeof(clip_id), "%u", i);
+    snprintf(clip_id, sizeof(clip_id), "%u.ts", i);
     struct hls_segment *seg = &task->playlist->segments[i];
     /* Check if segment is fully cached — read 1 byte at offset 0 */
     if (!dlp_cache_is_ready(c->cache, task->rid, clip_id, 0, 1))
@@ -147,7 +147,7 @@ static void hls_on_tick(struct dlp_task *task) {
   /* Find first uncached segment at or after read_segment */
   for (uint32_t i = task->read_segment; i < seg_count; i++) {
     char clip_id[32];
-    snprintf(clip_id, sizeof(clip_id), "%u", i);
+    snprintf(clip_id, sizeof(clip_id), "%u.ts", i);
     struct hls_segment *seg = &task->playlist->segments[i];
 
     /* Already cached? Skip. */

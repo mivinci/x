@@ -114,7 +114,7 @@ dlp_task_t dlp_task_create(dlp_ctx_t ctx, const dlp_task_conf_t *conf) {
   dlp_cache_open_resource(c->cache, t->rid);
   if (t->format != DLP_FMT_HLS) {
     /* MP4: open clip "0" immediately. HLS: clips opened per-segment. */
-    dlp_cache_open_clip(c->cache, t->rid, "0", conf->size);
+    dlp_cache_open_clip(c->cache, t->rid, "0.mp4", conf->size);
   }
 
   XDEBUGL0("task created rid=%s url=%s size=%llu",
