@@ -1,6 +1,7 @@
 /*
  * http.c - Async HTTP Range download helper
  */
+#define _GNU_SOURCE  /* strcasestr */
 #include "http.h"
 #include "bus.h"
 #include "cache.h"
