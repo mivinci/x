@@ -1,9 +1,9 @@
 /*
  * vod.cpp - dlproxy POLL mode example
  *
- * Usage: vod [port] [cache_dir] [test_url]
+ * Usage: vod [port] [cache_dir] [url1] [url2] ...
  *
- * If test_url ends in .m3u8, an HLS task is created; otherwise MP4.
+ * Each URL creates a task. .m3u8 → HLS (rid=test-hls), otherwise MP4 (rid=test-mp4).
  */
 #include <cstdio>
 #include <cstdlib>
@@ -42,14 +42,13 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  /* Create a test task if a URL is provided */
-  if (argc > 3) {
+  /* Create a task for each URL argument */
+  for (int i = 3; i < argc; i++) {
     dlp_task_conf_t tc = {0};
-    tc.url  = argv[3];
+    tc.url  = argv[i];
     tc.size = 0;
 
-    /* Auto-detect HLS from .m3u8 extension */
-    if (ends_with(argv[3], ".m3u8")) {
+    if (ends_with(argv[i], ".m3u8")) {
       tc.format = DLP_FMT_HLS;
       tc.rid    = "test-hls";
     } else {
@@ -63,10 +62,10 @@ int main(int argc, char **argv) {
       char proxy_url[256];
       dlp_task_proxy_url(task, proxy_url, sizeof(proxy_url));
       fprintf(stderr, "Task '%s' (%s): %s\n", tc.rid,
-              tc.format == DLP_FMT_HLS ? "HLS" : "MP4", argv[3]);
+              tc.format == DLP_FMT_HLS ? "HLS" : "MP4", argv[i]);
       fprintf(stderr, "Proxy URL: %s\n", proxy_url);
     } else {
-      fprintf(stderr, "dlp_task_create failed\n");
+      fprintf(stderr, "dlp_task_create failed for %s\n", argv[i]);
     }
   }
 
