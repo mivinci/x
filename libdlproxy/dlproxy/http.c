@@ -126,6 +126,8 @@ xErrno dlp_http_fetch(dlp_http_t h, const char *rid,
            (unsigned long long)offset,
            (unsigned long long)(offset + len - 1));
 
+  XDEBUGL0("FETCH: rid=%s offset=%llu len=%zu url=%s", rid, (unsigned long long)offset, len, url);
+
   struct fetch_ctx *fc = (struct fetch_ctx *)calloc(1, sizeof(*fc));
   if (!fc) return xErrno_NoMemory;
   fc->h      = h;
@@ -142,9 +144,12 @@ xErrno dlp_http_fetch(dlp_http_t h, const char *rid,
   conf.on_data        = on_http_data;
   conf.on_done        = on_http_done;
   conf.timeout_ms     = 30000;
+  conf.http_version   = xHttpVersion_H1;  /* HTTP/1.1 for now */
 
   const char *headers[] = { range, NULL };
   conf.headers = headers;
 
-  return xHttpClientDo(h->client, &conf, fc);
+  xErrno rv = xHttpClientDo(h->client, &conf, fc);
+  XDEBUGL0("FETCH_DONE: rc=%d", rv);
+  return rv;
 }

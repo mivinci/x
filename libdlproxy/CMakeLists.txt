@@ -8,3 +8,14 @@ target_include_directories(dlproxy PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(dlproxy PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/dlproxy")
 
 add_subdirectory(examples)
+
+# ── Tests ─────────────────────────────────────────────────────────
+if(X_BUILD_TESTS)
+  add_executable(dlproxy_test dlproxy/cache_test.cpp)
+  target_link_libraries(dlproxy_test PRIVATE dlproxy GTest::gtest GTest::gtest_main)
+  target_include_directories(dlproxy_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_include_directories(dlproxy_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/dlproxy")
+  target_compile_options(dlproxy_test PRIVATE -Wno-error)
+
+  add_test(NAME dlproxy COMMAND dlproxy_test)
+endif()

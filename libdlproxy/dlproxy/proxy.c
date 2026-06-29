@@ -145,6 +145,14 @@ static void on_chunk_ready(void *arg) {
   free(pr);
 }
 
+/* ── 0 ms timer — immediately triggers scheduler download ──────── */
+
+static void on_tick_timer(void *arg) {
+  struct dlp_task *task = (struct dlp_task *)arg;
+  if (task->running && task->sched && task->sched->on_tick)
+    task->sched->on_tick(task);
+}
+
 /* ── Main route handler ── */
 
 static int serve_range(xHttpCtx *http_ctx, void *arg) {
@@ -266,9 +274,19 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
 
   dlp_bus_subscribe(c->bus, rid_buf, on_chunk_ready, pr);
 
-  /* Post scheduler tick after bus subscription is set up */
-  if (task->running && task->sched && task->sched->on_tick)
-    xEventLoopPost(c->loop, (void(*)(void*))task->sched->on_tick, task);
+  /* Re-check cache — may have become ready since initial check */
+  if (dlp_cache_is_ready(c->cache, rid_buf, "0", range_start, length)) {
+    pr->served = true;
+    on_chunk_ready(pr);
+    return 0;
+  }
+
+  /* Schedule immediate download via a 0 ms timer.
+   * Must NOT call dlp_http_fetch directly from the HTTP handler —
+   * libcurl's multi-handle interactions don't work reliably inside
+   * the handler's event-loop context.  A zero-delay timer lets the
+   * scheduler tick run in a clean event-loop iteration. */
+  xTimerStart(on_tick_timer, task, 0, 0);
 
   return 0;
 }

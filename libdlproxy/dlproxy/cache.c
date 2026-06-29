@@ -1,6 +1,7 @@
 /*
- * cache.c - Chunk cache with Resource→Clip→Block→Piece hierarchy
+ * cache.c - Chunk cache with Resource->Clip->Block->Piece hierarchy
  *           Async I/O via xfs module.
+ *           .meta file persistence for bitmap resume across restarts.
  */
 #include "cache.h"
 
@@ -14,7 +15,7 @@
 #include <x/base/map.h>
 #include <x/fs/fs.h>
 
-/* ── Constants ───────────────────────────────────────────────────── */
+/* -- Constants ---------------------------------------------------- */
 
 #define DL_BLOCK_KB   256
 #define DL_PIECE_KB   1
@@ -23,12 +24,24 @@
 #define DL_PIECE_SIZE  (DL_PIECE_KB * 1024)
 #define DL_PIECE_BYTES (DL_PIECES_PER_BLOCK / 8)          /* 32 bytes */
 
-/* ── Block ────────────────────────────────────────────────────────── */
+/* .meta file format:
+ *   [16]  magic: "DLPROXY_META\0\0\0\0"
+ *   [ 4]  block_count  (uint32 LE)
+ *   [ 4]  block_size   (uint32 LE)
+ *   [ 8]  total_size   (uint64 LE)
+ *   [ N*32 ] bitmap: block_count * DL_PIECE_BYTES bytes of raw pieces[]
+ */
+#define META_MAGIC "DLPROXY_META\0\0\0\0"
+#define META_MAGIC_LEN 16
+#define META_HEADER_LEN (META_MAGIC_LEN + 4 + 4 + 8)
+
+/* -- Block -------------------------------------------------------- */
 
 struct dlp_block {
   uint32_t offset;
   uint32_t size;
   bool     done;
+  bool     meta_dirty;  /* pieces changed since last .meta save */
   uint8_t  pieces[DL_PIECE_BYTES];
 };
 
@@ -37,6 +50,7 @@ static bool dlp_block_piece_done(const struct dlp_block *b, int p) {
 }
 static void dlp_block_set_piece(struct dlp_block *b, int p) {
   b->pieces[p / 8] |= (1u << (p % 8));
+  b->meta_dirty = true;
 }
 static bool dlp_block_check_done(struct dlp_block *b) {
   if (b->done) return true;
@@ -55,7 +69,7 @@ static void dlp_block_mark_range(struct dlp_block *b, uint64_t boff, size_t len)
   dlp_block_check_done(b);
 }
 
-/* ── Clip ─────────────────────────────────────────────────────────── */
+/* -- Clip --------------------------------------------------------- */
 
 struct dlp_clip {
   char          id[64];
@@ -67,7 +81,6 @@ struct dlp_clip {
 
 static struct dlp_block *dlp_block_ensure(struct dlp_clip *c, uint32_t bno) {
   if (!c) return NULL;
-  /* Auto-grow blocks array if needed (file size was unknown) */
   if (bno >= c->block_count) {
     uint32_t new_count = c->block_count * 2;
     while (bno >= new_count) new_count *= 2;
@@ -92,7 +105,135 @@ static struct dlp_block *dlp_block_ensure(struct dlp_clip *c, uint32_t bno) {
   return b;
 }
 
-/* ── Resource ──────────────────────────────────────────────────────── */
+/* .meta path helper */
+static void meta_path(const char *res_dir, const char *clip_id, char *out, size_t out_len) {
+  snprintf(out, out_len, "%s/%s.meta", res_dir, clip_id);
+}
+
+/* ── .meta Save / Load / Delete ──────────────────────────────────────
+ *
+ * Use xfs in synchronous mode (cb = NULL) — all I/O goes through the
+ * same backend, so platform differences (POSIX vs Windows) are
+ * handled transparently.  The .meta file is small (few KB), so
+ * blocking the calling thread for sub-ms is acceptable. */
+
+static void meta_save(struct dlp_clip *cl, const char *res_dir) {
+  char path[512];
+  meta_path(res_dir, cl->id, path, sizeof(path));
+
+  size_t  bitmap_bytes = (size_t)cl->block_count * DL_PIECE_BYTES;
+  size_t  total        = META_HEADER_LEN + bitmap_bytes;
+  uint8_t *buf = (uint8_t *)malloc(total);
+  if (!buf) return;
+
+  memcpy(buf, META_MAGIC, META_MAGIC_LEN);
+  uint32_t bc = cl->block_count;
+  uint32_t bs = DL_BLOCK_SIZE;
+  uint64_t ts = cl->total_size;
+  memcpy(buf + META_MAGIC_LEN,      &bc, 4);
+  memcpy(buf + META_MAGIC_LEN + 4,  &bs, 4);
+  memcpy(buf + META_MAGIC_LEN + 8,  &ts, 8);
+
+  uint8_t *bp = buf + META_HEADER_LEN;
+  for (uint32_t i = 0; i < cl->block_count; i++) {
+    if (cl->blocks[i])
+      memcpy(bp, cl->blocks[i]->pieces, DL_PIECE_BYTES);
+    else
+      memset(bp, 0, DL_PIECE_BYTES);
+    bp += DL_PIECE_BYTES;
+  }
+
+  /* Sync open → write → close via xfs (cb=NULL = sync on caller thread) */
+  xFsReq r = {0};
+  r.op = xFsOpOpen; r.path = path;
+  r.flags = O_WRONLY | O_CREAT | O_TRUNC; r.mode = 0644;
+  if (xFsReqSubmit(&r) != xErrno_Ok || !r.out_file) { free(buf); return; }
+
+  r.op = xFsOpWrite; r.file = r.out_file;
+  r.buf = buf; r.len = total; r.offset = 0;
+  xFsReqSubmit(&r);
+
+  r.op = xFsOpClose;
+  xFsReqSubmit(&r);
+  free(buf);
+}
+
+static bool meta_load(struct dlp_clip *cl, const char *res_dir) {
+  char path[512];
+  meta_path(res_dir, cl->id, path, sizeof(path));
+
+  /* Stat to check existence and size */
+  xFsReq r = {0};
+  r.op = xFsOpStat; r.path = path;
+  if (xFsReqSubmit(&r) != xErrno_Ok) return false;
+
+  size_t expect_size = META_HEADER_LEN + (size_t)cl->block_count * DL_PIECE_BYTES;
+  if ((size_t)r.stat.size < META_HEADER_LEN) return false;
+
+  /* Open + read + close via sync xfs */
+  uint8_t *buf = (uint8_t *)malloc((size_t)r.stat.size);
+  if (!buf) return false;
+
+  r.op = xFsOpOpen; r.path = path; r.flags = O_RDONLY; r.mode = 0;
+  if (xFsReqSubmit(&r) != xErrno_Ok || !r.out_file) { free(buf); return false; }
+
+  r.op = xFsOpRead; r.file = r.out_file;
+  r.buf = buf; r.len = (size_t)r.stat.size; r.offset = 0;
+  xFsReqSubmit(&r);
+  if (r.retval < (ssize_t)META_HEADER_LEN) {
+    r.op = xFsOpClose; xFsReqSubmit(&r);
+    free(buf); return false;
+  }
+
+  r.op = xFsOpClose; xFsReqSubmit(&r);
+
+  /* Validate magic and header */
+  if (memcmp(buf, META_MAGIC, META_MAGIC_LEN) != 0) { free(buf); return false; }
+
+  uint32_t bc = 0, bs = 0; uint64_t ts = 0;
+  memcpy(&bc, buf + META_MAGIC_LEN,      4);
+  memcpy(&bs, buf + META_MAGIC_LEN + 4,  4);
+  memcpy(&ts, buf + META_MAGIC_LEN + 8,  8);
+
+  if (bc != cl->block_count || bs != DL_BLOCK_SIZE || ts != cl->total_size) {
+    free(buf);
+    r.op = xFsOpUnlink; r.path = path; xFsReqSubmit(&r);
+    return false;
+  }
+
+  /* Restore piece bitmaps */
+  uint8_t *bp = buf + META_HEADER_LEN;
+  for (uint32_t i = 0; i < cl->block_count; i++) {
+    struct dlp_block *b = cl->blocks[i];
+    if (!b) { b = dlp_block_ensure(cl, i); if (!b) continue; }
+    memcpy(b->pieces, bp, DL_PIECE_BYTES);
+    b->meta_dirty = false;
+    dlp_block_check_done(b);
+    bp += DL_PIECE_BYTES;
+  }
+
+  free(buf);
+
+  /* If all done, delete meta */
+  bool all_done = true;
+  for (uint32_t i = 0; i < cl->block_count; i++) {
+    if (!cl->blocks[i] || !cl->blocks[i]->done) { all_done = false; break; }
+  }
+  if (all_done) {
+    r.op = xFsOpUnlink; r.path = path; xFsReqSubmit(&r);
+  }
+  return true;
+}
+
+static void meta_delete(struct dlp_clip *cl, const char *res_dir) {
+  char path[512];
+  meta_path(res_dir, cl->id, path, sizeof(path));
+  xFsReq r = {0};
+  r.op = xFsOpUnlink; r.path = path;
+  xFsReqSubmit(&r);
+}
+
+/* -- Resource ----------------------------------------------------- */
 
 struct dlp_resource {
   char rid[64];
@@ -100,7 +241,7 @@ struct dlp_resource {
   xMap clips;
 };
 
-/* ── Cache ─────────────────────────────────────────────────────────── */
+/* -- Cache -------------------------------------------------------- */
 
 struct dlp_cache {
   char       dir[256];
@@ -152,7 +293,6 @@ xErrno dlp_cache_open_clip(dlp_cache_t c, const char *rid, const char *clip_id, 
   cl->total_size  = size;
   cl->block_count = (uint32_t)((size + DL_BLOCK_SIZE - 1) / DL_BLOCK_SIZE);
   if (cl->block_count == 0) {
-    /* Unknown size — start with 4096 blocks (1 GB); grows on demand */
     cl->block_count = 4096;
   }
   cl->blocks = (struct dlp_block **)calloc(cl->block_count, sizeof(struct dlp_block *));
@@ -164,10 +304,14 @@ xErrno dlp_cache_open_clip(dlp_cache_t c, const char *rid, const char *clip_id, 
   if (cl->fd < 0) { free(cl->blocks); free(cl); return xErrno_SysError; }
 
   xMapSet(r->clips, clip_id, cl);
+
+  /* Try to load persisted bitmap from .meta file */
+  meta_load(cl, r->dir);
+
   return xErrno_Ok;
 }
 
-/* ── Static helpers ───────────────────────────────────────────────── */
+/* -- Static helpers ------------------------------------------------ */
 
 static struct dlp_clip *cache_find_clip(struct dlp_cache *c, const char *rid, const char *clip_id) {
   struct dlp_resource *r = (struct dlp_resource *)xMapGet(c->resources, rid);
@@ -175,19 +319,55 @@ static struct dlp_clip *cache_find_clip(struct dlp_cache *c, const char *rid, co
   return (struct dlp_clip *)xMapGet(r->clips, clip_id ? clip_id : "0");
 }
 
-/* ── Async I/O ─────────────────────────────────────────────────────── */
+static struct dlp_resource *cache_find_resource(struct dlp_cache *c, const char *rid) {
+  return (struct dlp_resource *)xMapGet(c->resources, rid);
+}
+
+/* Check if all blocks in a clip are done; if so delete .meta */
+static void cache_check_all_done(struct dlp_clip *cl, struct dlp_resource *r) {
+  if (!cl || !r) return;
+  for (uint32_t i = 0; i < cl->block_count; i++) {
+    if (!cl->blocks[i] || !cl->blocks[i]->done) return;
+  }
+  meta_delete(cl, r->dir);
+}
+
+/* -- Async I/O ---------------------------------------------------- */
 
 struct write_ctx {
   dlp_cache_cb cb;
   void        *arg;
-  uint8_t     *buf;  /* copied data to keep alive during async write */
+  uint8_t     *buf;
+  struct dlp_clip      *clip;
+  struct dlp_resource  *resource;
 };
 
 static void on_write_done(xFsReq *req) {
   struct write_ctx *wctx = (struct write_ctx *)req->arg;
+
+  /* Save dirty block bitmaps to .meta */
+  if (wctx->clip && wctx->resource) {
+    bool any_dirty = false;
+    for (uint32_t i = 0; i < wctx->clip->block_count; i++) {
+      if (wctx->clip->blocks[i] && wctx->clip->blocks[i]->meta_dirty) {
+        any_dirty = true;
+        break;
+      }
+    }
+    if (any_dirty) {
+      meta_save(wctx->clip, wctx->resource->dir);
+      for (uint32_t i = 0; i < wctx->clip->block_count; i++) {
+        if (wctx->clip->blocks[i]) wctx->clip->blocks[i]->meta_dirty = false;
+      }
+    }
+    /* Check if all blocks are now done */
+    cache_check_all_done(wctx->clip, wctx->resource);
+  }
+
   if (wctx->cb) wctx->cb(req->result, wctx->arg);
   free(wctx->buf);
   free(wctx);
+  free(req);
 }
 
 xErrno dlp_cache_write(dlp_cache_t c, const char *rid, const char *clip_id,
@@ -197,6 +377,8 @@ xErrno dlp_cache_write(dlp_cache_t c, const char *rid, const char *clip_id,
 
   struct dlp_clip *cl = cache_find_clip(c, rid, clip_id);
   if (!cl) return xErrno_NotFound;
+
+  struct dlp_resource *r = cache_find_resource(c, rid);
 
   /* Update bitmap synchronously before dispatching async I/O */
   uint64_t end = offset + len;
@@ -210,12 +392,12 @@ xErrno dlp_cache_write(dlp_cache_t c, const char *rid, const char *clip_id,
     pos += chunk;
   }
 
-  /* Allocate the req context and dispatch async write via xfs.
-   * Copy data — caller's buffer may be freed before write completes. */
   struct write_ctx *wctx = (struct write_ctx *)malloc(sizeof(*wctx));
   if (!wctx) return xErrno_NoMemory;
-  wctx->cb  = cb;
-  wctx->arg = arg;
+  wctx->cb       = cb;
+  wctx->arg      = arg;
+  wctx->clip     = cl;
+  wctx->resource = r;
   wctx->buf = (uint8_t *)malloc(len);
   if (!wctx->buf) { free(wctx); return xErrno_NoMemory; }
   memcpy(wctx->buf, data, len);
@@ -231,11 +413,7 @@ xErrno dlp_cache_write(dlp_cache_t c, const char *rid, const char *clip_id,
   req->arg    = wctx;
 
   xErrno err = xFsReqSubmit(req);
-  if (err == xErrno_Ok) {
-    /* Synchronous — callback frees buf and wctx */
-    if (wctx->cb) wctx->cb(req->result, wctx->arg);
-    free(req);
-  } else if (err != xErrno_Pending) {
+  if (err != xErrno_Pending) {
     free(req); free(wctx->buf); free(wctx);
     return err;
   }
@@ -251,7 +429,6 @@ struct read_ctx {
 static void on_read_done(xFsReq *req) {
   struct read_ctx *rctx = (struct read_ctx *)req->arg;
   if (rctx->cb) rctx->cb(req->result, rctx->arg);
-  free(req->buf); /* buf was allocated by caller, free here */
   free(rctx);
 }
 
@@ -263,7 +440,9 @@ xErrno dlp_cache_read(dlp_cache_t c, const char *rid, const char *clip_id,
   struct dlp_clip *cl = cache_find_clip(c, rid, clip_id);
   if (!cl) return xErrno_NotFound;
 
-  /* Allocate context and dispatch async read via xfs */
+  if (!dlp_cache_is_ready(c, rid, clip_id, offset, len))
+    return xErrno_NotFound;
+
   struct read_ctx *rctx = (struct read_ctx *)malloc(sizeof(*rctx));
   if (!rctx) return xErrno_NoMemory;
   rctx->cb  = cb;

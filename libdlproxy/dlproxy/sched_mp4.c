@@ -48,30 +48,17 @@ static void mp4_on_tick(struct dlp_task *task) {
   XDEBUGL0("mp4 tick: rid=%s remain=%dms emergency=%dms block=%u offset=%llu",
            task->rid, remain, emergency, block, (unsigned long long)boff);
   task->downloading_off = boff;
-  dlp_http_fetch(c->dl_http, task->rid, "0", task->url, boff,
+  xErrno rc = dlp_http_fetch(c->dl_http, task->rid, "0", task->url, boff,
                        DL_BLOCK_SIZE, task);
+  XDEBUGL0("mp4 tick: rc=%d block=%u offset=%llu", rc, block, (unsigned long long)boff);
   task->was_pulling = true;
 }
 
 static void mp4_on_block_done(struct dlp_task *task, uint64_t offset, size_t len) {
   struct dlp_ctx *c = task->ctx;
   uint64_t boff = (offset / DL_BLOCK_SIZE) * DL_BLOCK_SIZE;
+  (void)len;
   if (task->downloading_off == boff) task->downloading_off = 0;
-
-  /* Fetch tail (moov) once after file_size is known */
-  if (!task->tail_fetched && task->file_size > DL_BLOCK_SIZE) {
-    uint32_t tail_block = (uint32_t)((task->file_size - 1) / DL_BLOCK_SIZE);
-    uint64_t tail_off   = (uint64_t)tail_block * DL_BLOCK_SIZE;
-    uint64_t tail_len   = task->file_size - tail_off;
-    XDEBUGL0("mp4 fetching tail block=%u offset=%llu len=%llu",
-            tail_block, (unsigned long long)tail_off, (unsigned long long)tail_len);
-    dlp_http_fetch(c->dl_http, task->rid, "0", task->url, tail_off,
-                         (size_t)tail_len, task);
-    task->tail_fetched = true;
-  }
-
-  /* Scan forward from read_offset to estimate remain_time */
-  (void)offset; (void)len;
 
   /* Scan forward from read_offset to estimate remain_time */
   int cached_blocks = 0;

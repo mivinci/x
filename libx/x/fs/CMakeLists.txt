@@ -1,5 +1,12 @@
-file(GLOB_RECURSE XFS_HEADERS "*.h")
-file(GLOB_RECURSE XFS_SOURCES "*.c")
+file(GLOB XFS_HEADERS "*.h")
+file(GLOB XFS_SOURCES "*.c")
+
+# Exclude the platform-specific backend that doesn't apply
+if(WIN32)
+  list(REMOVE_ITEM XFS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/fs.c")
+else()
+  list(REMOVE_ITEM XFS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/fs_win32.c")
+endif()
 
 add_library(xfs ${X_LIB_TYPE} ${XFS_SOURCES} ${XFS_HEADERS})
 set_target_properties(xfs PROPERTIES FOLDER "libx")

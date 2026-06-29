@@ -485,6 +485,11 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
     return xErrno_Unknown;
   }
 
+  /* Kick libcurl's state machine so socket/timer callbacks fire
+   * and the new sockets are registered with the event loop. */
+  int running = 0;
+  curl_multi_socket_action(c->multi, CURL_SOCKET_TIMEOUT, 0, &running);
+
   /* Track in client's request list */
   req->next = c->reqs;
   c->reqs   = req;

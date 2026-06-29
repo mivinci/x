@@ -1,5 +1,5 @@
 /*
- * fs_test.cpp - Async filesystem tests (POSIX only for v1)
+ * fs_test.cpp - Async filesystem tests
  */
 #include <atomic>
 #include <cstdio>
@@ -11,6 +11,19 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#define XFS_CLOSE(fd) close(fd)
+#define XFS_UNLINK(p) unlink(p)
+#define XFS_RMDIR(p)  rmdir(p)
+#define XFS_TMPDIR "/tmp"
+#else
+#include <fcntl.h>
+#include <io.h>
+#include <sys/stat.h>
+#define XFS_CLOSE(fd) _close(fd)
+#define XFS_UNLINK(p) _unlink(p)
+#define XFS_RMDIR(p)  _rmdir(p)
+#define XFS_TMPDIR "."
+#endif
 
 extern "C" {
 #include <x/base/event.h>
@@ -38,14 +51,14 @@ protected:
 TEST_F(FsTest, OpenCloseAsync) {
   xFsReq r = {};
   r.op   = xFsOpOpen;
-  r.path = "/tmp/__xfs_test_open.tmp";
+  r.path = XFS_TMPDIR "/__xfs_test_open.tmp";
   r.flags = O_CREAT | O_RDWR | O_TRUNC;
   r.mode  = 0644;
   r.cb    = [](xFsReq *r) {
     EXPECT_EQ(r->result, xErrno_Ok);
     EXPECT_NE(r->out_file, nullptr);
-    close((int)(intptr_t)r->out_file);
-    unlink("/tmp/__xfs_test_open.tmp");
+    XFS_CLOSE((int)(intptr_t)r->out_file);
+    XFS_UNLINK(XFS_TMPDIR "/__xfs_test_open.tmp");
     xEventLoopStop(xEventLoopCurrent());
   };
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Pending);
@@ -55,13 +68,13 @@ TEST_F(FsTest, OpenCloseAsync) {
 TEST_F(FsTest, OpenCloseSync) {
   xFsReq r = {};
   r.op     = xFsOpOpen;
-  r.path   = "/tmp/__xfs_test_sync.tmp";
+  r.path   = XFS_TMPDIR "/__xfs_test_sync.tmp";
   r.flags  = O_CREAT | O_RDWR | O_TRUNC;
   r.mode   = 0644;
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
   ASSERT_NE(r.out_file, nullptr);
-  close((int)(intptr_t)r.out_file);
-  unlink("/tmp/__xfs_test_sync.tmp");
+  XFS_CLOSE((int)(intptr_t)r.out_file);
+  XFS_UNLINK(XFS_TMPDIR "/__xfs_test_sync.tmp");
 }
 
 /* ───────────────────── Read / Write ───────────────────── */
@@ -72,7 +85,7 @@ TEST_F(FsTest, WriteRead) {
 
   xFsReq r = {};
   r.op     = xFsOpOpen;
-  r.path   = "/tmp/__xfs_test_rw.tmp";
+  r.path   = XFS_TMPDIR "/__xfs_test_rw.tmp";
   r.flags  = O_CREAT | O_RDWR | O_TRUNC;
   r.mode   = 0644;
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
@@ -97,8 +110,8 @@ TEST_F(FsTest, WriteRead) {
   r.cb    = [](xFsReq *r) {
     EXPECT_EQ(r->result, xErrno_Ok);
     EXPECT_EQ(memcmp(r->buf, "hello async fs!", r->retval), 0);
-    close((int)(intptr_t)r->file);
-    unlink("/tmp/__xfs_test_rw.tmp");
+    XFS_CLOSE((int)(intptr_t)r->file);
+    XFS_UNLINK(XFS_TMPDIR "/__xfs_test_rw.tmp");
     xEventLoopStop(xEventLoopCurrent());
   };
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Pending);
@@ -110,9 +123,15 @@ TEST_F(FsTest, WriteRead) {
 TEST_F(FsTest, Stat) {
   xFsReq r = {};
   r.op     = xFsOpStat;
+#if !defined(_WIN32)
   r.path   = "/tmp";
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
   EXPECT_TRUE(r.stat.mode & S_IFDIR);
+#else
+  r.path   = ".";
+  ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
+  EXPECT_TRUE(r.stat.mode & _S_IFDIR);
+#endif
 }
 
 /* ───────────────────── Mkdir / Unlink ───────────────────── */
@@ -120,20 +139,20 @@ TEST_F(FsTest, Stat) {
 TEST_F(FsTest, MkdirAndCleanup) {
   xFsReq r = {};
   r.op   = xFsOpMkdir;
-  r.path = "/tmp/__xfs_test_dir";
+  r.path = XFS_TMPDIR "/__xfs_test_dir";
   r.mode = 0755;
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
-  rmdir("/tmp/__xfs_test_dir");
+  XFS_RMDIR(XFS_TMPDIR "/__xfs_test_dir");
 }
 
 TEST_F(FsTest, UnlinkFile) {
   xFsReq r = {};
   r.op     = xFsOpOpen;
-  r.path   = "/tmp/__xfs_test_rm.tmp";
+  r.path   = XFS_TMPDIR "/__xfs_test_rm.tmp";
   r.flags  = O_CREAT | O_RDWR;
   r.mode   = 0644;
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
-  close((int)(intptr_t)r.out_file);
+  XFS_CLOSE((int)(intptr_t)r.out_file);
 
   r.op   = xFsOpUnlink;
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
@@ -148,11 +167,7 @@ TEST_F(FsTest, NullReqReturnsInvalidArg) {
 TEST_F(FsTest, OpenNonexistent) {
   xFsReq r = {};
   r.op     = xFsOpOpen;
-  r.path   = "/tmp/__xfs_nonexistent_XXXXXX";
+  r.path   = XFS_TMPDIR "/__xfs_nonexistent_XXXXXX";
   r.flags  = O_RDONLY;
   ASSERT_NE(xFsReqSubmit(&r), xErrno_Ok);
 }
-
-#else  /* _WIN32 — placeholder for when fs supports Windows */
-// No tests on Windows for v1 (fs uses POSIX APIs)
-#endif
