@@ -78,4 +78,13 @@ XCAPI(xErrno) dlp_task_stop(dlp_task_t task);
  */
 XCAPI(void) dlp_task_destroy(dlp_task_t task);
 
+/**
+ * @brief Get the proxy URL for a task (e.g. http://127.0.0.1:19080/test/vod.m3u8).
+ * @param task  Task handle.
+ * @param buf   Output buffer.
+ * @param buf_len Buffer size.
+ * @return xErrno_Ok on success, xErrno_InvalidArg if task/buf is NULL.
+ */
+XCAPI(xErrno) dlp_task_proxy_url(dlp_task_t task, char *buf, size_t buf_len);
+
 #endif /* DLPROXY_H */

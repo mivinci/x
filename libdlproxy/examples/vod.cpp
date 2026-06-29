@@ -45,24 +45,26 @@ int main(int argc, char **argv) {
   /* Create a test task if a URL is provided */
   if (argc > 3) {
     dlp_task_conf_t tc = {0};
-    tc.rid  = "test";
     tc.url  = argv[3];
     tc.size = 0;
 
     /* Auto-detect HLS from .m3u8 extension */
     if (ends_with(argv[3], ".m3u8")) {
       tc.format = DLP_FMT_HLS;
-      fprintf(stderr, "Task 'test' (HLS): %s\n", argv[3]);
-      fprintf(stderr, "Test with: http://127.0.0.1:%d/test/playlist.m3u8\n", port);
+      tc.rid    = "test-hls";
     } else {
       tc.format = DLP_FMT_MP4;
-      fprintf(stderr, "Task 'test' (MP4): %s\n", argv[3]);
-      fprintf(stderr, "Test with: curl -H 'Range: bytes=0-262143' http://127.0.0.1:%d/test\n", port);
+      tc.rid    = "test-mp4";
     }
 
     dlp_task_t task = dlp_task_create(g_ctx, &tc);
     if (task) {
       dlp_task_start(task);
+      char proxy_url[256];
+      dlp_task_proxy_url(task, proxy_url, sizeof(proxy_url));
+      fprintf(stderr, "Task '%s' (%s): %s\n", tc.rid,
+              tc.format == DLP_FMT_HLS ? "HLS" : "MP4", argv[3]);
+      fprintf(stderr, "Proxy URL: %s\n", proxy_url);
     } else {
       fprintf(stderr, "dlp_task_create failed\n");
     }

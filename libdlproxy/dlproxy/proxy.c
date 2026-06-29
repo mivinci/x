@@ -147,35 +147,8 @@ static void on_tick_timer(void *arg) {
 
 /* ── Main route handler ── */
 
-static int serve_range(xHttpCtx *http_ctx, void *arg) {
-  dlp_ctx_t dlp = (dlp_ctx_t)arg;
-  struct dlp_ctx *c = (struct dlp_ctx *)dlp;
-
-  if (strcmp(http_ctx->method, "GET") != 0) {
-    xHttpCtxSetStatus(http_ctx, 405);
-    xHttpCtxSend(http_ctx, "only GET\n", 9);
-    return 0;
-  }
-
-  /* Parse path as /:rid */
-  size_t  rid_len = 0;
-  const char *rid = xHttpCtxParam(http_ctx, "rid", &rid_len);
-  if (!rid || rid_len == 0) {
-    xHttpCtxSetStatus(http_ctx, 404);
-    xHttpCtxSend(http_ctx, "missing rid\n", 12);
-    return 0;
-  }
-
-  char rid_buf[64];
-  snprintf(rid_buf, sizeof(rid_buf), "%.*s", (int)rid_len, rid);
-
-  /* Look up task */
-  struct dlp_task *task = (struct dlp_task *)xMapGet(c->task_map, rid_buf);
-  if (!task) {
-    xHttpCtxSetStatus(http_ctx, 404);
-    xHttpCtxSend(http_ctx, "unknown rid\n", 12);
-    return 0;
-  }
+static void serve_mp4(xHttpCtx *http_ctx, struct dlp_task *task,
+                      struct dlp_ctx *c) {
 
   /* Parse Range header */
   int      has_range   = 0;
@@ -214,38 +187,38 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
   task->read_offset = range_start;
 
   XDEBUGL0("REQ: rid=%s has_range=%d start=%llu len=%zu",
-          rid_buf, has_range, (unsigned long long)range_start, length);
+          task->rid, has_range, (unsigned long long)range_start, length);
 
   /* Cache hit — async read, response sent in on_cache_read_done */
-  if (dlp_cache_is_ready(c->cache, rid_buf, "0.mp4", range_start, length)) {
+  if (dlp_cache_is_ready(c->cache, task->rid, "0.mp4", range_start, length)) {
     XDEBUGL0("cache HIT offset=%llu len=%zu", (unsigned long long)range_start, length);
     uint8_t *buf = (uint8_t *)malloc(length);
     if (!buf) {
       xHttpCtxSetStatus(http_ctx, 503);
       xHttpCtxSend(http_ctx, "out of memory\n", 14);
-      return 0;
+      return;
     }
     struct read_done_ctx *rd = (struct read_done_ctx *)malloc(sizeof(*rd));
     if (!rd) {
       free(buf);
       xHttpCtxSetStatus(http_ctx, 503);
       xHttpCtxSend(http_ctx, "out of memory\n", 14);
-      return 0;
+      return;
     }
     rd->http_ctx  = http_ctx;
-    rd->dlp       = dlp;
-    snprintf(rd->rid, sizeof(rd->rid), "%s", rid_buf);
+    rd->dlp       = (dlp_ctx_t)c;
+    snprintf(rd->rid, sizeof(rd->rid), "%s", task->rid);
     rd->buf       = buf;
     rd->length    = length;
     rd->offset    = range_start;
     rd->has_range = has_range;
     rd->content_type = 0; /* mp4 */
-    dlp_cache_read(c->cache, rid_buf, "0.mp4", range_start, buf, length,
+    dlp_cache_read(c->cache, task->rid, "0.mp4", range_start, buf, length,
                     on_cache_read_done, rd);
-    return 0;  /* no response sent yet — on_cache_read_done will send */
+    return;
   }
 
-  /* Cache miss — subscribe to bus, trigger download, return */
+  /* Cache miss — subscribe to bus, trigger download */
   XDEBUGL0("cache MISS offset=%llu len=%zu — deferring",
           (unsigned long long)range_start, length);
 
@@ -253,45 +226,44 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
   if (!pr) {
     xHttpCtxSetStatus(http_ctx, 503);
     xHttpCtxSend(http_ctx, "out of memory\n", 14);
-    return 0;
+    return;
   }
   pr->http_ctx  = http_ctx;
-  pr->dlp       = dlp;
+  pr->dlp       = (dlp_ctx_t)c;
   pr->offset    = range_start;
   pr->length    = length;
   pr->has_range = has_range;
   pr->content_type = 0; /* mp4 */
-  snprintf(pr->rid, sizeof(pr->rid), "%s", rid_buf);
+  snprintf(pr->rid, sizeof(pr->rid), "%s", task->rid);
   snprintf(pr->clip_id, sizeof(pr->clip_id), "0.mp4");
 
   char bus_key[192];
-  snprintf(bus_key, sizeof(bus_key), "%s:0.mp4", rid_buf);
+  snprintf(bus_key, sizeof(bus_key), "%s:0.mp4", task->rid);
   dlp_bus_subscribe(c->bus, bus_key, on_chunk_ready, pr);
 
   /* Re-check cache — may have become ready since initial check */
-  if (dlp_cache_is_ready(c->cache, rid_buf, "0.mp4", range_start, length)) {
+  if (dlp_cache_is_ready(c->cache, task->rid, "0.mp4", range_start, length)) {
     on_chunk_ready(pr);
-    return 0;
+    return;
   }
 
-  /* Trigger download synchronously. downloading_off in the scheduler
-   * prevents the 1s timer from creating duplicate fetches. */
+  /* Trigger download synchronously. */
   task->sched->on_tick(task);
-
-  return 0;  /* no response sent — on_chunk_ready will send via bus */
 }
 
-/* ── Forward declarations for HLS handlers ── */
+/* ── Forward declarations for handlers ── */
 
+static void serve_mp4(xHttpCtx *http_ctx, struct dlp_task *task,
+                      struct dlp_ctx *c);
 static void serve_m3u8(xHttpCtx *http_ctx, struct dlp_task *task,
                        struct dlp_ctx *c);
 static void serve_segment(xHttpCtx *http_ctx, struct dlp_task *task,
                           struct dlp_ctx *c, uint32_t seq,
                           const char *clip_id);
 
-/* ── HLS dispatch handler (m3u8 + segment) ── */
+/* ── Unified dispatch handler ── */
 
-static void serve_hls(xHttpCtx *http_ctx, void *arg) {
+static void serve_dispatch(xHttpCtx *http_ctx, void *arg) {
   dlp_ctx_t dlp = (dlp_ctx_t)arg;
   struct dlp_ctx *c = (struct dlp_ctx *)dlp;
 
@@ -316,23 +288,27 @@ static void serve_hls(xHttpCtx *http_ctx, void *arg) {
   snprintf(rid_buf, sizeof(rid_buf), "%.*s", (int)rid_len, rid);
 
   struct dlp_task *task = (struct dlp_task *)xMapGet(c->task_map, rid_buf);
-  if (!task || task->format != DLP_FMT_HLS) {
+  if (!task) {
     xHttpCtxSetStatus(http_ctx, 404);
-    xHttpCtxSend(http_ctx, "unknown hls task\n", 17);
+    xHttpCtxSend(http_ctx, "unknown rid\n", 12);
     return;
   }
 
-  /* Dispatch: playlist.m3u8 → m3u8 serving; <N>.ts → segment serving */
   char seg_buf[64];
   snprintf(seg_buf, sizeof(seg_buf), "%.*s", (int)seg_len, seg);
 
-  if (strcmp(seg_buf, "playlist.m3u8") == 0) {
-    serve_m3u8(http_ctx, task, c);
+  /* Dispatch by format */
+  if (task->format == DLP_FMT_HLS) {
+    if (strcmp(seg_buf, "vod.m3u8") == 0 || strstr(seg_buf, ".m3u8")) {
+      serve_m3u8(http_ctx, task, c);
+    } else {
+      /* Segment: "N.ts" — parse seq, use seg_buf as clip_id */
+      uint32_t seq = (uint32_t)strtoul(seg_buf, NULL, 10);
+      serve_segment(http_ctx, task, c, seq, seg_buf);
+    }
   } else {
-    /* Parse segment number from "N.ts" — strtoul stops at '.' */
-    uint32_t seq = (uint32_t)strtoul(seg_buf, NULL, 10);
-    /* clip_id = "N.ts" (used as cache filename directly) */
-    serve_segment(http_ctx, task, c, seq, seg_buf);
+    /* MP4 — seg is just a filename (e.g. "vod.mp4"), ignored */
+    serve_mp4(http_ctx, task, c);
   }
 }
 
@@ -519,19 +495,14 @@ dlp_proxy_t dlp_proxy_init(dlp_ctx_t ctx, xEventLoop loop, uint16_t port) {
   p->mux = xHttpMuxCreate();
   if (!p->mux) goto fail;
 
+  /* Single unified route: GET /:rid/:seg
+   * Dispatch by task format (MP4 vs HLS) inside serve_dispatch.
+   * Use on_done because HLS handlers call xHttpCtxSend directly. */
   xHttpRouteConf rc = {0};
-  rc.pattern    = "GET /:rid";
-  rc.on_request = serve_range;
+  rc.pattern    = "GET /:rid/:seg";
+  rc.on_done    = serve_dispatch;
   rc.arg        = ctx;
   xHttpMuxHandle(p->mux, &rc);
-
-  /* HLS route — single :seg parameter, dispatch by content inside handler.
-   * Use on_done (not on_request) because handlers call xHttpCtxSend directly. */
-  xHttpRouteConf rc_hls = {0};
-  rc_hls.pattern    = "GET /:rid/:seg";
-  rc_hls.on_done    = serve_hls;
-  rc_hls.arg        = ctx;
-  xHttpMuxHandle(p->mux, &rc_hls);
 
   xHttpServerConf sc = {0};
   sc.resolve = xHttpMuxResolve;

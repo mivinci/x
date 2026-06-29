@@ -192,3 +192,13 @@ void dlp_task_destroy(dlp_task_t task) {
   if (t->playlist) hls_playlist_free(t->playlist);
   free(t);
 }
+
+xErrno dlp_task_proxy_url(dlp_task_t task, char *buf, size_t buf_len) {
+  if (!task || !buf || buf_len == 0) return xErrno_InvalidArg;
+  struct dlp_task *t = (struct dlp_task *)task;
+  struct dlp_ctx *c = t->ctx;
+  const char *suffix = (t->format == DLP_FMT_HLS) ? "vod.m3u8" : "vod.mp4";
+  snprintf(buf, buf_len, "http://127.0.0.1:%d/%s/%s",
+           c->conf.port, t->rid, suffix);
+  return xErrno_Ok;
+}
