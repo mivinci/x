@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Internal state for HTTP/1.1 protocol handler
@@ -196,12 +197,18 @@ static int h1_send_response(struct xHttpStream_ *stream, int status, struct xHtt
     xIOBufferAppendStr(wb, "Connection: close\r\n");
   }
 
+  /* User-supplied headers. Skip any "Connection" header the caller may have
+   * set via xHttpCtxSetHeader: the keep-alive policy is authoritative
+   * (derived from the parser), and emitting two Connection headers would
+   * be a protocol violation. */
   struct xHttpHeader_ *h = headers;
   while (h) {
-    xIOBufferAppendStr(wb, h->key);
-    xIOBufferAppendStr(wb, ": ");
-    xIOBufferAppendStr(wb, h->value);
-    xIOBufferAppendStr(wb, "\r\n");
+    if (strcasecmp(h->key, "Connection") != 0) {
+      xIOBufferAppendStr(wb, h->key);
+      xIOBufferAppendStr(wb, ": ");
+      xIOBufferAppendStr(wb, h->value);
+      xIOBufferAppendStr(wb, "\r\n");
+    }
     h = h->next;
   }
 
@@ -231,12 +238,15 @@ static int h1_write_data(struct xHttpStream_ *stream, const char *data, size_t l
 
     xIOBufferAppendStr(wb, "Connection: close\r\n");
 
+    /* Skip user-supplied "Connection" header — see h1_send_response. */
     struct xHttpHeader_ *h = w->headers;
     while (h) {
-      xIOBufferAppendStr(wb, h->key);
-      xIOBufferAppendStr(wb, ": ");
-      xIOBufferAppendStr(wb, h->value);
-      xIOBufferAppendStr(wb, "\r\n");
+      if (strcasecmp(h->key, "Connection") != 0) {
+        xIOBufferAppendStr(wb, h->key);
+        xIOBufferAppendStr(wb, ": ");
+        xIOBufferAppendStr(wb, h->value);
+        xIOBufferAppendStr(wb, "\r\n");
+      }
       h = h->next;
     }
 

@@ -210,33 +210,35 @@ xErrno xWsClose(xWsConn handle, uint16_t code) {
  */
 
 static void ws_try_flush(struct xWsConn_ *conn) {
-  if (xIOBufferEmpty(&conn->write_buf)) return;
+  /* Loop until EAGAIN or buffer empty — same rationale as conn_try_flush in
+   * server.c: under edge-triggered backends (kqueue EV_CLEAR / epoll
+   * EPOLLET) a partial writev leaves data in the buffer without re-arming
+   * the writable notification, so we must drain as much as possible in one
+   * call. */
+  while (!xIOBufferEmpty(&conn->write_buf)) {
+    struct iovec iov[XWS_MAX_IOV];
+    int          cnt = xIOBufferReadIov(&conn->write_buf, iov, XWS_MAX_IOV);
+    if (cnt == 0) break;
 
-  struct iovec iov[XWS_MAX_IOV];
-  int          cnt = xIOBufferReadIov(&conn->write_buf, iov, XWS_MAX_IOV);
-  if (cnt == 0) return;
-
-  ssize_t n = conn->transport.writev(conn->transport.ctx, iov, cnt);
-  if (n < 0) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      if (!conn->writing) {
-        conn->writing = 1;
-        xSocketSetMask(conn->sock, xEvent_Read | xEvent_Write);
+    ssize_t n = conn->transport.writev(conn->transport.ctx, iov, cnt);
+    if (n < 0) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (!conn->writing) {
+          conn->writing = 1;
+          xSocketSetMask(conn->sock, xEvent_Read | xEvent_Write);
+        }
+        return;
       }
+      /* Write error: force close */
+      ws_fire_close(conn, XWS_CLOSE_ABNORMAL, NULL, 0);
       return;
     }
-    /* Write error: force close */
-    ws_fire_close(conn, XWS_CLOSE_ABNORMAL, NULL, 0);
-    return;
+    if (n > 0) xIOBufferConsume(&conn->write_buf, (size_t)n);
+    if (n == 0) break;
   }
-  if (n > 0) xIOBufferConsume(&conn->write_buf, (size_t)n);
 
-  if (!xIOBufferEmpty(&conn->write_buf)) {
-    if (!conn->writing) {
-      conn->writing = 1;
-      xSocketSetMask(conn->sock, xEvent_Read | xEvent_Write);
-    }
-  } else {
+  /* Buffer fully drained */
+  if (xIOBufferEmpty(&conn->write_buf)) {
     if (conn->writing) {
       conn->writing = 0;
       xSocketSetMask(conn->sock, xEvent_Read);
@@ -247,6 +249,9 @@ static void ws_try_flush(struct xWsConn_ *conn) {
     if (conn->close_state == xWsCloseState_CloseReceived) {
       ws_fire_close(conn, conn->close_code, conn->close_reason, conn->close_reason_len);
     }
+  } else if (!conn->writing) {
+    conn->writing = 1;
+    xSocketSetMask(conn->sock, xEvent_Read | xEvent_Write);
   }
 }
 

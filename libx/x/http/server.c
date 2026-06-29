@@ -36,7 +36,7 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg);
 static void conn_init_parser(struct xHttpConn_ *conn);
 static void conn_reset_request_state(struct xHttpConn_ *conn);
 static void conn_dispatch_request(struct xHttpConn_ *conn);
-static void conn_write_ready(struct xHttpConn_ *conn);
+static int  conn_write_ready(struct xHttpConn_ *conn);
 static void conn_after_response(struct xHttpConn_ *conn);
 static void conn_try_flush(struct xHttpConn_ *conn);
 int         xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
@@ -686,7 +686,11 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
   }
 
   if (mask & xEvent_Write) {
-    conn_write_ready(conn);
+    /* conn_write_ready may close the connection (e.g. when keep_alive=0
+     * and the write buffer finishes draining). If it did, conn is freed
+     * and we must not touch it — bail out before the Read/handshake paths
+     * below turn this into a use-after-free. */
+    if (conn_write_ready(conn)) return;
   }
 
   if (!conn->handshake_done && conn->transport.handshake) {
@@ -1073,6 +1077,16 @@ static void conn_try_flush(struct xHttpConn_ *conn) {
 void xHttpConnSendError(struct xHttpConn_ *conn, int status_code, const char *reason) {
   struct xHttpStream_ *stream = conn->stream;
 
+  /* Callers can reach us on parse-error / OOM paths before a stream has
+   * been created (e.g. proto init failed, or the very first request chunk
+   * failed to allocate). Without a stream there is no writer state to
+   * build a response with, so just mark the connection for close and let
+   * the caller's lifecycle path tear it down. */
+  if (!stream) {
+    conn->keep_alive = 0;
+    return;
+  }
+
   if (stream->writer.sent) {
     conn->keep_alive = 0;
     return;
@@ -1130,8 +1144,10 @@ void xHttpConnFlushWrite(struct xHttpConn_ *conn) {
   xHttpConnFlushWriteInternal(conn);
 }
 
-static void conn_write_ready(struct xHttpConn_ *conn) {
-  xHttpConnFlushWrite(conn);
+static int conn_write_ready(struct xHttpConn_ *conn) {
+  /* Returns 1 if the connection was closed (caller must stop touching conn),
+   * 0 otherwise. */
+  return xHttpConnFlushWriteInternal(conn);
 }
 
 static void conn_after_response(struct xHttpConn_ *conn) {
@@ -1158,7 +1174,11 @@ static void conn_after_response(struct xHttpConn_ *conn) {
       }
     }
   } else if (!conn->writing) {
-    xHttpConnFlushWriteInternal(conn);
+    /* Flush may close the connection (keep_alive=0 + buffer drained).
+     * If it did, return immediately rather than relying on the caller
+     * doing nothing afterwards — future code added below this branch
+     * would otherwise risk a use-after-free. */
+    if (xHttpConnFlushWriteInternal(conn)) return;
   }
 }
 
