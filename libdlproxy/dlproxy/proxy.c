@@ -3,8 +3,6 @@
  *
  * Range handling modeled after tvkproxy:
  *   - Non-Range request → 200 OK, first block, Accept-Ranges: bytes
- *     (so the browser can parse initial MP4 data and discover it
- *      needs more — e.g. moov at the tail)
  *   - Range request    → 206 Partial Content, Content-Range: bytes X-Y/TOTAL
  *   - Responses are clamped to one-block (256 KB) boundaries
  *
@@ -12,18 +10,13 @@
  *   1. Browser navigates to http://127.0.0.1:<port>/:rid
  *   2. If no Range header → serve first block as 200
  *   3. Browser creates <video> element, sends Range: bytes=0-1 probe
- *   4. Cache hit  → read + respond synchronously
- *      Cache miss → defer (xHttpCtxYield) + subscribe to bus +
- *                   post scheduler tick (xEventLoopPost)
+ *   4. Cache hit  → async cache read → send response
+ *      Cache miss → subscribe to bus + trigger scheduler download
  *   5. Scheduler downloads the needed block, writes to cache,
  *      publishes to bus → on_chunk_ready → read cache → send response
  *
- * Resume / seek support:
- *   Seeking sends a Range request at the new playback position.
- *   If the block is cached → instant 206 response.
- *   If not → defer + scheduler downloads it on-demand.
- *   This works without any special "resume" logic — the browser
- *   drives byte-range requests naturally.
+ * Event-driven model: handler return does nothing. Responses are sent
+ * explicitly via xHttpCtxSend (which finalizes internally).
  */
 #include "proxy.h"
 #include "bus.h"
@@ -49,7 +42,6 @@ struct proxy_req {
   char      rid[64];
   uint64_t  offset;
   size_t    length;
-  bool      served;
   int       has_range;
 };
 
@@ -65,10 +57,6 @@ struct read_done_ctx {
   int       has_range;
 };
 
-/*
- * Cache-read completion — invoked when xFsReq async read finishes.
- * Sets status/headers based on has_range, then sends and resumes.
- */
 static void on_cache_read_done(xErrno err, void *arg) {
   struct read_done_ctx *p = (struct read_done_ctx *)arg;
   if (err == xErrno_Ok && p->length > 0) {
@@ -97,19 +85,13 @@ static void on_cache_read_done(xErrno err, void *arg) {
     xHttpCtxSetStatus(p->http_ctx, 503);
     xHttpCtxSend(p->http_ctx, "cache read error\n", 17);
   }
-  xHttpCtxResume(p->http_ctx);
   free(p);
 }
 
 /* ── Bus callback: chunk ready, re-serve ── */
 
-/*
- * Bus callback — fired when a chunk download completes.
- * Re-reads from cache and sends the deferred response.
- */
 static void on_chunk_ready(void *arg) {
   struct proxy_req *pr = (struct proxy_req *)arg;
-  if (pr->served) return;
   struct dlp_ctx *c = (struct dlp_ctx *)pr->dlp;
 
   size_t   len = pr->length;
@@ -117,7 +99,6 @@ static void on_chunk_ready(void *arg) {
   if (!buf) {
     xHttpCtxSetStatus(pr->http_ctx, 503);
     xHttpCtxSend(pr->http_ctx, "out of memory\n", 14);
-    xHttpCtxResume(pr->http_ctx);
     free(pr);
     return;
   }
@@ -127,7 +108,6 @@ static void on_chunk_ready(void *arg) {
     free(buf);
     xHttpCtxSetStatus(pr->http_ctx, 503);
     xHttpCtxSend(pr->http_ctx, "out of memory\n", 14);
-    xHttpCtxResume(pr->http_ctx);
     free(pr);
     return;
   }
@@ -199,9 +179,7 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
     }
   }
 
-  /* Without Range → serve first block as 200 (like tvkproxy).
-   * The browser parses initial MP4 data from this and will send
-   * Range probes and tail requests as needed. */
+  /* Without Range → serve first block as 200 */
   if (!has_range) {
     range_start = 0;
     range_end   = DL_BLOCK_SIZE - 1;
@@ -214,10 +192,7 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
   if (range_start > range_end) range_start = range_end;
   size_t length = (size_t)(range_end - range_start + 1);
 
-  /* Clamp to chunk boundary — serve one block at a time.
-   * When the requested range spans multiple blocks, only the
-   * first block is served. The browser will request the rest
-   * via subsequent Range headers. */
+  /* Clamp to chunk boundary */
   uint64_t boff_block = (range_start / DL_BLOCK_SIZE) * DL_BLOCK_SIZE;
   uint64_t chunk_end  = boff_block + DL_BLOCK_SIZE - 1;
   if (file_size > 0 && chunk_end >= file_size) chunk_end = file_size - 1;
@@ -229,10 +204,9 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
   XDEBUGL0("REQ: rid=%s has_range=%d start=%llu len=%zu",
           rid_buf, has_range, (unsigned long long)range_start, length);
 
-  /* Check cache */
+  /* Cache hit — async read, response sent in on_cache_read_done */
   if (dlp_cache_is_ready(c->cache, rid_buf, "0", range_start, length)) {
     XDEBUGL0("cache HIT offset=%llu len=%zu", (unsigned long long)range_start, length);
-    xHttpCtxYield(http_ctx);
     uint8_t *buf = (uint8_t *)malloc(length);
     if (!buf) {
       xHttpCtxSetStatus(http_ctx, 503);
@@ -255,16 +229,19 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
     rd->has_range = has_range;
     dlp_cache_read(c->cache, rid_buf, "0", range_start, buf, length,
                     on_cache_read_done, rd);
-    return 0;
+    return 0;  /* no response sent yet — on_cache_read_done will send */
   }
 
-  /* Cache miss — defer response */
+  /* Cache miss — subscribe to bus, trigger download, return */
   XDEBUGL0("cache MISS offset=%llu len=%zu — deferring",
           (unsigned long long)range_start, length);
-  xHttpCtxYield(http_ctx);
 
   struct proxy_req *pr = (struct proxy_req *)calloc(1, sizeof(*pr));
-  if (!pr) { xHttpCtxResume(http_ctx); return 0; }
+  if (!pr) {
+    xHttpCtxSetStatus(http_ctx, 503);
+    xHttpCtxSend(http_ctx, "out of memory\n", 14);
+    return 0;
+  }
   pr->http_ctx  = http_ctx;
   pr->dlp       = dlp;
   pr->offset    = range_start;
@@ -276,7 +253,6 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
 
   /* Re-check cache — may have become ready since initial check */
   if (dlp_cache_is_ready(c->cache, rid_buf, "0", range_start, length)) {
-    pr->served = true;
     on_chunk_ready(pr);
     return 0;
   }
@@ -285,7 +261,7 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
    * prevents the 1s timer from creating duplicate fetches. */
   task->sched->on_tick(task);
 
-  return 0;
+  return 0;  /* no response sent — on_chunk_ready will send via bus */
 }
 
 /* ── Lifecycle ── */

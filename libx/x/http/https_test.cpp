@@ -228,6 +228,7 @@ static void sse_handler(xHttpCtx *ctx, void *arg) {
   const char *ev2 = "event: custom\ndata: world-tls\n\n";
   xHttpCtxWrite(ctx, ev1, strlen(ev1));
   xHttpCtxWrite(ctx, ev2, strlen(ev2));
+xHttpCtxEndStream(ctx);
 }
 #endif
 

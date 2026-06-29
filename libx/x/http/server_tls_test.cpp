@@ -278,6 +278,7 @@ static void tls_hello_handler(xHttpCtx *ctx, void *arg) {
   xHttpCtxSetStatus(ctx, 200);
   xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
   xHttpCtxWrite(ctx, body, strlen(body));
+xHttpCtxEndStream(ctx);
 }
 
 TEST_F(HttpServerTlsTest, BasicTlsConnection) {

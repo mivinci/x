@@ -883,9 +883,8 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
     return;
   }
 
-  /* If on_request aborted, skip on_done */
+  /* If on_request aborted, send 500 if nothing was sent */
   if (stream->request_aborted) {
-    /* If handler already sent a response, proceed with lifecycle */
     if (!stream->writer.sent && !stream->writer.streaming) {
       xHttpConnSendError(conn, 500, "Internal Server Error");
     }
@@ -907,25 +906,10 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
     return;
   }
 
-  /* If the handler yielded the response, keep the connection alive */
-  if (conn->yielded) {
-    return;
-  }
-
-  /* If handler didn't send a response, send default 200 OK */
-  if (!stream->writer.sent && !stream->writer.streaming) {
-    conn->proto.send_response(stream, stream->writer.status_code, stream->writer.headers, NULL, 0);
-    stream->writer.sent = 1;
-    conn_try_flush(conn);
-  }
-
-  /* If handler was streaming but didn't end, end it now */
-  if (stream->writer.streaming && !stream->writer.sent) {
-    conn->proto.end_stream(stream);
-    conn_try_flush(conn);
-  }
-
-  conn_after_response(conn);
+  /* If handler already sent (xHttpCtxSend finalizes internally) or
+   * is streaming (waits for xHttpCtxEndStream), nothing to do.
+   * If nothing was sent, the connection stays open — the handler
+   * may send a response later from a callback. */
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -982,6 +966,7 @@ xErrno xHttpCtxSend(xHttpCtx *ctx, const char *body, size_t body_len) {
   struct xHttpConn_ *conn = stream->conn;
   conn->proto.send_response(stream, w->status_code, w->headers, body, body_len);
   conn_try_flush(conn);
+  conn_after_response(conn);
 
   return xErrno_Ok;
 }
@@ -1001,21 +986,17 @@ xErrno xHttpCtxWrite(xHttpCtx *ctx, const char *data, size_t len) {
   return xErrno_Ok;
 }
 
-void xHttpCtxYield(xHttpCtx *ctx) {
-  if (!ctx) return;
+xErrno xHttpCtxEndStream(xHttpCtx *ctx) {
+  if (!ctx || !ctx->internal_) return xErrno_InvalidArg;
   struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
-  if (!stream) return;
-  stream->conn->yielded = 1;
-}
+  struct xHttpConn_   *conn   = stream->conn;
 
-void xHttpCtxResume(xHttpCtx *ctx) {
-  if (!ctx) return;
-  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
-  if (!stream) return;
-  struct xHttpConn_   *conn = stream->conn;
-  if (!conn->yielded) return;
-  conn->yielded = 0;
+  if (stream->writer.streaming && !stream->writer.sent) {
+    conn->proto.end_stream(stream);
+    conn_try_flush(conn);
+  }
   conn_after_response(conn);
+  return xErrno_Ok;
 }
 
 const char *xHttpCtxParam(xHttpCtx *ctx, const char *name, size_t *len) {

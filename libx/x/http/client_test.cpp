@@ -158,16 +158,17 @@ protected:
         if (ctx->headers && ctx->headers_len > 0) {
           xHttpCtxWrite(ctx, ctx->headers, ctx->headers_len);
         }
+        xHttpCtxEndStream(ctx);
       };
       ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
     }
 
-    /* GET /ping — used by DoWithTimeout; server yields, client times out */
+    /* GET /ping — used by DoWithTimeout; server doesn't respond, client times out */
     {
       xHttpRouteConf rc = {};
       rc.pattern = "GET /ping";
       rc.on_done = [](xHttpCtx *ctx, void *arg) {
-        xHttpCtxYield(ctx);
+        /* Don't send a response — client should time out */
       };
       ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
     }

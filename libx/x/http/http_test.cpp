@@ -126,6 +126,7 @@ static void sse_handler(xHttpCtx *ctx, void *arg) {
   xHttpCtxWrite(ctx, "data: alpha\n\n", 13);
   xHttpCtxWrite(ctx, "event: custom\ndata: beta\n\n", 26);
   xHttpCtxWrite(ctx, "data: gamma\n\n", 13);
+xHttpCtxEndStream(ctx);
 }
 
 /* ───────────────────── Fixture ───────────────────── */
@@ -723,6 +724,7 @@ static void sse_post_handler(xHttpCtx *ctx, void *arg) {
   int  n = snprintf(buf, sizeof(buf), "data: %s\n\n", c->body.c_str());
   xHttpCtxWrite(ctx, buf, (size_t)n);
   xHttpCtxWrite(ctx, "event: done\ndata: [DONE]\n\n", 26);
+xHttpCtxEndStream(ctx);
 }
 
 TEST_F(IntegrationTest, SseDoPostH1) {

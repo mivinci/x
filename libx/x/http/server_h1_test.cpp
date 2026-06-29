@@ -160,7 +160,7 @@ TEST_F(HttpServerTest, PostRequestWithBody) {
 
 /* ───────────────────── 404 Not Found ───────────────────── */
 
-static void dummy_handler(xHttpCtx *, void *) {}
+static void dummy_handler(xHttpCtx *ctx, void *) { xHttpCtxSend(ctx, "", 0); }
 
 TEST_F(HttpServerTest, NotFoundResponse) {
   route("GET /exists", dummy_handler);
@@ -380,6 +380,7 @@ static void stream_handler(xHttpCtx *ctx, void *arg) {
 
   xHttpCtxWrite(ctx, "data: hello\n\n", 13);
   xHttpCtxWrite(ctx, "data: world\n\n", 13);
+xHttpCtxEndStream(ctx);
 }
 
 TEST_F(HttpServerTest, StreamingResponse) {
@@ -448,6 +449,7 @@ static void write_then_send_handler(xHttpCtx *ctx, void *arg) {
   auto  *c = static_cast<HandlerCtx *>(arg);
   c->last_body = (err == xErrno_InvalidState) ? "InvalidState" : "Other";
   c->call_count.fetch_add(1, std::memory_order_release);
+xHttpCtxEndStream(ctx);
 }
 
 TEST_F(HttpServerTest, WriteAndSendMutuallyExclusive) {
@@ -698,7 +700,7 @@ TEST_F(HttpServerTest, ParamRouteMethodNotAllowed) {
   EXPECT_NE(response.find("405"), std::string::npos);
 }
 
-/* ───────────────────── Yielded response ───────────────────────────────── */
+/* ───────────────────── Deferred response ─────────────────────────────── */
 
 struct YieldCtx {
   std::atomic<int>  call_count{0};
@@ -714,22 +716,21 @@ static void yield_handler(xHttpCtx *ctx, void *arg) {
   xHttpCtxSetStatus(ctx, 200);
   xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
 
-  xHttpCtxYield(ctx);
+  /* Don't send — store ctx for later. Handler return does nothing. */
   c->stored_ctx = ctx;
 }
 
-static void yielded_send_and_resume(YieldCtx *c) {
+static void deferred_send(YieldCtx *c) {
   if (c->stored_ctx) {
     xHttpCtxSend(c->stored_ctx, c->response_body.c_str(), c->response_body.size());
-    xHttpCtxResume(c->stored_ctx);
     c->stored_ctx = nullptr;
     c->send_done.store(true);
   }
 }
 
-TEST_F(HttpServerTest, YieldedResponseSendAndResume) {
+TEST_F(HttpServerTest, DeferredResponseSend) {
   YieldCtx ctx;
-  ctx.response_body = "hello from yielded";
+  ctx.response_body = "hello from deferred";
 
   route("GET /yielded", yield_handler, &ctx);
   listen_and_pump();
@@ -751,7 +752,7 @@ TEST_F(HttpServerTest, YieldedResponseSendAndResume) {
     EXPECT_LT(n, 0) << "Expected no data yet, got: " << std::string(buf, n > 0 ? n : 0);
   }
 
-  yielded_send_and_resume(&ctx);
+  deferred_send(&ctx);
   EXPECT_TRUE(ctx.send_done.load());
 
   run_for(loop, 50);
@@ -760,11 +761,11 @@ TEST_F(HttpServerTest, YieldedResponseSendAndResume) {
   close(fd);
 
   EXPECT_NE(response.find("200"), std::string::npos);
-  EXPECT_NE(response.find("hello from yielded"), std::string::npos);
+  EXPECT_NE(response.find("hello from deferred"), std::string::npos);
   EXPECT_NE(response.find("Connection: close"), std::string::npos);
 }
 
-TEST_F(HttpServerTest, YieldedResponseMultipleConcurrent) {
+TEST_F(HttpServerTest, DeferredResponseMultipleConcurrent) {
   YieldCtx ctx_a, ctx_b;
   ctx_a.response_body = "response A";
   ctx_b.response_body = "response B";
@@ -791,8 +792,8 @@ TEST_F(HttpServerTest, YieldedResponseMultipleConcurrent) {
   EXPECT_NE(ctx_a.stored_ctx, nullptr);
   EXPECT_NE(ctx_b.stored_ctx, nullptr);
 
-  yielded_send_and_resume(&ctx_a);
-  yielded_send_and_resume(&ctx_b);
+  deferred_send(&ctx_a);
+  deferred_send(&ctx_b);
 
   run_for(loop, 100);
 

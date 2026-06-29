@@ -172,22 +172,19 @@ XCAPI(xErrno) xHttpCtxSend(xHttpCtx *ctx, const char *body, size_t body_len);
  *
  * On the first call, flushes status line + headers. Subsequent calls
  * append data. Mutually exclusive with xHttpCtxSend(). The stream is
- * auto-ended when the handler callback returns.
+ * auto-ended when xHttpCtxEndStream is called.
  */
 XCAPI(xErrno) xHttpCtxWrite(xHttpCtx *ctx, const char *data, size_t len);
 
 /**
- * @brief Yield the response, to be sent later from a callback.
+ * @brief End a streaming response and finalize the connection.
  *
- * Prevents auto-200. The caller must later call xHttpCtxSend() (or
- * xHttpCtxWrite + return) followed by xHttpCtxResume().
+ * Must be called after xHttpCtxWrite() to signal that the response
+ * is complete.  For xHttpCtxSend(), finalization is implicit.
+ * If a handler returns without calling send/write/endstream, the
+ * connection stays open until idle timeout or explicit close.
  */
-XCAPI(void) xHttpCtxYield(xHttpCtx *ctx);
-
-/**
- * @brief Resume a yielded connection after sending the response.
- */
-XCAPI(void) xHttpCtxResume(xHttpCtx *ctx);
+XCAPI(xErrno) xHttpCtxEndStream(xHttpCtx *ctx);
 
 /**
  * @brief Look up a path parameter by name.

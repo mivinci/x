@@ -169,7 +169,6 @@ XDEF_STRUCT(xHttpConn_) {
   int writing;        /**< Whether we are in write mode     */
   int proto_detected; /**< Whether protocol has been detected */
   int hijacked;       /**< Whether connection was hijacked (WS) */
-  int yielded;        /**< Handler yielded the response (don't auto-200) */
 
   /* Linked list of active connections */
   struct xHttpConn_ *prev;

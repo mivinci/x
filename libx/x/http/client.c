@@ -305,18 +305,27 @@ static int timer_callback(CURLM *multi, long timeout_ms, void *userp) {
 
 static void on_timeout(void *arg) {
   struct xHttpClient_ *c = (struct xHttpClient_ *)arg;
-  c->timer               = NULL; /* timer has fired, handle is now invalid */
+  c->timer               = NULL;
 
   int running = 0;
-  curl_multi_perform(c->multi, &running);
+  /* curl_multi_socket_action with CURL_SOCKET_TIMEOUT processes
+   * expired timers.  For concurrent requests on a shared connection,
+   * this alone may not advance pending handles that don't have
+   * expired timers yet.  Fall back to curl_multi_perform (which
+   * processes ALL sockets + timers) when the lightweight call
+   * didn't set a new timer. */
+  curl_multi_socket_action(c->multi, CURL_SOCKET_TIMEOUT, 0, &running);
   check_multi_info(c);
 
-  /* If there are running transfers but curl didn't set a timer
-   * (happens when threaded DNS resolver is still in progress and
-   * Curl_update_timer returns -1), set a fallback 100ms timer to
-   * keep polling until DNS completes and sockets are created. */
   if (running > 0 && !c->timer) {
-    c->timer = xTimerStart(on_timeout, c, 100, 0);
+    /* curl didn't set a timer — use curl_multi_perform to ensure
+     * all handles are processed (handles concurrent request stalls
+     * where pending handles wait for a freed connection). */
+    curl_multi_perform(c->multi, &running);
+    check_multi_info(c);
+    if (running > 0 && !c->timer) {
+      c->timer = xTimerStart(on_timeout, c, 100, 0);
+    }
   }
 }
 
