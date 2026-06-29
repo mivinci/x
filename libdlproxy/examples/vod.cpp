@@ -18,7 +18,7 @@ static void on_signal(int) {
 }
 
 int main(int argc, char **argv) {
-  const char *cache_dir = "./cache";
+  const char *cache_dir = "./.cache";
   uint16_t    port      = 19080;
 
   if (argc > 1) port = (uint16_t)atoi(argv[1]);

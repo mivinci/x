@@ -66,7 +66,19 @@ struct dlp_clip {
 };
 
 static struct dlp_block *dlp_block_ensure(struct dlp_clip *c, uint32_t bno) {
-  if (!c || bno >= c->block_count) return NULL;
+  if (!c) return NULL;
+  /* Auto-grow blocks array if needed (file size was unknown) */
+  if (bno >= c->block_count) {
+    uint32_t new_count = c->block_count * 2;
+    while (bno >= new_count) new_count *= 2;
+    struct dlp_block **new_blocks =
+        (struct dlp_block **)realloc(c->blocks, new_count * sizeof(struct dlp_block *));
+    if (!new_blocks) return NULL;
+    memset(new_blocks + c->block_count, 0,
+           (new_count - c->block_count) * sizeof(struct dlp_block *));
+    c->blocks       = new_blocks;
+    c->block_count  = new_count;
+  }
   if (c->blocks[bno]) return c->blocks[bno];
   struct dlp_block *b = (struct dlp_block *)calloc(1, sizeof(*b));
   if (!b) return NULL;
@@ -139,7 +151,10 @@ xErrno dlp_cache_open_clip(dlp_cache_t c, const char *rid, const char *clip_id, 
   snprintf(cl->id, sizeof(cl->id), "%s", clip_id);
   cl->total_size  = size;
   cl->block_count = (uint32_t)((size + DL_BLOCK_SIZE - 1) / DL_BLOCK_SIZE);
-  if (cl->block_count == 0 && size > 0) cl->block_count = 1;
+  if (cl->block_count == 0) {
+    /* Unknown size — start with 4096 blocks (1 GB); grows on demand */
+    cl->block_count = 4096;
+  }
   cl->blocks = (struct dlp_block **)calloc(cl->block_count, sizeof(struct dlp_block *));
   if (!cl->blocks) { free(cl); return xErrno_NoMemory; }
 
@@ -165,11 +180,13 @@ static struct dlp_clip *cache_find_clip(struct dlp_cache *c, const char *rid, co
 struct write_ctx {
   dlp_cache_cb cb;
   void        *arg;
+  uint8_t     *buf;  /* copied data to keep alive during async write */
 };
 
 static void on_write_done(xFsReq *req) {
   struct write_ctx *wctx = (struct write_ctx *)req->arg;
   if (wctx->cb) wctx->cb(req->result, wctx->arg);
+  free(wctx->buf);
   free(wctx);
 }
 
@@ -193,25 +210,33 @@ xErrno dlp_cache_write(dlp_cache_t c, const char *rid, const char *clip_id,
     pos += chunk;
   }
 
-  /* Allocate the req context and dispatch async write via xfs */
+  /* Allocate the req context and dispatch async write via xfs.
+   * Copy data — caller's buffer may be freed before write completes. */
   struct write_ctx *wctx = (struct write_ctx *)malloc(sizeof(*wctx));
   if (!wctx) return xErrno_NoMemory;
   wctx->cb  = cb;
   wctx->arg = arg;
+  wctx->buf = (uint8_t *)malloc(len);
+  if (!wctx->buf) { free(wctx); return xErrno_NoMemory; }
+  memcpy(wctx->buf, data, len);
 
   xFsReq *req = (xFsReq *)calloc(1, sizeof(*req));
-  if (!req) { free(wctx); return xErrno_NoMemory; }
+  if (!req) { free(wctx->buf); free(wctx); return xErrno_NoMemory; }
   req->op     = xFsOpWrite;
   req->file   = (xFile)(intptr_t)cl->fd;
-  req->buf    = (void *)data;
+  req->buf    = wctx->buf;
   req->len    = len;
   req->offset = (off_t)offset;
   req->cb     = on_write_done;
   req->arg    = wctx;
 
   xErrno err = xFsReqSubmit(req);
-  if (err != xErrno_Pending && err != xErrno_Ok) {
-    free(req); free(wctx);
+  if (err == xErrno_Ok) {
+    /* Synchronous — callback frees buf and wctx */
+    if (wctx->cb) wctx->cb(req->result, wctx->arg);
+    free(req);
+  } else if (err != xErrno_Pending) {
+    free(req); free(wctx->buf); free(wctx);
     return err;
   }
   return xErrno_Ok;
@@ -271,6 +296,7 @@ int dlp_cache_is_ready(dlp_cache_t c, const char *rid, const char *clip_id,
   for (uint64_t pos = offset; pos < end;) {
     uint32_t bno  = (uint32_t)(pos / DL_BLOCK_SIZE);
     uint64_t boff = pos % DL_BLOCK_SIZE;
+    if (bno >= cl->block_count) return 0;
     struct dlp_block *b = cl->blocks[bno];
     if (!b || !b->done) return 0;
     pos += (DL_BLOCK_SIZE - boff);

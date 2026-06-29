@@ -38,6 +38,9 @@ struct dlp_task {
   int             safe_ms;         /* safe buffer target                    */
   uint32_t        bitrate;         /* estimated bitrate (bytes/sec)         */
   bool            was_pulling;     /* hysteresis: was pulling last tick      */
+  uint64_t        file_size;       /* total file size from remote, or 0     */
+  uint64_t        downloading_off;  /* boff of currently downloading block  */
+  bool            tail_fetched;     /* downloaded last block for moov       */
   xHttpClient     dl_client;       /* dedicated HTTP client for this task   */
 };
 

@@ -130,6 +130,7 @@ xErrno dlp_task_start(dlp_task_t task) {
 
   t->running     = true;
   t->was_pulling = false;
+  t->downloading_off = (uint64_t)-1;  /* no download in progress */
 
   /* Start 1-second scheduling timer */
   t->tick_timer = xTimerStart(on_tick, t, DL_TICK_MS, DL_TICK_MS);
