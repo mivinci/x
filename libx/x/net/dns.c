@@ -172,12 +172,19 @@ static void dns_done_fn(void *arg, void *work_result) {
 }
 
 /**
- * @brief Cancel cleanup — frees worker-allocated result only.
- *        req is freed synchronously by xDnsCancel.
+ * @brief Cancel cleanup — frees worker-allocated result and req.
+ *
+ * Called on the event loop thread after the worker finishes (or
+ * immediately if the task was cancelled before it started).  This
+ * is the ONLY place req should be freed when cancelled — freeing it
+ * synchronously in xDnsCancel would race with the worker thread.
  */
 static void dns_on_cancel(void *arg, void *result) {
-  (void)arg;
+  struct xDnsRequest_ *req = (struct xDnsRequest_ *)arg;
   if (result) xDnsResultFree((xDnsResult *)result);
+  free(req->hostname);
+  free(req->service);
+  free(req);
 }
 
 /* ───────────────────── Public API ───────────────────── */
@@ -232,12 +239,10 @@ void xDnsCancel(xDnsQuery query) {
 
   struct xDnsRequest_ *req = (struct xDnsRequest_ *)query;
 
-  /* xWorkCancel prevents done_fn; on_cancel frees worker result.
-   * req resources freed synchronously here. */
+  /* Mark the work as cancelled.  req is freed by dns_on_cancel (or
+   * dns_done_fn if the work already completed) on the event loop thread
+   * — NOT here, because the worker thread may still be accessing it. */
   xWorkCancel(req->work);
-  free(req->hostname);
-  free(req->service);
-  free(req);
 }
 
 void xDnsResultFree(xDnsResult *result) {
