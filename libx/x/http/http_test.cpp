@@ -825,6 +825,12 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
   RespCtx     ctx_h1, ctx_h2c;
   std::string url = make_url("/hello");
 
+  /* Use separate clients — curl may reuse the H1 connection for
+   * the H2C request, which fails because H2C prior-knowledge
+   * requires a fresh connection to send the HTTP/2 preface. */
+  xHttpClient client_h2c = xHttpClientCreate(nullptr);
+  ASSERT_NE(client_h2c, nullptr);
+
   xHttpRequestConf req_conf = {};
   req_conf.url    = url.c_str();
   req_conf.method = xHttpMethod_GET;
@@ -841,11 +847,31 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
   config.on_data      = on_data_collect;
   config.on_done      = on_resp;
 
-  xErrno err2 = xHttpClientDo(client, &config, &ctx_h2c);
+  xErrno err2 = xHttpClientDo(client_h2c, &config, &ctx_h2c);
   ASSERT_EQ(err2, xErrno_Ok);
 
-  run_until(loop, ctx_h1.done, 5000);
-  run_until(loop, ctx_h2c.done, 5000);
+  /* Wait for both concurrently */
+  struct BothDone {
+    std::atomic<bool> *a, *b;
+  } both{&ctx_h1.done, &ctx_h2c.done};
+
+  xTimer checker = xTimerStart(
+      [](void *arg) {
+        auto *b = static_cast<BothDone *>(arg);
+        if (b->a->load(std::memory_order_acquire) &&
+            b->b->load(std::memory_order_acquire))
+          xEventLoopStop(xEventLoopCurrent());
+      },
+      &both, 5, 5);
+  xTimer watchdog = xTimerStart(
+      [](void *arg) { xEventLoopStop((xEventLoop)arg); },
+      loop, 5000, 0);
+
+  xEventLoopRun(loop, X_RUN_DEFAULT);
+  if (checker) xTimerStop(checker);
+  if (watchdog) xTimerStop(watchdog);
+
+  xHttpClientDestroy(client_h2c);
 
   ASSERT_TRUE(ctx_h1.done.load()) << "H1 request timed out";
   EXPECT_EQ(ctx_h1.curl_code, 0);
