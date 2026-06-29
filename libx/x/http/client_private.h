@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <x/base/base.h>
+#include <x/base/log.h>
 #include <x/buf/buf.h>
 #include <x/http/client.h>
 

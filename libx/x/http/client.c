@@ -105,6 +105,7 @@ static int req_maybe_call_on_response(struct xHttpReq_ *req) {
 static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
   struct xHttpReq_ *req   = (struct xHttpReq_ *)userdata;
   size_t            total = size * nmemb;
+  XDEBUGL1("curl: write_cb len=%zu req=%p", total, (void*)req);
   /* Trigger on_response on first body chunk (if not yet called) */
   if (req_maybe_call_on_response(req) != 0) return 0; /* abort */
   /* Deliver body via on_data, or discard if NULL */
@@ -144,6 +145,7 @@ static void check_multi_info(struct xHttpClient_ *c) {
 
     struct xHttpReq_ *req = NULL;
     curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
+    XDEBUGL1("curl: CURLMSG_DONE req=%p result=%d", (void*)req, result);
     if (!req) continue;
 
     if (req->cleaned) continue; /* already destroyed via destroy_req */
@@ -184,6 +186,7 @@ static void oneshot_on_done(struct xHttpReq_ *req, CURLcode result) {
   req_build_ctx(req, result);
 
   /* Invoke user callback — do NOT clean up here, let check_multi_info handle it */
+  XDEBUGL1("curl: on_done req=%p user_cb=%p", (void*)req, (void*)req->on_done);
   if (req->on_done) req->on_done(&req->ctx, req->arg);
 }
 
@@ -486,23 +489,27 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
   }
 
   /*
-   * Drive the initial state machine with curl_multi_perform instead of
-   * curl_multi_socket_action(CURL_SOCKET_TIMEOUT).  CURL_SOCKET_TIMEOUT
-   * only processes expired timers — it never touches actual socket I/O.
+   * Drive the initial state machine.  curl_multi_perform is non-blocking
+   * and processes socket I/O + timers up to the first blocking point.
    *
-   * When a request is submitted from deep inside an event-loop callback
-   * (HTTP handler → timer → dlp_http_fetch → http_submit), the synchronous
-   * call chain means curl_multi_socket_action(CURL_SOCKET_TIMEOUT) calls
-   * the timer callback recursively but never gets a real sockfd, so the
-   * state machine stalls at MSTATE_CONNECT / MSTATE_PROTOCONNECT and never
-   * reaches MSTATE_PERFORMING.  CURLMSG_DONE is never enqueued.
+   * If the state machine stops at DNS (threaded resolver still running),
+   * curl_multi_perform returns with no progress and Curl_update_timer
+   * sets the request-level timeout (e.g. 30s) instead of a DNS-level
+   * short timeout.  The event loop would then stall for the full request
+   * timeout before calling curl_multi_socket_action again.
    *
-   * curl_multi_perform is non-blocking (timeout=0 internally) and iterates
-   * both socket I/O AND timers, advancing the state machine until the first
-   * blocking point (where it returns and lets the event loop take over).
+   * To avoid this: after curl_multi_perform, call socket_action with
+   * CURL_SOCKET_TIMEOUT in a short loop until the handle has made
+   * progress (a socket is open) or we give up (event loop will retry).
    */
   int running = 0;
   curl_multi_perform(c->multi, &running);
+
+  for (int retry = 0; retry < 200; retry++) {
+    curl_multi_wait(c->multi, NULL, 0, 1, NULL);
+    curl_multi_socket_action(c->multi, CURL_SOCKET_TIMEOUT, 0, &running);
+    if (running > 0) break;
+  }
 
   /* Track in client's request list */
   req->next = c->reqs;

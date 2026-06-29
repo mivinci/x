@@ -281,12 +281,9 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
     return 0;
   }
 
-  /* Schedule immediate download via a 0 ms timer.
-   * Must NOT call dlp_http_fetch directly from the HTTP handler —
-   * libcurl's multi-handle interactions don't work reliably inside
-   * the handler's event-loop context.  A zero-delay timer lets the
-   * scheduler tick run in a clean event-loop iteration. */
-  xTimerStart(on_tick_timer, task, 0, 0);
+  /* Trigger download synchronously. downloading_off in the scheduler
+   * prevents the 1s timer from creating duplicate fetches. */
+  task->sched->on_tick(task);
 
   return 0;
 }

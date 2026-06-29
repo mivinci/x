@@ -15,6 +15,7 @@
 #include <signal.h>
 #include <sys/event.h>
 #include <sys/types.h>
+#include <x/base/log.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -153,8 +154,12 @@ static int kq_poll(struct xEventLoop_ *loop, struct xPollEvent_ *events, int max
     tsp        = &ts;
   }
 
+  XDEBUGL1("kq: poll timeout=%d", timeout_ms);
+
   int n = kevent(kl->kqfd, NULL, 0, kevents, X_EVENT_IO_BATCH_MAX, tsp);
   if (n < 0) n = 0; /* treat EINTR as no events */
+
+  if (n > 0) XDEBUGL1("kq: got %d events", n);
 
   int count = 0;
   for (int i = 0; i < n && count < max_events; i++) {
@@ -189,6 +194,11 @@ static int kq_poll(struct xEventLoop_ *loop, struct xPollEvent_ *events, int max
     if (kevents[i].filter == EVFILT_READ) mask |= xEvent_Read;
     if (kevents[i].filter == EVFILT_WRITE) mask |= xEvent_Write;
 
+    XDEBUGL1("kq: fd=%d %s%s src=%p", src->fd,
+             (mask & xEvent_Read) ? "R" : "",
+             (mask & xEvent_Write) ? "W" : "",
+             (void*)src);
+
     events[count].type      = X_POLL_FD;
     events[count].fd        = src->fd;
     events[count].mask      = mask;
@@ -213,6 +223,8 @@ static int kq_fd(struct xEventLoop_ *loop) {
 
 static xErrno kq_add(struct xEventLoop_ *loop, struct xEventSource_ *src) {
   struct xEventLoopKqueue_ *kl = (struct xEventLoopKqueue_ *)loop;
+
+  XDEBUGL1("kq: add fd=%d mask=%x lt=%d", src->fd, src->mask, src->level_triggered);
 
   if (set_nonblock(src->fd) != 0) return xErrno_SysError;
   if (kq_apply(kl->kqfd, src, src->mask) != 0) return xErrno_SysError;
