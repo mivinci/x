@@ -892,13 +892,31 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
     return;
   }
 
-  /* Call on_done if present */
+  /* Call on_done if present.
+   *
+   * on_done may call xHttpCtxSend / xHttpCtxEndStream, which internally
+   * call conn_after_response.  If the connection is not keep-alive,
+   * conn_after_response will close and free conn.  Save the hijacked
+   * flag BEFORE calling on_done so we can safely clean up a hijacked
+   * connection without touching freed memory. */
   if (stream->route_info && stream->route_info->on_done) {
+    int hijacked = conn->hijacked;
     stream->route_info->on_done(&stream->ctx, stream->route_info->arg);
+
+    /* If the handler hijacked the connection (e.g. WebSocket upgrade
+     * in on_request), clean up and return.  conn is still valid here
+     * because hijacked connections don't call conn_after_response. */
+    if (hijacked) {
+      xIOBufferDeinit(&conn->read_buf);
+      xIOBufferDeinit(&conn->write_buf);
+      free(conn);
+    }
+    /* If not hijacked, conn may have been freed by conn_after_response
+     * (called from xHttpCtxSend/xHttpCtxEndStream).  Don't touch it. */
+    return;
   }
 
-  /* If the handler hijacked the connection (e.g. WebSocket upgrade),
-   * clean up and return immediately. */
+  /* No on_done handler — check hijacked directly. */
   if (conn->hijacked) {
     xIOBufferDeinit(&conn->read_buf);
     xIOBufferDeinit(&conn->write_buf);
