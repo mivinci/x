@@ -317,7 +317,6 @@ TEST_F(EventOffloadTest, CancelQueuedWork) {
   (void)small;
 }
 
-#if 0 /* TODO: xEventLoopDestroy blocks, investigate fixture group interaction */
 TEST_F(EventOffloadTest, CancelRunningWorkReturnsOkAndSkipsDone) {
   /* Submit a long-running task and cancel it while it runs.
    * After the fix, cancel returns Ok even for running work, and
@@ -329,8 +328,9 @@ TEST_F(EventOffloadTest, CancelRunningWorkReturnsOkAndSkipsDone) {
   struct Ctx {
     std::atomic<bool> *started;
     std::atomic<bool> *unblock;
+    std::atomic<bool> *done_fired;
   };
-  Ctx ctx{&started, &unblock};
+  Ctx ctx{&started, &unblock, &done_fired};
 
   xWork work = xWorkSubmit(group, [](void *arg) -> void * {
                 auto *c = static_cast<Ctx *>(arg);
@@ -340,8 +340,8 @@ TEST_F(EventOffloadTest, CancelRunningWorkReturnsOkAndSkipsDone) {
                 }
                 return nullptr;
               }, [](void *arg, void *) {
-                static_cast<std::atomic<bool> *>(arg)->store(true);
-              }, NULL, &done_fired);
+                static_cast<Ctx *>(arg)->done_fired->store(true);
+              }, NULL, &ctx);
   ASSERT_NE(work, nullptr);
 
   /* Wait until the task is actually running */
@@ -359,7 +359,6 @@ TEST_F(EventOffloadTest, CancelRunningWorkReturnsOkAndSkipsDone) {
   /* done_fn should NOT have been called */
   EXPECT_FALSE(done_fired.load());
 }
-#endif
 
 TEST_F(EventOffloadTest, CancelSubmitOutHandle) {
   /* xWorkSubmit now returns the handle directly. */
