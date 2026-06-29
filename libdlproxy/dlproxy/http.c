@@ -39,8 +39,8 @@ static void on_fetch_write_done(xErrno err, void *arg) {
   XDEBUGL0("write_done: pending=%d all_recv=%d", remaining, fc->all_received);
   if (remaining == 0 && fc->all_received) {
     struct dlp_ctx *c = (struct dlp_ctx *)fc->h->ctx;
-    char key[128];
-    snprintf(key, sizeof(key), "%s", fc->rid);
+    char key[192];
+    snprintf(key, sizeof(key), "%s:%s", fc->rid, fc->clip_id);
     XDEBUGL0("write_done: publishing bus key=%s", key);
     dlp_bus_publish(c->bus, key);
     if (fc->task && fc->task->sched && fc->task->sched->on_block_done)
@@ -82,11 +82,16 @@ static int on_http_data(const char *data, size_t len, void *arg) {
   if (!fc->status_ok) return 0;
 
   struct dlp_ctx *c = (struct dlp_ctx *)fc->h->ctx;
-  fc->pending_writes++;
-  dlp_cache_write(c->cache, fc->rid, fc->clip_id,
+  xErrno werr = dlp_cache_write(c->cache, fc->rid, fc->clip_id,
                   fc->offset + fc->received,
                   (const uint8_t *)data, len,
                   on_fetch_write_done, fc);
+  if (werr != xErrno_Ok) {
+    XDEBUGL0("on_http_data: cache_write FAILED rc=%d rid=%s clip=%s",
+             werr, fc->rid, fc->clip_id);
+    return 0; /* don't abort — just skip this chunk */
+  }
+  fc->pending_writes++;
   fc->received += len;
   return 0;
 }
@@ -95,11 +100,22 @@ static void on_http_done(xHttpCtx *ctx, void *arg) {
   struct fetch_ctx *fc = (struct fetch_ctx *)arg;
   fc->all_received = 1;
   XDEBUGL0("http_done: pending=%d all_recv=1", fc->pending_writes);
+
+  /* For full segment fetch (no Range, fc->len == 0), set the clip's
+   * total size so the last block's size is recalculated and can be
+   * marked as done.  Without this, the last block stays 256KB and
+   * never gets marked done because only a fraction of its pieces
+   * are filled. */
+  if (fc->len == 0 && fc->received > 0) {
+    struct dlp_ctx *c = (struct dlp_ctx *)fc->h->ctx;
+    dlp_cache_set_file_size(c->cache, fc->rid, fc->clip_id, fc->received);
+  }
+
   /* If no pending writes, publish now directly */
   if (fc->pending_writes == 0) {
     struct dlp_ctx *c = (struct dlp_ctx *)fc->h->ctx;
-    char key[128];
-    snprintf(key, sizeof(key), "%s", fc->rid);
+    char key[192];
+    snprintf(key, sizeof(key), "%s:%s", fc->rid, fc->clip_id);
     dlp_bus_publish(c->bus, key);
     if (fc->task && fc->task->sched && fc->task->sched->on_block_done)
       fc->task->sched->on_block_done(fc->task, fc->offset, fc->received);
@@ -160,4 +176,49 @@ xErrno dlp_http_fetch(dlp_http_t h, const char *rid,
   xErrno rv = xHttpClientDo(h->client, &conf, fc);
   XDEBUGL0("FETCH_DONE: rc=%d", rv);
   return rv;
+}
+
+xErrno dlp_http_fetch_full(dlp_http_t h, const char *rid,
+                            const char *clip_id, const char *url,
+                            struct dlp_task *task) {
+  if (!h || !rid || !url) return xErrno_InvalidArg;
+
+  XDEBUGL0("FETCH_FULL: rid=%s url=%s", rid, url);
+
+  struct fetch_ctx *fc = (struct fetch_ctx *)calloc(1, sizeof(*fc));
+  if (!fc) return xErrno_NoMemory;
+  fc->h      = h;
+  fc->task   = task;
+  fc->offset = 0;
+  fc->len    = 0;
+  snprintf(fc->rid, sizeof(fc->rid), "%s", rid);
+  snprintf(fc->clip_id, sizeof(fc->clip_id), "%s", clip_id ? clip_id : "0");
+
+  xHttpRequestConf conf = {0};
+  conf.method         = xHttpMethod_GET;
+  conf.url            = url;
+  conf.on_response    = on_http_response;
+  conf.on_data        = on_http_data;
+  conf.on_done        = on_http_done;
+  conf.timeout_ms     = 30000;
+
+  xErrno rv = xHttpClientDo(h->client, &conf, fc);
+  XDEBUGL0("FETCH_FULL_DONE: rc=%d", rv);
+  return rv;
+}
+
+xErrno dlp_http_fetch_text(dlp_http_t h, const char *url,
+                            int (*on_data)(const char *data, size_t len, void *arg),
+                            void (*on_done)(xHttpCtx *ctx, void *arg),
+                            void *arg) {
+  if (!h || !url) return xErrno_InvalidArg;
+
+  xHttpRequestConf conf = {0};
+  conf.method     = xHttpMethod_GET;
+  conf.url        = url;
+  conf.on_data    = on_data;
+  conf.on_done    = on_done;
+  conf.timeout_ms = 30000;
+
+  return xHttpClientDo(h->client, &conf, arg);
 }

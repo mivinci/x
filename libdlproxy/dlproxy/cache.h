@@ -62,4 +62,9 @@ xErrno dlp_cache_set_file_size(dlp_cache_t c, const char *rid, const char *clip_
 int dlp_cache_is_ready(dlp_cache_t c, const char *rid, const char *clip_id,
                         uint64_t offset, size_t len);
 
+/**
+ * @brief Get the total file size for a clip (0 if unknown).
+ */
+uint64_t dlp_cache_get_size(dlp_cache_t c, const char *rid, const char *clip_id);
+
 #endif

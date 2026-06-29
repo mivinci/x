@@ -303,7 +303,7 @@ xErrno dlp_cache_open_clip(dlp_cache_t c, const char *rid, const char *clip_id, 
   cl->fd = open(path, O_RDWR | O_CREAT, 0644);
   if (cl->fd < 0) { free(cl->blocks); free(cl); return xErrno_SysError; }
 
-  xMapSet(r->clips, clip_id, cl);
+  xMapSet(r->clips, strdup(clip_id), cl);
 
   /* Try to load persisted bitmap from .meta file */
   meta_load(cl, r->dir);
@@ -501,4 +501,10 @@ int dlp_cache_is_ready(dlp_cache_t c, const char *rid, const char *clip_id,
     pos += (DL_BLOCK_SIZE - boff);
   }
   return 1;
+}
+
+uint64_t dlp_cache_get_size(dlp_cache_t c, const char *rid, const char *clip_id) {
+  struct dlp_clip *cl = cache_find_clip(c, rid, clip_id);
+  if (!cl) return 0;
+  return cl->total_size;
 }

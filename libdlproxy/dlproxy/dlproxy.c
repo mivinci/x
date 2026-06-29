@@ -100,16 +100,22 @@ dlp_task_t dlp_task_create(dlp_ctx_t ctx, const dlp_task_conf_t *conf) {
   snprintf(t->rid, sizeof(t->rid), "%s", conf->rid);
   snprintf(t->url, sizeof(t->url), "%s", conf->url);
   t->ctx          = c;
+  t->format       = conf->format;
   t->emergency_ms = c->conf.emergency_ms;
   t->safe_ms      = c->conf.safe_ms;
   t->bitrate      = conf->bitrate ? conf->bitrate : 500 * 1024;
-  t->sched        = &dlp_sched_mp4; /* default 500KB/s */
+  t->sched        = (conf->format == DLP_FMT_HLS) ? &dlp_sched_hls : &dlp_sched_mp4;
+  t->downloading_off = (uint64_t)-1;
+  t->downloading_seg = (uint32_t)-1;
 
   /* Store mapping and open cache */
   xMapSet(c->url_map, t->rid, strdup(t->url));
   xMapSet(c->task_map, t->rid, t);
   dlp_cache_open_resource(c->cache, t->rid);
-  dlp_cache_open_clip(c->cache, t->rid, "0", conf->size);
+  if (t->format != DLP_FMT_HLS) {
+    /* MP4: open clip "0" immediately. HLS: clips opened per-segment. */
+    dlp_cache_open_clip(c->cache, t->rid, "0", conf->size);
+  }
 
   XDEBUGL0("task created rid=%s url=%s size=%llu",
           conf->rid, conf->url, (unsigned long long)conf->size);
@@ -131,10 +137,22 @@ xErrno dlp_task_start(dlp_task_t task) {
   t->running     = true;
   t->was_pulling = false;
   t->downloading_off = (uint64_t)-1;  /* no download in progress */
+  t->downloading_seg = (uint32_t)-1;
+
+  /* Enter event loop for timer creation — dlp_task_start may be called
+   * before dlp_run() enters the loop. Without this, xTimerStart uses
+   * xEventLoopCurrent() which returns NULL and the timer never fires. */
+  xEventLoopEnter(t->ctx->loop);
 
   /* Start 1-second scheduling timer */
   t->tick_timer = xTimerStart(on_tick, t, DL_TICK_MS, DL_TICK_MS);
+
+  xEventLoopLeave();
+
   if (!t->tick_timer) return xErrno_SysError;
+
+  /* Call scheduler on_start */
+  if (t->sched && t->sched->on_start) t->sched->on_start(t);
 
   XDEBUGL0("task started rid=%s", t->rid);
   return xErrno_Ok;
@@ -145,6 +163,7 @@ xErrno dlp_task_stop(dlp_task_t task) {
   struct dlp_task *t = (struct dlp_task *)task;
 
   t->running = false;
+  if (t->sched && t->sched->on_stop) t->sched->on_stop(t);
   if (t->tick_timer) {
     xTimerStop(t->tick_timer);
     t->tick_timer = NULL;
@@ -170,5 +189,6 @@ void dlp_task_destroy(dlp_task_t task) {
   char *url = (char *)xMapDel(c->url_map, t->rid);
   if (url) free(url);
   if (t->dl_client) xHttpClientDestroy(t->dl_client);
+  if (t->playlist) hls_playlist_free(t->playlist);
   free(t);
 }

@@ -21,12 +21,19 @@ XDEF_ENUM(dlp_mode_t) {
   DL_MODE_DETACHED,   /**< Background thread runs the event loop            */
 };
 
+/** Streaming format. */
+XDEF_ENUM(dlp_format_t) {
+  DLP_FMT_MP4,       /**< Single-file MP4, byte-range streaming (default)   */
+  DLP_FMT_HLS,       /**< HLS VOD, segment-based streaming                   */
+};
+
 /** Per-task configuration. */
 XDEF_STRUCT(dlp_task_conf_t) {
-  const char *rid;    /**< Resource identifier (used in player URL path)    */
-  const char *url;    /**< Upstream CDN URL for the resource                */
-  uint64_t    size;   /**< Total file size in bytes, or 0 if unknown        */
-  uint32_t    bitrate; /**< Estimated bitrate in bytes/sec (0 = auto)       */
+  const char     *rid;    /**< Resource identifier (used in player URL path)    */
+  const char     *url;    /**< Upstream CDN URL for the resource                */
+  uint64_t        size;   /**< Total file size in bytes, or 0 if unknown        */
+  uint32_t        bitrate; /**< Estimated bitrate in bytes/sec (0 = auto)       */
+  dlp_format_t    format;  /**< Streaming format (default DLP_FMT_MP4)           */
 };
 
 /** Global configuration. */

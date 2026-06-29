@@ -11,7 +11,9 @@ add_subdirectory(examples)
 
 # ── Tests ─────────────────────────────────────────────────────────
 if(X_BUILD_TESTS)
-  add_executable(dlproxy_test dlproxy/cache_test.cpp)
+  add_executable(dlproxy_test
+    dlproxy/cache_test.cpp
+    dlproxy/m3u8_test.cpp)
   target_link_libraries(dlproxy_test PRIVATE dlproxy GTest::gtest GTest::gtest_main)
   target_include_directories(dlproxy_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   target_include_directories(dlproxy_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/dlproxy")

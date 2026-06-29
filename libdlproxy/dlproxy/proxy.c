@@ -40,9 +40,11 @@ struct proxy_req {
   xHttpCtx *http_ctx;
   dlp_ctx_t dlp;
   char      rid[64];
+  char      clip_id[32];   /* "0" for MP4, "<seq>" for HLS */
   uint64_t  offset;
   size_t    length;
   int       has_range;
+  int       content_type;  /* 0=mp4, 1=m3u8, 2=ts */
 };
 
 /* ── Cache-read completion callback ── */
@@ -55,13 +57,22 @@ struct read_done_ctx {
   size_t    length;
   uint64_t  offset;
   int       has_range;
+  int       content_type;
 };
+
+static const char *content_type_str(int ct) {
+  switch (ct) {
+  case 1: return "application/vnd.apple.mpegurl";
+  case 2: return "video/mp2t";
+  default: return "video/mp4";
+  }
+}
 
 static void on_cache_read_done(xErrno err, void *arg) {
   struct read_done_ctx *p = (struct read_done_ctx *)arg;
   if (err == xErrno_Ok && p->length > 0) {
     xHttpCtxSetStatus(p->http_ctx, p->has_range ? 206 : 200);
-    xHttpCtxSetHeader(p->http_ctx, "Content-Type", "video/mp4");
+    xHttpCtxSetHeader(p->http_ctx, "Content-Type", content_type_str(p->content_type));
     xHttpCtxSetHeader(p->http_ctx, "Accept-Ranges", "bytes");
     xHttpCtxSetHeader(p->http_ctx, "Access-Control-Allow-Origin", "*");
     if (p->has_range) {
@@ -118,8 +129,9 @@ static void on_chunk_ready(void *arg) {
   rd->length    = len;
   rd->offset    = pr->offset;
   rd->has_range = pr->has_range;
+  rd->content_type = pr->content_type;
 
-  dlp_cache_read(c->cache, pr->rid, "0", pr->offset, buf, len,
+  dlp_cache_read(c->cache, pr->rid, pr->clip_id, pr->offset, buf, len,
                   on_cache_read_done, rd);
 
   free(pr);
@@ -227,6 +239,7 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
     rd->length    = length;
     rd->offset    = range_start;
     rd->has_range = has_range;
+    rd->content_type = 0; /* mp4 */
     dlp_cache_read(c->cache, rid_buf, "0", range_start, buf, length,
                     on_cache_read_done, rd);
     return 0;  /* no response sent yet — on_cache_read_done will send */
@@ -247,9 +260,13 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
   pr->offset    = range_start;
   pr->length    = length;
   pr->has_range = has_range;
+  pr->content_type = 0; /* mp4 */
   snprintf(pr->rid, sizeof(pr->rid), "%s", rid_buf);
+  snprintf(pr->clip_id, sizeof(pr->clip_id), "0");
 
-  dlp_bus_subscribe(c->bus, rid_buf, on_chunk_ready, pr);
+  char bus_key[192];
+  snprintf(bus_key, sizeof(bus_key), "%s:0", rid_buf);
+  dlp_bus_subscribe(c->bus, bus_key, on_chunk_ready, pr);
 
   /* Re-check cache — may have become ready since initial check */
   if (dlp_cache_is_ready(c->cache, rid_buf, "0", range_start, length)) {
@@ -262,6 +279,232 @@ static int serve_range(xHttpCtx *http_ctx, void *arg) {
   task->sched->on_tick(task);
 
   return 0;  /* no response sent — on_chunk_ready will send via bus */
+}
+
+/* ── Forward declarations for HLS handlers ── */
+
+static void serve_m3u8(xHttpCtx *http_ctx, struct dlp_task *task,
+                       struct dlp_ctx *c);
+static void serve_segment(xHttpCtx *http_ctx, struct dlp_task *task,
+                          struct dlp_ctx *c, uint32_t seq,
+                          const char *clip_id);
+
+/* ── HLS dispatch handler (m3u8 + segment) ── */
+
+static void serve_hls(xHttpCtx *http_ctx, void *arg) {
+  dlp_ctx_t dlp = (dlp_ctx_t)arg;
+  struct dlp_ctx *c = (struct dlp_ctx *)dlp;
+
+  if (strcmp(http_ctx->method, "GET") != 0) {
+    xHttpCtxSetStatus(http_ctx, 405);
+    xHttpCtxSend(http_ctx, "only GET\n", 9);
+    return;
+  }
+
+  size_t  rid_len = 0;
+  const char *rid = xHttpCtxParam(http_ctx, "rid", &rid_len);
+  size_t  seg_len = 0;
+  const char *seg = xHttpCtxParam(http_ctx, "seg", &seg_len);
+
+  if (!rid || rid_len == 0 || !seg || seg_len == 0) {
+    xHttpCtxSetStatus(http_ctx, 404);
+    xHttpCtxSend(http_ctx, "missing rid or seg\n", 19);
+    return;
+  }
+
+  char rid_buf[64];
+  snprintf(rid_buf, sizeof(rid_buf), "%.*s", (int)rid_len, rid);
+
+  struct dlp_task *task = (struct dlp_task *)xMapGet(c->task_map, rid_buf);
+  if (!task || task->format != DLP_FMT_HLS) {
+    xHttpCtxSetStatus(http_ctx, 404);
+    xHttpCtxSend(http_ctx, "unknown hls task\n", 17);
+    return;
+  }
+
+  /* Dispatch: playlist.m3u8 → m3u8 serving; <N>.ts → segment serving */
+  char seg_buf[64];
+  snprintf(seg_buf, sizeof(seg_buf), "%.*s", (int)seg_len, seg);
+
+  if (strcmp(seg_buf, "playlist.m3u8") == 0) {
+    serve_m3u8(http_ctx, task, c);
+  } else {
+    /* Strip .ts suffix and parse segment number */
+    size_t slen = strlen(seg_buf);
+    if (slen < 4 || strcmp(seg_buf + slen - 3, ".ts") != 0) {
+      xHttpCtxSetStatus(http_ctx, 404);
+      xHttpCtxSend(http_ctx, "not a ts segment\n", 17);
+      return;
+    }
+    seg_buf[slen - 3] = '\0'; /* strip .ts */
+    uint32_t seq = (uint32_t)strtoul(seg_buf, NULL, 10);
+    serve_segment(http_ctx, task, c, seq, seg_buf);
+  }
+}
+
+/* ── HLS m3u8 serving ── */
+
+static void serve_m3u8(xHttpCtx *http_ctx, struct dlp_task *task,
+                       struct dlp_ctx *c) {
+  (void)c;
+
+  /* If playlist not yet fetched, defer — trigger scheduler tick */
+  if (!task->playlist_fetched || !task->playlist) {
+    XDEBUGL0("m3u8: playlist not ready, triggering fetch");
+    if (task->running && task->sched && task->sched->on_tick)
+      task->sched->on_tick(task);
+    xHttpCtxSetStatus(http_ctx, 503);
+    xHttpCtxSend(http_ctx, "playlist not ready\n", 19);
+    return;
+  }
+
+  /* Build rewritten m3u8: replace segment URIs with ./<seq>.ts */
+  struct hls_playlist *pl = task->playlist;
+  size_t  cap = 4096;
+  size_t  len = 0;
+  char   *m3u8 = (char *)malloc(cap);
+  if (!m3u8) {
+    xHttpCtxSetStatus(http_ctx, 503);
+    xHttpCtxSend(http_ctx, "out of memory\n", 14);
+    return;
+  }
+
+#define APPEND(s, n) do { \
+    if (len + (n) + 1 > cap) { \
+      while (len + (n) + 1 > cap) cap *= 2; \
+      char *nb = (char *)realloc(m3u8, cap); \
+      if (!nb) { free(m3u8); xHttpCtxSetStatus(http_ctx, 503); \
+        xHttpCtxSend(http_ctx, "oom\n", 4); return; } \
+      m3u8 = nb; \
+    } \
+    memcpy(m3u8 + len, (s), (n)); len += (n); \
+  } while (0)
+
+  APPEND("#EXTM3U\n", 7);
+  {
+    char line[64];
+    int nl = snprintf(line, sizeof(line), "#EXT-X-VERSION:%u\n", pl->version);
+    APPEND(line, nl);
+    nl = snprintf(line, sizeof(line), "#EXT-X-TARGETDURATION:%u\n", pl->target_duration);
+    APPEND(line, nl);
+    nl = snprintf(line, sizeof(line), "#EXT-X-MEDIA-SEQUENCE:%u\n", pl->media_seq);
+    APPEND(line, nl);
+  }
+
+  for (size_t i = 0; i < pl->segment_count; i++) {
+    struct hls_segment *seg = &pl->segments[i];
+    char line[128];
+    int nl = snprintf(line, sizeof(line), "#EXTINF:%.3f,\n", seg->duration);
+    APPEND(line, nl);
+
+    if (seg->has_byterange) {
+      nl = snprintf(line, sizeof(line), "#EXT-X-BYTERANGE:%llu@%llu\n",
+                    (unsigned long long)seg->byte_length,
+                    (unsigned long long)seg->byte_offset);
+      APPEND(line, nl);
+    }
+
+    nl = snprintf(line, sizeof(line), "./%u.ts\n", seg->seq);
+    APPEND(line, nl);
+  }
+
+  if (pl->is_vod) {
+    APPEND("#EXT-X-ENDLIST\n", 15);
+  }
+#undef APPEND
+
+  xHttpCtxSetStatus(http_ctx, 200);
+  xHttpCtxSetHeader(http_ctx, "Content-Type", "application/vnd.apple.mpegurl");
+  xHttpCtxSetHeader(http_ctx, "Access-Control-Allow-Origin", "*");
+  xHttpCtxSend(http_ctx, m3u8, len);
+  free(m3u8);
+}
+
+/* ── HLS segment serving ── */
+
+static void serve_segment(xHttpCtx *http_ctx, struct dlp_task *task,
+                          struct dlp_ctx *c, uint32_t seq,
+                          const char *clip_id) {
+  /* Update player position */
+  task->read_segment = seq;
+
+  /* Determine segment size for readiness check and read */
+  size_t seg_size = 1; /* default: just check 1 byte for readiness */
+  struct hls_segment *seg = NULL;
+  if (task->playlist && seq < task->playlist->segment_count) {
+    seg = &task->playlist->segments[seq];
+    if (seg->has_byterange) {
+      seg_size = (size_t)seg->byte_length;
+    }
+  }
+
+  /* Get actual cached size (set by dlp_cache_set_file_size after download) */
+  uint64_t clip_size = dlp_cache_get_size(c->cache, task->rid, clip_id);
+  size_t read_len = clip_size > 0 ? (size_t)clip_size : seg_size;
+  if (read_len == 1 && seg && seg->has_byterange) {
+    read_len = (size_t)seg->byte_length;
+  }
+
+  /* Cache hit? */
+  if (dlp_cache_is_ready(c->cache, task->rid, clip_id, 0, seg_size)) {
+    uint8_t *buf = (uint8_t *)malloc(read_len);
+    if (!buf) {
+      xHttpCtxSetStatus(http_ctx, 503);
+      xHttpCtxSend(http_ctx, "out of memory\n", 14);
+      return;
+    }
+
+    struct read_done_ctx *rd = (struct read_done_ctx *)malloc(sizeof(*rd));
+    if (!rd) {
+      free(buf);
+      xHttpCtxSetStatus(http_ctx, 503);
+      xHttpCtxSend(http_ctx, "out of memory\n", 14);
+      return;
+    }
+    rd->http_ctx  = http_ctx;
+    rd->dlp       = (dlp_ctx_t)c;
+    snprintf(rd->rid, sizeof(rd->rid), "%s", task->rid);
+    rd->buf       = buf;
+    rd->length    = read_len;
+    rd->offset    = 0;
+    rd->has_range = 0;
+    rd->content_type = 2; /* ts */
+    dlp_cache_read(c->cache, task->rid, clip_id, 0, buf, read_len,
+                    on_cache_read_done, rd);
+    return;
+  }
+
+  /* Cache miss — defer */
+  XDEBUGL0("seg MISS: rid=%s seq=%u — deferring", task->rid, seq);
+
+  struct proxy_req *pr = (struct proxy_req *)calloc(1, sizeof(*pr));
+  if (!pr) {
+    xHttpCtxSetStatus(http_ctx, 503);
+    xHttpCtxSend(http_ctx, "out of memory\n", 14);
+    return;
+  }
+  pr->http_ctx  = http_ctx;
+  pr->dlp       = (dlp_ctx_t)c;
+  pr->offset    = 0;
+  pr->length    = read_len;
+  pr->has_range = 0;
+  pr->content_type = 2; /* ts */
+  snprintf(pr->rid, sizeof(pr->rid), "%s", task->rid);
+  snprintf(pr->clip_id, sizeof(pr->clip_id), "%s", clip_id);
+
+  char bus_key[192];
+  snprintf(bus_key, sizeof(bus_key), "%s:%s", task->rid, clip_id);
+  dlp_bus_subscribe(c->bus, bus_key, on_chunk_ready, pr);
+
+  /* Re-check cache */
+  if (dlp_cache_is_ready(c->cache, task->rid, clip_id, 0, seg_size)) {
+    on_chunk_ready(pr);
+    return;
+  }
+
+  /* Trigger scheduler */
+  if (task->running && task->sched && task->sched->on_tick)
+    task->sched->on_tick(task);
 }
 
 /* ── Lifecycle ── */
@@ -287,6 +530,14 @@ dlp_proxy_t dlp_proxy_init(dlp_ctx_t ctx, xEventLoop loop, uint16_t port) {
   rc.on_request = serve_range;
   rc.arg        = ctx;
   xHttpMuxHandle(p->mux, &rc);
+
+  /* HLS route — single :seg parameter, dispatch by content inside handler.
+   * Use on_done (not on_request) because handlers call xHttpCtxSend directly. */
+  xHttpRouteConf rc_hls = {0};
+  rc_hls.pattern    = "GET /:rid/:seg";
+  rc_hls.on_done    = serve_hls;
+  rc_hls.arg        = ctx;
+  xHttpMuxHandle(p->mux, &rc_hls);
 
   xHttpServerConf sc = {0};
   sc.resolve = xHttpMuxResolve;

@@ -21,4 +21,14 @@ xErrno dlp_http_fetch(dlp_http_t h, const char *rid, const char *clip_id,
                        const char *url, uint64_t offset, size_t len,
                        struct dlp_task *task);
 
+/** Issue an HTTP GET without Range header (full content). @p task is optional. */
+xErrno dlp_http_fetch_full(dlp_http_t h, const char *rid, const char *clip_id,
+                            const char *url, struct dlp_task *task);
+
+/** Fetch a URL and return the response body to @p on_data/@p on_done callbacks. */
+xErrno dlp_http_fetch_text(dlp_http_t h, const char *url,
+                            int (*on_data)(const char *data, size_t len, void *arg),
+                            void (*on_done)(xHttpCtx *ctx, void *arg),
+                            void *arg);
+
 #endif
