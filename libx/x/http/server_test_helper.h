@@ -15,9 +15,7 @@
 #include <cstring>
 #include <string>
 
-extern "C" {
 #include <x/http/server.h>
-}
 
 #include <x/base/test_helper.h>
 

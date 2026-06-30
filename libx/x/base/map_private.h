@@ -58,7 +58,7 @@ XDEF_STRUCT(xMapBase) {
  * @param eq   Equality function.
  * @return Opaque xMap handle, or NULL on failure.
  */
-xMap xMapHashCreate(size_t cap, xMapHashFunc hash, xMapEqFunc eq);
+XCAPI(xMap) xMapHashCreate(size_t cap, xMapHashFunc hash, xMapEqFunc eq);
 
 /**
  * @brief Create an open-addressing (linear probing) hash map.
@@ -67,7 +67,7 @@ xMap xMapHashCreate(size_t cap, xMapHashFunc hash, xMapEqFunc eq);
  * @param eq   Equality function.
  * @return Opaque xMap handle, or NULL on failure.
  */
-xMap xMapFlatCreate(size_t cap, xMapHashFunc hash, xMapEqFunc eq);
+XCAPI(xMap) xMapFlatCreate(size_t cap, xMapHashFunc hash, xMapEqFunc eq);
 
 /**
  * @brief Create a red-black tree map.
@@ -76,6 +76,6 @@ xMap xMapFlatCreate(size_t cap, xMapHashFunc hash, xMapEqFunc eq);
  * @param eq   Equality function (used for collision resolution).
  * @return Opaque xMap handle, or NULL on failure.
  */
-xMap xMapTreeCreate(size_t cap, xMapHashFunc hash, xMapEqFunc eq);
+XCAPI(xMap) xMapTreeCreate(size_t cap, xMapHashFunc hash, xMapEqFunc eq);
 
 #endif /* XBASE_MAP_PRIVATE_H */

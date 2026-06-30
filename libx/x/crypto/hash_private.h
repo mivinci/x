@@ -18,10 +18,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* ═══════════════════════════════════════════════════════════════════
  *  Hash algorithm vtable
  * ═══════════════════════════════════════════════════════════════════ */
@@ -46,9 +42,5 @@ XDEF_STRUCT(xHashVtable) {
   xErrno (*update)(void *ctx_buf, const uint8_t *data, size_t len);
   xErrno (*final)(void *ctx_buf, uint8_t *digest);
 };
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* XCRYPTO_HASH_PRIVATE_H */

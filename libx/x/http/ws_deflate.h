@@ -55,7 +55,7 @@ xWsDeflateCtx *xWsDeflateCreate(const xWsDeflateParams *params, int is_client);
  *
  * @param ctx  Context to destroy (may be NULL).
  */
-void xWsDeflateDestroy(xWsDeflateCtx *ctx);
+XCAPI(void) xWsDeflateDestroy(xWsDeflateCtx *ctx);
 
 /**
  * Compress a message payload.
@@ -71,7 +71,7 @@ void xWsDeflateDestroy(xWsDeflateCtx *ctx);
  * @param out_len   Receives compressed length.
  * @return 0 on success, -1 on error.
  */
-int xWsDeflateCompress(xWsDeflateCtx *ctx, const uint8_t *in, size_t in_len, uint8_t **out,
+XCAPI(int) xWsDeflateCompress(xWsDeflateCtx *ctx, const uint8_t *in, size_t in_len, uint8_t **out,
                        size_t *out_len);
 
 /**
@@ -88,7 +88,7 @@ int xWsDeflateCompress(xWsDeflateCtx *ctx, const uint8_t *in, size_t in_len, uin
  * @param out_len   Receives decompressed length.
  * @return 0 on success, -1 on error.
  */
-int xWsDeflateDecompress(xWsDeflateCtx *ctx, const uint8_t *in, size_t in_len, uint8_t **out,
+XCAPI(int) xWsDeflateDecompress(xWsDeflateCtx *ctx, const uint8_t *in, size_t in_len, uint8_t **out,
                          size_t *out_len);
 
 /**
@@ -100,7 +100,7 @@ int xWsDeflateDecompress(xWsDeflateCtx *ctx, const uint8_t *in, size_t in_len, u
  * @param params    Output parameters.
  * @return 0 if permessage-deflate was found, -1 otherwise.
  */
-int xWsDeflateParseOffer(const char *value, size_t value_len, xWsDeflateParams *params);
+XCAPI(int) xWsDeflateParseOffer(const char *value, size_t value_len, xWsDeflateParams *params);
 
 /**
  * Build a Sec-WebSocket-Extensions header value for a client
@@ -110,7 +110,7 @@ int xWsDeflateParseOffer(const char *value, size_t value_len, xWsDeflateParams *
  * @param buf_sz   Buffer size.
  * @return Number of bytes written (excluding NUL), or -1.
  */
-int xWsDeflateBuildClientOffer(char *buf, size_t buf_sz);
+XCAPI(int) xWsDeflateBuildClientOffer(char *buf, size_t buf_sz);
 
 /**
  * Build a Sec-WebSocket-Extensions header value for a server
@@ -121,7 +121,7 @@ int xWsDeflateBuildClientOffer(char *buf, size_t buf_sz);
  * @param buf_sz   Buffer size.
  * @return Number of bytes written (excluding NUL), or -1.
  */
-int xWsDeflateBuildServerResponse(const xWsDeflateParams *params, char *buf, size_t buf_sz);
+XCAPI(int) xWsDeflateBuildServerResponse(const xWsDeflateParams *params, char *buf, size_t buf_sz);
 
 #endif /* XHTTP_WS_DEFLATE */
 #endif /* XHTTP_WS_DEFLATE_H */

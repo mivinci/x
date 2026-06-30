@@ -72,10 +72,10 @@ static inline int source_array_remove(struct xEventSourceArray_ *s, struct xEven
 }
 
 /* Non-inline implementations — see event_private.c */
-void                  source_array_free(struct xEventSourceArray_ *s);
-struct xEventSource_ *source_array_add(struct xEventSourceArray_ *s, int fd, xEventMask mask,
-                                       xEventFunc fn, void *arg);
-void                  source_array_sweep(struct xEventSourceArray_ *s);
+XCAPI(void) source_array_free(struct xEventSourceArray_ *s);
+XCAPI(struct xEventSource_ *) source_array_add(struct xEventSourceArray_ *s, int fd, xEventMask mask,
+                                                      xEventFunc fn, void *arg);
+XCAPI(void) source_array_sweep(struct xEventSourceArray_ *s);
 
 static inline struct xEventSource_ *source_array_find_fd(struct xEventSourceArray_ *s, int fd) {
   for (size_t i = 0; i < s->len; i++) {
@@ -297,10 +297,10 @@ static inline void loop_sweep(struct xEventLoop_ *loop) {
 }
 
 /* Non-inline implementations — see event_private.c */
-int  loop_run_timers(struct xEventLoop_ *loop);
-int  loop_run_done(struct xEventLoop_ *loop, int max_batch);
-void loop_cleanup_done(struct xEventLoop_ *loop);
-void loop_wait_inflight(struct xEventLoop_ *loop);
+XCAPI(int)  loop_run_timers(struct xEventLoop_ *loop);
+XCAPI(int)  loop_run_done(struct xEventLoop_ *loop, int max_batch);
+XCAPI(void) loop_cleanup_done(struct xEventLoop_ *loop);
+XCAPI(void) loop_wait_inflight(struct xEventLoop_ *loop);
 
 /* ───────────────────── Wake helpers ───────────────────── */
 
@@ -399,9 +399,11 @@ struct xEventBackend_ {
   xErrno (*signal)(struct xEventLoop_ *loop, int signo, xSignalFunc fn);
 };
 
-/* Declared by each backend (event_kqueue.c, event_epoll.c, etc.) */
-extern const struct xEventBackend_ g_kqueue_backend;
-extern const struct xEventBackend_ g_epoll_backend;
-extern const struct xEventBackend_ g_poll_backend;
+/* Declared by each backend (event_kqueue.c, event_epoll.c, etc.).
+ * XCAPI_LOCAL drops the explicit `extern` because the macro expands to
+ * `extern ...` itself. */
+XCAPI(const struct xEventBackend_) g_kqueue_backend;
+XCAPI(const struct xEventBackend_) g_epoll_backend;
+XCAPI(const struct xEventBackend_) g_poll_backend;
 
 #endif /* XBASE_EVENT_PRIVATE_H */

@@ -17,6 +17,7 @@
 #define XHTTP_WS_CRYPTO_H
 
 #include <stddef.h>
+#include <x/base/base.h>
 
 /** SHA-1 digest size in bytes. */
 #define XWS_SHA1_DIGEST_SIZE 20
@@ -28,7 +29,7 @@
  * @param len     Length of input in bytes.
  * @param output  Output buffer (must be >= XWS_SHA1_DIGEST_SIZE).
  */
-void xWsSHA1(const unsigned char *input, size_t len, unsigned char *output);
+XCAPI(void) xWsSHA1(const unsigned char *input, size_t len, unsigned char *output);
 
 /**
  * Base64-encode the input data.
@@ -41,6 +42,6 @@ void xWsSHA1(const unsigned char *input, size_t len, unsigned char *output);
  * @return         Number of characters written (excluding NUL),
  *                 or -1 on error (buffer too small).
  */
-int xWsBase64Encode(const unsigned char *input, size_t in_len, char *output, size_t out_len);
+XCAPI(int) xWsBase64Encode(const unsigned char *input, size_t in_len, char *output, size_t out_len);
 
 #endif /* XHTTP_WS_CRYPTO_H */

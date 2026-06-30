@@ -45,8 +45,9 @@ struct xLogFreeList_ {
   volatile int count;
 };
 
-/* Global freelist instance (defined in logger.c) */
-extern struct xLogFreeList_ g_entry_freelist;
+/* Global freelist instance (defined in logger.c). XCAPI_LOCAL drops the
+ * explicit `extern` because the macro itself expands to `extern ...`. */
+XCAPI(struct xLogFreeList_) g_entry_freelist;
 
 /* ── Logger instance ── */
 

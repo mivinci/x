@@ -9,6 +9,7 @@
 #include "proto_h1.h"
 #include "proto_h2.h"
 #include "server_private.h"
+#include "ws_private.h"
 #include <x/net/transport_private.h>
 
 #include <arpa/inet.h>
@@ -39,7 +40,7 @@ static void conn_dispatch_request(struct xHttpConn_ *conn);
 static int  conn_write_ready(struct xHttpConn_ *conn);
 static void conn_after_response(struct xHttpConn_ *conn);
 static void conn_try_flush(struct xHttpConn_ *conn);
-int         xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
+/* xHttpConnFlushWriteInternal is declared in server_private.h. */
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  HTTP status reason phrases
@@ -411,14 +412,11 @@ void xHttpServerDestroy(xHttpServer server) {
   if (!server) return;
   struct xHttpServer_ *s = (struct xHttpServer_ *)server;
 
-  /* Close all active WebSocket connections */
-  {
-    extern void xWsConnClose(struct xWsConn_ * conn, uint16_t code, const char *reason, size_t len);
-    extern void xWsConnDestroy(struct xWsConn_ * conn);
-    while (s->ws_conns) {
-      xWsConnClose(s->ws_conns, 1001, NULL, 0);
-      xWsConnDestroy(s->ws_conns);
-    }
+  /* Close all active WebSocket connections. xWsConnClose/Destroy are
+   * declared in ws_private.h (included via server_private.h). */
+  while (s->ws_conns) {
+    xWsConnClose(s->ws_conns, 1001, NULL, 0);
+    xWsConnDestroy(s->ws_conns);
   }
 
   /* Close all active connections */

@@ -116,7 +116,7 @@ XDEF_STRUCT(xWsFrameParser) {
  * @param expect_masked  1 for server mode (expect masked frames),
  *                       0 for client mode (expect unmasked).
  */
-void xWsFrameParserInit(xWsFrameParser *parser, int expect_masked);
+XCAPI(void) xWsFrameParserInit(xWsFrameParser *parser, int expect_masked);
 
 /**
  * Reset the parser for the next frame (after a successful parse).
@@ -125,7 +125,7 @@ void xWsFrameParserInit(xWsFrameParser *parser, int expect_masked);
  *
  * @param parser  Parser state to reset.
  */
-void xWsFrameParserReset(xWsFrameParser *parser);
+XCAPI(void) xWsFrameParserReset(xWsFrameParser *parser);
 
 /**
  * Attempt to parse a complete frame from the I/O buffer.
@@ -144,7 +144,7 @@ void xWsFrameParserReset(xWsFrameParser *parser);
  * @param io      I/O buffer containing incoming data.
  * @return Parse result.
  */
-xWsFrameResult xWsFrameParse(xWsFrameParser *parser, xIOBuffer *io);
+XCAPI(xWsFrameResult) xWsFrameParse(xWsFrameParser *parser, xIOBuffer *io);
 
 /**
  * Encode a WebSocket frame and append it to the I/O buffer.
@@ -161,7 +161,7 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser, xIOBuffer *io);
  * @param masked       Non-zero to mask the frame (client mode).
  * @return 0 on success, -1 on error (OOM).
  */
-int xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode, const void *payload,
+XCAPI(int) xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode, const void *payload,
                    size_t payload_len, int masked);
 
 /**
@@ -179,7 +179,7 @@ int xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode, const void *paylo
  * @param masked       Non-zero to mask the frame.
  * @return 0 on success, -1 on error.
  */
-int xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1, uint8_t opcode, const void *payload,
+XCAPI(int) xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1, uint8_t opcode, const void *payload,
                      size_t payload_len, int masked);
 
 /**
@@ -193,6 +193,6 @@ int xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1, uint8_t opcode, c
  * @param masked  Non-zero to mask the frame (client mode).
  * @return 0 on success, -1 on error.
  */
-int xWsFrameEncodeClose(xIOBuffer *io, uint16_t code, const char *reason, size_t len, int masked);
+XCAPI(int) xWsFrameEncodeClose(xIOBuffer *io, uint16_t code, const char *reason, size_t len, int masked);
 
 #endif /* XHTTP_WS_FRAME_H */

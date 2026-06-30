@@ -11,6 +11,7 @@
 
 #include "ice_candidate.h"
 #include "ice_private.h"
+#include <x/base/base.h>
 
 /** Maximum SDP string length. */
 #define XSDP_MAX_SIZE 4096
@@ -65,7 +66,7 @@ XDEF_STRUCT(xIceSdp) {
  * @param out_cap     Output buffer capacity.
  * @return            Length of encoded SDP, or -1 on error.
  */
-int xIceSdpEncode(const char *ufrag, const char *pwd, const xIceCandidate *candidates,
+XCAPI(int) xIceSdpEncode(const char *ufrag, const char *pwd, const xIceCandidate *candidates,
                   int cand_count, bool trickle, char *out, size_t out_cap);
 
 /**
@@ -76,7 +77,7 @@ int xIceSdpEncode(const char *ufrag, const char *pwd, const xIceCandidate *candi
  * @param out      Output parsed SDP.
  * @return         xErrno_Ok on success.
  */
-xErrno xIceSdpDecode(const char *sdp_str, size_t sdp_len, xIceSdp *out);
+XCAPI(xErrno) xIceSdpDecode(const char *sdp_str, size_t sdp_len, xIceSdp *out);
 
 /**
  * @brief Encode a single candidate line (for Trickle ICE).
@@ -86,7 +87,7 @@ xErrno xIceSdpDecode(const char *sdp_str, size_t sdp_len, xIceSdp *out);
  * @param cap   Buffer capacity.
  * @return      Length of encoded line, or -1 on error.
  */
-int xIceSdpEncodeCandidate(const xIceCandidate *cand, char *out, size_t cap);
+XCAPI(int) xIceSdpEncodeCandidate(const xIceCandidate *cand, char *out, size_t cap);
 
 /**
  * @brief Decode a single candidate line (for Trickle ICE).
@@ -95,7 +96,7 @@ int xIceSdpEncodeCandidate(const xIceCandidate *cand, char *out, size_t cap);
  * @param cand  Output candidate.
  * @return      xErrno_Ok on success.
  */
-xErrno xIceSdpDecodeCandidate(const char *line, xIceCandidate *cand);
+XCAPI(xErrno) xIceSdpDecodeCandidate(const char *line, xIceCandidate *cand);
 
 /**
  * @brief Encode a WebRTC-compatible SDP (with DTLS/SCTP/DataChannel).
@@ -116,7 +117,7 @@ xErrno xIceSdpDecodeCandidate(const char *line, xIceCandidate *cand);
  * @param out_cap      Output buffer capacity.
  * @return             Length of encoded SDP, or -1 on error.
  */
-int xIceSdpEncodeWebRTC(const char *ufrag, const char *pwd, const xIceCandidate *candidates,
+XCAPI(int) xIceSdpEncodeWebRTC(const char *ufrag, const char *pwd, const xIceCandidate *candidates,
                         int cand_count, bool trickle, const char *fingerprint, xIceSdpSetup setup,
                         const char *mid, uint16_t sctp_port, char *out, size_t out_cap);
 

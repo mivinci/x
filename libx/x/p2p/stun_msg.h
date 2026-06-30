@@ -12,6 +12,7 @@
 #include "ice_private.h"
 
 #include <stdint.h>
+#include <x/base/base.h>
 
 /**
  * @brief STUN message structure.
@@ -36,7 +37,7 @@ XDEF_STRUCT(xStunMsg) {
  * @param type    Message type.
  * @param txn_id  12-byte transaction ID (copied in).
  */
-void xStunMsgInit(xStunMsg *msg, xStunMsgType type, const uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
+XCAPI(void) xStunMsgInit(xStunMsg *msg, xStunMsgType type, const uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
 
 /**
  * @brief Encode a STUN message into a byte buffer.
@@ -50,7 +51,7 @@ void xStunMsgInit(xStunMsg *msg, xStunMsgType type, const uint8_t txn_id[XSTUN_T
  * @return         Total encoded length on success, or -1 if buffer
  *                 is too small.
  */
-int xStunMsgEncode(const xStunMsg *msg, uint8_t *buf, size_t buf_len);
+XCAPI(int) xStunMsgEncode(const xStunMsg *msg, uint8_t *buf, size_t buf_len);
 
 /**
  * @brief Decode a STUN message from a byte buffer.
@@ -63,7 +64,7 @@ int xStunMsgEncode(const xStunMsg *msg, uint8_t *buf, size_t buf_len);
  * @param buf_len  Length of input buffer in bytes.
  * @return         xErrno_Ok on success, or an error code.
  */
-xErrno xStunMsgDecode(xStunMsg *msg, const uint8_t *buf, size_t buf_len);
+XCAPI(xErrno) xStunMsgDecode(xStunMsg *msg, const uint8_t *buf, size_t buf_len);
 
 /**
  * @brief Check if a byte buffer looks like a STUN message.
@@ -75,7 +76,7 @@ xErrno xStunMsgDecode(xStunMsg *msg, const uint8_t *buf, size_t buf_len);
  * @param buf_len  Length of input buffer in bytes.
  * @return         true if the buffer appears to be a STUN message.
  */
-bool xStunMsgIsStun(const uint8_t *buf, size_t buf_len);
+XCAPI(bool) xStunMsgIsStun(const uint8_t *buf, size_t buf_len);
 
 /**
  * @brief Check if a STUN message type is a request.

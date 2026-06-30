@@ -5,9 +5,18 @@
  *
  * transport_private.h - Private transport initialization functions
  *
- * This header is intended for cross-module use within the moo project
+ * This header is intended for cross-module use within the libx project
  * (e.g. xhttp consuming xnet). It is NOT part of the public API and
  * should not be included by external users.
+ *
+ * NOTE: These functions are declared with XCAPI (not XCAPI_LOCAL) because
+ * they are called across module boundaries — e.g. xhttp calls
+ * xTransportPlainInit from server.c. Under -fvisibility=hidden,
+ * XCAPI_LOCAL would hide them inside libxnet.dylib and break cross-module
+ * linking. "Private but cross-module" symbols must be exported from their
+ * owning module's shared library so consumers can link against them.
+ * Privacy is enforced by convention (don't include this header from
+ * external code), not by visibility.
  */
 
 #ifndef XNET_TRANSPORT_PRIVATE_H
@@ -25,7 +34,7 @@
  * @param transport  Transport to initialize (must not be NULL).
  * @param fd         File descriptor for the connection.
  */
-void xTransportPlainInit(xTransport *transport, int fd);
+XCAPI(void) xTransportPlainInit(xTransport *transport, int fd);
 
 /**
  * Initialize a TLS server transport for the given file descriptor.
@@ -35,7 +44,7 @@ void xTransportPlainInit(xTransport *transport, int fd);
  * @param tls_ctx    Server TLS context from xTlsCtxCreate() (must not be NULL).
  * @param fd         File descriptor for the accepted connection.
  */
-void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd);
+XCAPI(void) xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd);
 
 /**
  * Initialize a TLS client transport for the given file descriptor.
@@ -48,6 +57,6 @@ void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd);
  * @param fd         File descriptor for the TCP connection.
  * @return           0 on success, -1 on error.
  */
-int xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx, const char *hostname, int fd);
+XCAPI(int) xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx, const char *hostname, int fd);
 
 #endif /* XNET_TRANSPORT_PRIVATE_H */

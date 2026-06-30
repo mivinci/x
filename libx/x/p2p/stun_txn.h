@@ -16,6 +16,7 @@
 #include "stun_msg.h"
 
 #include <netinet/in.h>
+#include <x/base/base.h>
 
 /* ───────────────────── Transaction Callback ───────────────────── */
 
@@ -86,12 +87,12 @@ XDEF_STRUCT(xStunTxnMgr) {
  * @param mgr   Manager to initialize.
  * @param loop  Event loop for timers.
  */
-void xStunTxnMgrInit(xStunTxnMgr *mgr);
+XCAPI(void) xStunTxnMgrInit(xStunTxnMgr *mgr);
 
 /**
  * @brief Clean up a transaction manager, cancelling all pending transactions.
  */
-void xStunTxnMgrDestroy(xStunTxnMgr *mgr);
+XCAPI(void) xStunTxnMgrDestroy(xStunTxnMgr *mgr);
 
 /**
  * @brief Send a STUN request and start a transaction.
@@ -110,7 +111,7 @@ void xStunTxnMgrDestroy(xStunTxnMgr *mgr);
  * @param cb_arg      Argument for on_complete.
  * @return            xErrno_Ok on success.
  */
-xErrno xStunTxnMgrSend(xStunTxnMgr *mgr, xStunMsgType msg_type, const uint8_t *attrs,
+XCAPI(xErrno) xStunTxnMgrSend(xStunTxnMgr *mgr, xStunMsgType msg_type, const uint8_t *attrs,
                        uint16_t attrs_len, const struct sockaddr *dest, xStunTxnSendFunc send_fn,
                        void *send_arg, xStunTxnFunc on_complete, void *cb_arg);
 
@@ -129,7 +130,7 @@ xErrno xStunTxnMgrSend(xStunTxnMgr *mgr, xStunMsgType msg_type, const uint8_t *a
  * @param cb_arg      Argument for on_complete.
  * @return            xErrno_Ok on success.
  */
-xErrno xStunTxnMgrSendRaw(xStunTxnMgr *mgr, const uint8_t *msg_buf, size_t msg_len,
+XCAPI(xErrno) xStunTxnMgrSendRaw(xStunTxnMgr *mgr, const uint8_t *msg_buf, size_t msg_len,
                           const struct sockaddr *dest, xStunTxnSendFunc send_fn, void *send_arg,
                           xStunTxnFunc on_complete, void *cb_arg);
 
@@ -147,12 +148,12 @@ xErrno xStunTxnMgrSendRaw(xStunTxnMgr *mgr, const uint8_t *msg_buf, size_t msg_l
  * @param from     Source address of the response.
  * @return         true if the response was matched to a transaction.
  */
-bool xStunTxnMgrOnResponse(xStunTxnMgr *mgr, const xStunMsg *msg, const uint8_t *raw_buf,
+XCAPI(bool) xStunTxnMgrOnResponse(xStunTxnMgr *mgr, const xStunMsg *msg, const uint8_t *raw_buf,
                            size_t raw_len, const struct sockaddr *from);
 
 /**
  * @brief Cancel all pending transactions.
  */
-void xStunTxnMgrCancelAll(xStunTxnMgr *mgr);
+XCAPI(void) xStunTxnMgrCancelAll(xStunTxnMgr *mgr);
 
 #endif /* XP2P_STUN_TXN_H */

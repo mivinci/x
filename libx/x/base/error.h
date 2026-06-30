@@ -40,6 +40,6 @@ XDEF_ENUM(xErrno){
  * @param err error code
  * @return error message string (never NULL)
  */
-const char *xstrerror(xErrno err);
+XCAPI(const char *) xstrerror(xErrno err);
 
 #endif // XBASE_ERROR_H

@@ -98,9 +98,9 @@ XDEF_STRUCT(xWsConn_) {
  * @param timeout_ms  Idle timeout in milliseconds.
  * @return            New xWsConn, or NULL on failure.
  */
-struct xWsConn_ *xWsConnCreate(struct xHttpServer_ *server, xEventLoop loop, xSocket sock,
-                               xTransport transport, const xWsCallbacks *callbacks, void *arg,
-                               int timeout_ms);
+XCAPI(struct xWsConn_ *) xWsConnCreate(struct xHttpServer_ *server, xEventLoop loop, xSocket sock,
+                                              xTransport transport, const xWsCallbacks *callbacks, void *arg,
+                                              int timeout_ms);
 
 /**
  * Destroy a WebSocket connection and free all resources.
@@ -110,7 +110,7 @@ struct xWsConn_ *xWsConnCreate(struct xHttpServer_ *server, xEventLoop loop, xSo
  *
  * @param conn  Connection to destroy.
  */
-void xWsConnDestroy(struct xWsConn_ *conn);
+XCAPI(void) xWsConnDestroy(struct xWsConn_ *conn);
 
 /**
  * Send a Close frame and begin the close handshake.
@@ -120,6 +120,6 @@ void xWsConnDestroy(struct xWsConn_ *conn);
  * @param reason  Optional reason string.
  * @param len     Length of reason.
  */
-void xWsConnClose(struct xWsConn_ *conn, uint16_t code, const char *reason, size_t len);
+XCAPI(void) xWsConnClose(struct xWsConn_ *conn, uint16_t code, const char *reason, size_t len);
 
 #endif /* XHTTP_WS_PRIVATE_H */

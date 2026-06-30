@@ -9,6 +9,8 @@ on:
       - '**.cpp'
       - '**/CMakeLists.txt'
       - '**.cmake'
+      - 'scripts/check-exports.sh'
+      - 'scripts/export-allowlist.txt'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
@@ -18,6 +20,8 @@ on:
       - '**.cpp'
       - '**/CMakeLists.txt'
       - '**.cmake'
+      - 'scripts/check-exports.sh'
+      - 'scripts/export-allowlist.txt'
       - '.github/workflows/ci.yml'
 
 jobs:
@@ -80,3 +84,49 @@ jobs:
         run: |
           rm -f build/CMakeCache.txt
           zsh scripts/test-mac.sh -t ${{ matrix.tls }} -j $(sysctl -n hw.ncpu) -B build --asan
+
+  # ── Symbol visibility check ───────────────────────────────────────────
+  # Verifies that X_BUILD_SHARED=ON produces a clean symbol table:
+  # only XCAPI-marked symbols (and allowlisted internal symbols) are exported.
+  export-check:
+    name: Symbol visibility (shared build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            libgtest-dev \
+            libnghttp2-dev \
+            libssl-dev \
+            libusrsctp-dev \
+            libcurl4-openssl-dev \
+            ninja-build
+
+      - name: Build with X_BUILD_SHARED=ON
+        run: |
+          cmake -B build-shared -G Ninja -DX_BUILD_SHARED=ON -DX_TLS_BACKEND=openssl
+          cmake --build build-shared -j $(nproc)
+
+      - name: Run tests
+        run: |
+          cd build-shared && ctest --output-on-failure --timeout 120
+
+      - name: Check exported symbols
+        run: |
+          FAIL=0
+          for lib in \
+            libx/x/base/libxbase \
+            libx/x/buf/libxbuf \
+            libx/x/net/libxnet \
+            libx/x/http/libxhttp \
+            libx/x/crypto/libxcrypto \
+            libx/x/dns/libxdns \
+            libx/x/fs/libxfs \
+            libdlproxy/libdlproxy; do
+            ./scripts/check-exports.sh "build-shared/${lib}.so" scripts/export-allowlist.txt || FAIL=1
+          done
+          exit $FAIL

@@ -18,6 +18,14 @@ include(cmake/Functions.cmake)
 option(X_BUILD_STATIC     "Build libx as static libraries"           OFF)
 option(X_BUILD_TESTS      "Build libx tests"                          ON)
 
+# X_BUILD_SHARED: When ON, enables symbol-visibility control (POSIX
+# -fvisibility=hidden) and Windows dllexport/dllimport machinery.
+# Default OFF to preserve byte-identical behavior with existing static
+# builds — turning ON requires all private symbols to be annotated
+# XCAPI_LOCAL (or kept as XCAPI if called from tests or other modules).
+# See: openspec/changes/establish-abi-export-conventions/
+option(X_BUILD_SHARED     "Build with explicit symbol export (shared-lib ABI)" OFF)
+
 set(X_TLS_BACKEND "auto" CACHE STRING "TLS backend: auto, openssl, mbedtls, none")
 set(X_DEBUG_LEVEL 0 CACHE STRING "Debug logging level (0-3, higher means more verbose)")
 
@@ -29,6 +37,29 @@ endif()
 
 # Pass debug level to libx C/C++ sources
 add_compile_definitions(X_DEBUG_LEVEL=${X_DEBUG_LEVEL})
+
+# When X_BUILD_SHARED is ON:
+#   1. Define X_BUILD_SHARED so headers see it (controls X_EXPORT/X_LOCAL
+#      macro expansions in base.h).
+#   2. Define X_BUILDING_LIB so headers switch X_EXPORT from dllimport
+#      to dllexport on Windows. On POSIX this is a no-op (visibility is
+#      controlled by -fvisibility=hidden + visibility attributes, not by
+#      X_BUILDING_LIB). Defined globally — on POSIX this is harmless.
+#      NOTE: On Windows with shared builds, X_BUILDING_LIB must only be
+#      defined on library targets (PRIVATE), not on test executables.
+#      Windows shared-build support is deferred until Windows CI is set up.
+#   3. Add -fvisibility=hidden so the default visibility is hidden; only
+#      XCAPI-marked symbols (which carry visibility("default")) become
+#      public. Without this flag, X_LOCAL/visibility("hidden") is a no-op
+#      and all symbols are exported — defeating the purpose of the
+#      XCAPI/XCAPI_LOCAL distinction.
+if(X_BUILD_SHARED)
+  add_compile_definitions(X_BUILD_SHARED X_BUILDING_LIB)
+  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-fvisibility=hidden)
+    message(STATUS "X_BUILD_SHARED=ON: symbol visibility control enabled (-fvisibility=hidden)")
+  endif()
+endif()
 
 if(X_BUILD_TESTS)
   enable_testing()

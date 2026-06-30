@@ -9,6 +9,8 @@
 #ifndef XHTTP_PROTO_H2_H
 #define XHTTP_PROTO_H2_H
 
+#include <x/base/base.h>
+
 struct xHttpConn_;
 
 /**
@@ -19,6 +21,6 @@ struct xHttpConn_;
  *
  * Returns 0 on success, -1 on allocation/initialization failure.
  */
-int xHttpProtoH2Init(struct xHttpConn_ *conn);
+XCAPI(int) xHttpProtoH2Init(struct xHttpConn_ *conn);
 
 #endif /* XHTTP_PROTO_H2_H */

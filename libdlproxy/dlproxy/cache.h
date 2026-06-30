@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <x/base/error.h>
 #include <x/base/event.h>
+#include <x/base/base.h>
 
 typedef struct dlp_cache *dlp_cache_t;
 
@@ -14,16 +15,16 @@ typedef struct dlp_cache *dlp_cache_t;
 typedef void (*dlp_cache_cb)(xErrno err, void *arg);
 
 /** Create a cache instance. @p loop is used for xfs async I/O. */
-dlp_cache_t dlp_cache_init(const char *dir, xEventLoop loop);
+XCAPI(dlp_cache_t) dlp_cache_init(const char *dir, xEventLoop loop);
 
 /** Destroy the cache. */
-void dlp_cache_deinit(dlp_cache_t c);
+XCAPI(void) dlp_cache_deinit(dlp_cache_t c);
 
 /** Open or create a resource by rid. */
-xErrno dlp_cache_open_resource(dlp_cache_t c, const char *rid);
+XCAPI(xErrno) dlp_cache_open_resource(dlp_cache_t c, const char *rid);
 
 /** Open or create a clip under a resource. */
-xErrno dlp_cache_open_clip(dlp_cache_t c, const char *rid, const char *clip_id, uint64_t size);
+XCAPI(xErrno) dlp_cache_open_clip(dlp_cache_t c, const char *rid, const char *clip_id, uint64_t size);
 
 /* ── Async I/O ────────────────────────────────────────────────────── */
 
@@ -33,7 +34,7 @@ xErrno dlp_cache_open_clip(dlp_cache_t c, const char *rid, const char *clip_id, 
  * Bitmap updates happen synchronously before the write is dispatched.
  * @p cb fires on the event loop thread when the write completes.
  */
-xErrno dlp_cache_write(dlp_cache_t c, const char *rid, const char *clip_id,
+XCAPI(xErrno) dlp_cache_write(dlp_cache_t c, const char *rid, const char *clip_id,
                         uint64_t offset, const uint8_t *data, size_t len,
                         dlp_cache_cb cb, void *arg);
 
@@ -44,7 +45,7 @@ xErrno dlp_cache_write(dlp_cache_t c, const char *rid, const char *clip_id,
  * without dispatching I/O.
  * @p cb fires on the event loop thread when the read completes.
  */
-xErrno dlp_cache_read(dlp_cache_t c, const char *rid, const char *clip_id,
+XCAPI(xErrno) dlp_cache_read(dlp_cache_t c, const char *rid, const char *clip_id,
                        uint64_t offset, uint8_t *buf, size_t len,
                        dlp_cache_cb cb, void *arg);
 
@@ -52,19 +53,19 @@ xErrno dlp_cache_read(dlp_cache_t c, const char *rid, const char *clip_id,
  * @brief Update the total file size for a clip (when discovered from CDN).
  * Recalculates the last block's size and re-checks its done status.
  */
-xErrno dlp_cache_set_file_size(dlp_cache_t c, const char *rid, const char *clip_id,
+XCAPI(xErrno) dlp_cache_set_file_size(dlp_cache_t c, const char *rid, const char *clip_id,
                                 uint64_t file_size);
 
 /**
  * @brief Synchronous readiness check. O(1) for block-aligned queries.
  * @return 1 if all data in [offset, offset+len) is cached, 0 otherwise.
  */
-int dlp_cache_is_ready(dlp_cache_t c, const char *rid, const char *clip_id,
+XCAPI(int) dlp_cache_is_ready(dlp_cache_t c, const char *rid, const char *clip_id,
                         uint64_t offset, size_t len);
 
 /**
  * @brief Get the total file size for a clip (0 if unknown).
  */
-uint64_t dlp_cache_get_size(dlp_cache_t c, const char *rid, const char *clip_id);
+XCAPI(uint64_t) dlp_cache_get_size(dlp_cache_t c, const char *rid, const char *clip_id);
 
 #endif

@@ -29,6 +29,6 @@ XDEF_STRUCT(xTcpConn_) {
  * @param transport  The transport (ownership transferred to conn).
  * @return           A new xTcpConn, or NULL on allocation failure.
  */
-xTcpConn xTcpConnCreate_(xSocket sock, xTransport transport);
+XCAPI(xTcpConn) xTcpConnCreate_(xSocket sock, xTransport transport);
 
 #endif /* XNET_TCP_PRIVATE_H */

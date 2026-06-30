@@ -12,6 +12,7 @@
 #ifdef X_HAS_OPENSSL
 
 #include "tls_private.h"
+#include "transport_private.h"
 #include "transport.h"
 
 #include <openssl/err.h>

@@ -5,6 +5,7 @@
 #define DLP_BUS_H
 
 #include <x/base/error.h>
+#include <x/base/base.h>
 
 /** Opaque bus handle. */
 typedef struct dlp_bus *dlp_bus_t;
@@ -15,21 +16,21 @@ typedef void (*dlp_bus_cb)(void *arg);
 /**
  * @brief Create a bus instance.
  */
-dlp_bus_t dlp_bus_create(void);
+XCAPI(dlp_bus_t) dlp_bus_create(void);
 
 /**
  * @brief Destroy a bus and free all subscribers.
  */
-void dlp_bus_destroy(dlp_bus_t b);
+XCAPI(void) dlp_bus_destroy(dlp_bus_t b);
 
 /**
  * @brief Subscribe to a key. cb is invoked on publish.
  */
-xErrno dlp_bus_subscribe(dlp_bus_t b, const char *key, dlp_bus_cb cb, void *arg);
+XCAPI(xErrno) dlp_bus_subscribe(dlp_bus_t b, const char *key, dlp_bus_cb cb, void *arg);
 
 /**
  * @brief Publish to a key. All subscribers are invoked synchronously.
  */
-void dlp_bus_publish(dlp_bus_t b, const char *key);
+XCAPI(void) dlp_bus_publish(dlp_bus_t b, const char *key);
 
 #endif

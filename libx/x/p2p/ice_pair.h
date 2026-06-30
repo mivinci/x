@@ -11,6 +11,7 @@
 
 #include "ice_candidate.h"
 #include "ice_private.h"
+#include <x/base/base.h>
 
 /** Maximum number of candidate pairs.
  *  Increased to 1536 to accommodate birthday-attack spray pairs
@@ -37,18 +38,18 @@ XDEF_STRUCT(xIcePair) {
  * @param controlled_prio   Priority of the controlled agent's candidate.
  * @return                  Pair priority.
  */
-uint64_t xIcePairPriority(uint32_t controlling_prio, uint32_t controlled_prio);
+XCAPI(uint64_t) xIcePairPriority(uint32_t controlling_prio, uint32_t controlled_prio);
 
 /**
  * @brief Compare two candidate pairs by priority (for qsort).
  *
  * Higher priority comes first (descending order).
  */
-int xIcePairCompare(const void *a, const void *b);
+XCAPI(int) xIcePairCompare(const void *a, const void *b);
 
 /**
  * @brief Sort an array of candidate pairs by priority (descending).
  */
-void xIcePairSort(xIcePair *pairs, int count);
+XCAPI(void) xIcePairSort(xIcePair *pairs, int count);
 
 #endif /* XP2P_ICE_PAIR_H */

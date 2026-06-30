@@ -37,6 +37,7 @@ find libx -name '*.c' -o -name '*.h' -o -name '*.cpp' | xargs clang-format -i
 | Option | Default | Description |
 |--------|---------|-------------|
 | `X_BUILD_STATIC` | `OFF` | Build static libraries |
+| `X_BUILD_SHARED` | `OFF` | Enable symbol-visibility control (POSIX `-fvisibility=hidden` + Windows `dllexport`/`dllimport`). When OFF (default), all symbols are exported. When ON, only `XCAPI`-marked symbols are public. |
 | `X_BUILD_TESTS` | `ON` | Build tests |
 | `X_TLS_BACKEND` | `auto` | TLS backend: `auto`, `openssl`, `mbedtls`, `none` |
 | `X_DEBUG_LEVEL` | `0` | Debug log verbosity (0-3) |
@@ -56,6 +57,27 @@ cmake -B build -G Ninja -DX_BUILD_BENCHMARKS=ON && cmake --build build -j
 ASan is available via the test scripts (`--asan` flag). LSAN suppressions for known false positives (OpenSSL TLS state, libcurl) are in `scripts/lsan_suppressions.txt`.
 
 TSan and UBSan are not currently configured in scripts or CI.
+
+## Symbol Visibility
+
+When `X_BUILD_SHARED=ON`, the build system applies `-fvisibility=hidden` (GCC/Clang) so only `XCAPI`-marked symbols are exported. `XCAPI_LOCAL` symbols are hidden from the dynamic symbol table.
+
+```bash
+# Build with visibility control
+cmake -B build -G Ninja -DX_BUILD_SHARED=ON && cmake --build build -j
+
+# Verify exported symbols (should only be XCAPI-marked)
+nm build/libx/x/http/libxhttp.dylib | grep " T " | wc -l
+```
+
+**Key rules:**
+- All public API functions/variables: declare with `XCAPI(T)`
+- Internal helpers in `*_private.h` called only within the same module: declare with `XCAPI_LOCAL(T)`
+- Internal helpers called from tests or other modules: declare with `XCAPI(T)` (privacy by convention, not visibility)
+- Inline functions: declare with `XCAPI_INLINE(T)` (no export marker)
+- `X_BUILDING_LIB` is defined automatically when building the library; consumers never define it
+
+See `openspec/changes/establish-abi-export-conventions/` for the full design.
 
 ## Dependencies (macOS)
 
@@ -118,7 +140,11 @@ Same pattern applies to TLS (`tls_openssl.c` / `tls_mbedtls.c`), WS crypto (`ws_
 - **Naming**: All public symbols prefixed with `x` (types `xFoo`, functions `xFooBar`, enums `xErrno_Ok`, macros `XDEF_STRUCT`)
 - **Opaque handles**: Public types use `XDEF_HANDLE(T)` (void pointer) or `XDEF_HANDLE_EXPLICIT(T)` (forward-declared struct); internal state is hidden behind the pointer
 - **Error handling**: Functions return `xErrno` (0 = success), defined in `libx/x/base/error.h`
-- **C-linkage macro**: `XCAPI(T)` expands to `extern "C" T` (C++) or `extern T` (C) for all public symbols
+- **C-linkage macros** (defined in `libx/x/base/base.h`):
+  - `XCAPI(T)` — public API. C linkage + `extern` storage + export marker. Use for all public function and variable declarations.
+  - `XCAPI_LOCAL(T)` — private API. C linkage + `extern` storage + hidden visibility. Use for internal helpers in `*_private.h` that are called across TUs but should not appear in the dynamic symbol table. **Do NOT use** for functions called from tests or other modules (those must be `XCAPI`).
+  - `XCAPI_INLINE(T)` — inline function. C linkage + `inline`, no export marker. Use for header-defined inline functions.
+  - When `X_BUILD_SHARED=OFF` (default), all three expand identically to pre-visibility behavior (no export markers).
 - **Formatting**: LLVM-based, 2-space indent, 100-char column limit (see `.clang-format`)
 - **clangd**: Compilation database at `build/compile_commands.json` (`.clangd` points there)
 

@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <x/base/base.h>
 
 /* ── Data structures ───────────────────────────────────────────────── */
 
@@ -54,11 +55,11 @@ struct hls_playlist {
  * @return Heap-allocated playlist, or NULL on parse failure.
  *         Caller must free with hls_playlist_free().
  */
-struct hls_playlist *hls_parse_playlist(const char *text, const char *base_url);
+XCAPI(struct hls_playlist *) hls_parse_playlist(const char *text, const char *base_url);
 
 /**
  * @brief Free a playlist and all owned resources.
  */
-void hls_playlist_free(struct hls_playlist *pl);
+XCAPI(void) hls_playlist_free(struct hls_playlist *pl);
 
 #endif /* DLP_M3U8_H */

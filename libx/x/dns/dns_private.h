@@ -17,10 +17,6 @@
 #include <x/base/map.h>
 #include <x/dns/dns.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* ───────────────────── Wire constants ───────────────────── */
 
 #define DNS_PORT        53
@@ -75,8 +71,8 @@ typedef struct {
  * @return        Packet length on success, or -1 on error (buffer too small
  *                or malformed name).
  */
-int dns_build_query(uint8_t *buf, size_t buflen, uint16_t id,
-                    const char *name, uint16_t qtype);
+XCAPI(int) dns_build_query(uint8_t *buf, size_t buflen, uint16_t id,
+                                  const char *name, uint16_t qtype);
 
 /**
  * Build a DNS response packet.
@@ -90,9 +86,9 @@ int dns_build_query(uint8_t *buf, size_t buflen, uint16_t id,
  * @param answers       Linked list of answer records, or NULL.
  * @return              Packet length on success, or -1 on error.
  */
-int dns_build_response(uint8_t *buf, size_t buflen, uint16_t id, int rcode,
-                       const char *qname, uint16_t qtype,
-                       const xDnsRecord *answers);
+XCAPI(int) dns_build_response(uint8_t *buf, size_t buflen, uint16_t id, int rcode,
+                                     const char *qname, uint16_t qtype,
+                                     const xDnsRecord *answers);
 
 /* ───────────────────── Packet parser ───────────────────── */
 
@@ -109,39 +105,39 @@ int dns_build_response(uint8_t *buf, size_t buflen, uint16_t id, int rcode,
  *                  dns_records_free().
  * @return          xErrno_Ok on success, or an error code.
  */
-xErrno dns_parse(const uint8_t *buf, size_t len, dns_header_t *hdr,
-                 dns_question_t *q, xDnsRecord **answers);
+XCAPI(xErrno) dns_parse(const uint8_t *buf, size_t len, dns_header_t *hdr,
+                              dns_question_t *q, xDnsRecord **answers);
 
 /* ───────────────────── Record helpers ───────────────────── */
 
 /** Free a linked list of xDnsRecord (as produced by dns_parse). */
-void dns_records_free(xDnsRecord *rec);
+XCAPI(void) dns_records_free(xDnsRecord *rec);
 
 /** Deep-clone a linked list of xDnsRecord. Returns NULL on OOM. */
-xDnsRecord *dns_records_clone(const xDnsRecord *rec);
+XCAPI(xDnsRecord *) dns_records_clone(const xDnsRecord *rec);
 
 /** Map an xDnsType bitmask bit to a wire QTYPE. Returns 0 if unknown. */
-uint16_t dns_qtype_from_bit(xDnsType type);
+XCAPI(uint16_t) dns_qtype_from_bit(xDnsType type);
 
 /**
  * Pick the next single-bit QTYPE from a (possibly multi-bit) xDnsType mask.
  * Clears the bit in @p *type and returns the corresponding wire QTYPE, or 0
  * when the mask is empty.
  */
-uint16_t dns_qtype_take_next(xDnsType *type);
+XCAPI(uint16_t) dns_qtype_take_next(xDnsType *type);
 
 /* ───────────────────── Cache ───────────────────── */
 
 /**
  * Create a TTL cache. Returns an xMap handle.
  */
-xMap dns_cache_create(void);
+XCAPI(xMap) dns_cache_create(void);
 
 /**
  * Destroy a cache, freeing all keys, values, and the map itself.
  * Safe to call with NULL.
  */
-void dns_cache_destroy(xMap cache);
+XCAPI(void) dns_cache_destroy(xMap cache);
 
 /**
  * Look up a cached entry.
@@ -153,7 +149,7 @@ void dns_cache_destroy(xMap cache);
  *               dns_records_free) if a fresh entry exists, or NULL on
  *               miss / expiry. Expired entries are evicted.
  */
-xDnsRecord *dns_cache_lookup(xMap cache, const char *name, uint16_t qtype);
+XCAPI(xDnsRecord *) dns_cache_lookup(xMap cache, const char *name, uint16_t qtype);
 
 /**
  * Insert (or replace) a cache entry. @p records is deep-cloned.
@@ -164,8 +160,8 @@ xDnsRecord *dns_cache_lookup(xMap cache, const char *name, uint16_t qtype);
  * @param records Records to cache (may be NULL — inserts an empty entry).
  * @param ttl     TTL in seconds.
  */
-void dns_cache_insert(xMap cache, const char *name, uint16_t qtype,
-                      const xDnsRecord *records, uint32_t ttl);
+XCAPI(void) dns_cache_insert(xMap cache, const char *name, uint16_t qtype,
+                                   const xDnsRecord *records, uint32_t ttl);
 
 /* ───────────────────── Config ───────────────────── */
 
@@ -178,10 +174,6 @@ void dns_cache_insert(xMap cache, const char *name, uint16_t qtype,
  *
  * The strings written to @p out are owned by the caller's buffer.
  */
-int dns_config_load_nameservers(char out[][46], int max);
-
-#ifdef __cplusplus
-} /* extern "C" */
-#endif
+XCAPI(int) dns_config_load_nameservers(char out[][46], int max);
 
 #endif /* XDNS_DNS_PRIVATE_H */

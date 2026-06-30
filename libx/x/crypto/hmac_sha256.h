@@ -18,7 +18,7 @@
 #include "hash_private.h"
 
 /** @brief SHA-256 hash vtable (backend selected at build time). */
-extern const xHashVtable xHashVtableSha256;
+XCAPI(const xHashVtable) xHashVtableSha256;
 
 /**
  * @brief Compute HMAC-SHA256 of a buffer in one call.

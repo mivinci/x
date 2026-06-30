@@ -21,7 +21,7 @@
  * @param ctx  TLS context handle (must not be NULL).
  * @return     Native TLS context pointer, or NULL.
  */
-void *xTlsCtxGetNative(xTlsCtx ctx);
+XCAPI(void *) xTlsCtxGetNative(xTlsCtx ctx);
 
 /**
  * @brief Check if the TLS context is in server mode.
@@ -29,6 +29,6 @@ void *xTlsCtxGetNative(xTlsCtx ctx);
  * @param ctx  TLS context handle (must not be NULL).
  * @return     Non-zero if server mode, 0 if client mode.
  */
-int xTlsCtxIsServer(xTlsCtx ctx);
+XCAPI(int) xTlsCtxIsServer(xTlsCtx ctx);
 
 #endif /* XNET_TLS_PRIVATE_H */

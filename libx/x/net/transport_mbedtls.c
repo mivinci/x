@@ -12,6 +12,7 @@
 #ifdef X_HAS_MBEDTLS
 
 #include "tls_private.h"
+#include "transport_private.h"
 #include "transport.h"
 
 /* mbedTLS 3.x+ provides build_info.h; mbedTLS 2.x uses version.h */

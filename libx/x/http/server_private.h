@@ -209,36 +209,36 @@ XDEF_STRUCT(xHttpServer_) {
 /* ───────────────────── Internal functions ───────────────────── */
 
 /* Stream lifecycle (server.c) */
-struct xHttpStream_ *xHttpStreamCreate(struct xHttpConn_ *conn, int32_t stream_id);
-void                 xHttpStreamDestroy(struct xHttpStream_ *stream);
-void                 xHttpStreamReset(struct xHttpStream_ *stream);
+XCAPI(struct xHttpStream_ *) xHttpStreamCreate(struct xHttpConn_ *conn, int32_t stream_id);
+XCAPI(void)                 xHttpStreamDestroy(struct xHttpStream_ *stream);
+XCAPI(void)                 xHttpStreamReset(struct xHttpStream_ *stream);
 
 /* Connection management (server.c) */
-void xHttpConnClose(struct xHttpConn_ *conn);
-void xHttpConnResetParser(struct xHttpConn_ *conn);
-void xHttpConnDispatchRequest(struct xHttpConn_ *conn);
+XCAPI(void) xHttpConnClose(struct xHttpConn_ *conn);
+XCAPI(void) xHttpConnResetParser(struct xHttpConn_ *conn);
+XCAPI(void) xHttpConnDispatchRequest(struct xHttpConn_ *conn);
 
 /* Resolve route for a stream (called after headers-complete) */
-void xHttpStreamResolve(struct xHttpStream_ *stream);
+XCAPI(void) xHttpStreamResolve(struct xHttpStream_ *stream);
 
 /* Response helpers (server.c) */
-void xHttpConnSendError(struct xHttpConn_ *conn, int status_code, const char *reason);
-void xHttpConnFlushWrite(struct xHttpConn_ *conn);
-void xHttpConnTryFlush(struct xHttpConn_ *conn);
+XCAPI(void) xHttpConnSendError(struct xHttpConn_ *conn, int status_code, const char *reason);
+XCAPI(void) xHttpConnFlushWrite(struct xHttpConn_ *conn);
+XCAPI(void) xHttpConnTryFlush(struct xHttpConn_ *conn);
 
 /* HTTP status reason phrase lookup */
-const char *xHttpStatusReason(int code);
+XCAPI(const char *) xHttpStatusReason(int code);
 
 /* Connection hijack (for WebSocket upgrade) */
-void xHttpConnHijack(struct xHttpConn_ *conn);
+XCAPI(void) xHttpConnHijack(struct xHttpConn_ *conn);
 
 /* Internal flush helper (returns 1 if connection was closed) */
-int xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
+XCAPI(int) xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
 
 /* Route parsing helpers (used by mux) */
-int  xHttpRouteParseSegments_(const char *path, struct xHttpRouteSegment_ **out);
-void xHttpRouteFreeSegments_(struct xHttpRouteSegment_ *segs, int count);
-int  xHttpRouteMatch_(const struct xHttpRouteSegment_ *segments, int segment_count,
-                      const char *url, struct xHttpParam_ *params, int *param_count);
+XCAPI(int)  xHttpRouteParseSegments_(const char *path, struct xHttpRouteSegment_ **out);
+XCAPI(void) xHttpRouteFreeSegments_(struct xHttpRouteSegment_ *segs, int count);
+XCAPI(int)  xHttpRouteMatch_(const struct xHttpRouteSegment_ *segments, int segment_count,
+                                   const char *url, struct xHttpParam_ *params, int *param_count);
 
 #endif /* XHTTP_SERVER_PRIVATE_H */

@@ -204,7 +204,7 @@ typedef struct xDtlsBackend {
  * Returns the OpenSSL or mbedTLS backend depending on which was
  * selected at build time via X_TLS_BACKEND.
  */
-const xDtlsBackend *xDtlsBackendGet(void);
+XCAPI(const xDtlsBackend *) xDtlsBackendGet(void);
 
 /* ───────────────────── Fingerprint Helpers ───────────────────── */
 

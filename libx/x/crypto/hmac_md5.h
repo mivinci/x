@@ -18,7 +18,7 @@
 #include "hash_private.h"
 
 /** @brief MD5 hash vtable (pure-C implementation). */
-extern const xHashVtable xHashVtableMd5;
+XCAPI(const xHashVtable) xHashVtableMd5;
 
 /**
  * @brief Compute HMAC-MD5 of a buffer in one call.

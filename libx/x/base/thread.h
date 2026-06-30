@@ -51,43 +51,39 @@ typedef pthread_once_t  xOnce;
 
 #endif /* _WIN32 / POSIX */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* ── Mutex ─────────────────────────────────────────────────────────── */
 
 /** Initialise an embedded xMutex. Must be paired with xMutexDestroy. */
-void xMutexInit(xMutex *m);
+XCAPI(void) xMutexInit(xMutex *m);
 
 /** Release the resources held by @p m. The mutex must be unlocked. */
-void xMutexDestroy(xMutex *m);
+XCAPI(void) xMutexDestroy(xMutex *m);
 
 /** Acquire the lock; blocks until exclusive ownership is granted. */
-void xMutexLock(xMutex *m);
+XCAPI(void) xMutexLock(xMutex *m);
 
 /**
  * @brief Try to acquire the lock without blocking.
  * @return 0 on success, non-zero if the mutex is already held.
  */
-int xMutexTryLock(xMutex *m);
+XCAPI(int) xMutexTryLock(xMutex *m);
 
 /** Release the lock. Caller must currently own it. */
-void xMutexUnlock(xMutex *m);
+XCAPI(void) xMutexUnlock(xMutex *m);
 
 /* ── Condition variable ────────────────────────────────────────────── */
 
 /** Initialise an embedded xCond. Pair with xCondDestroy. */
-void xCondInit(xCond *c);
+XCAPI(void) xCondInit(xCond *c);
 
 /** Release the resources held by @p c. */
-void xCondDestroy(xCond *c);
+XCAPI(void) xCondDestroy(xCond *c);
 
 /** Wake one thread waiting on @p c (or none, if there are no waiters). */
-void xCondSignal(xCond *c);
+XCAPI(void) xCondSignal(xCond *c);
 
 /** Wake every thread waiting on @p c. */
-void xCondBroadcast(xCond *c);
+XCAPI(void) xCondBroadcast(xCond *c);
 
 /**
  * @brief Atomically release @p m and wait on @p c. On wakeup,
@@ -96,7 +92,7 @@ void xCondBroadcast(xCond *c);
  * Spurious wakeups are possible — callers should always re-check the
  * condition under the lock.
  */
-void xCondWait(xCond *c, xMutex *m);
+XCAPI(void) xCondWait(xCond *c, xMutex *m);
 
 /**
  * @brief Like xCondWait but bounded by an absolute timeout in ms.
@@ -106,15 +102,15 @@ void xCondWait(xCond *c, xMutex *m);
  * @return            0 if signalled, 1 if timed out, -1 on error.
  *                    The mutex is re-acquired in all cases.
  */
-int xCondTimedWait(xCond *c, xMutex *m, unsigned timeout_ms);
+XCAPI(int) xCondTimedWait(xCond *c, xMutex *m, unsigned timeout_ms);
 
 /* ── Thread ────────────────────────────────────────────────────────── */
 
 /** Spawn a thread running @p fn(arg). Returns 0 on success. */
-int xThreadCreate(xThread *t, void *(*fn)(void *), void *arg);
+XCAPI(int) xThreadCreate(xThread *t, void *(*fn)(void *), void *arg);
 
 /** Wait for @p t to exit. */
-void xThreadJoin(xThread t);
+XCAPI(void) xThreadJoin(xThread t);
 
 /* ── One-time init ─────────────────────────────────────────────────── */
 
@@ -125,10 +121,6 @@ void xThreadJoin(xThread t);
  * callers (and the same caller again) are no-ops. @p o must have
  * been initialised with X_ONCE_INIT.
  */
-void xOnceCall(xOnce *o, void (*fn)(void));
-
-#ifdef __cplusplus
-} // extern "C"
-#endif
+XCAPI(void) xOnceCall(xOnce *o, void (*fn)(void));
 
 #endif /* X_BASE_THREAD_H */

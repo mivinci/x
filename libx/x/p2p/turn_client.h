@@ -11,6 +11,7 @@
 
 #include "stun_txn.h"
 #include "turn_channel.h"
+#include <x/base/base.h>
 
 /** Maximum number of TURN permissions. */
 #define XTURN_MAX_PERMISSIONS 16
@@ -101,22 +102,22 @@ XDEF_STRUCT(xTurnClient) {
 /**
  * @brief Initialize a TURN client.
  */
-void xTurnClientInit(xTurnClient *tc, const xTurnConfig *config);
+XCAPI(void) xTurnClientInit(xTurnClient *tc, const xTurnConfig *config);
 
 /**
  * @brief Destroy a TURN client, releasing all resources.
  */
-void xTurnClientDestroy(xTurnClient *tc);
+XCAPI(void) xTurnClientDestroy(xTurnClient *tc);
 
 /**
  * @brief Start TURN allocation.
  */
-xErrno xTurnClientAllocate(xTurnClient *tc);
+XCAPI(xErrno) xTurnClientAllocate(xTurnClient *tc);
 
 /**
  * @brief Create a permission for a peer address.
  */
-xErrno xTurnClientCreatePermission(xTurnClient *tc, const struct sockaddr *peer);
+XCAPI(xErrno) xTurnClientCreatePermission(xTurnClient *tc, const struct sockaddr *peer);
 
 /**
  * @brief Bind a channel to a peer address.
@@ -125,14 +126,14 @@ xErrno xTurnClientCreatePermission(xTurnClient *tc, const struct sockaddr *peer)
  * @param peer  Peer address.
  * @return      Channel number on success, -1 on failure.
  */
-int xTurnClientChannelBind(xTurnClient *tc, const struct sockaddr *peer);
+XCAPI(int) xTurnClientChannelBind(xTurnClient *tc, const struct sockaddr *peer);
 
 /**
  * @brief Send data to a peer via TURN relay.
  *
  * Uses ChannelData if a channel is bound, otherwise Send Indication.
  */
-xErrno xTurnClientSendData(xTurnClient *tc, const struct sockaddr *peer, const uint8_t *data,
+XCAPI(xErrno) xTurnClientSendData(xTurnClient *tc, const struct sockaddr *peer, const uint8_t *data,
                            size_t len);
 
 /**
@@ -140,12 +141,12 @@ xErrno xTurnClientSendData(xTurnClient *tc, const struct sockaddr *peer, const u
  *
  * @return true if the message was handled by the TURN client.
  */
-bool xTurnClientOnMessage(xTurnClient *tc, const xStunMsg *msg, const uint8_t *raw_buf,
+XCAPI(bool) xTurnClientOnMessage(xTurnClient *tc, const xStunMsg *msg, const uint8_t *raw_buf,
                           size_t raw_len, const struct sockaddr *from);
 
 /**
  * @brief Handle incoming ChannelData.
  */
-bool xTurnClientOnChannelData(xTurnClient *tc, const uint8_t *buf, size_t len);
+XCAPI(bool) xTurnClientOnChannelData(xTurnClient *tc, const uint8_t *buf, size_t len);
 
 #endif /* XP2P_TURN_CLIENT_H */

@@ -16,9 +16,7 @@
 
 #include <atomic>
 
-extern "C" {
 #include <x/base/event.h>
-}
 
 /**
  * @brief Run the event loop for a fixed duration.
