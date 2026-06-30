@@ -50,6 +50,16 @@ find libx libdlproxy \( -name '*.c' -o -name '*.h' -o -name '*.cpp' \) -print0 \
 
 CI runs the dry-run check on every push/PR (the `clang-format` lane in `.github/workflows/ci.yml`).
 
+### Pre-commit hook (optional)
+
+The repo includes a `.githooks/pre-commit` script that auto-formats staged C/C++ files on every `git commit`. To enable it (run once per clone):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook runs `clang-format -i` on each staged `.c`/`.h`/`.cpp` file under `libx/` or `libdlproxy/`, then re-stages the result. If no formatting is needed, the commit proceeds untouched. To bypass for a single commit: `git commit --no-verify`.
+
 ## CMake Options
 
 | Option | Default | Description |

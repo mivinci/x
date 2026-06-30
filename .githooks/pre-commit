@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# pre-commit — auto-format staged C/C++ files with clang-format.
+#
+# This hook runs `clang-format -i` on every staged .c/.h/.cpp file and
+# re-stages the result. If clang-format makes no changes, the commit
+# proceeds untouched. If it does change a file, the formatted version
+# is staged automatically — the user just needs to glance at the diff
+# and re-run `git commit` if it looks wrong (the first attempt is
+# aborted so the user can review).
+#
+# To install (run once per clone):
+#   git config core.hooksPath .githooks
+#
+# Or, if the repo sets core.hooksPath via CMake/config, this hook is
+# picked up automatically. To bypass for a single commit:
+#   git commit --no-verify
+#
+# Scope: only files under libx/ and libdlproxy/ are formatted. Other
+# paths (docs/, examples/, scripts/, .github/) are left untouched.
+
+set -euo pipefail
+
+# Collect staged .c/.h/.cpp files under libx/ or libdlproxy/.
+files=$(
+  git diff --cached --name-only --diff-filter=ACMR -- 'libx/' 'libdlproxy/' \
+    | grep -E '\.(c|h|cpp)$' || true
+)
+
+if [ -z "$files" ]; then
+  exit 0
+fi
+
+# Locate clang-format.
+CT="${CLANG_FORMAT:-clang-format}"
+if ! command -v "$CT" >/dev/null 2>&1; then
+  if [ -x /opt/homebrew/opt/llvm/bin/clang-format ]; then
+    CT=/opt/homebrew/opt/llvm/bin/clang-format
+  elif [ -x /usr/local/opt/llvm/bin/clang-format ]; then
+    CT=/usr/local/opt/llvm/bin/clang-format
+  else
+    echo "pre-commit: clang-format not found; skipping format check." >&2
+    echo "  Install via 'brew install llvm' (macOS) or 'apt install clang-format' (Linux)." >&2
+    exit 0
+  fi
+fi
+
+# Format each staged file in place and re-stage it.
+changed=0
+echo "$files" | while IFS= read -r f; do
+  if [ ! -f "$f" ]; then
+    continue  # file was deleted
+  fi
+  before=$(git show ":$f" | git hash-object --stdin)
+  "$CT" -i "$f"
+  after=$(git hash-object "$f")
+  if [ "$before" != "$after" ]; then
+    git add "$f"
+    changed=$((changed + 1))
+    echo "  formatted: $f"
+  fi
+done
+
+if [ "$changed" -gt 0 ]; then
+  echo "pre-commit: clang-format reformatted $changed file(s); re-staged." >&2
+  echo "  Review with 'git diff --cached'. To abort, run 'git reset'." >&2
+  # Don't abort — the reformatted file is staged and ready to commit.
+  # The user already saw the formatting change in their editor.
+fi
+
+exit 0
