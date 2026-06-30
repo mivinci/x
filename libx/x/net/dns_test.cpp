@@ -248,7 +248,7 @@ TEST_F(DnsTest, CallbackOnEventLoopThread) {
   pthread_t loop_thread = pthread_self();
 
   /* Use a timer to stop the loop after the DNS callback fires */
-  xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 2000, 0);
+  xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 2000, 0);
 
   /* Pump until callback fires or timer stops us */
   run_until(loop, ctx.called, 5000);

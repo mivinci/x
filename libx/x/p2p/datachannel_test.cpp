@@ -51,8 +51,8 @@ TEST_F(DcepTest, OpenMessageRoundTrip) {
   buf[5]  = 0;
   buf[6]  = 0;
   buf[7]  = 0;
-  buf[8]  = (uint8_t)(label_len >> 8);
-  buf[9]  = (uint8_t)(label_len);
+  buf[8]  = static_cast<uint8_t>(label_len >> 8);
+  buf[9]  = static_cast<uint8_t>(label_len);
   buf[10] = 0;
   buf[11] = 0;
   memcpy(buf + 12, conf.label, label_len);
@@ -196,7 +196,7 @@ TEST_F(WebRTCSdpTest, EncodeDecodeRoundTrip) {
   buf[len] = '\0';
 
   xIceSdp parsed;
-  xErrno  err = xIceSdpDecode(buf, (size_t)len, &parsed);
+  xErrno  err = xIceSdpDecode(buf, static_cast<size_t>(len), &parsed);
   ASSERT_EQ(err, xErrno_Ok);
 
   EXPECT_STREQ(parsed.ice_ufrag, "roundtrip_ufrag");

@@ -313,7 +313,7 @@ TEST(IoTest, ReadAllError) {
   MockReadCtx ctx    = {data, 3, 0, 0, 1, 2}; /* Fail after 2 bytes */
   xReader     r      = {mock_read, &ctx};
 
-  void  *out     = (void *)0xDEAD; /* Sentinel */
+  void  *out     = reinterpret_cast<void *>(0xDEAD); /* Sentinel */
   size_t out_len = 999;
   int    ret     = xReadAll(r, &out, &out_len);
   EXPECT_EQ(ret, -1);

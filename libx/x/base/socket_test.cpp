@@ -42,7 +42,7 @@ static void drain_fd(int fd) {
  * with X_RUN_DEFAULT to guarantee the full timeout window.
  */
 static void pump_loop(xEventLoop loop, int total_ms) {
-  xTimer t = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, (uint64_t)total_ms, 0);
+  xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, static_cast<uint64_t>(total_ms), 0);
   xEventLoopRun(loop, X_RUN_DEFAULT);
   if (t) xTimerStop(t);
 }
@@ -153,7 +153,7 @@ TEST(SocketMask, SetAndGet) {
   EXPECT_EQ(err, xErrno_Ok);
   EXPECT_EQ(xSocketMask(sock), xEvent_Write);
 
-  err = xSocketSetMask(sock, (xEventMask)(xEvent_Read | xEvent_Write));
+  err = xSocketSetMask(sock, static_cast<xEventMask>(xEvent_Read | xEvent_Write));
   EXPECT_EQ(err, xErrno_Ok);
   EXPECT_EQ(xSocketMask(sock), (xEventMask)(xEvent_Read | xEvent_Write));
 

@@ -534,8 +534,8 @@ protected:
       this, 5, 5);
 
     xTimer watchdog = xTimerStart(
-      [](void *arg) { xEventLoopStop((xEventLoop)arg); },
-      loop, (uint64_t)timeout_ms, 0);
+      [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
+      loop, static_cast<uint64_t>(timeout_ms), 0);
 
     xEventLoopRun(loop, X_RUN_DEFAULT);
 
@@ -630,7 +630,7 @@ TEST_F(DtlsHandshakeTest, DataExchangeAfterHandshake) {
 
   /* Send data from Active → Passive */
   const char *msg1 = "Hello from Active!";
-  xErrno      err  = xDtlsTransportSend(active, (const uint8_t *)msg1, strlen(msg1));
+  xErrno      err  = xDtlsTransportSend(active, reinterpret_cast<const uint8_t *>(msg1), strlen(msg1));
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Tick to let data flow */
@@ -641,7 +641,7 @@ TEST_F(DtlsHandshakeTest, DataExchangeAfterHandshake) {
 
   /* Send data from Passive → Active */
   const char *msg2 = "Hello from Passive!";
-  err              = xDtlsTransportSend(passive, (const uint8_t *)msg2, strlen(msg2));
+  err              = xDtlsTransportSend(passive, reinterpret_cast<const uint8_t *>(msg2), strlen(msg2));
   ASSERT_EQ(err, xErrno_Ok);
 
   run_for(loop, 50);
@@ -767,7 +767,7 @@ TEST_F(DtlsWrongFingerprintTest, WrongFingerprintCausesFailure) {
     &ctx, 5, 5);
 
   xTimer watchdog = xTimerStart(
-    [](void *arg) { xEventLoopStop((xEventLoop)arg); },
+    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
     loop, 5000, 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);

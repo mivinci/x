@@ -48,8 +48,8 @@ template <class Pred> static bool pump_until(xEventLoop loop, Pred pred, int tot
     &ctx, 5, 5);
 
   xTimer watchdog = xTimerStart(
-    [](void *arg) { xEventLoopStop((xEventLoop)arg); },
-    loop, (uint64_t)total_ms, 0);
+    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
+    loop, static_cast<uint64_t>(total_ms), 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
 
@@ -69,12 +69,12 @@ struct AgentState {
 };
 
 static void on_state_change(xIceAgent, xIceState state, void *arg) {
-  auto *s = (AgentState *)arg;
+  auto *s = reinterpret_cast<AgentState *>(arg);
   s->state.store(state);
 }
 
 static void on_candidate(xIceAgent, const char *candidate_sdp, void *arg) {
-  auto *s = (AgentState *)arg;
+  auto *s = reinterpret_cast<AgentState *>(arg);
   if (candidate_sdp) {
     s->last_candidate = candidate_sdp;
   } else {
@@ -83,7 +83,7 @@ static void on_candidate(xIceAgent, const char *candidate_sdp, void *arg) {
 }
 
 static void on_data(xIceAgent, const uint8_t *data, size_t len, void *arg) {
-  auto *s = (AgentState *)arg;
+  auto *s = reinterpret_cast<AgentState *>(arg);
   s->received_data.assign(data, data + len);
   s->data_received = true;
 }

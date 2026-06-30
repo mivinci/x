@@ -93,7 +93,7 @@ TEST_F(FsTest, WriteRead) {
 
   r.op    = xFsOpWrite;
   r.file  = r.out_file;
-  r.buf   = (void *)msg;
+  r.buf   = const_cast<char *>(msg);
   r.len   = strlen(msg);
   r.cb    = [](xFsReq *r) {
     EXPECT_EQ(r->result, xErrno_Ok);

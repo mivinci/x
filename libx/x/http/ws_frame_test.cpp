@@ -223,7 +223,7 @@ TEST(WsFrameMask, MaskedCloseFrame) {
   EXPECT_EQ(parser.frame.payload_len, 5u);
 
   /* Verify close code (network byte order) */
-  uint16_t code = (uint16_t)((parser.frame.payload[0] << 8) | parser.frame.payload[1]);
+  uint16_t code = static_cast<uint16_t>((parser.frame.payload[0] << 8) | parser.frame.payload[1]);
   EXPECT_EQ(code, 1000);
   EXPECT_EQ(memcmp(parser.frame.payload + 2, "bye", 3), 0);
 

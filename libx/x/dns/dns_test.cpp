@@ -33,8 +33,8 @@
 
 static void pump_loop(xEventLoop loop, int total_ms) {
   xTimer t = xTimerStart(
-    [](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop,
-    (uint64_t)total_ms, 0);
+    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+    static_cast<uint64_t>(total_ms), 0);
   xEventLoopRun(loop, X_RUN_DEFAULT);
   if (t) xTimerStop(t);
 }
@@ -66,14 +66,14 @@ static bool can_reach_dns(void) {
     0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e',
     0x03, 'c', 'o', 'm', 0x00,
     0x00, 0x01, 0x00, 0x01};
-  sendto(fd, (const char *)query, sizeof(query), 0,
-         (struct sockaddr *)&sin, sizeof(sin));
+  sendto(fd, reinterpret_cast<const char *>(query), sizeof(query), 0,
+         reinterpret_cast<struct sockaddr *>(&sin), sizeof(sin));
 
   uint8_t buf[512];
   struct sockaddr_storage src;
   socklen_t srclen = sizeof(src);
-  ssize_t n = recvfrom(fd, (char *)buf, sizeof(buf), 0,
-                       (struct sockaddr *)&src, &srclen);
+  ssize_t n = recvfrom(fd, reinterpret_cast<char *>(buf), sizeof(buf), 0,
+                       reinterpret_cast<struct sockaddr *>(&src), &srclen);
   close(fd);
   return n > 0;
 #endif
@@ -237,7 +237,7 @@ TEST(DnsPacket, CompressionPointer) {
 
   /* Answer: NAME = compression pointer to qname_off */
   buf[off++] = 0xC0;
-  buf[off++] = (uint8_t)qname_off;
+  buf[off++] = static_cast<uint8_t>(qname_off);
   buf[off++] = 0; buf[off++] = 1;             /* TYPE=A */
   buf[off++] = 0; buf[off++] = 1;             /* CLASS=IN */
   buf[off++] = 0; buf[off++] = 0; buf[off++] = 0; buf[off++] = 60; /* TTL=60 */
@@ -273,7 +273,7 @@ TEST(DnsPacket, MalformedTruncated) {
 
 TEST(DnsPacket, NxDomainResponse) {
   uint8_t buf[512];
-  int n = dns_build_response(buf, sizeof(buf), 0x99, (int)DNS_RCODE_NXDOMAIN,
+  int n = dns_build_response(buf, sizeof(buf), 0x99, static_cast<int>(DNS_RCODE_NXDOMAIN),
                              "missing.example.com", DNS_QTYPE_A, nullptr);
   ASSERT_GT(n, 0);
   dns_header_t   hdr;
@@ -582,9 +582,9 @@ TEST(DnsClient, PartialSuccessAResolvesAAAATimeout) {
     sin.sin_family      = AF_INET;
     sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     sin.sin_port        = 0;
-    bind(fd, (struct sockaddr *)&sin, sizeof(sin));
+    bind(fd, reinterpret_cast<struct sockaddr *>(&sin), sizeof(sin));
     socklen_t slen = sizeof(sin);
-    getsockname(fd, (struct sockaddr *)&sin, &slen);
+    getsockname(fd, reinterpret_cast<struct sockaddr *>(&sin), &slen);
     sport = ntohs(sin.sin_port);
     close(fd);
   }

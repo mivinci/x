@@ -25,7 +25,7 @@ TEST(SdpTest, EncodeCandidateHost) {
   cand.priority     = 2130706431;
   cand.type         = xIceCandidateType_Host;
 
-  struct sockaddr_in *a4 = (struct sockaddr_in *)&cand.addr;
+  struct sockaddr_in *a4 = reinterpret_cast<struct sockaddr_in *>(&cand.addr);
   a4->sin_family         = AF_INET;
   a4->sin_port           = htons(5000);
   inet_pton(AF_INET, "192.168.1.100", &a4->sin_addr);
@@ -48,12 +48,12 @@ TEST(SdpTest, EncodeCandidateSrflx) {
   cand.priority     = 1694498815;
   cand.type         = xIceCandidateType_Srflx;
 
-  struct sockaddr_in *a4 = (struct sockaddr_in *)&cand.addr;
+  struct sockaddr_in *a4 = reinterpret_cast<struct sockaddr_in *>(&cand.addr);
   a4->sin_family         = AF_INET;
   a4->sin_port           = htons(3000);
   inet_pton(AF_INET, "203.0.113.5", &a4->sin_addr);
 
-  struct sockaddr_in *r4 = (struct sockaddr_in *)&cand.rel_addr;
+  struct sockaddr_in *r4 = reinterpret_cast<struct sockaddr_in *>(&cand.rel_addr);
   r4->sin_family         = AF_INET;
   r4->sin_port           = htons(5000);
   inet_pton(AF_INET, "192.168.1.100", &r4->sin_addr);
@@ -77,7 +77,7 @@ TEST(SdpTest, DecodeCandidateHost) {
   EXPECT_EQ(cand.priority, 2130706431u);
   EXPECT_EQ(cand.type, xIceCandidateType_Host);
 
-  struct sockaddr_in *a4 = (struct sockaddr_in *)&cand.addr;
+  struct sockaddr_in *a4 = reinterpret_cast<struct sockaddr_in *>(&cand.addr);
   EXPECT_EQ(a4->sin_family, AF_INET);
   EXPECT_EQ(ntohs(a4->sin_port), 5000);
 
@@ -94,7 +94,7 @@ TEST(SdpTest, DecodeCandidateSrflx) {
 
   EXPECT_EQ(cand.type, xIceCandidateType_Srflx);
 
-  struct sockaddr_in *r4 = (struct sockaddr_in *)&cand.rel_addr;
+  struct sockaddr_in *r4 = reinterpret_cast<struct sockaddr_in *>(&cand.rel_addr);
   EXPECT_EQ(r4->sin_family, AF_INET);
   EXPECT_EQ(ntohs(r4->sin_port), 5000);
 
@@ -111,7 +111,7 @@ TEST(SdpTest, CandidateRoundTrip) {
   orig.priority     = 100;
   orig.type         = xIceCandidateType_Host;
 
-  struct sockaddr_in *a4 = (struct sockaddr_in *)&orig.addr;
+  struct sockaddr_in *a4 = reinterpret_cast<struct sockaddr_in *>(&orig.addr);
   a4->sin_family         = AF_INET;
   a4->sin_port           = htons(8080);
   inet_pton(AF_INET, "10.0.0.1", &a4->sin_addr);
@@ -139,7 +139,7 @@ TEST(SdpTest, FullSdpEncodeDecodeRoundTrip) {
   cands[0].component_id  = 1;
   cands[0].priority      = 2130706431;
   cands[0].type          = xIceCandidateType_Host;
-  struct sockaddr_in *a0 = (struct sockaddr_in *)&cands[0].addr;
+  struct sockaddr_in *a0 = reinterpret_cast<struct sockaddr_in *>(&cands[0].addr);
   a0->sin_family         = AF_INET;
   a0->sin_port           = htons(5000);
   inet_pton(AF_INET, "192.168.1.1", &a0->sin_addr);
@@ -148,11 +148,11 @@ TEST(SdpTest, FullSdpEncodeDecodeRoundTrip) {
   cands[1].component_id  = 1;
   cands[1].priority      = 1694498815;
   cands[1].type          = xIceCandidateType_Srflx;
-  struct sockaddr_in *a1 = (struct sockaddr_in *)&cands[1].addr;
+  struct sockaddr_in *a1 = reinterpret_cast<struct sockaddr_in *>(&cands[1].addr);
   a1->sin_family         = AF_INET;
   a1->sin_port           = htons(3000);
   inet_pton(AF_INET, "203.0.113.5", &a1->sin_addr);
-  struct sockaddr_in *r1 = (struct sockaddr_in *)&cands[1].rel_addr;
+  struct sockaddr_in *r1 = reinterpret_cast<struct sockaddr_in *>(&cands[1].rel_addr);
   r1->sin_family         = AF_INET;
   r1->sin_port           = htons(5000);
   inet_pton(AF_INET, "192.168.1.1", &r1->sin_addr);

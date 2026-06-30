@@ -195,7 +195,7 @@ TEST_F(TurnClientTest, ChannelDataSendViaChannel) {
   inet_pton(AF_INET, "10.0.0.1", &peer.sin_addr);
 
   /* Bind a channel */
-  int ch = xTurnClientChannelBind(&client, (struct sockaddr *)&peer);
+  int ch = xTurnClientChannelBind(&client, reinterpret_cast<struct sockaddr *>(&peer));
   ASSERT_GE(ch, XTURN_CHANNEL_MIN);
   ASSERT_LE(ch, XTURN_CHANNEL_MAX);
 
@@ -204,7 +204,7 @@ TEST_F(TurnClientTest, ChannelDataSendViaChannel) {
 
   /* Send data — should use ChannelData */
   uint8_t data[] = {0xDE, 0xAD, 0xBE, 0xEF};
-  xErrno  err    = xTurnClientSendData(&client, (struct sockaddr *)&peer, data, sizeof(data));
+  xErrno  err    = xTurnClientSendData(&client, reinterpret_cast<struct sockaddr *>(&peer), data, sizeof(data));
   ASSERT_EQ(err, xErrno_Ok);
   EXPECT_EQ(g_turn_send.call_count, 1);
 
@@ -223,7 +223,7 @@ TEST_F(TurnClientTest, SendDataFallbackToIndication) {
 
   /* No channel bound — should use Send Indication */
   uint8_t data[] = {0x01, 0x02};
-  xErrno  err    = xTurnClientSendData(&client, (struct sockaddr *)&peer, data, sizeof(data));
+  xErrno  err    = xTurnClientSendData(&client, reinterpret_cast<struct sockaddr *>(&peer), data, sizeof(data));
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Verify it's a STUN message (Send Indication) */
@@ -258,7 +258,7 @@ TEST_F(TurnClientTest, AllocateWith401ThenRetryWithCredentials) {
   xStunAttrWriteErrorCode(&w, 401, "Unauthorized");
   xStunAttrWriteRealm(&w, "example.org");
   xStunAttrWriteNonce(&w, "testnonce123");
-  xWriteU16BE(resp_buf + 2, (uint16_t)w.pos);
+  xWriteU16BE(resp_buf + 2, static_cast<uint16_t>(w.pos));
   size_t resp_len = XSTUN_HEADER_SIZE + w.pos;
 
   /* Feed the 401 response to the client */
@@ -322,15 +322,15 @@ TEST_F(TurnClientTest, RefreshTimerScheduledOnAllocateSuccess) {
   relay.sin_family = AF_INET;
   relay.sin_port   = htons(49152);
   inet_pton(AF_INET, "198.51.100.1", &relay.sin_addr);
-  xStunAttrWriteXorMappedAddress(&w, (struct sockaddr *)&relay, req.txn_id);
+  xStunAttrWriteXorMappedAddress(&w, reinterpret_cast<struct sockaddr *>(&relay), req.txn_id);
   /* Patch the type to XOR-RELAYED-ADDRESS (0x0016) */
   uint8_t *attr_start = resp_buf + XSTUN_HEADER_SIZE;
-  xWriteU16BE(attr_start, (uint16_t)xStunAttrType_XorRelayedAddress);
+  xWriteU16BE(attr_start, static_cast<uint16_t>(xStunAttrType_XorRelayedAddress));
 
   /* LIFETIME = 600 seconds */
   xStunAttrWriteLifetime(&w, 600);
 
-  xWriteU16BE(resp_buf + 2, (uint16_t)w.pos);
+  xWriteU16BE(resp_buf + 2, static_cast<uint16_t>(w.pos));
   size_t resp_len = XSTUN_HEADER_SIZE + w.pos;
 
   /* Feed the success response */

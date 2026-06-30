@@ -88,7 +88,7 @@ TEST_P(MapTest, IterateAll) {
     m,
     [](const void *key, void *val, void *arg) -> bool {
       auto *set = (std::unordered_set<std::string> *)arg;
-      set->insert((const char *)key);
+      set->insert(reinterpret_cast<const char *>(key));
       (void)val;
       return true;
     },
@@ -114,7 +114,7 @@ TEST_P(MapTest, IterateEarlyExit) {
     [](const void *key, void *val, void *arg) -> bool {
       (void)key;
       (void)val;
-      int *c = (int *)arg;
+      int *c = reinterpret_cast<int *>(arg);
       (*c)++;
       return *c < 2; /* stop after 2 */
     },
@@ -132,22 +132,22 @@ TEST_P(MapTest, ManyInserts) {
 
   const int N = 1000;
   for (int i = 1; i <= N; i++) {
-    void *key = (void *)(uintptr_t)i;
-    void *val = (void *)(uintptr_t)(i * 10);
+    void *key = reinterpret_cast<void *>(static_cast<uintptr_t>(i));
+    void *val = reinterpret_cast<void *>(static_cast<uintptr_t>(i * 10));
     EXPECT_EQ(xMapSet(im, key, val), xErrno_Ok);
   }
   EXPECT_EQ(xMapLen(im), (size_t)N);
 
   /* Verify all entries are retrievable */
   for (int i = 1; i <= N; i++) {
-    void *key = (void *)(uintptr_t)i;
+    void *key = reinterpret_cast<void *>(static_cast<uintptr_t>(i));
     void *val = xMapGet(im, key);
     EXPECT_EQ((uintptr_t)val, (uintptr_t)(i * 10));
   }
 
   /* Delete half and verify */
   for (int i = 1; i <= N / 2; i++) {
-    void *key = (void *)(uintptr_t)i;
+    void *key = reinterpret_cast<void *>(static_cast<uintptr_t>(i));
     void *val = xMapDel(im, key);
     EXPECT_EQ((uintptr_t)val, (uintptr_t)(i * 10));
   }
@@ -155,7 +155,7 @@ TEST_P(MapTest, ManyInserts) {
 
   /* Remaining half still accessible */
   for (int i = N / 2 + 1; i <= N; i++) {
-    void *key = (void *)(uintptr_t)i;
+    void *key = reinterpret_cast<void *>(static_cast<uintptr_t>(i));
     void *val = xMapGet(im, key);
     EXPECT_EQ((uintptr_t)val, (uintptr_t)(i * 10));
   }
@@ -176,7 +176,7 @@ TEST_P(MapTest, EmptyMapOps) {
     [](const void *key, void *val, void *arg) -> bool {
       (void)key;
       (void)val;
-      (*(int *)arg)++;
+      (*reinterpret_cast<int *>(arg))++;
       return true;
     },
     &count);
@@ -253,7 +253,7 @@ TEST(MapHelpersTest, IntHash) {
   EXPECT_EQ(xMapIntHash((void *)42), xMapIntHash((void *)42));
   EXPECT_NE(xMapIntHash((void *)1), xMapIntHash((void *)2));
   /* 0 is a valid key */
-  uint64_t h = xMapIntHash((void *)0);
+  uint64_t h = xMapIntHash(reinterpret_cast<void *>(0));
   (void)h;
 }
 

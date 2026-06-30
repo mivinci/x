@@ -170,7 +170,7 @@ TEST_F(EventPostTest, NullFnReturnsError) {
 
 TEST_F(EventPostTest, PostStopsRunningLoop) {
   /* Post a callback that stops the loop, then run the loop. */
-  auto stop_fn = [](void *arg) { (void)arg; xEventLoopStop((xEventLoop)arg); };
+  auto stop_fn = [](void *arg) { (void)arg; xEventLoopStop(static_cast<xEventLoop>(arg)); };
 
   ASSERT_EQ(xEventLoopPost(this->loop, stop_fn, loop), xErrno_Ok);
 

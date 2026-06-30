@@ -41,13 +41,13 @@ static inline uint16_t find_free_port() {
   addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   addr.sin_port        = 0;
 
-  if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+  if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
     close(fd);
     return 0;
   }
 
   socklen_t len = sizeof(addr);
-  if (getsockname(fd, (struct sockaddr *)&addr, &len) < 0) {
+  if (getsockname(fd, reinterpret_cast<struct sockaddr *>(&addr), &len) < 0) {
     close(fd);
     return 0;
   }
@@ -70,7 +70,7 @@ static inline int connect_to(uint16_t port) {
   addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   addr.sin_port        = htons(port);
 
-  if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+  if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
     close(fd);
     return -1;
   }
@@ -82,7 +82,7 @@ static inline int connect_to(uint16_t port) {
  */
 static inline bool send_str(int fd, const std::string &s) {
   ssize_t n = send(fd, s.data(), s.size(), 0);
-  return n == (ssize_t)s.size();
+  return n == static_cast<ssize_t>(s.size());
 }
 
 /**
@@ -100,7 +100,7 @@ static inline std::string recv_all(int fd, int timeout_ms = 2000) {
   for (;;) {
     ssize_t n = recv(fd, buf, sizeof(buf), 0);
     if (n <= 0) break;
-    result.append(buf, (size_t)n);
+    result.append(buf, static_cast<size_t>(n));
 
     if (result.find("\r\n\r\n") != std::string::npos) {
       auto cl_pos = result.find("Content-Length: ");
@@ -110,7 +110,7 @@ static inline std::string recv_all(int fd, int timeout_ms = 2000) {
         if (cl_end != std::string::npos) {
           int    content_len = std::stoi(result.substr(cl_start, cl_end - cl_start));
           size_t body_start  = result.find("\r\n\r\n") + 4;
-          if (result.size() >= body_start + (size_t)content_len) break;
+          if (result.size() >= body_start + static_cast<size_t>(content_len)) break;
         }
       } else {
         break;

@@ -180,9 +180,9 @@ private:
 
   static nghttp2_nv make_nv(const char *name, const char *value) {
     nghttp2_nv nv;
-    nv.name     = (uint8_t *)name;
+    nv.name     = reinterpret_cast<uint8_t *>(const_cast<char *>(name));
     nv.namelen  = strlen(name);
-    nv.value    = (uint8_t *)value;
+    nv.value    = reinterpret_cast<uint8_t *>(const_cast<char *>(value));
     nv.valuelen = strlen(value);
     nv.flags    = NGHTTP2_NV_FLAG_NONE;
     return nv;
@@ -193,7 +193,7 @@ private:
                          void *user_data) {
     (void)session;
     (void)flags;
-    H2Client *self = (H2Client *)user_data;
+    H2Client *self = reinterpret_cast<H2Client *>(user_data);
     ssize_t   n    = send(self->fd_, data, length, 0);
     if (n < 0) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) return NGHTTP2_ERR_WOULDBLOCK;
@@ -216,8 +216,8 @@ private:
                               const uint8_t *data, size_t len, void *user_data) {
     (void)session;
     (void)flags;
-    H2Client *self = (H2Client *)user_data;
-    self->responses_[stream_id].body.append((const char *)data, len);
+    H2Client *self = reinterpret_cast<H2Client *>(user_data);
+    self->responses_[stream_id].body.append(reinterpret_cast<const char *>(data), len);
     return 0;
   }
 
@@ -227,7 +227,7 @@ private:
                           void *user_data) {
     (void)session;
     (void)flags;
-    H2Client *self = (H2Client *)user_data;
+    H2Client *self = reinterpret_cast<H2Client *>(user_data);
 
     if (frame->hd.type != NGHTTP2_HEADERS) return 0;
 
@@ -247,7 +247,7 @@ private:
                                 void *user_data) {
     (void)session;
     (void)error_code;
-    H2Client *self = (H2Client *)user_data;
+    H2Client *self = reinterpret_cast<H2Client *>(user_data);
     self->closed_streams_.insert(stream_id);
     return 0;
   }
@@ -259,7 +259,7 @@ private:
     (void)session;
     (void)stream_id;
     (void)user_data;
-    H2Client *self      = (H2Client *)source->ptr;
+    H2Client *self      = reinterpret_cast<H2Client *>(source->ptr);
     size_t    remaining = self->post_body_.size() - self->post_pos_;
     size_t    to_copy   = std::min(remaining, length);
 

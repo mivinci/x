@@ -70,7 +70,7 @@ public:
     ASSERT_EQ(listen(listen_fd_, 1), 0);
 
     socklen_t len = sizeof(addr);
-    getsockname(listen_fd_, (struct sockaddr *)&addr, &len);
+    getsockname(listen_fd_, reinterpret_cast<struct sockaddr *>(&addr), &len);
     port_ = ntohs(addr.sin_port);
 
     url_ = "http://127.0.0.1:" + std::to_string(port_) + "/events";

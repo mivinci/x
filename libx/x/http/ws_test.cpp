@@ -36,7 +36,7 @@ extern "C" {
 TEST(WsCrypto, SHA1_KnownVector) {
   /* SHA-1("") = da39a3ee5e6b4b0d3255bfef95601890afd80709 */
   unsigned char digest[XWS_SHA1_DIGEST_SIZE];
-  xWsSHA1((const unsigned char *)"", 0, digest);
+  xWsSHA1(reinterpret_cast<const unsigned char *>(""), 0, digest);
 
   unsigned char expected[] = {
     0xda, 0x39, 0xa3, 0xee, 0x5e, 0x6b, 0x4b, 0x0d, 0x32, 0x55,
@@ -49,7 +49,7 @@ TEST(WsCrypto, SHA1_HelloWorld) {
   /* SHA-1("Hello, World!") known value */
   unsigned char digest[XWS_SHA1_DIGEST_SIZE];
   const char   *input = "Hello, World!";
-  xWsSHA1((const unsigned char *)input, strlen(input), digest);
+  xWsSHA1(reinterpret_cast<const unsigned char *>(input), strlen(input), digest);
 
   /* Verify it's not all zeros (basic sanity) */
   bool all_zero = true;
@@ -71,7 +71,7 @@ TEST(WsCrypto, SHA1_WebSocketAccept) {
 
   std::string   concat = std::string(key) + guid;
   unsigned char digest[XWS_SHA1_DIGEST_SIZE];
-  xWsSHA1((const unsigned char *)concat.c_str(), concat.size(), digest);
+  xWsSHA1(reinterpret_cast<const unsigned char *>(concat.c_str()), concat.size(), digest);
 
   char b64[64];
   int  n = xWsBase64Encode(digest, XWS_SHA1_DIGEST_SIZE, b64, sizeof(b64));
@@ -81,7 +81,7 @@ TEST(WsCrypto, SHA1_WebSocketAccept) {
 
 TEST(WsCrypto, Base64_Empty) {
   char out[8];
-  int  n = xWsBase64Encode((const unsigned char *)"", 0, out, sizeof(out));
+  int  n = xWsBase64Encode(reinterpret_cast<const unsigned char *>(""), 0, out, sizeof(out));
   ASSERT_GE(n, 0);
   EXPECT_STREQ(out, "");
 }
@@ -89,24 +89,24 @@ TEST(WsCrypto, Base64_Empty) {
 TEST(WsCrypto, Base64_Padding) {
   /* "a" -> "YQ==" */
   char out[8];
-  int  n = xWsBase64Encode((const unsigned char *)"a", 1, out, sizeof(out));
+  int  n = xWsBase64Encode(reinterpret_cast<const unsigned char *>("a"), 1, out, sizeof(out));
   ASSERT_GT(n, 0);
   EXPECT_STREQ(out, "YQ==");
 
   /* "ab" -> "YWI=" */
-  n = xWsBase64Encode((const unsigned char *)"ab", 2, out, sizeof(out));
+  n = xWsBase64Encode(reinterpret_cast<const unsigned char *>("ab"), 2, out, sizeof(out));
   ASSERT_GT(n, 0);
   EXPECT_STREQ(out, "YWI=");
 
   /* "abc" -> "YWJj" */
-  n = xWsBase64Encode((const unsigned char *)"abc", 3, out, sizeof(out));
+  n = xWsBase64Encode(reinterpret_cast<const unsigned char *>("abc"), 3, out, sizeof(out));
   ASSERT_GT(n, 0);
   EXPECT_STREQ(out, "YWJj");
 }
 
 TEST(WsCrypto, Base64_BufferTooSmall) {
   char out[2]; /* Too small */
-  int  n = xWsBase64Encode((const unsigned char *)"abc", 3, out, sizeof(out));
+  int  n = xWsBase64Encode(reinterpret_cast<const unsigned char *>("abc"), 3, out, sizeof(out));
   EXPECT_EQ(n, -1);
 }
 
@@ -140,7 +140,7 @@ static std::vector<uint8_t> build_client_frame(uint8_t fin, uint8_t opcode, cons
   frame.insert(frame.end(), mask_key, mask_key + 4);
 
   /* Masked payload */
-  const uint8_t *p = (const uint8_t *)payload;
+  const uint8_t *p = reinterpret_cast<const uint8_t *>(payload);
   for (size_t i = 0; i < len; i++) {
     frame.push_back(p[i] ^ mask_key[i & 3]);
   }
@@ -257,7 +257,7 @@ TEST(WsFrame, ParseCloseFrame) {
   EXPECT_EQ(parser.frame.opcode, XWS_OPCODE_CLOSE);
   EXPECT_EQ(parser.frame.payload_len, 2u);
 
-  uint16_t code = (uint16_t)((parser.frame.payload[0] << 8) | parser.frame.payload[1]);
+  uint16_t code = static_cast<uint16_t>((parser.frame.payload[0] << 8) | parser.frame.payload[1]);
   EXPECT_EQ(code, 1000);
 
   free(parser.frame.payload);
@@ -399,7 +399,7 @@ struct WsTestCtx {
 };
 
 static void ws_test_on_open(xWsConn conn, void *arg) {
-  auto *ctx = (WsTestCtx *)arg;
+  auto *ctx = reinterpret_cast<WsTestCtx *>(arg);
   ctx->open_count++;
   ctx->last_conn = conn;
 }
@@ -407,7 +407,7 @@ static void ws_test_on_open(xWsConn conn, void *arg) {
 static void ws_test_on_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len,
                                void *arg) {
   (void)conn;
-  auto *ctx = (WsTestCtx *)arg;
+  auto *ctx = reinterpret_cast<WsTestCtx *>(arg);
   ctx->message_count++;
   ctx->last_opcode = opcode;
   if (payload && len > 0) {
@@ -422,7 +422,7 @@ static void ws_test_on_close(xWsConn conn, uint16_t code, const char *reason, si
   (void)conn;
   (void)reason;
   (void)len;
-  auto *ctx = (WsTestCtx *)arg;
+  auto *ctx = reinterpret_cast<WsTestCtx *>(arg);
   ctx->close_count++;
   ctx->close_code = code;
 }
@@ -477,7 +477,7 @@ static RecvFrame ws_recv_frame(int fd, int timeout_ms = 2000) {
   if (len7 == 126) {
     uint8_t ext[2];
     if (recv(fd, ext, 2, MSG_WAITALL) != 2) return result;
-    payload_len = ((uint64_t)ext[0] << 8) | ext[1];
+    payload_len = (static_cast<uint64_t>(ext[0]) << 8) | ext[1];
   } else if (len7 == 127) {
     uint8_t ext[8];
     if (recv(fd, ext, 8, MSG_WAITALL) != 8) return result;
@@ -494,8 +494,8 @@ static RecvFrame ws_recv_frame(int fd, int timeout_ms = 2000) {
 
   /* Read payload */
   if (payload_len > 0) {
-    result.payload.resize((size_t)payload_len);
-    n = recv(fd, &result.payload[0], (size_t)payload_len, MSG_WAITALL);
+    result.payload.resize(static_cast<size_t>(payload_len));
+    n = recv(fd, &result.payload[0], static_cast<size_t>(payload_len), MSG_WAITALL);
     if (n != (ssize_t)payload_len) return result;
   }
 
@@ -505,7 +505,7 @@ static RecvFrame ws_recv_frame(int fd, int timeout_ms = 2000) {
 
 /* Handler that upgrades to WebSocket */
 static void ws_upgrade_handler(xHttpCtx *ctx, void *arg) {
-  WsTestCtx   *c = (WsTestCtx *)arg;
+  WsTestCtx   *c = reinterpret_cast<WsTestCtx *>(arg);
   xWsCallbacks cbs = {};
   cbs.on_open      = ws_test_on_open;
   cbs.on_message   = ws_test_on_message;

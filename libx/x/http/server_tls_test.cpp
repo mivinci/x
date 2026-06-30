@@ -233,7 +233,7 @@ protected:
 
   std::string tls_send_recv(TlsConn &conn, const std::string &request, int timeout_ms = 2000) {
     if (!request.empty()) {
-      SSL_write(conn.ssl, request.data(), (int)request.size());
+      SSL_write(conn.ssl, request.data(), static_cast<int>(request.size()));
     }
 
     std::string result;
@@ -248,7 +248,7 @@ protected:
     for (;;) {
       int n = SSL_read(conn.ssl, buf, sizeof(buf));
       if (n <= 0) break;
-      result.append(buf, (size_t)n);
+      result.append(buf, static_cast<size_t>(n));
 
       /* Check for complete HTTP response */
       if (result.find("\r\n\r\n") != std::string::npos) {
@@ -259,7 +259,7 @@ protected:
           if (cl_end != std::string::npos) {
             int    content_len = std::stoi(result.substr(cl_start, cl_end - cl_start));
             size_t body_start  = result.find("\r\n\r\n") + 4;
-            if (result.size() >= body_start + (size_t)content_len) break;
+            if (result.size() >= body_start + static_cast<size_t>(content_len)) break;
           }
         } else {
           break;

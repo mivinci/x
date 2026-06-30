@@ -60,7 +60,7 @@ protected:
 /* Completion callback for async ops */
 struct comp_ctx { bool done; xErrno err; };
 static void comp_cb(xErrno err, void *arg) {
-  auto *c = (comp_ctx *)arg;
+  auto *c = reinterpret_cast<comp_ctx *>(arg);
   c->err  = err; c->done = true;
   xEventLoopStop(xEventLoopCurrent());
 }
@@ -101,7 +101,7 @@ TEST_F(CacheTest, WriteFullBlock) {
   const size_t BS = 256*1024;
   ASSERT_EQ(dlp_cache_is_ready(cache, "r1", "0", 0, BS), 0);
 
-  uint8_t *data = (uint8_t*)malloc(BS);
+  uint8_t *data = reinterpret_cast<uint8_t *>(malloc(BS));
   memset(data, 0xAB, BS);
 
   comp_ctx c = {};
@@ -119,14 +119,14 @@ TEST_F(CacheTest, ReadBackData) {
   ASSERT_EQ(dlp_cache_open_clip(cache, "r2", "0", 1024*1024), xErrno_Ok);
 
   const size_t BS = 256*1024;
-  uint8_t *data = (uint8_t*)malloc(BS);
-  for (size_t i=0;i<BS;i++) data[i]=(uint8_t)(i&0xFF);
+  uint8_t *data = reinterpret_cast<uint8_t *>(malloc(BS));
+  for (size_t i=0;i<BS;i++) data[i]=static_cast<uint8_t>(i&0xFF);
 
   comp_ctx cw = {};
   ASSERT_EQ(dlp_cache_write(cache,"r2","0",0,data,BS,comp_cb,&cw), xErrno_Ok);
   wait_for(cw, loop);
 
-  uint8_t *ver = (uint8_t*)malloc(BS);
+  uint8_t *ver = reinterpret_cast<uint8_t *>(malloc(BS));
   memset(ver,0,BS);
   comp_ctx cr = {};
   ASSERT_EQ(dlp_cache_read(cache,"r2","0",0,ver,BS,comp_cb,&cr), xErrno_Ok);
@@ -144,8 +144,8 @@ TEST_F(CacheTest, MultipleResources) {
   ASSERT_EQ(dlp_cache_open_clip(cache,"B","0",1024*1024), xErrno_Ok);
 
   const size_t BS = 256*1024;
-  uint8_t *da = (uint8_t*)malloc(BS); memset(da,0xAA,BS);
-  uint8_t *db = (uint8_t*)malloc(BS); memset(db,0xBB,BS);
+  uint8_t *da = reinterpret_cast<uint8_t *>(malloc(BS)); memset(da,0xAA,BS);
+  uint8_t *db = reinterpret_cast<uint8_t *>(malloc(BS)); memset(db,0xBB,BS);
 
   comp_ctx ca = {};
   ASSERT_EQ(dlp_cache_write(cache,"A","0",0,da,BS,comp_cb,&ca), xErrno_Ok);
@@ -193,7 +193,7 @@ TEST_F(CacheTest, CrossBlockWrite) {
   ASSERT_EQ(dlp_cache_open_clip(cache, "r5", "0", BS*3), xErrno_Ok);
 
   size_t start = BS - 128, len = 512;
-  uint8_t *data = (uint8_t*)malloc(len);
+  uint8_t *data = reinterpret_cast<uint8_t *>(malloc(len));
   memset(data, 0xDD, len);
   comp_ctx c = {};
   ASSERT_EQ(dlp_cache_write(cache,"r5","0",start,data,len,comp_cb,&c), xErrno_Ok);
@@ -212,7 +212,7 @@ TEST_F(CacheTest, MetaSaveAndReload) {
   ASSERT_EQ(dlp_cache_open_clip(cache, "meta1", "0", BS*4), xErrno_Ok);
 
   /* Write full block 0, verify it's ready */
-  uint8_t *data = (uint8_t*)malloc(BS);
+  uint8_t *data = reinterpret_cast<uint8_t *>(malloc(BS));
   memset(data, 0xAA, BS);
   comp_ctx c = {};
   ASSERT_EQ(dlp_cache_write(cache,"meta1","0",0,data,BS,comp_cb,&c), xErrno_Ok);
@@ -244,7 +244,7 @@ TEST_F(CacheTest, MetaDeleteWhenFullyDownloaded) {
   ASSERT_EQ(dlp_cache_open_clip(cache, "meta2", "0", BS), xErrno_Ok);
 
   /* Write full block (entire file) */
-  uint8_t *data = (uint8_t*)malloc(BS);
+  uint8_t *data = reinterpret_cast<uint8_t *>(malloc(BS));
   memset(data, 0xBB, BS);
   comp_ctx c = {};
   ASSERT_EQ(dlp_cache_write(cache,"meta2","0",0,data,BS,comp_cb,&c), xErrno_Ok);
@@ -260,7 +260,7 @@ TEST_F(CacheTest, MetaHeaderMismatchDiscarded) {
   const size_t BS = 256*1024;
   ASSERT_EQ(dlp_cache_open_clip(cache, "meta3", "0", BS*2), xErrno_Ok);
 
-  uint8_t *data = (uint8_t*)malloc(BS);
+  uint8_t *data = reinterpret_cast<uint8_t *>(malloc(BS));
   memset(data, 0xCC, BS);
   comp_ctx c = {};
   ASSERT_EQ(dlp_cache_write(cache,"meta3","0",0,data,BS,comp_cb,&c), xErrno_Ok);

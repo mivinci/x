@@ -505,8 +505,8 @@ static void param_echo_handler(xHttpCtx *ctx, void *arg) {
   xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
   if (id && len > 0) {
     char buf[128];
-    int  n = snprintf(buf, sizeof(buf), "id=%.*s", (int)len, id);
-    xHttpCtxSend(ctx, buf, (size_t)n);
+    int  n = snprintf(buf, sizeof(buf), "id=%.*s", static_cast<int>(len), id);
+    xHttpCtxSend(ctx, buf, static_cast<size_t>(n));
   } else {
     xHttpCtxSend(ctx, "id=none", 7);
   }
@@ -579,7 +579,7 @@ static void put_on_done(xHttpCtx *ctx, void *arg) {
   xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
   char buf[256];
   int  n = snprintf(buf, sizeof(buf), "%s:%s", ctx->method, c->body.c_str());
-  xHttpCtxSend(ctx, buf, (size_t)n);
+  xHttpCtxSend(ctx, buf, static_cast<size_t>(n));
 }
 
 TEST_F(IntegrationTest, H1PutMethod) {
@@ -722,7 +722,7 @@ static void sse_post_handler(xHttpCtx *ctx, void *arg) {
 
   char buf[512];
   int  n = snprintf(buf, sizeof(buf), "data: %s\n\n", c->body.c_str());
-  xHttpCtxWrite(ctx, buf, (size_t)n);
+  xHttpCtxWrite(ctx, buf, static_cast<size_t>(n));
   xHttpCtxWrite(ctx, "event: done\ndata: [DONE]\n\n", 26);
 xHttpCtxEndStream(ctx);
 }
@@ -864,7 +864,7 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
       },
       &both, 5, 5);
   xTimer watchdog = xTimerStart(
-      [](void *arg) { xEventLoopStop((xEventLoop)arg); },
+      [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
       loop, 5000, 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);

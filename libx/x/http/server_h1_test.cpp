@@ -486,7 +486,7 @@ static void param_handler(xHttpCtx *ctx, void *arg) {
   int  blen = snprintf(body, sizeof(body), "id=%s", c->param_id.c_str());
   xHttpCtxSetStatus(ctx, 200);
   xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
-  xHttpCtxSend(ctx, body, (size_t)blen);
+  xHttpCtxSend(ctx, body, static_cast<size_t>(blen));
 }
 
 TEST_F(HttpServerTest, ParamRouteBasic) {
@@ -548,7 +548,7 @@ static void multi_param_handler(xHttpCtx *ctx, void *arg) {
   int  blen = snprintf(body, sizeof(body), "id=%s,action=%s", c->param_id.c_str(),
                        c->param_action.c_str());
   xHttpCtxSetStatus(ctx, 200);
-  xHttpCtxSend(ctx, body, (size_t)blen);
+  xHttpCtxSend(ctx, body, static_cast<size_t>(blen));
 }
 
 TEST_F(HttpServerTest, ParamRouteMultipleParams) {
@@ -710,7 +710,7 @@ struct YieldCtx {
 };
 
 static void yield_handler(xHttpCtx *ctx, void *arg) {
-  YieldCtx *c = (YieldCtx *)arg;
+  YieldCtx *c = reinterpret_cast<YieldCtx *>(arg);
   c->call_count.fetch_add(1);
 
   xHttpCtxSetStatus(ctx, 200);

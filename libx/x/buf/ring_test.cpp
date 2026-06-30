@@ -79,7 +79,7 @@ TEST(xRingBuffer, Full) {
   size_t      cap = xRingBufferCap(rb);
 
   char data[16];
-  memset(data, 'X', (size_t)cap);
+  memset(data, 'X', cap);
   ASSERT_EQ(xRingBufferWrite(rb, data, cap), cap);
   EXPECT_TRUE(xRingBufferFull(rb));
 

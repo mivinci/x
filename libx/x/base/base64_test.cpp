@@ -57,7 +57,7 @@ TEST(Base64, ThreeBytesExactBlock) {
 TEST(Base64, AllByteValues) {
   uint8_t src[256];
   for (int i = 0; i < 256; i++)
-    src[i] = (uint8_t)i;
+    src[i] = static_cast<uint8_t>(i);
 
   char   buf[XBASE64_ENCODE_MAXLEN(256)];
   size_t buf_len = sizeof(buf);

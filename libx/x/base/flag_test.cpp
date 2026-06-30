@@ -37,7 +37,7 @@ static ParseResult Parse(xFlagSet set, std::initializer_list<const char *> args)
     argv.push_back(const_cast<char *>(a));
   argv.push_back(nullptr);
   ParseResult r{xErrno_Ok, nullptr};
-  r.rc = xFlagParse(set, (int)args.size(), argv.data(), &r.err);
+  r.rc = xFlagParse(set, static_cast<int>(args.size()), argv.data(), &r.err);
   return r;
 }
 

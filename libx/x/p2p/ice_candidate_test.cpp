@@ -65,11 +65,11 @@ TEST(IceCandidateTest, SameTypeAndBaseGiveSameFoundation) {
   c1.type = xIceCandidateType_Host;
   c2.type = xIceCandidateType_Host;
 
-  struct sockaddr_in *a1 = (struct sockaddr_in *)&c1.base_addr;
+  struct sockaddr_in *a1 = reinterpret_cast<struct sockaddr_in *>(&c1.base_addr);
   a1->sin_family         = AF_INET;
   inet_pton(AF_INET, "192.168.1.1", &a1->sin_addr);
 
-  struct sockaddr_in *a2 = (struct sockaddr_in *)&c2.base_addr;
+  struct sockaddr_in *a2 = reinterpret_cast<struct sockaddr_in *>(&c2.base_addr);
   a2->sin_family         = AF_INET;
   inet_pton(AF_INET, "192.168.1.1", &a2->sin_addr);
 
@@ -87,11 +87,11 @@ TEST(IceCandidateTest, DifferentTypeGivesDifferentFoundation) {
   c1.type = xIceCandidateType_Host;
   c2.type = xIceCandidateType_Srflx;
 
-  struct sockaddr_in *a1 = (struct sockaddr_in *)&c1.base_addr;
+  struct sockaddr_in *a1 = reinterpret_cast<struct sockaddr_in *>(&c1.base_addr);
   a1->sin_family         = AF_INET;
   inet_pton(AF_INET, "192.168.1.1", &a1->sin_addr);
 
-  struct sockaddr_in *a2 = (struct sockaddr_in *)&c2.base_addr;
+  struct sockaddr_in *a2 = reinterpret_cast<struct sockaddr_in *>(&c2.base_addr);
   a2->sin_family         = AF_INET;
   inet_pton(AF_INET, "192.168.1.1", &a2->sin_addr);
 
@@ -141,7 +141,7 @@ TEST(IceCandidateTest, SockaddrIPv4String) {
   inet_pton(AF_INET, "10.0.0.1", &addr.sin_addr);
 
   char        buf[64];
-  const char *result = xSockaddrIP((struct sockaddr *)&addr, buf, sizeof(buf));
+  const char *result = xSockaddrIP(reinterpret_cast<struct sockaddr *>(&addr), buf, sizeof(buf));
   ASSERT_NE(result, nullptr);
   EXPECT_STREQ(result, "10.0.0.1");
 }

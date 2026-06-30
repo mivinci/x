@@ -78,9 +78,9 @@ TEST_F(PlainTransportTest, Writev) {
   struct iovec iov[2];
   const char  *part1 = "hello ";
   const char  *part2 = "world";
-  iov[0].iov_base    = (void *)part1;
+  iov[0].iov_base    = const_cast<char *>(part1);
   iov[0].iov_len     = strlen(part1);
-  iov[1].iov_base    = (void *)part2;
+  iov[1].iov_base    = const_cast<char *>(part2);
   iov[1].iov_len     = strlen(part2);
 
   ssize_t nw = t.writev(t.ctx, iov, 2);

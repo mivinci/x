@@ -290,7 +290,7 @@ TEST(xIOBuffer, ReadIov) {
 
 /* Custom read function that reads from a pipe fd */
 static ssize_t test_read_fn(void *ctx, void *buf, size_t len) {
-  int     fd = *(int *)ctx;
+  int     fd = *reinterpret_cast<int *>(ctx);
   ssize_t n;
   do {
     n = read(fd, buf, len);
@@ -300,7 +300,7 @@ static ssize_t test_read_fn(void *ctx, void *buf, size_t len) {
 
 /* Custom writev function that writes to a pipe fd */
 static ssize_t test_writev_fn(void *ctx, const struct iovec *iov, int iovcnt) {
-  int     fd = *(int *)ctx;
+  int     fd = *reinterpret_cast<int *>(ctx);
   ssize_t n;
   do {
     n = writev(fd, iov, iovcnt);

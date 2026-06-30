@@ -19,7 +19,7 @@ protected:
 
   void SetUp() override {
     for (int i = 0; i < XSTUN_TXN_ID_SIZE; i++) {
-      txn_id[i] = (uint8_t)(0xA0 + i);
+      txn_id[i] = static_cast<uint8_t>(0xA0 + i);
     }
     memset(buf, 0, sizeof(buf));
   }

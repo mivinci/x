@@ -34,12 +34,12 @@ static uint16_t get_free_port() {
   addr.sin_family         = AF_INET;
   addr.sin_addr.s_addr    = htonl(INADDR_LOOPBACK);
   addr.sin_port           = 0;
-  if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+  if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
     close(fd);
     return 0;
   }
   socklen_t len = sizeof(addr);
-  (void)getsockname(fd, (struct sockaddr *)&addr, &len);
+  (void)getsockname(fd, reinterpret_cast<struct sockaddr *>(&addr), &len);
   uint16_t port = ntohs(addr.sin_port);
   close(fd);
   return port;
@@ -179,7 +179,7 @@ TEST_F(TcpTest, LoopbackPlainTcp) {
 
     const char  *msg = "hello from client";
     struct iovec iov;
-    iov.iov_base = (void *)msg;
+    iov.iov_base = const_cast<char *>(msg);
     iov.iov_len  = strlen(msg);
     ssize_t nw   = ct->writev(ct->ctx, &iov, 1);
     EXPECT_GT(nw, 0);
@@ -236,7 +236,7 @@ TEST_F(TcpTest, ConnectTimeout) {
   ASSERT_EQ(bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)), 0);
 
   socklen_t alen = sizeof(addr);
-  (void)getsockname(listen_fd, (struct sockaddr *)&addr, &alen);
+  (void)getsockname(listen_fd, reinterpret_cast<struct sockaddr *>(&addr), &alen);
   uint16_t port = ntohs(addr.sin_port);
 
   /* Listen with backlog=1 */
@@ -245,13 +245,13 @@ TEST_F(TcpTest, ConnectTimeout) {
   /* Fill the backlog with a dummy connection */
   int dummy_fd = socket(AF_INET, SOCK_STREAM, 0);
   ASSERT_GE(dummy_fd, 0);
-  int err = connect(dummy_fd, (struct sockaddr *)&addr, sizeof(addr));
+  int err = connect(dummy_fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr));
   (void)err;
 
   /* Another dummy to overflow */
   int dummy_fd2 = socket(AF_INET, SOCK_STREAM, 0);
   ASSERT_GE(dummy_fd2, 0);
-  err = connect(dummy_fd2, (struct sockaddr *)&addr, sizeof(addr));
+  err = connect(dummy_fd2, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr));
   (void)err;
 
   /* Now try to connect with a short timeout - should timeout */

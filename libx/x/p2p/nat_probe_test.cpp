@@ -54,12 +54,12 @@ static int build_stun_response(const uint8_t txn_id[XSTUN_TXN_ID_SIZE], uint16_t
   addr.sin_port   = htons(port);
   inet_pton(AF_INET, "203.0.113.1", &addr.sin_addr);
 
-  if (xStunAttrWriteXorMappedAddress(&writer, (struct sockaddr *)&addr, txn_id) != xErrno_Ok) {
+  if (xStunAttrWriteXorMappedAddress(&writer, reinterpret_cast<struct sockaddr *>(&addr), txn_id) != xErrno_Ok) {
     return -1;
   }
 
   msg.attrs     = attr_buf;
-  msg.attrs_len = (uint16_t)writer.pos;
+  msg.attrs_len = static_cast<uint16_t>(writer.pos);
 
   return xStunMsgEncode(&msg, buf, buf_size);
 }
@@ -97,7 +97,7 @@ public:
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port        = 0; /* OS picks a free port. */
 
-    if (bind(fd_, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    if (bind(fd_, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
       close(fd_);
       fd_ = -1;
       return 0;
@@ -105,7 +105,7 @@ public:
 
     /* Retrieve the assigned port. */
     socklen_t len = sizeof(addr);
-    getsockname(fd_, (struct sockaddr *)&addr, &len);
+    getsockname(fd_, reinterpret_cast<struct sockaddr *>(&addr), &len);
     local_port_ = ntohs(addr.sin_port);
 
     /* Self-pipe used to reliably wake up the worker thread in Stop().
@@ -179,26 +179,26 @@ private:
       if (!(pfds[0].revents & POLLIN)) continue;
 
       from_len  = sizeof(from);
-      ssize_t n = recvfrom(fd_, buf, sizeof(buf), 0, (struct sockaddr *)&from, &from_len);
+      ssize_t n = recvfrom(fd_, buf, sizeof(buf), 0, reinterpret_cast<struct sockaddr *>(&from), &from_len);
       if (n <= 0) {
         if (n < 0 && (errno == EAGAIN || errno == EINTR)) continue;
         break;
       }
 
-      if (!xStunMsgIsStun(buf, (size_t)n)) continue;
+      if (!xStunMsgIsStun(buf, static_cast<size_t>(n))) continue;
 
       xStunMsg req;
-      if (xStunMsgDecode(&req, buf, (size_t)n) != xErrno_Ok) continue;
+      if (xStunMsgDecode(&req, buf, static_cast<size_t>(n)) != xErrno_Ok) continue;
       if (!xStunMsgIsRequest(req.type)) continue;
 
       int      idx  = request_count_.fetch_add(1);
-      uint16_t port = (uint16_t)(base_port_ + idx * increment_);
+      uint16_t port = static_cast<uint16_t>(base_port_ + idx * increment_);
 
       uint8_t resp_buf[XSTUN_MAX_MSG_SIZE];
       int     resp_len = build_stun_response(req.txn_id, port, resp_buf, sizeof(resp_buf));
       if (resp_len < 0) continue;
 
-      sendto(fd_, resp_buf, (size_t)resp_len, 0, (struct sockaddr *)&from, from_len);
+      sendto(fd_, resp_buf, static_cast<size_t>(resp_len), 0, reinterpret_cast<struct sockaddr *>(&from), from_len);
     }
   }
 
@@ -233,14 +233,14 @@ public:
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port        = 0;
 
-    if (bind(fd_, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    if (bind(fd_, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
       close(fd_);
       fd_ = -1;
       return 0;
     }
 
     socklen_t len = sizeof(addr);
-    getsockname(fd_, (struct sockaddr *)&addr, &len);
+    getsockname(fd_, reinterpret_cast<struct sockaddr *>(&addr), &len);
     local_port_ = ntohs(addr.sin_port);
 
     /* See MockStunServer::Start() for why we need a self-pipe. */
@@ -610,14 +610,14 @@ public:
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port        = 0;
 
-    if (bind(fd_, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    if (bind(fd_, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
       close(fd_);
       fd_ = -1;
       return 0;
     }
 
     socklen_t len = sizeof(addr);
-    getsockname(fd_, (struct sockaddr *)&addr, &len);
+    getsockname(fd_, reinterpret_cast<struct sockaddr *>(&addr), &len);
     local_port_ = ntohs(addr.sin_port);
 
     running_ = true;
@@ -643,13 +643,13 @@ private:
 
     while (running_) {
       from_len  = sizeof(from);
-      ssize_t n = recvfrom(fd_, buf, sizeof(buf), 0, (struct sockaddr *)&from, &from_len);
+      ssize_t n = recvfrom(fd_, buf, sizeof(buf), 0, reinterpret_cast<struct sockaddr *>(&from), &from_len);
       if (n <= 0) break;
 
-      if (!xStunMsgIsStun(buf, (size_t)n)) continue;
+      if (!xStunMsgIsStun(buf, static_cast<size_t>(n))) continue;
 
       xStunMsg req;
-      if (xStunMsgDecode(&req, buf, (size_t)n) != xErrno_Ok) continue;
+      if (xStunMsgDecode(&req, buf, static_cast<size_t>(n)) != xErrno_Ok) continue;
       if (!xStunMsgIsRequest(req.type)) continue;
 
       int      idx  = request_count_.fetch_add(1);
@@ -659,7 +659,7 @@ private:
       int     resp_len = build_stun_response(req.txn_id, port, resp_buf, sizeof(resp_buf));
       if (resp_len < 0) continue;
 
-      sendto(fd_, resp_buf, (size_t)resp_len, 0, (struct sockaddr *)&from, from_len);
+      sendto(fd_, resp_buf, static_cast<size_t>(resp_len), 0, reinterpret_cast<struct sockaddr *>(&from), from_len);
     }
   }
 

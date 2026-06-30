@@ -77,7 +77,7 @@ TEST(BuiltinTimerEdge, BulkStress) {
   const int N = 200;
   std::atomic<int> counter{0};
   for (int i = 0; i < N; i++)
-    xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &counter, (uint64_t)i, 0);
+    xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &counter, static_cast<uint64_t>(i), 0);
 
   run_until_count(loop, counter, N, 10000);
   xEventLoopRun(loop, X_RUN_NOWAIT);
@@ -97,7 +97,7 @@ TEST(BuiltinTimerEdge, MixOneShotAndRepeat) {
   xTimer t = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &repeat, 10, 10);
 
   {
-    xTimer stop = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 100, 0);
+    xTimer stop = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 100, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (stop) xTimerStop(stop);
   }

@@ -107,7 +107,7 @@ TEST_F(ArrayTest, CreateNullCbs) {
 /* ========== Push ========== */
 
 TEST_F(ArrayTest, PushSingle) {
-  Pod *slot = (Pod *)xArrayPush(&arr);
+  Pod *slot = reinterpret_cast<Pod *>(xArrayPush(&arr));
   ASSERT_NE(slot, nullptr);
   EXPECT_EQ(slot->x, 0);
   EXPECT_EQ(slot->y, 0);
@@ -116,7 +116,7 @@ TEST_F(ArrayTest, PushSingle) {
   EXPECT_EQ(xArrayLen(arr), 1u);
   EXPECT_EQ(g_retain_count, 1);
 
-  Pod *got = (Pod *)xArrayAt(arr, 0);
+  Pod *got = reinterpret_cast<Pod *>(xArrayAt(arr, 0));
   ASSERT_NE(got, nullptr);
   EXPECT_EQ(got->x, 10);
   EXPECT_EQ(got->y, 20);
@@ -124,7 +124,7 @@ TEST_F(ArrayTest, PushSingle) {
 
 TEST_F(ArrayTest, PushMultiple) {
   for (int i = 0; i < 10; i++) {
-    Pod *slot = (Pod *)xArrayPush(&arr);
+    Pod *slot = reinterpret_cast<Pod *>(xArrayPush(&arr));
     ASSERT_NE(slot, nullptr);
     slot->x = i;
     slot->y = i * 10;
@@ -133,7 +133,7 @@ TEST_F(ArrayTest, PushMultiple) {
   EXPECT_EQ(g_retain_count, 10);
 
   for (int i = 0; i < 10; i++) {
-    Pod *e = (Pod *)xArrayAt(arr, (size_t)i);
+    Pod *e = reinterpret_cast<Pod *>(xArrayAt(arr, static_cast<size_t>(i)));
     ASSERT_NE(e, nullptr);
     EXPECT_EQ(e->x, i);
     EXPECT_EQ(e->y, i * 10);
@@ -143,7 +143,7 @@ TEST_F(ArrayTest, PushMultiple) {
 TEST_F(ArrayTest, PushTriggersGrowth) {
   /* Initial cap is 4, push 5 elements to trigger growth */
   for (int i = 0; i < 5; i++) {
-    Pod *slot = (Pod *)xArrayPush(&arr);
+    Pod *slot = reinterpret_cast<Pod *>(xArrayPush(&arr));
     ASSERT_NE(slot, nullptr);
     slot->x = i;
   }
@@ -152,7 +152,7 @@ TEST_F(ArrayTest, PushTriggersGrowth) {
 
   /* Verify all elements are still correct after realloc */
   for (int i = 0; i < 5; i++) {
-    Pod *e = (Pod *)xArrayAt(arr, (size_t)i);
+    Pod *e = reinterpret_cast<Pod *>(xArrayAt(arr, static_cast<size_t>(i)));
     EXPECT_EQ(e->x, i);
   }
 }
@@ -160,7 +160,7 @@ TEST_F(ArrayTest, PushTriggersGrowth) {
 /* ========== Pop ========== */
 
 TEST_F(ArrayTest, PopBasic) {
-  Pod *slot = (Pod *)xArrayPush(&arr);
+  Pod *slot = reinterpret_cast<Pod *>(xArrayPush(&arr));
   slot->x   = 42;
   EXPECT_EQ(xArrayLen(arr), 1u);
 
@@ -179,7 +179,7 @@ TEST_F(ArrayTest, PopWithRelease) {
   xArray ha = xArrayCreate(sizeof(Heap), 4, &kHeapCbs);
   ASSERT_NE(ha, nullptr);
 
-  Heap *slot = (Heap *)xArrayPush(&ha);
+  Heap *slot = reinterpret_cast<Heap *>(xArrayPush(&ha));
   slot->data = strdup("hello");
 
   EXPECT_EQ(xArrayLen(ha), 1u);
@@ -193,7 +193,7 @@ TEST_F(ArrayTest, PopWithRelease) {
 
 TEST_F(ArrayTest, Reset) {
   for (int i = 0; i < 3; i++) {
-    Pod *slot = (Pod *)xArrayPush(&arr);
+    Pod *slot = reinterpret_cast<Pod *>(xArrayPush(&arr));
     slot->x   = i;
   }
   EXPECT_EQ(xArrayLen(arr), 3u);
@@ -210,7 +210,7 @@ TEST_F(ArrayTest, ResetWithRelease) {
   xArray ha = xArrayCreate(sizeof(Heap), 4, &kHeapCbs);
 
   for (int i = 0; i < 3; i++) {
-    Heap *slot = (Heap *)xArrayPush(&ha);
+    Heap *slot = reinterpret_cast<Heap *>(xArrayPush(&ha));
     char  buf[16];
     snprintf(buf, sizeof(buf), "item%d", i);
     slot->data = strdup(buf);
@@ -233,7 +233,7 @@ TEST_F(ArrayTest, ResizeGrow) {
 
   /* New slots should be zero-initialized */
   for (size_t i = 0; i < 10; i++) {
-    Pod *e = (Pod *)xArrayAt(arr, i);
+    Pod *e = reinterpret_cast<Pod *>(xArrayAt(arr, i));
     EXPECT_EQ(e->x, 0);
     EXPECT_EQ(e->y, 0);
   }
@@ -241,7 +241,7 @@ TEST_F(ArrayTest, ResizeGrow) {
 
 TEST_F(ArrayTest, ResizeShrink) {
   for (int i = 0; i < 5; i++) {
-    Pod *slot = (Pod *)xArrayPush(&arr);
+    Pod *slot = reinterpret_cast<Pod *>(xArrayPush(&arr));
     slot->x   = i;
   }
 
@@ -260,7 +260,7 @@ TEST_F(ArrayTest, ResizeShrinkWithRelease) {
   xArray ha = xArrayCreate(sizeof(Heap), 4, &kHeapCbs);
 
   for (int i = 0; i < 5; i++) {
-    Heap *slot = (Heap *)xArrayPush(&ha);
+    Heap *slot = reinterpret_cast<Heap *>(xArrayPush(&ha));
     char  buf[16];
     snprintf(buf, sizeof(buf), "item%d", i);
     slot->data = strdup(buf);
@@ -276,7 +276,7 @@ TEST_F(ArrayTest, ResizeShrinkWithRelease) {
 
 TEST_F(ArrayTest, FindBasic) {
   for (int i = 0; i < 5; i++) {
-    Pod *slot = (Pod *)xArrayPush(&arr);
+    Pod *slot = reinterpret_cast<Pod *>(xArrayPush(&arr));
     slot->x   = i * 10;
   }
 
@@ -304,12 +304,12 @@ TEST_F(ArrayTest, AtOutOfRange) {
 }
 
 TEST_F(ArrayTest, Data) {
-  Pod *s1 = (Pod *)xArrayPush(&arr);
+  Pod *s1 = reinterpret_cast<Pod *>(xArrayPush(&arr));
   s1->x   = 1;
-  Pod *s2 = (Pod *)xArrayPush(&arr);
+  Pod *s2 = reinterpret_cast<Pod *>(xArrayPush(&arr));
   s2->x   = 2;
 
-  Pod *base = (Pod *)xArrayData(arr);
+  Pod *base = reinterpret_cast<Pod *>(xArrayData(arr));
   ASSERT_NE(base, nullptr);
   EXPECT_EQ(base[0].x, 1);
   EXPECT_EQ(base[1].x, 2);
@@ -339,7 +339,7 @@ TEST_F(ArrayTest, LargeScalePush) {
   constexpr int N = 10000;
 
   for (int i = 0; i < N; i++) {
-    Pod *slot = (Pod *)xArrayPush(&arr);
+    Pod *slot = reinterpret_cast<Pod *>(xArrayPush(&arr));
     ASSERT_NE(slot, nullptr);
     slot->x = i;
     slot->y = i * 2;
@@ -348,7 +348,7 @@ TEST_F(ArrayTest, LargeScalePush) {
   EXPECT_EQ(g_retain_count, N);
 
   for (int i = 0; i < N; i++) {
-    Pod *e = (Pod *)xArrayAt(arr, (size_t)i);
+    Pod *e = reinterpret_cast<Pod *>(xArrayAt(arr, static_cast<size_t>(i)));
     ASSERT_NE(e, nullptr);
     EXPECT_EQ(e->x, i);
     EXPECT_EQ(e->y, i * 2);
@@ -358,7 +358,7 @@ TEST_F(ArrayTest, LargeScalePush) {
 TEST_F(ArrayTest, PushAndPopCycle) {
   /* Push 100, pop 50, push 50 more - verify integrity */
   for (int i = 0; i < 100; i++) {
-    Pod *slot = (Pod *)xArrayPush(&arr);
+    Pod *slot = reinterpret_cast<Pod *>(xArrayPush(&arr));
     slot->x   = i;
   }
   EXPECT_EQ(xArrayLen(arr), 100u);
@@ -372,13 +372,13 @@ TEST_F(ArrayTest, PushAndPopCycle) {
 
   /* First 50 elements should still be intact */
   for (int i = 0; i < 50; i++) {
-    Pod *e = (Pod *)xArrayAt(arr, (size_t)i);
+    Pod *e = reinterpret_cast<Pod *>(xArrayAt(arr, static_cast<size_t>(i)));
     EXPECT_EQ(e->x, i);
   }
 
   /* Push 50 more */
   for (int i = 100; i < 150; i++) {
-    Pod *slot = (Pod *)xArrayPush(&arr);
+    Pod *slot = reinterpret_cast<Pod *>(xArrayPush(&arr));
     slot->x   = i;
   }
   EXPECT_EQ(xArrayLen(arr), 100u);

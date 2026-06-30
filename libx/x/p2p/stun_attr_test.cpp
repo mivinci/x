@@ -24,7 +24,7 @@ protected:
   void SetUp() override {
     memset(msg_buf, 0, sizeof(msg_buf));
     for (int i = 0; i < XSTUN_TXN_ID_SIZE; i++) {
-      txn_id[i] = (uint8_t)(0xB0 + i);
+      txn_id[i] = static_cast<uint8_t>(0xB0 + i);
     }
     /* Write a STUN header first */
     xStunMsg msg;
@@ -37,7 +37,7 @@ protected:
 
   /* Helper: build a decodable message from current writer state */
   void FinalizeMsg(size_t *total_len) {
-    xWriteU16BE(msg_buf + 2, (uint16_t)writer.pos);
+    xWriteU16BE(msg_buf + 2, static_cast<uint16_t>(writer.pos));
     *total_len = XSTUN_HEADER_SIZE + writer.pos;
   }
 };
@@ -51,7 +51,7 @@ TEST_F(StunAttrTest, XorMappedAddressIPv4RoundTrip) {
   addr.sin_port   = htons(12345);
   inet_pton(AF_INET, "192.168.1.100", &addr.sin_addr);
 
-  xErrno err = xStunAttrWriteXorMappedAddress(&writer, (struct sockaddr *)&addr, txn_id);
+  xErrno err = xStunAttrWriteXorMappedAddress(&writer, reinterpret_cast<struct sockaddr *>(&addr), txn_id);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Decode */
@@ -70,7 +70,7 @@ TEST_F(StunAttrTest, XorMappedAddressIPv4RoundTrip) {
   struct sockaddr_storage out;
   ASSERT_EQ(xStunAttrDecodeXorMappedAddress(&attr, txn_id, &out), xErrno_Ok);
 
-  struct sockaddr_in *out4 = (struct sockaddr_in *)&out;
+  struct sockaddr_in *out4 = reinterpret_cast<struct sockaddr_in *>(&out);
   EXPECT_EQ(out4->sin_family, AF_INET);
   EXPECT_EQ(ntohs(out4->sin_port), 12345);
   EXPECT_EQ(out4->sin_addr.s_addr, addr.sin_addr.s_addr);
@@ -83,7 +83,7 @@ TEST_F(StunAttrTest, XorMappedAddressIPv6RoundTrip) {
   addr.sin6_port   = htons(54321);
   inet_pton(AF_INET6, "2001:db8::1", &addr.sin6_addr);
 
-  xErrno err = xStunAttrWriteXorMappedAddress(&writer, (struct sockaddr *)&addr, txn_id);
+  xErrno err = xStunAttrWriteXorMappedAddress(&writer, reinterpret_cast<struct sockaddr *>(&addr), txn_id);
   ASSERT_EQ(err, xErrno_Ok);
 
   size_t total;
@@ -100,7 +100,7 @@ TEST_F(StunAttrTest, XorMappedAddressIPv6RoundTrip) {
   struct sockaddr_storage out;
   ASSERT_EQ(xStunAttrDecodeXorMappedAddress(&attr, txn_id, &out), xErrno_Ok);
 
-  struct sockaddr_in6 *out6 = (struct sockaddr_in6 *)&out;
+  struct sockaddr_in6 *out6 = reinterpret_cast<struct sockaddr_in6 *>(&out);
   EXPECT_EQ(out6->sin6_family, AF_INET6);
   EXPECT_EQ(ntohs(out6->sin6_port), 54321);
   EXPECT_EQ(memcmp(&out6->sin6_addr, &addr.sin6_addr, 16), 0);
@@ -219,7 +219,7 @@ TEST_F(StunAttrTest, ErrorCodeRoundTrip) {
 
 TEST_F(StunAttrTest, MessageIntegrityWriteAndVerify) {
   const char    *key_str = "test_password";
-  const uint8_t *key     = (const uint8_t *)key_str;
+  const uint8_t *key     = reinterpret_cast<const uint8_t *>(key_str);
   size_t         key_len = strlen(key_str);
 
   /* Write some attributes first */

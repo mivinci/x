@@ -26,8 +26,8 @@
  */
 static inline void run_for(xEventLoop loop, int ms) {
   xTimer t = xTimerStart(
-    [](void *arg) { xEventLoopStop((xEventLoop)arg); },
-    loop, (uint64_t)ms, 0);
+    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
+    loop, static_cast<uint64_t>(ms), 0);
   xEventLoopRun(loop, X_RUN_DEFAULT);
   if (t) xTimerStop(t);
 }
@@ -57,8 +57,8 @@ static inline void run_until(xEventLoop loop, std::atomic<bool> &flag,
     &ctx, 5, 5);
 
   xTimer watchdog = xTimerStart(
-    [](void *arg) { xEventLoopStop((xEventLoop)arg); },
-    loop, (uint64_t)timeout_ms, 0);
+    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
+    loop, static_cast<uint64_t>(timeout_ms), 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
 
@@ -91,8 +91,8 @@ static inline void run_until_count(xEventLoop loop, std::atomic<int> &count,
     &ctx, 5, 5);
 
   xTimer watchdog = xTimerStart(
-    [](void *arg) { xEventLoopStop((xEventLoop)arg); },
-    loop, (uint64_t)timeout_ms, 0);
+    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
+    loop, static_cast<uint64_t>(timeout_ms), 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
 

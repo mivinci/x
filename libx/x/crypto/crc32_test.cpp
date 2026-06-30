@@ -24,8 +24,8 @@ TEST(Crc32, CheckValue) {
 
 TEST(Crc32, Deterministic) {
   const char *input = "Hello, World!";
-  uint32_t    crc1  = xCrc32((const uint8_t *)input, strlen(input));
-  uint32_t    crc2  = xCrc32((const uint8_t *)input, strlen(input));
+  uint32_t    crc1  = xCrc32(reinterpret_cast<const uint8_t *>(input), strlen(input));
+  uint32_t    crc2  = xCrc32(reinterpret_cast<const uint8_t *>(input), strlen(input));
   EXPECT_EQ(crc1, crc2);
 }
 

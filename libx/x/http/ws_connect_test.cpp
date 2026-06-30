@@ -35,7 +35,7 @@ struct WsClientCtx {
 };
 
 static void client_on_open(xWsConn conn, void *arg) {
-  auto *ctx = (WsClientCtx *)arg;
+  auto *ctx = reinterpret_cast<WsClientCtx *>(arg);
   ctx->open_count++;
   ctx->conn = conn;
 }
@@ -43,7 +43,7 @@ static void client_on_open(xWsConn conn, void *arg) {
 static void client_on_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len,
                               void *arg) {
   (void)conn;
-  auto *ctx = (WsClientCtx *)arg;
+  auto *ctx = reinterpret_cast<WsClientCtx *>(arg);
   ctx->message_count++;
   ctx->last_opcode = opcode;
   if (payload && len > 0) {
@@ -58,7 +58,7 @@ static void client_on_close(xWsConn conn, uint16_t code, const char *reason, siz
   (void)conn;
   (void)reason;
   (void)len;
-  auto *ctx = (WsClientCtx *)arg;
+  auto *ctx = reinterpret_cast<WsClientCtx *>(arg);
   ctx->close_count++;
   ctx->close_code = code;
 }
@@ -76,14 +76,14 @@ struct WsServerCtx {
 };
 
 static void server_on_open(xWsConn conn, void *arg) {
-  auto *ctx = (WsServerCtx *)arg;
+  auto *ctx = reinterpret_cast<WsServerCtx *>(arg);
   ctx->open_count++;
   ctx->conn = conn;
 }
 
 static void server_on_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len,
                               void *arg) {
-  auto *ctx = (WsServerCtx *)arg;
+  auto *ctx = reinterpret_cast<WsServerCtx *>(arg);
   ctx->message_count++;
   /* Echo back */
   xWsSend(conn, opcode, payload, len);
@@ -95,12 +95,12 @@ static void server_on_close(xWsConn conn, uint16_t code, const char *reason, siz
   (void)conn;
   (void)reason;
   (void)len;
-  auto *ctx = (WsServerCtx *)arg;
+  auto *ctx = reinterpret_cast<WsServerCtx *>(arg);
   ctx->close_count++;
 }
 
 static void ws_echo_handler(xHttpCtx *ctx, void *arg) {
-  WsServerCtx *sctx = (WsServerCtx *)arg;
+  WsServerCtx *sctx = reinterpret_cast<WsServerCtx *>(arg);
   xWsCallbacks cbs = {};
   cbs.on_open      = server_on_open;
   cbs.on_message   = server_on_message;

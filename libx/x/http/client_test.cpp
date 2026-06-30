@@ -761,7 +761,7 @@ TEST_F(HttpServerTest, LargeFileUpload) {
 
   StreamCtx ctx;
   ctx.upload_data.resize(SZ);
-  for (size_t i = 0; i < SZ; i++) ctx.upload_data[i] = (char)(i % 251);
+  for (size_t i = 0; i < SZ; i++) ctx.upload_data[i] = static_cast<char>(i % 251);
   ctx.upload_chunk_size = 16384; /* 16 KB per on_read call */
 
   std::string u = "http://127.0.0.1:" + std::to_string(port) + "/echo";

@@ -59,7 +59,7 @@ TEST(BuiltinTimerPrecision, UnderFdFlood) {
 
   uint64_t start_ns = xMonoNs();
   {
-    xTimer stop = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 200, 0);
+    xTimer stop = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 200, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (stop) xTimerStop(stop);
   }
