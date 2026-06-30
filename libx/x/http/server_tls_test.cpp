@@ -181,9 +181,9 @@ protected:
     if (alpn_proto) {
       size_t                     proto_len = strlen(alpn_proto);
       std::vector<unsigned char> alpn_buf(proto_len + 1);
-      alpn_buf[0] = (unsigned char)proto_len;
+      alpn_buf[0] = static_cast<unsigned char>(proto_len);
       memcpy(&alpn_buf[1], alpn_proto, proto_len);
-      SSL_CTX_set_alpn_protos(conn.ctx, alpn_buf.data(), (unsigned)alpn_buf.size());
+      SSL_CTX_set_alpn_protos(conn.ctx, alpn_buf.data(), static_cast<unsigned>(alpn_buf.size()));
     }
 
     conn.fd = connect_to(tls_port);
@@ -313,7 +313,7 @@ TEST_F(HttpServerTlsTest, AlpnNegotiatesH1) {
   SSL_get0_alpn_selected(conn.ssl, &alpn_data, &alpn_len);
 
   if (alpn_data && alpn_len > 0) {
-    std::string alpn_result((const char *)alpn_data, alpn_len);
+    std::string alpn_result(reinterpret_cast<const char *>(alpn_data), alpn_len);
     EXPECT_EQ(alpn_result, "http/1.1");
   }
 

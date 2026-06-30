@@ -144,7 +144,7 @@ TEST(xIOBuffer, CutMultiBlock) {
   size_t            total = XIOBUFFER_BLOCK_SIZE * 2 + 500;
   std::vector<char> data(total);
   for (size_t i = 0; i < total; i++)
-    data[i] = (char)(i & 0xFF);
+    data[i] = static_cast<char>(i & 0xFF);
   xIOBufferAppend(&io, data.data(), total);
 
   /* Cut first block + partial second. */

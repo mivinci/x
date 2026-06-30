@@ -653,7 +653,7 @@ private:
       if (!xStunMsgIsRequest(req.type)) continue;
 
       int      idx  = request_count_.fetch_add(1);
-      uint16_t port = (idx < (int)ports_.size()) ? ports_[idx] : ports_.back();
+      uint16_t port = (idx < static_cast<int>(ports_.size())) ? ports_[idx] : ports_.back();
 
       uint8_t resp_buf[XSTUN_MAX_MSG_SIZE];
       int     resp_len = build_stun_response(req.txn_id, port, resp_buf, sizeof(resp_buf));

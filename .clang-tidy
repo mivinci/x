@@ -1,0 +1,43 @@
+# .clang-tidy — Project-wide clang-tidy configuration
+#
+# Scope: applies to all .cpp/.c files under libx/ and libdlproxy/.
+# Driven by build/compile_commands.json (see .clangd).
+#
+# CI runs this on every push/PR — see scripts/run-clang-tidy.sh and
+# the "clang-tidy" lane in .github/workflows/ci.yml.
+#
+# Adding new checks:
+#   1. Enable the check here with a comment explaining why.
+#   2. Run `scripts/run-clang-tidy.sh` locally to surface existing
+#      violations; either fix them or add suppressions.
+#   3. Verify the CI lane passes before merging.
+#
+# Conservative by default — every check added here becomes a hard
+# gate (see WarningsAsErrors below), so prefer narrow, well-understood
+# checks over broad ones.
+
+Checks:
+  # ── Disable broad defaults first ──────────────────────────────
+  # Explicitly disable everything, then opt in to specific checks below.
+  # clang-tidy evaluates the check list left-to-right; later entries
+  # override earlier ones, so '-' entries must come before '+' entries
+  # they would otherwise shadow.
+  - '-*'
+
+  # ── Cast style ──────────────────────────────────────────────────
+  # Require C++ cast operators (static_cast/reinterpret_cast/const_cast)
+  # instead of C-style casts. C-style casts can silently perform
+  # reinterpret_cast semantics, hiding intent and bypassing type safety.
+  # All 406 prior violations were cleaned up in commit 213532b; this
+  # check prevents regressions.
+  - 'google-readability-casting'
+
+# Limit diagnostics to project headers — system/library headers
+# (OpenSSL, nghttp2, gtest, etc.) are out of our control.
+HeaderFilterRegex: '^(libx|libdlproxy|examples)/'
+
+# Treat all enabled checks' warnings as errors so CI fails on any
+# violation. If a check is too noisy to enforce, either fix the
+# violations or remove the check from `Checks` — don't downgrade
+# it here.
+WarningsAsErrors: '*'

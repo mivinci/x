@@ -47,7 +47,7 @@ static void client_on_message(xWsConn conn, xWsOpcode opcode, const void *payloa
   ctx->message_count++;
   ctx->last_opcode = opcode;
   if (payload && len > 0) {
-    ctx->last_message = std::string((const char *)payload, len);
+    ctx->last_message = std::string(static_cast<const char *>(payload), len);
   } else {
     ctx->last_message.clear();
   }

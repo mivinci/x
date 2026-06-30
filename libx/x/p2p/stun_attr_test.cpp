@@ -124,7 +124,7 @@ TEST_F(StunAttrTest, UsernameRoundTrip) {
   ASSERT_TRUE(xStunAttrIterNext(&iter, &attr));
   EXPECT_EQ(attr.type, xStunAttrType_Username);
 
-  std::string username((const char *)attr.value, attr.length);
+  std::string username(reinterpret_cast<const char *>(attr.value), attr.length);
   EXPECT_EQ(username, "remote_ufrag:local_ufrag");
 }
 

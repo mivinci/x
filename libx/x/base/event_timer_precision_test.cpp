@@ -190,7 +190,7 @@ TEST(BuiltinTimerPrecision, JitterAnalysis) {
   for (int i = 0; i < N; i++) {
     if (fire_times[i] == 0) continue;
     actual_fires++;
-    double j = (double)((int64_t)(fire_times[i] - expected_ns));
+    double j = static_cast<double>(static_cast<int64_t>(fire_times[i] - expected_ns));
     min_jitter_ns = std::min(min_jitter_ns, j);
     max_jitter_ns = std::max(max_jitter_ns, j);
     sum += j; sum_sq += j * j;

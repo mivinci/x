@@ -70,7 +70,7 @@ TEST(WsFrameMask, MaskedEncodeDecodeLarge) {
   /* Large payload: 4096 bytes */
   std::vector<char> data(4096, 'A');
   for (size_t i = 0; i < data.size(); i++) {
-    data[i] = (char)(i & 0xFF);
+    data[i] = static_cast<char>(i & 0xFF);
   }
   encode_then_parse(data.data(), data.size(), /*masked=*/1,
                     /*expect_masked=*/1);

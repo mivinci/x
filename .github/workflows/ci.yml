@@ -9,8 +9,10 @@ on:
       - '**.cpp'
       - '**/CMakeLists.txt'
       - '**.cmake'
+      - '.clang-tidy'
       - 'scripts/check-exports.sh'
       - 'scripts/export-allowlist.txt'
+      - 'scripts/run-clang-tidy.sh'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
@@ -20,8 +22,10 @@ on:
       - '**.cpp'
       - '**/CMakeLists.txt'
       - '**.cmake'
+      - '.clang-tidy'
       - 'scripts/check-exports.sh'
       - 'scripts/export-allowlist.txt'
+      - 'scripts/run-clang-tidy.sh'
       - '.github/workflows/ci.yml'
 
 jobs:
@@ -130,3 +134,34 @@ jobs:
             ./scripts/check-exports.sh "build-shared/${lib}.so" scripts/export-allowlist.txt || FAIL=1
           done
           exit $FAIL
+
+  # ── clang-tidy ────────────────────────────────────────────────────────
+  # Lint test files using the .clang-tidy config. Currently enforces
+  # google-readability-casting (no C-style casts). Adding new checks
+  # requires fixing all existing violations first — see .clang-tidy.
+  clang-tidy:
+    name: clang-tidy (lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            clang-tidy \
+            libgtest-dev \
+            libnghttp2-dev \
+            libssl-dev \
+            libusrsctp-dev \
+            libcurl4-openssl-dev \
+            ninja-build
+
+      - name: Generate compile_commands.json
+        run: |
+          cmake -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DX_TLS_BACKEND=openssl
+
+      - name: Run clang-tidy
+        run: |
+          ./scripts/run-clang-tidy.sh -j $(nproc)

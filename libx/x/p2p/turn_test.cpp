@@ -264,7 +264,7 @@ TEST_F(TurnClientTest, AllocateWith401ThenRetryWithCredentials) {
   /* Feed the 401 response to the client */
   xStunMsg resp_decoded;
   ASSERT_EQ(xStunMsgDecode(&resp_decoded, resp_buf, resp_len), xErrno_Ok);
-  xTurnClientOnMessage(&client, &resp_decoded, resp_buf, resp_len, (struct sockaddr *)&server);
+  xTurnClientOnMessage(&client, &resp_decoded, resp_buf, resp_len, reinterpret_cast<struct sockaddr *>(&server));
 
   /* Client should have retried with credentials */
   EXPECT_EQ(g_turn_send.call_count, 2);
@@ -336,7 +336,7 @@ TEST_F(TurnClientTest, RefreshTimerScheduledOnAllocateSuccess) {
   /* Feed the success response */
   xStunMsg resp_decoded;
   ASSERT_EQ(xStunMsgDecode(&resp_decoded, resp_buf, resp_len), xErrno_Ok);
-  xTurnClientOnMessage(&client, &resp_decoded, resp_buf, resp_len, (struct sockaddr *)&server);
+  xTurnClientOnMessage(&client, &resp_decoded, resp_buf, resp_len, reinterpret_cast<struct sockaddr *>(&server));
 
   /* Verify allocation succeeded */
   EXPECT_TRUE(g_alloc_result.allocated);

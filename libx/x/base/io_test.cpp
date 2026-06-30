@@ -45,7 +45,7 @@ static ssize_t mock_read(void *ctx, void *buf, size_t len) {
   auto *m = static_cast<MockReadCtx *>(ctx);
   m->call_count++;
 
-  if (m->fail_after >= 0 && (ssize_t)m->pos >= m->fail_after) {
+  if (m->fail_after >= 0 && static_cast<ssize_t>(m->pos) >= m->fail_after) {
     errno = EIO;
     return -1;
   }
@@ -59,7 +59,7 @@ static ssize_t mock_read(void *ctx, void *buf, size_t len) {
 
   memcpy(buf, m->data + m->pos, to_read);
   m->pos += to_read;
-  return (ssize_t)to_read;
+  return static_cast<ssize_t>(to_read);
 }
 
 /* A mock writer that records all writev calls. */
@@ -77,7 +77,7 @@ static ssize_t mock_writev(void *ctx, const struct iovec *iov, int iovcnt) {
   for (int i = 0; i < iovcnt; i++) {
     const char *p = static_cast<const char *>(iov[i].iov_base);
     m->written.insert(m->written.end(), p, p + iov[i].iov_len);
-    total += (ssize_t)iov[i].iov_len;
+    total += static_cast<ssize_t>(iov[i].iov_len);
   }
   return total;
 }
@@ -103,7 +103,7 @@ static off_t mock_seek(void *ctx, off_t offset, int whence) {
     m->current = 1000 + offset;
     break;
   default:
-    return (off_t)-1;
+    return static_cast<off_t>(-1);
   }
   return m->current;
 }
@@ -326,7 +326,7 @@ TEST(IoTest, ReadAllLargeWithExpansion) {
   const size_t      total = 10000;
   std::vector<char> data(total);
   for (size_t i = 0; i < total; i++) {
-    data[i] = (char)('A' + (i % 26));
+    data[i] = static_cast<char>('A' + (i % 26));
   }
 
   MockReadCtx ctx = {data.data(), total, 0, 0, 1000, -1}; /* 1000 per read */

@@ -120,19 +120,19 @@ static std::vector<uint8_t> build_client_frame(uint8_t fin, uint8_t opcode, cons
                                                size_t len, const uint8_t mask_key[4]) {
   std::vector<uint8_t> frame;
 
-  frame.push_back((uint8_t)((fin ? 0x80 : 0x00) | (opcode & 0x0F)));
+  frame.push_back(static_cast<uint8_t>((fin ? 0x80 : 0x00) | (opcode & 0x0F)));
 
   /* Payload length with MASK bit set */
   if (len < 126) {
-    frame.push_back((uint8_t)(0x80 | len));
+    frame.push_back(static_cast<uint8_t>(0x80 | len));
   } else if (len <= 0xFFFF) {
     frame.push_back(0x80 | 126);
-    frame.push_back((uint8_t)(len >> 8));
-    frame.push_back((uint8_t)(len));
+    frame.push_back(static_cast<uint8_t>(len >> 8));
+    frame.push_back(static_cast<uint8_t>(len));
   } else {
     frame.push_back(0x80 | 127);
     for (int i = 7; i >= 0; i--) {
-      frame.push_back((uint8_t)(len >> (i * 8)));
+      frame.push_back(static_cast<uint8_t>(len >> (i * 8)));
     }
   }
 
@@ -411,7 +411,7 @@ static void ws_test_on_message(xWsConn conn, xWsOpcode opcode, const void *paylo
   ctx->message_count++;
   ctx->last_opcode = opcode;
   if (payload && len > 0) {
-    ctx->last_message = std::string((const char *)payload, len);
+    ctx->last_message = std::string(static_cast<const char *>(payload), len);
   } else {
     ctx->last_message.clear();
   }
@@ -444,7 +444,7 @@ static bool ws_send_frame(int fd, uint8_t fin, uint8_t opcode, const void *paylo
   uint8_t mask_key[4] = {0x37, 0xfa, 0x21, 0x3d};
   auto    frame       = build_client_frame(fin, opcode, payload, len, mask_key);
   ssize_t n           = send(fd, frame.data(), frame.size(), 0);
-  return n == (ssize_t)frame.size();
+  return n == static_cast<ssize_t>(frame.size());
 }
 
 /* Helper: receive and parse a server frame from a raw socket */
@@ -496,7 +496,7 @@ static RecvFrame ws_recv_frame(int fd, int timeout_ms = 2000) {
   if (payload_len > 0) {
     result.payload.resize(static_cast<size_t>(payload_len));
     n = recv(fd, &result.payload[0], static_cast<size_t>(payload_len), MSG_WAITALL);
-    if (n != (ssize_t)payload_len) return result;
+    if (n != static_cast<ssize_t>(payload_len)) return result;
   }
 
   result.valid = true;

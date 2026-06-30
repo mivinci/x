@@ -888,7 +888,7 @@ TEST(Socket, UdpSendToRecvFrom) {
   ASSERT_GT(ntohs(bin.sin_port), 0);
 
   const char *msg = "hello";
-  ssize_t s = xSocketSendTo(a, msg, 5, (struct sockaddr *)&bin, sizeof(bin));
+  ssize_t s = xSocketSendTo(a, msg, 5, reinterpret_cast<struct sockaddr *>(&bin), sizeof(bin));
   EXPECT_EQ(s, 5);
 
   pump_loop(loop, 10);
@@ -897,7 +897,7 @@ TEST(Socket, UdpSendToRecvFrom) {
   struct sockaddr_storage src;
   socklen_t               srclen = sizeof(src);
   ssize_t r = xSocketRecvFrom(b, rbuf, sizeof(rbuf) - 1,
-                              (struct sockaddr *)&src, &srclen);
+                              reinterpret_cast<struct sockaddr *>(&src), &srclen);
   EXPECT_EQ(r, 5);
   EXPECT_STREQ(rbuf, "hello");
 

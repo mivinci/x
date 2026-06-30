@@ -79,6 +79,21 @@ nm build/libx/x/http/libxhttp.dylib | grep " T " | wc -l
 
 See `openspec/changes/establish-abi-export-conventions/` for the full design.
 
+## Linting (clang-tidy)
+
+The repo ships a `.clang-tidy` config at the root. Currently enforces `google-readability-casting` (no C-style casts in C++ — use `static_cast` / `reinterpret_cast` / `const_cast` instead). Adding new checks requires fixing all existing violations first; see the comment block in `.clang-tidy` for the policy.
+
+```bash
+# Run locally (requires build/compile_commands.json)
+cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+./scripts/run-clang-tidy.sh -j $(nproc)
+
+# Scan a single file
+./scripts/run-clang-tidy.sh libx/x/http/ws_test.cpp
+```
+
+CI runs the same script on every push/PR (the `clang-tidy` lane in `.github/workflows/ci.yml`). On macOS with Homebrew LLVM, the script passes `--extra-arg=-stdlib=libc++` and `--sysroot` so clang-tidy can find libc++ headers.
+
 ## Dependencies (macOS)
 
 ```bash

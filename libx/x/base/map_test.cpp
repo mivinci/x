@@ -87,7 +87,7 @@ TEST_P(MapTest, IterateAll) {
   xMapIterate(
     m,
     [](const void *key, void *val, void *arg) -> bool {
-      auto *set = (std::unordered_set<std::string> *)arg;
+      auto *set = static_cast<std::unordered_set<std::string> *>(arg);
       set->insert(reinterpret_cast<const char *>(key));
       (void)val;
       return true;

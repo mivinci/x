@@ -660,7 +660,7 @@ TEST_F(DtlsHandshakeTest, LargeDataExchange) {
   /* Send a larger payload (4000 bytes) */
   std::vector<uint8_t> payload(4000);
   for (size_t i = 0; i < payload.size(); i++) {
-    payload[i] = (uint8_t)(i & 0xFF);
+    payload[i] = static_cast<uint8_t>(i & 0xFF);
   }
 
   xErrno err = xDtlsTransportSend(active, payload.data(), payload.size());

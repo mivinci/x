@@ -796,7 +796,7 @@ TEST_F(HttpServerTest, LargeFileDownload) {
   constexpr size_t SZ = 10 * 1024 * 1024;
 
   std::string big_body(SZ, '\0');
-  for (size_t i = 0; i < SZ; i++) big_body[i] = (char)(i % 251);
+  for (size_t i = 0; i < SZ; i++) big_body[i] = static_cast<char>(i % 251);
 
   route("GET /big", send_body_handler, &big_body);
   listen_and_pump();

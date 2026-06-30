@@ -33,7 +33,7 @@ static bool file_exists(const char *path) {
   return access(path, F_OK) == 0;
 }
 static void truncate_file(const char *path, size_t size) {
-  truncate(path, (off_t)size);
+  truncate(path, static_cast<off_t>(size));
 }
 
 class CacheTest : public ::testing::Test {
