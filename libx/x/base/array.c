@@ -6,11 +6,11 @@
  * array.c - Generic auto-growing array implementation
  */
 
-#include <x/base/array.h>
-
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <x/base/array.h>
 
 /* ───────────────────── Types ───────────────────── */
 
@@ -25,7 +25,7 @@ XDEF_STRUCT(xArray_) {
 /* ───────────────────── Internal ───────────────────── */
 
 #define ARRAY_DEFAULT_CAP 8
-#define ARRAY_NPOS        ((size_t) - 1)
+#define ARRAY_NPOS        ((size_t)-1)
 
 static inline struct xArray_ *ar(xArray a) {
   return (struct xArray_ *)a;

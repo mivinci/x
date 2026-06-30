@@ -210,8 +210,8 @@ XDEF_STRUCT(xHttpServer_) {
 
 /* Stream lifecycle (server.c) */
 XCAPI(struct xHttpStream_ *) xHttpStreamCreate(struct xHttpConn_ *conn, int32_t stream_id);
-XCAPI(void)                 xHttpStreamDestroy(struct xHttpStream_ *stream);
-XCAPI(void)                 xHttpStreamReset(struct xHttpStream_ *stream);
+XCAPI(void)                  xHttpStreamDestroy(struct xHttpStream_ *stream);
+XCAPI(void)                  xHttpStreamReset(struct xHttpStream_ *stream);
 
 /* Connection management (server.c) */
 XCAPI(void) xHttpConnClose(struct xHttpConn_ *conn);
@@ -239,6 +239,6 @@ XCAPI(int) xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
 XCAPI(int)  xHttpRouteParseSegments_(const char *path, struct xHttpRouteSegment_ **out);
 XCAPI(void) xHttpRouteFreeSegments_(struct xHttpRouteSegment_ *segs, int count);
 XCAPI(int)  xHttpRouteMatch_(const struct xHttpRouteSegment_ *segments, int segment_count,
-                                   const char *url, struct xHttpParam_ *params, int *param_count);
+                             const char *url, struct xHttpParam_ *params, int *param_count);
 
 #endif /* XHTTP_SERVER_PRIVATE_H */

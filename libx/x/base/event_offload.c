@@ -38,9 +38,8 @@ static void *offload_worker(void *arg) {
 
 /* ───────────────────── Public API ───────────────────── */
 
-xWork xWorkSubmit(xTaskGroup group, xTaskFunc work_fn,
-                       xWorkDoneFunc done_fn, xWorkCancelFunc on_cancel,
-                       void *arg) {
+xWork xWorkSubmit(xTaskGroup group, xTaskFunc work_fn, xWorkDoneFunc done_fn,
+                  xWorkCancelFunc on_cancel, void *arg) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)xEventLoopCurrent();
   if (!loop || !work_fn) return NULL;
 
@@ -58,8 +57,8 @@ xWork xWorkSubmit(xTaskGroup group, xTaskFunc work_fn,
   w->done_fn   = done_fn;
   w->on_cancel = on_cancel;
   w->arg       = arg;
-  w->result  = NULL;
-  w->loop    = (xEventLoop)loop;
+  w->result    = NULL;
+  w->loop      = (xEventLoop)loop;
 
   xTask t = xTaskSubmit(group, offload_worker, w);
   if (!t) {
@@ -76,7 +75,7 @@ xWork xWorkSubmit(xTaskGroup group, xTaskFunc work_fn,
 xErrno xWorkCancel(xWork work) {
   if (!work) return xErrno_InvalidArg;
 
-  struct xWork_ *w = (struct xWork_ *)work;
+  struct xWork_      *w    = (struct xWork_ *)work;
   struct xEventLoop_ *loop = (struct xEventLoop_ *)xEventLoopCurrent();
 
   /* The work item must belong to this loop. */
@@ -90,7 +89,7 @@ xErrno xWorkCancel(xWork work) {
    * to the done queue ourselves for cleanup. */
   xErrno err = xTaskCancel(w->task);
   if (err == xErrno_Ok) {
-    w->result = NULL;
+    w->result             = NULL;
     struct xEventLoop_ *l = (struct xEventLoop_ *)xEventLoopCurrent();
     xMpscPush(&l->done_head, &l->done_tail, &w->mpsc);
     xEventLoopWake(w->loop);

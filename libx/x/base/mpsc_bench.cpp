@@ -6,11 +6,11 @@
  * mpsc_bench.cpp - Micro-benchmarks for xbase MPSC queue
  */
 
-#include <benchmark/benchmark.h>
-
 #include <atomic>
 #include <thread>
 #include <vector>
+
+#include <benchmark/benchmark.h>
 
 extern "C" {
 #include <x/base/mpsc.h>

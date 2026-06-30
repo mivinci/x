@@ -2,12 +2,11 @@
  * base64_test.cpp - Tests for xBase64Encode / xBase64Decode
  */
 
-#include <x/base/base64.h>
-
-#include <gtest/gtest.h>
-
 #include <string>
 #include <vector>
+
+#include <gtest/gtest.h>
+#include <x/base/base64.h>
 
 /* ---- Encode tests ---- */
 

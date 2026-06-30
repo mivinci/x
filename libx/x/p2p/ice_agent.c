@@ -7,6 +7,7 @@
  */
 
 #include "ice_agent.h"
+
 #include "ice_candidate.h"
 #include "ice_pair.h"
 #include "ice_private.h"
@@ -16,19 +17,19 @@
 #include "stun_txn.h"
 #include "turn_client.h"
 
-#include <x/base/log.h>
-#include <x/net/dns.h>
-
-#include <arpa/inet.h>
 #include <errno.h>
 #include <ifaddrs.h>
 #include <inttypes.h>
-#include <net/if.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <time.h>
+
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <sys/socket.h>
+#include <x/base/log.h>
+#include <x/net/dns.h>
 
 /* Maximum number of STUN servers for port prediction */
 #define XICE_STUN_SERVER_COUNT_MAX 4
@@ -131,10 +132,10 @@ XDEF_STRUCT(xIceAgent_) {
    * When the local side is Cone NAT and the remote is symmetric,
    * we spray connectivity checks to a wide range of random ports
    * on the remote's srflx IP (birthday attack). */
-  bool        aggressive_mode;  /* true when doing port-spray */
+  bool   aggressive_mode;  /* true when doing port-spray */
   xTimer aggressive_timer; /* pacing timer for spray checks */
-  int         spray_index;      /* next spray pair to check */
-  int         spray_pair_start; /* index where spray pairs begin in pairs[] */
+  int    spray_index;      /* next spray pair to check */
+  int    spray_pair_start; /* index where spray pairs begin in pairs[] */
 
   /* DTLS data input hook — set by xPeerConnection when attached */
   xIceDtlsInputFn dtls_input_fn;
@@ -825,8 +826,7 @@ static void symmetric_keepalive_cb(void *arg) {
   }
 
   /* Schedule next keepalive */
-  a->aggressive_timer =
-    xTimerStart(symmetric_keepalive_cb, a, XICE_SYMMETRIC_KEEPALIVE_MS, 0);
+  a->aggressive_timer = xTimerStart(symmetric_keepalive_cb, a, XICE_SYMMETRIC_KEEPALIVE_MS, 0);
 }
 
 /**
@@ -853,8 +853,7 @@ static void start_symmetric_keepalive(xIceAgent_ *a) {
     xTimerStop(a->check_timeout);
     a->check_timeout = NULL;
   }
-  a->check_timeout =
-    xTimerStart(check_timeout_cb, a, XICE_CHECK_TIMEOUT_AGGRESSIVE_MS, 0);
+  a->check_timeout = xTimerStart(check_timeout_cb, a, XICE_CHECK_TIMEOUT_AGGRESSIVE_MS, 0);
 
   /* Start the first keepalive immediately */
   symmetric_keepalive_cb(a);
@@ -889,8 +888,7 @@ static void aggressive_pacing_cb(void *arg) {
 
   if (a->spray_index < a->pair_count) {
     /* More spray pairs to send */
-    a->aggressive_timer =
-      xTimerStart(aggressive_pacing_cb, a, XICE_CHECK_PACING_AGGRESSIVE_MS, 0);
+    a->aggressive_timer = xTimerStart(aggressive_pacing_cb, a, XICE_CHECK_PACING_AGGRESSIVE_MS, 0);
   } else {
     XDEBUGL1("[ice] spray: all %d spray pairs dispatched", a->pair_count - a->spray_pair_start);
   }
@@ -924,8 +922,7 @@ static void start_aggressive_spray(xIceAgent_ *a) {
     xTimerStop(a->check_timeout);
     a->check_timeout = NULL;
   }
-  a->check_timeout =
-    xTimerStart(check_timeout_cb, a, XICE_CHECK_TIMEOUT_AGGRESSIVE_MS, 0);
+  a->check_timeout = xTimerStart(check_timeout_cb, a, XICE_CHECK_TIMEOUT_AGGRESSIVE_MS, 0);
 
   /* Record where spray pairs start */
   a->spray_pair_start = a->pair_count;
@@ -1027,9 +1024,8 @@ static void start_aggressive_spray(xIceAgent_ *a) {
   }
 
   /* Start fast pacing for spray pairs */
-  a->spray_index = a->spray_pair_start;
-  a->aggressive_timer =
-    xTimerStart(aggressive_pacing_cb, a, XICE_CHECK_PACING_AGGRESSIVE_MS, 0);
+  a->spray_index      = a->spray_pair_start;
+  a->aggressive_timer = xTimerStart(aggressive_pacing_cb, a, XICE_CHECK_PACING_AGGRESSIVE_MS, 0);
 }
 
 /* ───────────────────── Consent Freshness ───────────────────── */
@@ -1915,7 +1911,7 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
 
 /* ───────────────────── Public API ───────────────────── */
 
-xIceAgent xIceAgentCreate( const xIceConf *conf) {
+xIceAgent xIceAgentCreate(const xIceConf *conf) {
   xEventLoop loop = xEventLoopCurrent();
   if (!loop || !conf) return NULL;
 

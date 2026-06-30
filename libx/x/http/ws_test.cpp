@@ -8,25 +8,27 @@
 
 #include "server_test_helper.h"
 
-#include <gtest/gtest.h>
-
 #include <cstring>
 #include <string>
 #include <vector>
 
+#include <gtest/gtest.h>
+
 extern "C" {
 #include "ws_crypto.h"
 #include "ws_frame.h"
+
 #include <x/buf/io.h>
 #include <x/http/server.h>
 #include <x/http/ws.h>
 }
 
+#include <poll.h>
+#include <unistd.h>
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <poll.h>
 #include <sys/socket.h>
-#include <unistd.h>
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Crypto backend tests
@@ -505,7 +507,7 @@ static RecvFrame ws_recv_frame(int fd, int timeout_ms = 2000) {
 
 /* Handler that upgrades to WebSocket */
 static void ws_upgrade_handler(xHttpCtx *ctx, void *arg) {
-  WsTestCtx   *c = reinterpret_cast<WsTestCtx *>(arg);
+  WsTestCtx   *c   = reinterpret_cast<WsTestCtx *>(arg);
   xWsCallbacks cbs = {};
   cbs.on_open      = ws_test_on_open;
   cbs.on_message   = ws_test_on_message;
@@ -519,11 +521,11 @@ protected:
   WsTestCtx ws_ctx;
 
   void SetUpWsRoute(const std::string &path = "/ws") {
-    std::string pattern = "GET " + path;
-    xHttpRouteConf conf = {};
-    conf.pattern        = pattern.c_str();
-    conf.on_done        = ws_upgrade_handler;
-    conf.arg            = &ws_ctx;
+    std::string    pattern = "GET " + path;
+    xHttpRouteConf conf    = {};
+    conf.pattern           = pattern.c_str();
+    conf.on_done           = ws_upgrade_handler;
+    conf.arg               = &ws_ctx;
     ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
   }
 

@@ -16,11 +16,12 @@
  * wake latency, timer, and offload benchmarks.
  */
 
-#include <benchmark/benchmark.h>
+#include <unistd.h>
 
 #include <atomic>
-#include <unistd.h>
 #include <vector>
+
+#include <benchmark/benchmark.h>
 
 extern "C" {
 #include <x/base/event.h>
@@ -87,7 +88,8 @@ static void BM_EventLoop_TimerSingle(benchmark::State &state) {
 
   for (auto _ : state) {
     std::atomic<bool> fired{false};
-    xTimerStart([](void *arg) {
+    xTimerStart(
+      [](void *arg) {
         static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
       },
       &fired, 0, 0);
@@ -140,10 +142,12 @@ static void BM_EventLoop_OffloadSingle(benchmark::State &state) {
   for (auto _ : state) {
     std::atomic<bool> done{false};
 
-    xWorkSubmit(loop, nullptr, [](void *) -> void * { return nullptr; }, [](void *arg, void *) {
+    xWorkSubmit(
+      loop, nullptr, [](void *) -> void * { return nullptr; },
+      [](void *arg, void *) {
         static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
-      }, NULL,
-      &done);
+      },
+      NULL, &done);
 
     /* Drive the loop until done_fn fires. */
     while (!done.load(std::memory_order_acquire)) {
@@ -173,10 +177,12 @@ static void BM_EventLoop_OffloadBatch(benchmark::State &state) {
     std::atomic<int64_t> remaining{batch};
 
     for (int64_t i = 0; i < batch; i++) {
-      xWorkSubmit(loop, nullptr, [](void *) -> void * { return nullptr; }, [](void *arg, void *) {
+      xWorkSubmit(
+        loop, nullptr, [](void *) -> void * { return nullptr; },
+        [](void *arg, void *) {
           static_cast<std::atomic<int64_t> *>(arg)->fetch_sub(1, std::memory_order_release);
-        }, NULL,
-        &remaining);
+        },
+        NULL, &remaining);
     }
 
     while (remaining.load(std::memory_order_acquire) > 0) {
@@ -358,4 +364,3 @@ static void BM_Libuv_OffloadBatch(benchmark::State &state) {
 BENCHMARK(BM_Libuv_OffloadBatch)->Arg(10)->Arg(100)->Arg(1000);
 
 #endif /* X_HAS_LIBUV */
-

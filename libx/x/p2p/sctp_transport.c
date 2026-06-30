@@ -7,16 +7,16 @@
  */
 
 #include "sctp_transport.h"
+
 #include "dtls_transport.h"
 
-#include <usrsctp.h>
-
-#include <arpa/inet.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <usrsctp.h>
 
+#include <arpa/inet.h>
 #include <x/base/log.h>
 
 /* ───────────────────── Constants ───────────────────── */
@@ -34,7 +34,7 @@ XDEF_STRUCT(xSctpTransport_) {
   xSctpTransportConf conf;
   struct socket     *sock;
   bool               connected;
-  xTimer        assoc_timer;
+  xTimer             assoc_timer;
   size_t             buffered_amount; /**< Tracked send-buffer usage. */
 };
 
@@ -283,8 +283,7 @@ xErrno xSctpTransportStart(xSctpTransport transport) {
   }
 
   /* Start association timeout */
-  t->assoc_timer =
-    xTimerStart(assoc_timeout_cb, t, t->conf.assoc_timeout_ms, 0);
+  t->assoc_timer = xTimerStart(assoc_timeout_cb, t, t->conf.assoc_timeout_ms, 0);
 
   return xErrno_Ok;
 }

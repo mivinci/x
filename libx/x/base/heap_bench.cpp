@@ -6,10 +6,10 @@
  * heap_bench.cpp - Micro-benchmarks for xbase heap
  */
 
-#include <benchmark/benchmark.h>
-
 #include <cstdlib>
 #include <vector>
+
+#include <benchmark/benchmark.h>
 
 extern "C" {
 #include <x/base/heap.h>

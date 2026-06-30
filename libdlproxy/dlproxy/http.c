@@ -1,33 +1,36 @@
 /*
  * http.c - Async HTTP Range download helper
  */
-#define _GNU_SOURCE  /* strcasestr */
+#define _GNU_SOURCE /* strcasestr */
 #include "http.h"
+
 #include "bus.h"
 #include "cache.h"
 #include "dlproxy_internal.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+
 #include <x/base/log.h>
 
 struct dlp_http {
-  dlp_ctx_t     ctx;
-  xEventLoop    loop;
-  xHttpClient   client;
+  dlp_ctx_t   ctx;
+  xEventLoop  loop;
+  xHttpClient client;
 };
 
 struct fetch_ctx {
-  dlp_http_t     h;
-  char            rid[64];
-  char            clip_id[64];
-  uint64_t        offset;
-  size_t          len;
-  size_t          received;
-  int             status_ok;
-  int             pending_writes;  /* async cache writes in progress */
-  int             all_received;    /* on_http_done has fired */
+  dlp_http_t       h;
+  char             rid[64];
+  char             clip_id[64];
+  uint64_t         offset;
+  size_t           len;
+  size_t           received;
+  int              status_ok;
+  int              pending_writes; /* async cache writes in progress */
+  int              all_received;   /* on_http_done has fired */
   struct dlp_task *task;
 };
 
@@ -39,7 +42,7 @@ static void on_fetch_write_done(xErrno err, void *arg) {
   XDEBUGL0("write_done: pending=%d all_recv=%d", remaining, fc->all_received);
   if (remaining == 0 && fc->all_received) {
     struct dlp_ctx *c = (struct dlp_ctx *)fc->h->ctx;
-    char key[192];
+    char            key[192];
     snprintf(key, sizeof(key), "%s:%s", fc->rid, fc->clip_id);
     XDEBUGL0("write_done: publishing bus key=%s", key);
     dlp_bus_publish(c->bus, key);
@@ -51,7 +54,7 @@ static void on_fetch_write_done(xErrno err, void *arg) {
 
 static int on_http_response(xHttpCtx *ctx, void *arg) {
   struct fetch_ctx *fc = (struct fetch_ctx *)arg;
-  fc->status_ok = (ctx->status_code >= 200 && ctx->status_code < 300);
+  fc->status_ok        = (ctx->status_code >= 200 && ctx->status_code < 300);
 
   /* Extract total file size from Content-Range in response headers */
   if (fc->task && fc->task->file_size == 0 && ctx->headers) {
@@ -81,14 +84,11 @@ static int on_http_data(const char *data, size_t len, void *arg) {
   struct fetch_ctx *fc = (struct fetch_ctx *)arg;
   if (!fc->status_ok) return 0;
 
-  struct dlp_ctx *c = (struct dlp_ctx *)fc->h->ctx;
-  xErrno werr = dlp_cache_write(c->cache, fc->rid, fc->clip_id,
-                  fc->offset + fc->received,
-                  (const uint8_t *)data, len,
-                  on_fetch_write_done, fc);
+  struct dlp_ctx *c    = (struct dlp_ctx *)fc->h->ctx;
+  xErrno          werr = dlp_cache_write(c->cache, fc->rid, fc->clip_id, fc->offset + fc->received,
+                                         (const uint8_t *)data, len, on_fetch_write_done, fc);
   if (werr != xErrno_Ok) {
-    XDEBUGL0("on_http_data: cache_write FAILED rc=%d rid=%s clip=%s",
-             werr, fc->rid, fc->clip_id);
+    XDEBUGL0("on_http_data: cache_write FAILED rc=%d rid=%s clip=%s", werr, fc->rid, fc->clip_id);
     return 0; /* don't abort — just skip this chunk */
   }
   fc->pending_writes++;
@@ -98,7 +98,7 @@ static int on_http_data(const char *data, size_t len, void *arg) {
 
 static void on_http_done(xHttpCtx *ctx, void *arg) {
   struct fetch_ctx *fc = (struct fetch_ctx *)arg;
-  fc->all_received = 1;
+  fc->all_received     = 1;
   XDEBUGL0("http_done: pending=%d all_recv=1", fc->pending_writes);
 
   /* For full segment fetch (no Range, fc->len == 0), set the clip's
@@ -114,7 +114,7 @@ static void on_http_done(xHttpCtx *ctx, void *arg) {
   /* If no pending writes, publish now directly */
   if (fc->pending_writes == 0) {
     struct dlp_ctx *c = (struct dlp_ctx *)fc->h->ctx;
-    char key[192];
+    char            key[192];
     snprintf(key, sizeof(key), "%s:%s", fc->rid, fc->clip_id);
     dlp_bus_publish(c->bus, key);
     if (fc->task && fc->task->sched && fc->task->sched->on_block_done)
@@ -127,10 +127,13 @@ static void on_http_done(xHttpCtx *ctx, void *arg) {
 dlp_http_t dlp_http_init(dlp_ctx_t ctx) {
   struct dlp_http *h = (struct dlp_http *)calloc(1, sizeof(*h));
   if (!h) return NULL;
-  h->ctx  = ctx;
-  h->loop = xEventLoopCurrent();
+  h->ctx    = ctx;
+  h->loop   = xEventLoopCurrent();
   h->client = xHttpClientCreate(NULL);
-  if (!h->client) { free(h); return NULL; }
+  if (!h->client) {
+    free(h);
+    return NULL;
+  }
   return h;
 }
 
@@ -140,15 +143,12 @@ void dlp_http_deinit(dlp_http_t h) {
   free(h);
 }
 
-xErrno dlp_http_fetch(dlp_http_t h, const char *rid,
-                       const char *clip_id, const char *url,
-                       uint64_t offset, size_t len,
-                       struct dlp_task *task) {
+xErrno dlp_http_fetch(dlp_http_t h, const char *rid, const char *clip_id, const char *url,
+                      uint64_t offset, size_t len, struct dlp_task *task) {
   if (!h || !rid || !url || len == 0) return xErrno_InvalidArg;
 
   char range[128];
-  snprintf(range, sizeof(range), "Range: bytes=%llu-%llu",
-           (unsigned long long)offset,
+  snprintf(range, sizeof(range), "Range: bytes=%llu-%llu", (unsigned long long)offset,
            (unsigned long long)(offset + len - 1));
 
   XDEBUGL0("FETCH: rid=%s offset=%llu len=%zu url=%s", rid, (unsigned long long)offset, len, url);
@@ -163,24 +163,23 @@ xErrno dlp_http_fetch(dlp_http_t h, const char *rid,
   snprintf(fc->clip_id, sizeof(fc->clip_id), "%s", clip_id);
 
   xHttpRequestConf conf = {0};
-  conf.method         = xHttpMethod_GET;
-  conf.url            = url;
-  conf.on_response    = on_http_response;
-  conf.on_data        = on_http_data;
-  conf.on_done        = on_http_done;
-  conf.timeout_ms     = 30000;
+  conf.method           = xHttpMethod_GET;
+  conf.url              = url;
+  conf.on_response      = on_http_response;
+  conf.on_data          = on_http_data;
+  conf.on_done          = on_http_done;
+  conf.timeout_ms       = 30000;
 
-  const char *headers[] = { range, NULL };
-  conf.headers = headers;
+  const char *headers[] = {range, NULL};
+  conf.headers          = headers;
 
   xErrno rv = xHttpClientDo(h->client, &conf, fc);
   XDEBUGL0("FETCH_DONE: rc=%d", rv);
   return rv;
 }
 
-xErrno dlp_http_fetch_full(dlp_http_t h, const char *rid,
-                            const char *clip_id, const char *url,
-                            struct dlp_task *task) {
+xErrno dlp_http_fetch_full(dlp_http_t h, const char *rid, const char *clip_id, const char *url,
+                           struct dlp_task *task) {
   if (!h || !rid || !url) return xErrno_InvalidArg;
 
   XDEBUGL0("FETCH_FULL: rid=%s url=%s", rid, url);
@@ -195,12 +194,12 @@ xErrno dlp_http_fetch_full(dlp_http_t h, const char *rid,
   snprintf(fc->clip_id, sizeof(fc->clip_id), "%s", clip_id ? clip_id : "0");
 
   xHttpRequestConf conf = {0};
-  conf.method         = xHttpMethod_GET;
-  conf.url            = url;
-  conf.on_response    = on_http_response;
-  conf.on_data        = on_http_data;
-  conf.on_done        = on_http_done;
-  conf.timeout_ms     = 30000;
+  conf.method           = xHttpMethod_GET;
+  conf.url              = url;
+  conf.on_response      = on_http_response;
+  conf.on_data          = on_http_data;
+  conf.on_done          = on_http_done;
+  conf.timeout_ms       = 30000;
 
   xErrno rv = xHttpClientDo(h->client, &conf, fc);
   XDEBUGL0("FETCH_FULL_DONE: rc=%d", rv);
@@ -208,17 +207,16 @@ xErrno dlp_http_fetch_full(dlp_http_t h, const char *rid,
 }
 
 xErrno dlp_http_fetch_text(dlp_http_t h, const char *url,
-                            int (*on_data)(const char *data, size_t len, void *arg),
-                            void (*on_done)(xHttpCtx *ctx, void *arg),
-                            void *arg) {
+                           int (*on_data)(const char *data, size_t len, void *arg),
+                           void (*on_done)(xHttpCtx *ctx, void *arg), void *arg) {
   if (!h || !url) return xErrno_InvalidArg;
 
   xHttpRequestConf conf = {0};
-  conf.method     = xHttpMethod_GET;
-  conf.url        = url;
-  conf.on_data    = on_data;
-  conf.on_done    = on_done;
-  conf.timeout_ms = 30000;
+  conf.method           = xHttpMethod_GET;
+  conf.url              = url;
+  conf.on_data          = on_data;
+  conf.on_done          = on_done;
+  conf.timeout_ms       = 30000;
 
   return xHttpClientDo(h->client, &conf, arg);
 }

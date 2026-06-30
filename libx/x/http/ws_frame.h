@@ -14,6 +14,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/buf/io.h>
 
@@ -162,7 +163,7 @@ XCAPI(xWsFrameResult) xWsFrameParse(xWsFrameParser *parser, xIOBuffer *io);
  * @return 0 on success, -1 on error (OOM).
  */
 XCAPI(int) xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode, const void *payload,
-                   size_t payload_len, int masked);
+                          size_t payload_len, int masked);
 
 /**
  * Encode a WebSocket frame with RSV1 bit set (compressed).
@@ -179,8 +180,8 @@ XCAPI(int) xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode, const void
  * @param masked       Non-zero to mask the frame.
  * @return 0 on success, -1 on error.
  */
-XCAPI(int) xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1, uint8_t opcode, const void *payload,
-                     size_t payload_len, int masked);
+XCAPI(int) xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1, uint8_t opcode,
+                            const void *payload, size_t payload_len, int masked);
 
 /**
  * Encode a Close frame with a status code and optional reason.
@@ -193,6 +194,7 @@ XCAPI(int) xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1, uint8_t op
  * @param masked  Non-zero to mask the frame (client mode).
  * @return 0 on success, -1 on error.
  */
-XCAPI(int) xWsFrameEncodeClose(xIOBuffer *io, uint16_t code, const char *reason, size_t len, int masked);
+XCAPI(int) xWsFrameEncodeClose(xIOBuffer *io, uint16_t code, const char *reason, size_t len,
+                               int masked);
 
 #endif /* XHTTP_WS_FRAME_H */

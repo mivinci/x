@@ -7,9 +7,10 @@
  */
 
 #include <cstring>
-#include <gtest/gtest.h>
 #include <string>
 #include <unordered_set>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/map.h>

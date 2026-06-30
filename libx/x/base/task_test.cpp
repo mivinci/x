@@ -6,11 +6,11 @@
  * task_test.cpp - xTask unit tests
  */
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <thread>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/task.h>

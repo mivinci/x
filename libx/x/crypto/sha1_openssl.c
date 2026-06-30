@@ -8,9 +8,9 @@
 
 #include "sha1.h"
 
-#include <openssl/evp.h>
-
 #include <string.h>
+
+#include <openssl/evp.h>
 
 /* ── Internal layout stored in xSha1Ctx.opaque ─────────── */
 

@@ -1,7 +1,5 @@
-#include <x/base/event.h>
-
 #include <gtest/gtest.h>
-
+#include <x/base/event.h>
 #include <x/base/test_helper.h>
 
 /* ───────────────────── TimerAfter ───────────────────── */
@@ -14,7 +12,8 @@ TEST(BuiltinTimerAfter, BasicDelay) {
 
   std::atomic<int> fired{0};
 
-  xTimer t = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 50, 0);
+  xTimer t = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+                         &fired, 50, 0);
   ASSERT_NE(t, nullptr);
 
   /* Wait long enough for the timer to fire (may need multiple waits
@@ -55,7 +54,6 @@ TEST(BuiltinTimerAfter, NullArgs) {
   xEventLoopDestroy(loop);
 }
 
-
 /* ───────────────────── TimerAt ───────────────────── */
 /* ───────────────────── TimerAt ───────────────────── */
 
@@ -66,7 +64,8 @@ TEST(BuiltinTimerAt, AbsoluteTime) {
 
   std::atomic<int> fired{0};
 
-  xTimer t        = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 50, 0);
+  xTimer t = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+                         &fired, 50, 0);
   ASSERT_NE(t, nullptr);
 
   run_until_count(loop, fired, 1, 10000);
@@ -95,7 +94,6 @@ TEST(BuiltinTimerAt, ExpiredDeadlineFiresImmediately) {
   xEventLoopDestroy(loop);
 }
 
-
 /* ───────────────────── TimerCancel ───────────────────── */
 /* ───────────────────── TimerCancel ───────────────────── */
 
@@ -106,7 +104,8 @@ TEST(BuiltinTimerCancel, CancelBeforeFire) {
 
   std::atomic<int> fired{0};
 
-  xTimer t = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 500, 0);
+  xTimer t = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+                         &fired, 500, 0);
   ASSERT_NE(t, nullptr);
 
   EXPECT_EQ(xTimerStop(t), xErrno_Ok);
@@ -131,7 +130,6 @@ TEST(BuiltinTimerCancel, NullArgs) {
   xEventLoopDestroy(loop);
 }
 
-
 /* ───────────────────── Cancel after fire ───────────────────── */
 /* ───────────────────── Cancel after fire ───────────────────── */
 
@@ -142,7 +140,8 @@ TEST(BuiltinTimerCancel, CancelAfterFireReturnsError) {
 
   std::atomic<int> fired{0};
 
-  xTimer t = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 10, 0);
+  xTimer t = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+                         &fired, 10, 0);
   ASSERT_NE(t, nullptr);
 
   /* Wait for it to fire */
@@ -157,5 +156,3 @@ TEST(BuiltinTimerCancel, CancelAfterFireReturnsError) {
   xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
-
-

@@ -14,6 +14,7 @@
 #define XBASE_BACKTRACE_H
 
 #include <stddef.h>
+
 #include <x/base/base.h>
 
 /**

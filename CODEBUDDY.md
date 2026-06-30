@@ -27,10 +27,28 @@ bash scripts/test-linux.sh -t openssl -j $(nproc) --asan
 
 ## Formatting
 
+The repo ships a `.clang-format` config at the root. It enforces Google-style include ordering plus layout rules (2-space indent, 100-char column limit, alignment, etc.).
+
+**Include ordering** (Google style, strict):
+1. Corresponding header (`"foo.h"` in `foo.c`)
+2. C system headers (`<stdio.h>`)
+3. C++ system headers (`<vector>`)
+4. Other library headers (`<openssl/ssl.h>`, `<gtest/gtest.h>`)
+5. Project headers (`"foo_private.h"`, `<x/base/log.h>`)
+
+Each group separated by a blank line; entries sorted alphabetically within each group. Project headers go last so missing dependencies in `<x/...>` headers surface early.
+
 ```bash
-# Format all C/C++ source files (LLVM-based, 2-space indent, 100-char limit)
-find libx -name '*.c' -o -name '*.h' -o -name '*.cpp' | xargs clang-format -i
+# Format all C/C++ source files
+find libx libdlproxy \( -name '*.c' -o -name '*.h' -o -name '*.cpp' \) -print0 \
+  | xargs -0 clang-format -i
+
+# Check formatting without modifying (used by CI)
+find libx libdlproxy \( -name '*.c' -o -name '*.h' -o -name '*.cpp' \) -print0 \
+  | xargs -0 clang-format --dry-run --Werror
 ```
+
+CI runs the dry-run check on every push/PR (the `clang-format` lane in `.github/workflows/ci.yml`).
 
 ## CMake Options
 

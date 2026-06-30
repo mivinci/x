@@ -62,7 +62,8 @@ static void req_build_ctx(struct xHttpReq_ *req, CURLcode result) {
   const char *header_data = (const char *)xBufferData(req->header_buf);
   size_t      header_len  = xBufferLen(req->header_buf);
   /* Strip trailing NUL(s) added by repeated calls */
-  while (header_len > 0 && header_data[header_len - 1] == '\0') header_len--;
+  while (header_len > 0 && header_data[header_len - 1] == '\0')
+    header_len--;
 
   ctx->method      = NULL;
   ctx->url         = NULL;
@@ -105,7 +106,7 @@ static int req_maybe_call_on_response(struct xHttpReq_ *req) {
 static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
   struct xHttpReq_ *req   = (struct xHttpReq_ *)userdata;
   size_t            total = size * nmemb;
-  XDEBUGL1("curl: write_cb len=%zu req=%p", total, (void*)req);
+  XDEBUGL1("curl: write_cb len=%zu req=%p", total, (void *)req);
   /* Trigger on_response on first body chunk (if not yet called) */
   if (req_maybe_call_on_response(req) != 0) return 0; /* abort */
   /* Deliver body via on_data, or discard if NULL */
@@ -145,7 +146,7 @@ static void check_multi_info(struct xHttpClient_ *c) {
 
     struct xHttpReq_ *req = NULL;
     curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
-    XDEBUGL1("curl: CURLMSG_DONE req=%p result=%d", (void*)req, result);
+    XDEBUGL1("curl: CURLMSG_DONE req=%p result=%d", (void *)req, result);
     if (!req) continue;
 
     if (req->cleaned) continue; /* already destroyed via destroy_req */
@@ -186,7 +187,7 @@ static void oneshot_on_done(struct xHttpReq_ *req, CURLcode result) {
   req_build_ctx(req, result);
 
   /* Invoke user callback — do NOT clean up here, let check_multi_info handle it */
-  XDEBUGL1("curl: on_done req=%p user_cb=%p", (void*)req, (void*)req->on_done);
+  XDEBUGL1("curl: on_done req=%p user_cb=%p", (void *)req, (void *)req->on_done);
   if (req->on_done) req->on_done(&req->ctx, req->arg);
 }
 
@@ -354,7 +355,7 @@ static void apply_tls_conf(struct xHttpClient_ *c, const xTlsConf *conf) {
   c->tls_skip_verify  = conf->skip_verify;
 }
 
-xHttpClient xHttpClientCreate( const xHttpClientConf *conf) {
+xHttpClient xHttpClientCreate(const xHttpClientConf *conf) {
   xEventLoop loop = xEventLoopCurrent();
   if (!loop) return NULL;
 
@@ -531,8 +532,8 @@ static struct xHttpReq_ *http_req_new(struct xHttpClient_ *c, const xHttpRequest
   req->on_read      = conf->on_read;
   req->headers_done = 0;
   memset(req->errbuf, 0, sizeof(req->errbuf));
-  req->post_data    = NULL;
-  req->req_headers  = NULL;
+  req->post_data   = NULL;
+  req->req_headers = NULL;
   memset(&req->ctx, 0, sizeof(req->ctx));
 
   /* Header buffer: always needed for on_response / on_done */
@@ -553,7 +554,7 @@ static struct xHttpReq_ *http_req_new(struct xHttpClient_ *c, const xHttpRequest
 xErrno xHttpClientGet(xHttpClient client, const xHttpRequestConf *conf, void *arg) {
   if (!conf) return xErrno_InvalidArg;
   xHttpRequestConf c = *conf;
-  c.method            = xHttpMethod_GET;
+  c.method           = xHttpMethod_GET;
   return xHttpClientDo(client, &c, arg);
 }
 
@@ -562,7 +563,7 @@ xErrno xHttpClientGet(xHttpClient client, const xHttpRequestConf *conf, void *ar
 xErrno xHttpClientPost(xHttpClient client, const xHttpRequestConf *conf, void *arg) {
   if (!conf) return xErrno_InvalidArg;
   xHttpRequestConf c = *conf;
-  c.method            = xHttpMethod_POST;
+  c.method           = xHttpMethod_POST;
   return xHttpClientDo(client, &c, arg);
 }
 
@@ -609,7 +610,7 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg
    * above already configured the method correctly. */
   if (conf->on_read) {
     static const char *method_str[] = {
-        "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD",
+      "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD",
     };
     int mi = (conf->method >= 0 && conf->method <= 5) ? conf->method : 0;
     curl_easy_setopt(req->easy, CURLOPT_UPLOAD, 1L);
@@ -617,8 +618,7 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg
       curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, method_str[mi]);
     }
     if (conf->content_length > 0) {
-      curl_easy_setopt(req->easy, CURLOPT_INFILESIZE_LARGE,
-                       (curl_off_t)conf->content_length);
+      curl_easy_setopt(req->easy, CURLOPT_INFILESIZE_LARGE, (curl_off_t)conf->content_length);
     }
     /* content_length == 0 → chunked transfer-encoding (automatic) */
 

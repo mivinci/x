@@ -13,11 +13,11 @@
 
 #include "tls_private.h"
 
-#include <openssl/err.h>
-#include <openssl/ssl.h>
-
 #include <stdlib.h>
 #include <string.h>
+
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 #include <x/base/log.h>
 
 /* ═══════════════════════════════════════════════════════════════════

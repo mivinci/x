@@ -25,13 +25,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <windows.h>
+
+#include <sys/stat.h>
 #include <x/base/event.h>
 
 /* ────── Win32 helpers ──────────────────────────────────────────── */
 
-#define INVALID_FILE_HANDLE  ((xFile)(intptr_t)-1)
+#define INVALID_FILE_HANDLE ((xFile)(intptr_t)-1)
 
 static xFile win32_open(const char *path, int oflag, int mode) {
   DWORD access = 0;
@@ -39,9 +40,9 @@ static xFile win32_open(const char *path, int oflag, int mode) {
   DWORD attr = FILE_ATTRIBUTE_NORMAL;
   (void)mode;
 
-  if (oflag & O_WRONLY)  access = GENERIC_WRITE;
-  if (oflag & O_RDWR)    access = GENERIC_READ | GENERIC_WRITE;
-  if (!access)           access = GENERIC_READ;  /* O_RDONLY */
+  if (oflag & O_WRONLY) access = GENERIC_WRITE;
+  if (oflag & O_RDWR) access = GENERIC_READ | GENERIC_WRITE;
+  if (!access) access = GENERIC_READ; /* O_RDONLY */
 
   /* Map POSIX open flags to CreateFile disposition */
   if (oflag & O_CREAT) {
@@ -52,9 +53,8 @@ static xFile win32_open(const char *path, int oflag, int mode) {
     disposition = OPEN_EXISTING;
   }
 
-  HANDLE h = CreateFileA(path, access,
-                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                         NULL, disposition, attr, NULL);
+  HANDLE h = CreateFileA(path, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                         disposition, attr, NULL);
   return (h != INVALID_HANDLE_VALUE) ? (xFile)h : INVALID_FILE_HANDLE;
 }
 
@@ -67,7 +67,7 @@ static inline HANDLE xfile_to_handle(xFile f) {
 /* ───────────────────── Worker ───────────────────── */
 
 static void *fs_worker(void *arg) {
-  xFsReq *r     = (xFsReq *)arg;
+  xFsReq *r = (xFsReq *)arg;
   HANDLE  h;
   BOOL    ok;
   DWORD   n;
@@ -76,10 +76,10 @@ static void *fs_worker(void *arg) {
   case xFsOpOpen: {
     xFile f = win32_open(r->path, r->flags, (int)r->mode);
     if (f == INVALID_FILE_HANDLE) {
-      r->result = xErrno_SysError;
+      r->result   = xErrno_SysError;
       r->out_file = NULL;
     } else {
-      r->result = xErrno_Ok;
+      r->result   = xErrno_Ok;
       r->out_file = f;
     }
     break;
@@ -87,7 +87,7 @@ static void *fs_worker(void *arg) {
 
   case xFsOpClose:
     if (r->file && r->file != INVALID_FILE_HANDLE) {
-      h = xfile_to_handle(r->file);
+      h         = xfile_to_handle(r->file);
       r->retval = CloseHandle(h) ? 0 : -1;
     } else {
       r->retval = 0;
@@ -98,32 +98,36 @@ static void *fs_worker(void *arg) {
   case xFsOpRead: {
     h = xfile_to_handle(r->file);
     if (!h || h == INVALID_HANDLE_VALUE) {
-      r->result = xErrno_InvalidArg; r->retval = -1; r->done = true;
+      r->result = xErrno_InvalidArg;
+      r->retval = -1;
+      r->done   = true;
       break;
     }
     OVERLAPPED ov = {0};
     ov.Offset     = (DWORD)(r->offset & 0xFFFFFFFFu);
     ov.OffsetHigh = (DWORD)((r->offset >> 32) & 0xFFFFFFFFu);
-    ok = ReadFile(h, r->buf, (DWORD)r->len, &n, &ov);
-    r->retval = ok ? (ssize_t)n : -1;
-    r->result = ok ? xErrno_Ok : xErrno_SysError;
-    r->done   = true;
+    ok            = ReadFile(h, r->buf, (DWORD)r->len, &n, &ov);
+    r->retval     = ok ? (ssize_t)n : -1;
+    r->result     = ok ? xErrno_Ok : xErrno_SysError;
+    r->done       = true;
     break;
   }
 
   case xFsOpWrite: {
     h = xfile_to_handle(r->file);
     if (!h || h == INVALID_HANDLE_VALUE) {
-      r->result = xErrno_InvalidArg; r->retval = -1; r->done = true;
+      r->result = xErrno_InvalidArg;
+      r->retval = -1;
+      r->done   = true;
       break;
     }
     OVERLAPPED ov = {0};
     ov.Offset     = (DWORD)(r->offset & 0xFFFFFFFFu);
     ov.OffsetHigh = (DWORD)((r->offset >> 32) & 0xFFFFFFFFu);
-    ok = WriteFile(h, r->buf, (DWORD)r->len, &n, &ov);
-    r->retval = ok ? (ssize_t)n : -1;
-    r->result = ok ? xErrno_Ok : xErrno_SysError;
-    r->done   = true;
+    ok            = WriteFile(h, r->buf, (DWORD)r->len, &n, &ov);
+    r->retval     = ok ? (ssize_t)n : -1;
+    r->result     = ok ? xErrno_Ok : xErrno_SysError;
+    r->done       = true;
     break;
   }
 
@@ -133,8 +137,8 @@ static void *fs_worker(void *arg) {
       r->result = xErrno_SysError;
       r->retval = -1;
     } else {
-      r->result  = xErrno_Ok;
-      r->retval  = 0;
+      r->result     = xErrno_Ok;
+      r->retval     = 0;
       r->stat.size  = (uint64_t)st.st_size;
       r->stat.mode  = st.st_mode;
       r->stat.mtime = (uint64_t)st.st_mtime * 1000;
@@ -155,8 +159,8 @@ static void *fs_worker(void *arg) {
 
   case xFsOpRename: {
     const char *npath = (const char *)r->buf;
-    r->retval = MoveFileA(r->path, npath) ? 0 : -1;
-    r->result = (r->retval < 0) ? xErrno_SysError : xErrno_Ok;
+    r->retval         = MoveFileA(r->path, npath) ? 0 : -1;
+    r->result         = (r->retval < 0) ? xErrno_SysError : xErrno_Ok;
     break;
   }
 

@@ -10,16 +10,15 @@
  * configured max. Beyond that, tasks are queued.
  */
 
-#include <x/base/task.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include <x/base/atomic.h>
 #include <x/base/mpsc.h>
 #include <x/base/note.h>
 #include <x/base/slab.h>
+#include <x/base/task.h>
 #include <x/base/thread.h>
-
-#include <stdlib.h>
-#include <string.h>
 
 /* ───────────────────── Internal types ───────────────────── */
 

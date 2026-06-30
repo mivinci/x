@@ -40,8 +40,49 @@ AllowAllParametersOfDeclarationOnNextLine: true
 AllowAllArgumentsOnNextLine: true
 
 # ── Includes ──────────────────────────────────────────────────────────────
-SortIncludes: true
-IncludeBlocks: Preserve
+# Google-style include ordering (strict):
+#   1. Corresponding header ("foo.h" in foo.c)
+#   2. C system headers (<stdio.h>)
+#   3. C++ system headers (<vector>)
+#   4. Other library headers (<openssl/ssl.h>, <gtest/gtest.h>, <llhttp.h>)
+#   5. Project headers ("foo_private.h", <x/base/log.h>)
+# Each group separated by a blank line; entries sorted alphabetically
+# within each group (case-insensitive). Project headers go last so
+# missing dependencies in <x/...> headers are surfaced early.
+SortIncludes: CaseInsensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  # 1. Same-directory quoted header ("foo.h") — typically the
+  #    corresponding header for this .c/.cpp file.
+  - Regex: '^"[^/]+\.h"$'
+    Priority: 1
+
+  # 2. C system headers — angle brackets, no slash, with .h
+  #    (<stdio.h>, <unistd.h>).
+  - Regex: '^<[a-z_]+\.h>$'
+    Priority: 2
+
+  # 3. C++ system headers — angle brackets, no slash, no .h
+  #    (<atomic>, <string>, <vector>).
+  - Regex: '^<[^/.]+>$'
+    Priority: 3
+
+  # 4. Other library headers — <openssl/...>, <gtest/...>,
+  #    <llhttp.h> (single-file libs without slash also land here
+  #    because they don't match rule 2's [a-z_]+ regex — llhttp
+  #    has digits).
+  - Regex: '^<.+'
+    Priority: 4
+
+  # 5. Project headers — <x/...> public API and "foo/bar.h"
+  #    private includes. Goes last per strict Google convention.
+  - Regex: '^<x/'
+    Priority: 5
+
+  # 6. Project-internal quoted headers with paths ("foo/bar.h") —
+  #    catch-all for any remaining quoted includes.
+  - Regex: '^".+"$'
+    Priority: 6
 
 # ── Spaces ────────────────────────────────────────────────────────────────
 SpaceBeforeParens: ControlStatements

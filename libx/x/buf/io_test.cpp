@@ -12,8 +12,9 @@ extern "C" {
 #include <x/buf/io.h>
 }
 
-#include <cstring>
 #include <unistd.h>
+
+#include <cstring>
 #include <vector>
 
 /* ───────────────────── Lifecycle ───────────────────── */

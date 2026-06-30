@@ -6,9 +6,9 @@
  * io_bench.cpp - Micro-benchmarks for xIOBuffer
  */
 
-#include <benchmark/benchmark.h>
-
 #include <vector>
+
+#include <benchmark/benchmark.h>
 
 extern "C" {
 #include <x/buf/io.h>

@@ -6,9 +6,9 @@
  * buf_bench.cpp - Micro-benchmarks for xBuffer
  */
 
-#include <benchmark/benchmark.h>
-
 #include <vector>
+
+#include <benchmark/benchmark.h>
 
 extern "C" {
 #include <x/buf/buf.h>

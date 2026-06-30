@@ -14,6 +14,7 @@
 #define XNET_TCP_H
 
 #include <stdint.h>
+
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <x/base/base.h>
@@ -202,8 +203,8 @@ typedef void (*xTcpConnectFunc)(xTcpConn conn, xErrno err, void *arg);
  * @param arg       User argument forwarded to callback.
  * @return          xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xTcpConnect( const char *host, uint16_t port,
-                          const xTcpConnectConf *conf, xTcpConnectFunc callback, void *arg);
+XCAPI(xErrno) xTcpConnect(const char *host, uint16_t port, const xTcpConnectConf *conf,
+                          xTcpConnectFunc callback, void *arg);
 
 /* ═══════════════════════════════════════════════════════════════════
  *  xTcpListener — async TCP listener
@@ -250,7 +251,7 @@ typedef void (*xTcpListenerFunc)(xTcpListener listener, xTcpConn conn, const str
  * @param arg       User argument forwarded to callback.
  * @return          A listener handle, or NULL on failure.
  */
-XCAPI(xTcpListener) xTcpListenerCreate( const char *host, uint16_t port,
+XCAPI(xTcpListener) xTcpListenerCreate(const char *host, uint16_t port,
                                        const xTcpListenerConf *conf, xTcpListenerFunc callback,
                                        void *arg);
 

@@ -10,7 +10,7 @@
  * bridging.
  */
 
-#include <x/log/logger.h>
+#include "logger_private.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -25,8 +25,7 @@
 #include <x/base/log.h>
 #include <x/base/mpsc.h>
 #include <x/base/time.h>
-
-#include "logger_private.h"
+#include <x/log/logger.h>
 
 /* ── Level name table ── */
 
@@ -151,8 +150,7 @@ xLogger xLoggerCreate(xLoggerConf conf) {
     if (logger_make_pipe(fds) != 0) goto fail;
     lg->flush_req_rfd = fds[0];
     lg->flush_req_wfd = fds[1];
-    lg->flush_req_src =
-      xEventAdd(lg->flush_req_rfd, xEvent_Read, logger_flush_req_cb, lg);
+    lg->flush_req_src = xEventAdd(lg->flush_req_rfd, xEvent_Read, logger_flush_req_cb, lg);
     if (!lg->flush_req_src) goto fail;
   }
 

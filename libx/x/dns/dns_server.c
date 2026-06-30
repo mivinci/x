@@ -18,21 +18,22 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
+#include <unistd.h>
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <unistd.h>
 #endif
 
 /* ───────────────────── Zone ───────────────────── */
 
 typedef struct zone_rec {
-  char              name[256];
-  uint16_t          qtype;   /* wire QTYPE                              */
-  uint32_t          ttl;
-  void             *rdata;   /* owned                                   */
-  size_t            rdlen;
-  struct zone_rec  *next;
+  char             name[256];
+  uint16_t         qtype; /* wire QTYPE                              */
+  uint32_t         ttl;
+  void            *rdata; /* owned                                   */
+  size_t           rdlen;
+  struct zone_rec *next;
 } zone_rec_t;
 
 struct xDnsZone_ {
@@ -46,7 +47,7 @@ xDnsZone xDnsZoneCreate(void) {
 void xDnsZoneDestroy(xDnsZone zone) {
   if (!zone) return;
   struct xDnsZone_ *z = (struct xDnsZone_ *)zone;
-  zone_rec_t *r = z->head;
+  zone_rec_t       *r = z->head;
   while (r) {
     zone_rec_t *next = r->next;
     free(r->rdata);
@@ -56,8 +57,8 @@ void xDnsZoneDestroy(xDnsZone zone) {
   free(z);
 }
 
-xErrno xDnsZoneAdd(xDnsZone zone, const char *name, xDnsType type,
-                   const void *rdata, size_t rdlen, uint32_t ttl) {
+xErrno xDnsZoneAdd(xDnsZone zone, const char *name, xDnsType type, const void *rdata, size_t rdlen,
+                   uint32_t ttl) {
   if (!zone || !name || type == 0) return xErrno_InvalidArg;
   struct xDnsZone_ *z = (struct xDnsZone_ *)zone;
 
@@ -89,8 +90,7 @@ xErrno xDnsZoneAdd(xDnsZone zone, const char *name, xDnsType type,
 
 /* Find matching records in a zone. Returns a cloned xDnsRecord list
  * (caller frees) or NULL. */
-static xDnsRecord *zone_lookup(struct xDnsZone_ *z, const char *name,
-                               uint16_t qtype) {
+static xDnsRecord *zone_lookup(struct xDnsZone_ *z, const char *name, uint16_t qtype) {
   if (!z) return NULL;
   xDnsRecord *head = NULL, *tail = NULL;
   for (zone_rec_t *r = z->head; r; r = r->next) {
@@ -121,8 +121,10 @@ static xDnsRecord *zone_lookup(struct xDnsZone_ *z, const char *name,
       memcpy(rd, r->rdata, r->rdlen);
       rec->rdata = rd;
     }
-    if (!head) head = rec;
-    else       tail->next = rec;
+    if (!head)
+      head = rec;
+    else
+      tail->next = rec;
     tail = rec;
   }
   return head;
@@ -134,32 +136,32 @@ fail:
 /* ───────────────────── Server ───────────────────── */
 
 struct xDnsServer_ {
-  xSocket         sock;
-  int             sock_family;
-  xDnsClient      forwarder;
-  xDnsFilterFunc  filter;
-  void           *filter_arg;
-  int             cache_enabled;
-  uint16_t        port;
+  xSocket            sock;
+  int                sock_family;
+  xDnsClient         forwarder;
+  xDnsFilterFunc     filter;
+  void              *filter_arg;
+  int                cache_enabled;
+  uint16_t           port;
   struct xDnsZone_ **zones;
-  int             zone_count;
-  int             zone_cap;
+  int                zone_count;
+  int                zone_cap;
 };
 
 /* Context for a forwarded query. */
 typedef struct {
-  struct xDnsServer_  *server;
+  struct xDnsServer_     *server;
   struct sockaddr_storage client_addr;
-  socklen_t             client_len;
-  uint16_t              id;
-  char                  name[256];
-  uint16_t              qtype;
+  socklen_t               client_len;
+  uint16_t                id;
+  char                    name[256];
+  uint16_t                qtype;
 } fwd_ctx_t;
 
 /* ───────────────────── Forward declarations ───────────────────── */
 
-static void on_server_readable(xSocket sock, xEventMask mask, void *arg);
-static void on_forward_done(xErrno err, const xDnsRecord *records, void *arg);
+static void     on_server_readable(xSocket sock, xEventMask mask, void *arg);
+static void     on_forward_done(xErrno err, const xDnsRecord *records, void *arg);
 static xDnsType qtype_to_bit(uint16_t qtype);
 
 /* ───────────────────── Lifecycle ───────────────────── */
@@ -189,11 +191,10 @@ xErrno xDnsServerAddZone(xDnsServer server, xDnsZone zone) {
   if (!server || !zone) return xErrno_InvalidArg;
   struct xDnsServer_ *s = (struct xDnsServer_ *)server;
   if (s->zone_count == s->zone_cap) {
-    int ncap = s->zone_cap ? s->zone_cap * 2 : 4;
-    struct xDnsZone_ **nz =
-      (struct xDnsZone_ **)realloc(s->zones, ncap * sizeof(*nz));
+    int                ncap = s->zone_cap ? s->zone_cap * 2 : 4;
+    struct xDnsZone_ **nz   = (struct xDnsZone_ **)realloc(s->zones, ncap * sizeof(*nz));
     if (!nz) return xErrno_NoMemory;
-    s->zones   = nz;
+    s->zones    = nz;
     s->zone_cap = ncap;
   }
   s->zones[s->zone_count++] = (struct xDnsZone_ *)zone;
@@ -202,10 +203,9 @@ xErrno xDnsServerAddZone(xDnsServer server, xDnsZone zone) {
 
 static xErrno bind_socket(struct xDnsServer_ *s, const char *host, uint16_t port) {
   /* Try IPv6 dual-stack first. */
-  xSocket sock = xSocketCreate(AF_INET6, SOCK_DGRAM, 0, xEvent_Read,
-                               on_server_readable, s);
+  xSocket sock = xSocketCreate(AF_INET6, SOCK_DGRAM, 0, xEvent_Read, on_server_readable, s);
   if (sock) {
-    int fd = xSocketFd(sock);
+    int fd     = xSocketFd(sock);
     int v6only = 0;
 #ifdef _WIN32
     setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&v6only, sizeof(v6only));
@@ -236,10 +236,9 @@ static xErrno bind_socket(struct xDnsServer_ *s, const char *host, uint16_t port
   }
 
   /* Fall back to IPv4. */
-  sock = xSocketCreate(AF_INET, SOCK_DGRAM, 0, xEvent_Read,
-                       on_server_readable, s);
+  sock = xSocketCreate(AF_INET, SOCK_DGRAM, 0, xEvent_Read, on_server_readable, s);
   if (!sock) return xErrno_SysError;
-  int fd = xSocketFd(sock);
+  int                fd = xSocketFd(sock);
   struct sockaddr_in sin;
   memset(&sin, 0, sizeof(sin));
   sin.sin_family = AF_INET;
@@ -290,22 +289,25 @@ uint16_t xDnsServerPort(xDnsServer server) {
 
 /* ───────────────────── Query handling ───────────────────── */
 
-static void send_response(struct xDnsServer_ *s, const struct sockaddr *addr,
-                          socklen_t addrlen, uint16_t id, int rcode,
-                          const char *qname, uint16_t qtype,
+static void send_response(struct xDnsServer_ *s, const struct sockaddr *addr, socklen_t addrlen,
+                          uint16_t id, int rcode, const char *qname, uint16_t qtype,
                           const xDnsRecord *answers) {
   uint8_t buf[DNS_EDNS0_SIZE];
-  int n = dns_build_response(buf, sizeof(buf), id, rcode, qname, qtype, answers);
+  int     n = dns_build_response(buf, sizeof(buf), id, rcode, qname, qtype, answers);
   if (n <= 0) return;
   xSocketSendTo(s->sock, buf, (size_t)n, addr, addrlen);
 }
 
 static xDnsType qtype_to_bit(uint16_t qtype) {
   switch (qtype) {
-  case DNS_QTYPE_A:     return xDnsType_A;
-  case DNS_QTYPE_AAAA:  return xDnsType_AAAA;
-  case DNS_QTYPE_CNAME: return xDnsType_CNAME;
-  default:              return (xDnsType)0;
+  case DNS_QTYPE_A:
+    return xDnsType_A;
+  case DNS_QTYPE_AAAA:
+    return xDnsType_AAAA;
+  case DNS_QTYPE_CNAME:
+    return xDnsType_CNAME;
+  default:
+    return (xDnsType)0;
   }
 }
 
@@ -328,8 +330,7 @@ static void handle_query(struct xDnsServer_ *s, const uint8_t *buf, size_t len,
 
   /* Filter */
   if (s->filter && s->filter(q.name, q.qtype, s->filter_arg) != 0) {
-    send_response(s, addr, addrlen, hdr.id, (int)DNS_RCODE_NXDOMAIN,
-                  q.name, q.qtype, NULL);
+    send_response(s, addr, addrlen, hdr.id, (int)DNS_RCODE_NXDOMAIN, q.name, q.qtype, NULL);
     dns_records_free(answers);
     return;
   }
@@ -349,8 +350,7 @@ static void handle_query(struct xDnsServer_ *s, const uint8_t *buf, size_t len,
   if (s->forwarder) {
     xDnsType bit = qtype_to_bit(q.qtype);
     if (bit == 0) {
-      send_response(s, addr, addrlen, hdr.id, (int)DNS_RCODE_NXDOMAIN,
-                    q.name, q.qtype, NULL);
+      send_response(s, addr, addrlen, hdr.id, (int)DNS_RCODE_NXDOMAIN, q.name, q.qtype, NULL);
       dns_records_free(answers);
       return;
     }
@@ -369,28 +369,28 @@ static void handle_query(struct xDnsServer_ *s, const uint8_t *buf, size_t len,
     dns_records_free(answers);
     xErrno e = xDnsClientDo(s->forwarder, ctx->name, bit, on_forward_done, ctx);
     if (e != xErrno_Ok) {
-      send_response(s, addr, addrlen, hdr.id, 2 /* SERVFAIL */,
-                    ctx->name, ctx->qtype, NULL);
+      send_response(s, addr, addrlen, hdr.id, 2 /* SERVFAIL */, ctx->name, ctx->qtype, NULL);
       free(ctx);
     }
     return;
   }
 
   /* No forwarder → NXDOMAIN */
-  send_response(s, addr, addrlen, hdr.id, (int)DNS_RCODE_NXDOMAIN,
-                q.name, q.qtype, NULL);
+  send_response(s, addr, addrlen, hdr.id, (int)DNS_RCODE_NXDOMAIN, q.name, q.qtype, NULL);
   dns_records_free(answers);
 }
 
 static void on_forward_done(xErrno err, const xDnsRecord *records, void *arg) {
   fwd_ctx_t *ctx = (fwd_ctx_t *)arg;
-  int rcode;
-  if (err == xErrno_Ok)               rcode = 0;
-  else if (err == xErrno_DnsNotFound) rcode = (int)DNS_RCODE_NXDOMAIN;
-  else                                rcode = 2; /* SERVFAIL */
-  send_response(ctx->server, (const struct sockaddr *)&ctx->client_addr,
-                ctx->client_len, ctx->id, rcode, ctx->name, ctx->qtype,
-                (err == xErrno_Ok) ? records : NULL);
+  int        rcode;
+  if (err == xErrno_Ok)
+    rcode = 0;
+  else if (err == xErrno_DnsNotFound)
+    rcode = (int)DNS_RCODE_NXDOMAIN;
+  else
+    rcode = 2; /* SERVFAIL */
+  send_response(ctx->server, (const struct sockaddr *)&ctx->client_addr, ctx->client_len, ctx->id,
+                rcode, ctx->name, ctx->qtype, (err == xErrno_Ok) ? records : NULL);
   free(ctx);
 }
 
@@ -401,15 +401,13 @@ static void on_server_readable(xSocket sock, xEventMask mask, void *arg) {
   if (!(mask & xEvent_Read)) return;
   struct xDnsServer_ *s = (struct xDnsServer_ *)arg;
 
-  uint8_t buf[DNS_EDNS0_SIZE + 1];
+  uint8_t                 buf[DNS_EDNS0_SIZE + 1];
   struct sockaddr_storage src;
   socklen_t               srclen;
   for (;;) {
-    srclen = sizeof(src);
-    ssize_t n = xSocketRecvFrom(s->sock, buf, sizeof(buf),
-                                (struct sockaddr *)&src, &srclen);
+    srclen    = sizeof(src);
+    ssize_t n = xSocketRecvFrom(s->sock, buf, sizeof(buf), (struct sockaddr *)&src, &srclen);
     if (n < 0) break;
-    handle_query(s, (const uint8_t *)buf, (size_t)n,
-                 (const struct sockaddr *)&src, srclen);
+    handle_query(s, (const uint8_t *)buf, (size_t)n, (const struct sockaddr *)&src, srclen);
   }
 }

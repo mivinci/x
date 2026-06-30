@@ -6,9 +6,9 @@
  * array_test.cpp - xArray unit tests
  */
 
-#include <gtest/gtest.h>
-
 #include <cstdlib>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/array.h>

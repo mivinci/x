@@ -27,12 +27,14 @@
 
 #if defined(__linux__)
 #include <limits.h>
+#include <unistd.h>
+
 #include <linux/futex.h>
 #include <sys/syscall.h>
-#include <unistd.h>
 #elif defined(__APPLE__)
-#include <os/lock.h>
 #include <unistd.h>
+
+#include <os/lock.h>
 /* Darwin private API used by libdispatch for lightweight waits. */
 extern int __ulock_wait(uint32_t op, void *addr, uint64_t val, uint32_t timeout);
 extern int __ulock_wake(uint32_t op, void *addr, uint64_t val);

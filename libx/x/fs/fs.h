@@ -8,9 +8,10 @@
 #ifndef XFS_FS_H
 #define XFS_FS_H
 
+#include <stdint.h>
+
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <stdint.h>
 #include <x/base/base.h>
 #include <x/base/error.h>
 
@@ -21,9 +22,7 @@ XDEF_HANDLE(xFile);
 
 /** Filesystem operation type. */
 XDEF_ENUM(xFsOp){
-  xFsOpOpen, xFsOpClose,
-  xFsOpRead, xFsOpWrite,
-  xFsOpStat, xFsOpMkdir, xFsOpUnlink, xFsOpRename,
+  xFsOpOpen, xFsOpClose, xFsOpRead, xFsOpWrite, xFsOpStat, xFsOpMkdir, xFsOpUnlink, xFsOpRename,
 };
 
 /** Stat result. */
@@ -39,7 +38,7 @@ typedef struct xFsReq xFsReq;
 typedef void (*xFsFunc)(xFsReq *req);
 
 struct xFsReq {
-  xFsOp      op;
+  xFsOp op;
   /* Input */
   const char *path;
   void       *buf;
@@ -48,18 +47,18 @@ struct xFsReq {
   int         flags;
   int         mode;
   xFile       file;
-  xFsFunc     cb;        /* NULL = synchronous blocking */
+  xFsFunc     cb; /* NULL = synchronous blocking */
   void       *arg;
   /* Output */
-  xErrno      result;
-  ssize_t     retval;
-  bool        done;      /* streaming: true = last chunk */
-  xFsStat     stat;
-  xFile       out_file;  /* xFsOpOpen result */
+  xErrno  result;
+  ssize_t retval;
+  bool    done; /* streaming: true = last chunk */
+  xFsStat stat;
+  xFile   out_file; /* xFsOpOpen result */
 
   /* Internal */
-  void       *_work;
-  void       *_private;
+  void *_work;
+  void *_private;
 };
 
 /* ───────────────────── API ───────────────────── */

@@ -23,8 +23,7 @@ static uint16_t get_u16(const uint8_t *p) {
 }
 
 static uint32_t get_u32(const uint8_t *p) {
-  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-         ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
 }
 
 /* ───────────────────── Name encoding ───────────────────── */
@@ -35,7 +34,7 @@ static uint32_t get_u32(const uint8_t *p) {
  * labels), or -1 on error. Writes into @p out (capacity @p outcap).
  */
 static int encode_name(uint8_t *out, size_t outcap, const char *name) {
-  size_t i = 0;        /* write position in @p out */
+  size_t i           = 0; /* write position in @p out */
   size_t label_start = 0;
   size_t j;
 
@@ -75,14 +74,13 @@ static int encode_name(uint8_t *out, size_t outcap, const char *name) {
  * 0x00 or past the 2-byte pointer), or -1 on error (truncated, bad label
  * length, loop).
  */
-static int parse_name(const uint8_t *buf, size_t len, size_t pos,
-                      char *out, size_t out_cap) {
-  size_t out_i      = 0;
-  size_t cur        = pos;
-  int    followed   = 0;        /* did we follow a pointer? */
-  size_t end_off    = 0;        /* offset past the name (set on first pointer) */
-  size_t seen[64];              /* visited offsets for loop detection */
-  size_t seen_n    = 0;
+static int parse_name(const uint8_t *buf, size_t len, size_t pos, char *out, size_t out_cap) {
+  size_t out_i    = 0;
+  size_t cur      = pos;
+  int    followed = 0; /* did we follow a pointer? */
+  size_t end_off  = 0; /* offset past the name (set on first pointer) */
+  size_t seen[64];     /* visited offsets for loop detection */
+  size_t seen_n      = 0;
   int    wrote_label = 0;
 
   for (;;) {
@@ -102,7 +100,7 @@ static int parse_name(const uint8_t *buf, size_t len, size_t pos,
         if (seen[i] == target) return -1;
       if (seen_n >= sizeof(seen) / sizeof(seen[0])) return -1;
       seen[seen_n++] = target;
-      cur = target;
+      cur            = target;
       continue;
     }
 
@@ -134,15 +132,14 @@ static int parse_name(const uint8_t *buf, size_t len, size_t pos,
     memcpy(out + out_i, buf + cur + 1, lablen);
     out_i += lablen;
     out[out_i++] = '.';
-    wrote_label = 1;
+    wrote_label  = 1;
     cur += 1 + lablen;
   }
 }
 
 /* ───────────────────── Query builder ───────────────────── */
 
-int dns_build_query(uint8_t *buf, size_t buflen, uint16_t id,
-                    const char *name, uint16_t qtype) {
+int dns_build_query(uint8_t *buf, size_t buflen, uint16_t id, const char *name, uint16_t qtype) {
   if (!buf || !name) return -1;
 
   /* 12 (header) + name + 4 (qtype+qclass) + 11 (OPT record) */
@@ -152,12 +149,18 @@ int dns_build_query(uint8_t *buf, size_t buflen, uint16_t id,
   size_t off = 0;
 
   /* Header */
-  put_u16(buf + off, id);                off += 2;
-  put_u16(buf + off, DNS_FLAG_RD);       off += 2;  /* RD=1, standard query */
-  put_u16(buf + off, 1);                 off += 2;  /* QDCOUNT=1 */
-  put_u16(buf + off, 0);                 off += 2;  /* ANCOUNT=0 */
-  put_u16(buf + off, 0);                 off += 2;  /* NSCOUNT=0 */
-  put_u16(buf + off, 1);                 off += 2;  /* ARCOUNT=1 (OPT) */
+  put_u16(buf + off, id);
+  off += 2;
+  put_u16(buf + off, DNS_FLAG_RD);
+  off += 2; /* RD=1, standard query */
+  put_u16(buf + off, 1);
+  off += 2; /* QDCOUNT=1 */
+  put_u16(buf + off, 0);
+  off += 2; /* ANCOUNT=0 */
+  put_u16(buf + off, 0);
+  off += 2; /* NSCOUNT=0 */
+  put_u16(buf + off, 1);
+  off += 2; /* ARCOUNT=1 (OPT) */
 
   /* Question: QNAME */
   int nlen = encode_name(buf + off, buflen - off, name);
@@ -165,25 +168,31 @@ int dns_build_query(uint8_t *buf, size_t buflen, uint16_t id,
   off += (size_t)nlen;
 
   /* Question: QTYPE + QCLASS */
-  put_u16(buf + off, qtype);             off += 2;
-  put_u16(buf + off, DNS_QCLASS_IN);     off += 2;
+  put_u16(buf + off, qtype);
+  off += 2;
+  put_u16(buf + off, DNS_QCLASS_IN);
+  off += 2;
 
   /* Additional: EDNS0 OPT record (RFC 6891), 11 bytes total */
-  buf[off++] = 0;                        /* NAME: root */
-  put_u16(buf + off, DNS_QTYPE_OPT);     off += 2;  /* TYPE=OPT */
-  put_u16(buf + off, DNS_EDNS0_SIZE);    off += 2;  /* CLASS=UDP payload size */
-  put_u16(buf + off, 0);                 off += 2;  /* TTL bytes 0-1: ext-rcode=0, version=0 */
-  put_u16(buf + off, 0);                 off += 2;  /* TTL bytes 2-3: flags (DO=0) */
-  put_u16(buf + off, 0);                 off += 2;  /* RDLENGTH=0 */
+  buf[off++] = 0; /* NAME: root */
+  put_u16(buf + off, DNS_QTYPE_OPT);
+  off += 2; /* TYPE=OPT */
+  put_u16(buf + off, DNS_EDNS0_SIZE);
+  off += 2; /* CLASS=UDP payload size */
+  put_u16(buf + off, 0);
+  off += 2; /* TTL bytes 0-1: ext-rcode=0, version=0 */
+  put_u16(buf + off, 0);
+  off += 2; /* TTL bytes 2-3: flags (DO=0) */
+  put_u16(buf + off, 0);
+  off += 2; /* RDLENGTH=0 */
 
   return (int)off;
 }
 
 /* ───────────────────── Response builder ───────────────────── */
 
-int dns_build_response(uint8_t *buf, size_t buflen, uint16_t id, int rcode,
-                       const char *qname, uint16_t qtype,
-                       const xDnsRecord *answers) {
+int dns_build_response(uint8_t *buf, size_t buflen, uint16_t id, int rcode, const char *qname,
+                       uint16_t qtype, const xDnsRecord *answers) {
   if (!buf || !qname) return -1;
 
   /* Count answers and compute exact required size. */
@@ -199,19 +208,27 @@ int dns_build_response(uint8_t *buf, size_t buflen, uint16_t id, int rcode,
 
   /* Header */
   uint16_t flags = DNS_FLAG_QR | DNS_FLAG_RA | (uint16_t)(rcode & DNS_RCODE_MASK);
-  put_u16(buf + off, id);                off += 2;
-  put_u16(buf + off, flags);             off += 2;
-  put_u16(buf + off, 1);                 off += 2;  /* QDCOUNT=1 */
-  put_u16(buf + off, ancount);           off += 2;
-  put_u16(buf + off, 0);                 off += 2;  /* NSCOUNT=0 */
-  put_u16(buf + off, 0);                 off += 2;  /* ARCOUNT=0 */
+  put_u16(buf + off, id);
+  off += 2;
+  put_u16(buf + off, flags);
+  off += 2;
+  put_u16(buf + off, 1);
+  off += 2; /* QDCOUNT=1 */
+  put_u16(buf + off, ancount);
+  off += 2;
+  put_u16(buf + off, 0);
+  off += 2; /* NSCOUNT=0 */
+  put_u16(buf + off, 0);
+  off += 2; /* ARCOUNT=0 */
 
   /* Question (echo) */
   int nlen = encode_name(buf + off, buflen - off, qname);
   if (nlen < 0) return -1;
   off += (size_t)nlen;
-  put_u16(buf + off, qtype);             off += 2;
-  put_u16(buf + off, DNS_QCLASS_IN);     off += 2;
+  put_u16(buf + off, qtype);
+  off += 2;
+  put_u16(buf + off, DNS_QCLASS_IN);
+  off += 2;
 
   /* Answers */
   for (const xDnsRecord *r = answers; r; r = r->next) {
@@ -219,10 +236,14 @@ int dns_build_response(uint8_t *buf, size_t buflen, uint16_t id, int rcode,
     int rlen = encode_name(buf + off, buflen - off, r->name ? r->name : qname);
     if (rlen < 0) return -1;
     off += (size_t)rlen;
-    put_u16(buf + off, r->qtype);         off += 2;
-    put_u16(buf + off, DNS_QCLASS_IN);    off += 2;
-    put_u16(buf + off, (uint16_t)(r->ttl >> 16)); off += 2;
-    put_u16(buf + off, (uint16_t)(r->ttl & 0xFFFF)); off += 2;
+    put_u16(buf + off, r->qtype);
+    off += 2;
+    put_u16(buf + off, DNS_QCLASS_IN);
+    off += 2;
+    put_u16(buf + off, (uint16_t)(r->ttl >> 16));
+    off += 2;
+    put_u16(buf + off, (uint16_t)(r->ttl & 0xFFFF));
+    off += 2;
 
     /* For CNAME, RDATA is a domain name that must be DNS-encoded. The
      * caller passes it as a NUL-terminated string in r->rdata. */
@@ -236,7 +257,8 @@ int dns_build_response(uint8_t *buf, size_t buflen, uint16_t id, int rcode,
       put_u16(buf + rdlen_pos, (uint16_t)clen);
       off += (size_t)clen;
     } else {
-      put_u16(buf + off, (uint16_t)r->rdlength); off += 2;
+      put_u16(buf + off, (uint16_t)r->rdlength);
+      off += 2;
       if (r->rdlength > 0 && r->rdata) {
         if (off + r->rdlength > buflen) return -1;
         memcpy(buf + off, r->rdata, r->rdlength);
@@ -250,8 +272,8 @@ int dns_build_response(uint8_t *buf, size_t buflen, uint16_t id, int rcode,
 
 /* ───────────────────── Parser ───────────────────── */
 
-xErrno dns_parse(const uint8_t *buf, size_t len, dns_header_t *hdr,
-                 dns_question_t *q, xDnsRecord **answers) {
+xErrno dns_parse(const uint8_t *buf, size_t len, dns_header_t *hdr, dns_question_t *q,
+                 xDnsRecord **answers) {
   if (!buf || !hdr || !q || !answers) return xErrno_InvalidArg;
   *answers = NULL;
 
@@ -267,17 +289,19 @@ xErrno dns_parse(const uint8_t *buf, size_t len, dns_header_t *hdr,
   size_t off = 12;
 
   /* Question section */
-  q->name[0] = '\0';
-  q->qtype   = 0;
-  q->qclass  = 0;
+  q->name[0]  = '\0';
+  q->qtype    = 0;
+  q->qclass   = 0;
   q->wire_off = off;
   if (hdr->qdcount > 0) {
     int nend = parse_name(buf, len, off, q->name, sizeof(q->name));
     if (nend < 0) return xErrno_DnsError;
     off = (size_t)nend;
     if (off + 4 > len) return xErrno_DnsError;
-    q->qtype  = get_u16(buf + off); off += 2;
-    q->qclass = get_u16(buf + off); off += 2;
+    q->qtype = get_u16(buf + off);
+    off += 2;
+    q->qclass = get_u16(buf + off);
+    off += 2;
     q->wire_off = off;
   }
 
@@ -286,14 +310,18 @@ xErrno dns_parse(const uint8_t *buf, size_t len, dns_header_t *hdr,
   xDnsRecord *head = NULL;
   for (uint16_t i = 0; i < hdr->ancount; ++i) {
     char owner[256];
-    int nend = parse_name(buf, len, off, owner, sizeof(owner));
+    int  nend = parse_name(buf, len, off, owner, sizeof(owner));
     if (nend < 0) goto fail;
     off = (size_t)nend;
     if (off + 10 > len) goto fail;
-    uint16_t rtype  = get_u16(buf + off); off += 2;
-    uint16_t rclass = get_u16(buf + off); off += 2;
-    uint32_t ttl    = get_u32(buf + off); off += 4;
-    uint16_t rdlen  = get_u16(buf + off); off += 2;
+    uint16_t rtype = get_u16(buf + off);
+    off += 2;
+    uint16_t rclass = get_u16(buf + off);
+    off += 2;
+    uint32_t ttl = get_u32(buf + off);
+    off += 4;
+    uint16_t rdlen = get_u16(buf + off);
+    off += 2;
     (void)rclass;
     if (off + rdlen > len) goto fail;
 
@@ -312,7 +340,7 @@ xErrno dns_parse(const uint8_t *buf, size_t len, dns_header_t *hdr,
     /* Copy owner name */
     {
       size_t nl = strlen(owner);
-      char *nm = (char *)malloc(nl + 1);
+      char  *nm = (char *)malloc(nl + 1);
       if (!nm) {
         free(rec);
         goto fail;
@@ -324,14 +352,14 @@ xErrno dns_parse(const uint8_t *buf, size_t len, dns_header_t *hdr,
     /* For CNAME, decode the RDATA as a domain name (may use compression). */
     if (rtype == DNS_QTYPE_CNAME) {
       char cname[256];
-      int cend = parse_name(buf, len, off, cname, sizeof(cname));
+      int  cend = parse_name(buf, len, off, cname, sizeof(cname));
       if (cend < 0) {
         free((void *)rec->name);
         free(rec);
         goto fail;
       }
       size_t cl = strlen(cname);
-      char *cd = (char *)malloc(cl + 1);
+      char  *cd = (char *)malloc(cl + 1);
       if (!cd) {
         free((void *)rec->name);
         free(rec);
@@ -356,8 +384,10 @@ xErrno dns_parse(const uint8_t *buf, size_t len, dns_header_t *hdr,
 
     off += rdlen;
 
-    if (!head) head = rec;
-    else       tail->next = rec;
+    if (!head)
+      head = rec;
+    else
+      tail->next = rec;
     tail = rec;
   }
 
@@ -391,7 +421,7 @@ xDnsRecord *dns_records_clone(const xDnsRecord *rec) {
     c->rdlength = r->rdlength;
     if (r->name) {
       size_t nl = strlen(r->name);
-      char *nm  = (char *)malloc(nl + 1);
+      char  *nm = (char *)malloc(nl + 1);
       if (!nm) {
         free(c);
         goto fail;
@@ -409,8 +439,10 @@ xDnsRecord *dns_records_clone(const xDnsRecord *rec) {
       memcpy(rd, r->rdata, r->rdlength);
       c->rdata = rd;
     }
-    if (!head) head = c;
-    else       tail->next = c;
+    if (!head)
+      head = c;
+    else
+      tail->next = c;
     tail = c;
   }
   return head;
@@ -421,10 +453,14 @@ fail:
 
 uint16_t dns_qtype_from_bit(xDnsType type) {
   switch (type) {
-  case xDnsType_A:     return DNS_QTYPE_A;
-  case xDnsType_AAAA:  return DNS_QTYPE_AAAA;
-  case xDnsType_CNAME: return DNS_QTYPE_CNAME;
-  default:             return 0;
+  case xDnsType_A:
+    return DNS_QTYPE_A;
+  case xDnsType_AAAA:
+    return DNS_QTYPE_AAAA;
+  case xDnsType_CNAME:
+    return DNS_QTYPE_CNAME;
+  default:
+    return 0;
   }
 }
 

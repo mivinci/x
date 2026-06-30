@@ -9,6 +9,7 @@
 #define DLPROXY_H
 
 #include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 
@@ -16,32 +17,32 @@ XDEF_HANDLE(dlp_ctx_t);
 XDEF_HANDLE(dlp_task_t);
 
 /** Operation mode. */
-XDEF_ENUM(dlp_mode_t) {
-  DL_MODE_POLL,      /**< Caller drives the event loop via dlp_run()       */
-  DL_MODE_DETACHED,   /**< Background thread runs the event loop            */
+XDEF_ENUM(dlp_mode_t){
+  DL_MODE_POLL,     /**< Caller drives the event loop via dlp_run()       */
+  DL_MODE_DETACHED, /**< Background thread runs the event loop            */
 };
 
 /** Streaming format. */
-XDEF_ENUM(dlp_format_t) {
-  DLP_FMT_MP4,       /**< Single-file MP4, byte-range streaming (default)   */
-  DLP_FMT_HLS,       /**< HLS VOD, segment-based streaming                   */
+XDEF_ENUM(dlp_format_t){
+  DLP_FMT_MP4, /**< Single-file MP4, byte-range streaming (default)   */
+  DLP_FMT_HLS, /**< HLS VOD, segment-based streaming                   */
 };
 
 /** Per-task configuration. */
 XDEF_STRUCT(dlp_task_conf_t) {
-  const char     *rid;    /**< Resource identifier (used in player URL path)    */
-  const char     *url;    /**< Upstream CDN URL for the resource                */
-  uint64_t        size;   /**< Total file size in bytes, or 0 if unknown        */
-  uint32_t        bitrate; /**< Estimated bitrate in bytes/sec (0 = auto)       */
-  dlp_format_t    format;  /**< Streaming format (default DLP_FMT_MP4)           */
+  const char  *rid;     /**< Resource identifier (used in player URL path)    */
+  const char  *url;     /**< Upstream CDN URL for the resource                */
+  uint64_t     size;    /**< Total file size in bytes, or 0 if unknown        */
+  uint32_t     bitrate; /**< Estimated bitrate in bytes/sec (0 = auto)       */
+  dlp_format_t format;  /**< Streaming format (default DLP_FMT_MP4)           */
 };
 
 /** Global configuration. */
 XDEF_STRUCT(dlp_conf_t) {
-  uint16_t    port;        /**< Proxy listen port (default 19080)          */
-  const char *cache_dir;   /**< Cache directory path (default "./cache")    */
-  int         emergency_ms;/**< Emergency buffer threshold (default 10000)  */
-  int         safe_ms;     /**< Safe buffer threshold (default 30000)       */
+  uint16_t    port;         /**< Proxy listen port (default 19080)          */
+  const char *cache_dir;    /**< Cache directory path (default "./cache")    */
+  int         emergency_ms; /**< Emergency buffer threshold (default 10000)  */
+  int         safe_ms;      /**< Safe buffer threshold (default 30000)       */
 };
 
 /* ── Lifecycle ─────────────────────────────────────────────────────── */

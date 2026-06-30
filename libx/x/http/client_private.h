@@ -9,9 +9,10 @@
 #ifndef XHTTP_CLIENT_PRIVATE_H
 #define XHTTP_CLIENT_PRIVATE_H
 
-#include <curl/curl.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <curl/curl.h>
 #include <x/base/base.h>
 #include <x/base/log.h>
 #include <x/buf/buf.h>
@@ -67,7 +68,7 @@ XDEF_STRUCT(xHttpReq_) {
 XDEF_STRUCT(xHttpClient_) {
   CURLM       *multi;    /* curl multi handle                   */
   xEventLoop   loop;     /* the event loop we are bound to      */
-  xTimer  timer;    /* current curl timeout timer, or NULL */
+  xTimer       timer;    /* current curl timeout timer, or NULL */
   xHttpVersion http_ver; /* default HTTP version for requests   */
 
   /* TLS configuration (owned copies, freed on destroy) */

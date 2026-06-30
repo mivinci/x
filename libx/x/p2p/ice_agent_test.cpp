@@ -12,13 +12,13 @@ extern "C" {
 #include "ice_agent.h"
 }
 
-#include <x/base/test_helper.h>
-
-#include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
 #include <cstring>
 #include <string>
+
+#include <arpa/inet.h>
+#include <x/base/test_helper.h>
 
 using ms = std::chrono::milliseconds;
 
@@ -47,9 +47,8 @@ template <class Pred> static bool pump_until(xEventLoop loop, Pred pred, int tot
     },
     &ctx, 5, 5);
 
-  xTimer watchdog = xTimerStart(
-    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
-    loop, static_cast<uint64_t>(total_ms), 0);
+  xTimer watchdog = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
+                                loop, static_cast<uint64_t>(total_ms), 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
 
@@ -658,5 +657,3 @@ TEST(IceAgentTest, ConfWithoutServersGathersHostOnly) {
   xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
-
-

@@ -57,6 +57,7 @@ XCAPI(void) xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int 
  * @param fd         File descriptor for the TCP connection.
  * @return           0 on success, -1 on error.
  */
-XCAPI(int) xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx, const char *hostname, int fd);
+XCAPI(int) xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx, const char *hostname,
+                                   int fd);
 
 #endif /* XNET_TRANSPORT_PRIVATE_H */

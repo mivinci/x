@@ -24,12 +24,12 @@
 #include "ice_agent.h"
 #include "sctp_transport.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 #include <x/base/event.h>
-
-#include <stdbool.h>
-#include <stdint.h>
 
 /* ───────────────────── Opaque Handle ───────────────────── */
 
@@ -105,7 +105,7 @@ XDEF_STRUCT(xPeerConnectionConf) {
  * @param conf  Configuration (required).
  * @return      PeerConnection handle, or NULL on failure.
  */
-XCAPI(xPeerConnection) xPeerConnectionCreate( const xPeerConnectionConf *conf);
+XCAPI(xPeerConnection) xPeerConnectionCreate(const xPeerConnectionConf *conf);
 
 /**
  * @brief Destroy a PeerConnection and all owned resources.

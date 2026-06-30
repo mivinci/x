@@ -6,11 +6,11 @@
  * Note: local mode is not supported — getaddrinfo doesn't use our local DNS
  * server.  Skip or use /etc/hosts entries.
  */
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <chrono>
-#include <atomic>
 
 extern "C" {
 #include <x/base/event.h>
@@ -21,45 +21,49 @@ using Clock = std::chrono::steady_clock;
 using us    = std::chrono::microseconds;
 
 static const char *remote_hosts[] = {
-  "google.com","github.com","amazon.com","microsoft.com",
-  "apple.com","netflix.com","stackoverflow.com","youtube.com",
-  "wikipedia.org","reddit.com","twitter.com","linkedin.com",
-  "cloudflare.com","zoom.us","dropbox.com","spotify.com",
-  "adobe.com","oracle.com","ibm.com","intel.com",
+  "google.com",  "github.com",        "amazon.com",     "microsoft.com", "apple.com",
+  "netflix.com", "stackoverflow.com", "youtube.com",    "wikipedia.org", "reddit.com",
+  "twitter.com", "linkedin.com",      "cloudflare.com", "zoom.us",       "dropbox.com",
+  "spotify.com", "adobe.com",         "oracle.com",     "ibm.com",       "intel.com",
 };
 static const int n_remote_hosts = (int)(sizeof(remote_hosts) / sizeof(remote_hosts[0]));
 
 struct BenchResult {
   const char *scenario;
-  long long latency_us;
-  int       queries;
-  int       success;
-  int       failed;
+  long long   latency_us;
+  int         queries;
+  int         success;
+  int         failed;
 };
 
 static void json_out(const char *resolver, const char *mode, const BenchResult &r) {
   static int first = 1;
-  if (first) { printf("[\n"); first = 0; }
-  else printf(",\n");
-  printf("  {\"resolver\":\"%s\",\"mode\":\"%s\",\"scenario\":\"%s\",\"latency_us\":%lld",
-         resolver, mode, r.scenario, r.latency_us);
+  if (first) {
+    printf("[\n");
+    first = 0;
+  } else
+    printf(",\n");
+  printf("  {\"resolver\":\"%s\",\"mode\":\"%s\",\"scenario\":\"%s\",\"latency_us\":%lld", resolver,
+         mode, r.scenario, r.latency_us);
   if (r.queries > 1) printf(",\"queries\":%d", r.queries);
   printf(",\"success\":%d,\"failed\":%d", r.success, r.failed);
   printf("}");
 }
 
 static BenchResult bench_single(const char *name) {
-  xEventLoop loop    = xEventLoopCurrent();
-  int        success = 0;
-  Clock::time_point start = Clock::now();
+  xEventLoop        loop    = xEventLoopCurrent();
+  int               success = 0;
+  Clock::time_point start   = Clock::now();
 
-  xDnsResolve(name, nullptr, nullptr,
+  xDnsResolve(
+    name, nullptr, nullptr,
     [](xDnsResult *result, void *arg) {
       int *ok = (int *)arg;
-      *ok = (result->error == xErrno_Ok) ? 1 : 0;
+      *ok     = (result->error == xErrno_Ok) ? 1 : 0;
       xDnsResultFree(result);
       xEventLoopStop(xEventLoopCurrent());
-    }, &success);
+    },
+    &success);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
 
@@ -78,13 +82,15 @@ static BenchResult bench_batch(const char **names, int count) {
   Clock::time_point start = Clock::now();
 
   for (int i = 0; i < count; i++) {
-    xDnsResolve(names[i], nullptr, nullptr,
+    xDnsResolve(
+      names[i], nullptr, nullptr,
       [](xDnsResult *result, void *arg) {
         auto *c = (decltype(&ctx))arg;
         if (result->error == xErrno_Ok) c->ok.fetch_add(1);
         xDnsResultFree(result);
         if (c->pending.fetch_sub(1) == 1) xEventLoopStop(xEventLoopCurrent());
-      }, &ctx);
+      },
+      &ctx);
   }
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
@@ -110,14 +116,15 @@ int main(int argc, char **argv) {
 
   const char *single_host = "google.com";
 
-  int batch_count = n_remote_hosts;
+  int          batch_count = n_remote_hosts;
   const char **batch_hosts = (const char **)malloc((size_t)batch_count * sizeof(char *));
-  for (int i = 0; i < batch_count; i++) batch_hosts[i] = remote_hosts[i];
+  for (int i = 0; i < batch_count; i++)
+    batch_hosts[i] = remote_hosts[i];
 
   /* Warmup: prime system resolver cache with same domain */
   bench_single(single_host);
 
-  auto r_single = bench_single(single_host);
+  auto r_single     = bench_single(single_host);
   r_single.scenario = "single_query";
   json_out("xnet_dns", mode, r_single);
 

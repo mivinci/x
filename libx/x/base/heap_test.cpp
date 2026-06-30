@@ -6,10 +6,10 @@
  * heap_test.cpp - xHeap unit tests
  */
 
-#include <gtest/gtest.h>
-
 #include <cstdlib>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/heap.h>

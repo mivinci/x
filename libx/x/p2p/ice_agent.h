@@ -13,14 +13,14 @@
 #ifndef XP2P_ICE_AGENT_H
 #define XP2P_ICE_AGENT_H
 
-#include <x/base/base.h>
-#include <x/base/error.h>
-#include <x/base/event.h>
-
 #include "ice_candidate.h"
 
 #include <stdbool.h>
 #include <stdint.h>
+
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
 
 /* Forward declarations — full definitions are internal. */
 XDEF_HANDLE(xIceAgent);
@@ -117,7 +117,7 @@ XDEF_STRUCT(xIceConf) {
  * @param conf  Configuration (must not be NULL).
  * @return      Agent handle, or NULL on failure.
  */
-XCAPI(xIceAgent) xIceAgentCreate( const xIceConf *conf);
+XCAPI(xIceAgent) xIceAgentCreate(const xIceConf *conf);
 
 /**
  * @brief Destroy a P2P agent and release all resources.

@@ -6,12 +6,12 @@
  * ws_serve.c - WebSocket-only server convenience function
  */
 
-#include <x/http/server.h>
-#include <x/http/ws.h>
-
 #include "server_private.h"
 
 #include <stdlib.h>
+
+#include <x/http/server.h>
+#include <x/http/ws.h>
 
 /* ── Internal state for the catch-all upgrade handler ──── */
 
@@ -27,8 +27,7 @@ static void ws_serve_handler(xHttpCtx *ctx, void *arg) {
 
 /* ── Public API ────────────────────────────────────────── */
 
-xHttpServer xWsServe( const char *host, uint16_t port,
-                     const xWsCallbacks *callbacks, void *arg) {
+xHttpServer xWsServe(const char *host, uint16_t port, const xWsCallbacks *callbacks, void *arg) {
   xEventLoop loop = xEventLoopCurrent();
   if (!loop || !callbacks) return NULL;
 

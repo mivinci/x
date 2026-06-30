@@ -6,9 +6,9 @@
  * hex.c - Hex encoding and decoding
  */
 
-#include <x/base/hex.h>
-
 #include <string.h>
+
+#include <x/base/hex.h>
 
 /* Map a hex character (0-9, a-f, A-F) to its numeric value.
  * Returns -1 for invalid input. */

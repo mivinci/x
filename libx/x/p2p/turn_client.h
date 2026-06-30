@@ -11,6 +11,7 @@
 
 #include "stun_txn.h"
 #include "turn_channel.h"
+
 #include <x/base/base.h>
 
 /** Maximum number of TURN permissions. */
@@ -82,7 +83,7 @@ XDEF_STRUCT(xTurnClient) {
   struct sockaddr_storage relayed_addr;
   struct sockaddr_storage mapped_addr;
   uint32_t                lifetime;      /**< Allocation lifetime (seconds).*/
-  xTimer             refresh_timer; /**< Refresh timer.                */
+  xTimer                  refresh_timer; /**< Refresh timer.                */
 
   /* Authentication */
   char realm[128];
@@ -134,7 +135,7 @@ XCAPI(int) xTurnClientChannelBind(xTurnClient *tc, const struct sockaddr *peer);
  * Uses ChannelData if a channel is bound, otherwise Send Indication.
  */
 XCAPI(xErrno) xTurnClientSendData(xTurnClient *tc, const struct sockaddr *peer, const uint8_t *data,
-                           size_t len);
+                                  size_t len);
 
 /**
  * @brief Handle an incoming STUN message for the TURN client.
@@ -142,7 +143,7 @@ XCAPI(xErrno) xTurnClientSendData(xTurnClient *tc, const struct sockaddr *peer, 
  * @return true if the message was handled by the TURN client.
  */
 XCAPI(bool) xTurnClientOnMessage(xTurnClient *tc, const xStunMsg *msg, const uint8_t *raw_buf,
-                          size_t raw_len, const struct sockaddr *from);
+                                 size_t raw_len, const struct sockaddr *from);
 
 /**
  * @brief Handle incoming ChannelData.

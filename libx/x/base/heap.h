@@ -14,6 +14,7 @@
 #define XBASE_HEAP_H
 
 #include <stddef.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 

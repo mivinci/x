@@ -6,12 +6,11 @@
  * command_test.cpp - Tests for xCommandExecutor async command executor
  */
 
-#include <gtest/gtest.h>
+#include <string.h>
 
+#include <gtest/gtest.h>
 #include <x/base/command.h>
 #include <x/base/event.h>
-
-#include <string.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -87,7 +86,8 @@ TEST(Command, CaptureStdout) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -135,7 +135,8 @@ TEST(Command, CaptureBothStdoutStderr) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -177,7 +178,8 @@ TEST(Command, NonZeroExitCode) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -213,7 +215,8 @@ TEST(Command, CommandNotFound) {
 #else
   ASSERT_EQ(err, xErrno_Ok);
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -255,7 +258,8 @@ TEST(Command, StreamStdout) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -301,7 +305,8 @@ TEST(Command, DiscardAll) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -348,7 +353,8 @@ TEST(Command, Timeout) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -398,7 +404,8 @@ TEST(Command, Cancel) {
   EXPECT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -448,7 +455,8 @@ TEST(Command, QueryWhileRunning) {
   EXPECT_EQ(xCommandExecutorIsRunning(exec), 1);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 5000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 5000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -493,7 +501,8 @@ TEST(Command, RunWhileBusy) {
   EXPECT_EQ(err, xErrno_Busy);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 5000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 5000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -536,7 +545,8 @@ TEST(Command, WorkingDirectory) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -587,7 +597,8 @@ TEST(Command, SequentialRuns) {
   xErrno err = xCommandExecutorSubmit(exec, &conf1, NULL, NULL, on_done, &ctx1);
   ASSERT_EQ(err, xErrno_Ok);
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -613,7 +624,8 @@ TEST(Command, SequentialRuns) {
   err = xCommandExecutorSubmit(exec, &conf2, NULL, NULL, on_done, &ctx2);
   ASSERT_EQ(err, xErrno_Ok);
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1014,7 +1026,8 @@ TEST(Command, PtyCaptureStdout) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1056,7 +1069,8 @@ TEST(Command, PtyStreamStdout) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1097,7 +1111,8 @@ TEST(Command, PtyMergesStderr) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1146,7 +1161,8 @@ TEST(Command, PtyFdQuery) {
   EXPECT_GE(pty_fd, 0);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 5000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 5000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1180,7 +1196,8 @@ TEST(Command, PtyNonZeroExitCode) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1217,7 +1234,8 @@ TEST(Command, PtyTimeout) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1259,7 +1277,8 @@ TEST(Command, PtyCancel) {
   EXPECT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1295,7 +1314,8 @@ TEST(Command, PtyDiscardMode) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1403,7 +1423,8 @@ TEST(Command, PipeStdinFdWhileRunning) {
   EXPECT_GE(stdin_fd, 0);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1450,7 +1471,8 @@ TEST(Command, PipeWriteStdin) {
   EXPECT_EQ(written, (ssize_t)strlen(msg));
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1497,16 +1519,19 @@ TEST(Command, PipeStdinIsBlocking) {
   };
   const char *python = nullptr;
   for (auto p : python_paths) {
-    if (access(p, X_OK) == 0) { python = p; break; }
+    if (access(p, X_OK) == 0) {
+      python = p;
+      break;
+    }
   }
   if (!python) GTEST_SKIP() << "python3 not found";
 
-  conf.cmd            = python;
-  conf.argv           = argv;
-  conf.stdout_mode    = xCommandOutput_Capture;
-  conf.stderr_mode    = xCommandOutput_Capture;
-  conf.input_mode     = xCommandInput_Pipe;
-  conf.timeout_ms     = 5000;
+  conf.cmd         = python;
+  conf.argv        = argv;
+  conf.stdout_mode = xCommandOutput_Capture;
+  conf.stderr_mode = xCommandOutput_Capture;
+  conf.input_mode  = xCommandInput_Pipe;
+  conf.timeout_ms  = 5000;
 
   xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -1521,7 +1546,8 @@ TEST(Command, PipeStdinIsBlocking) {
   EXPECT_EQ(written, (ssize_t)strlen(msg));
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1569,7 +1595,8 @@ TEST(Command, PtyStdinFdMatchesPtyFd) {
   EXPECT_GE(xCommandExecutorStdinFd(exec), 0);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 5000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 5000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1584,4 +1611,3 @@ TEST(Command, PtyStdinFdMatchesPtyFd) {
 TEST(Command, PipeStdinFdNullSafety) {
   EXPECT_EQ(xCommandExecutorStdinFd(nullptr), -1);
 }
-

@@ -2,11 +2,13 @@
  * dlproxy.c - Context lifecycle, mode switching, task scheduling
  */
 #include "dlproxy.h"
+
 #include "dlproxy_internal.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include <x/base/event.h>
 #include <x/base/log.h>
 #include <x/base/map.h>
@@ -15,10 +17,10 @@
 
 /* ── Scheduling defaults ──────────────────────────────────────────── */
 
-#define DL_EMERGENCY_MS  10000
-#define DL_SAFE_MS       30000
-#define DL_BLOCK_SIZE    (256 * 1024)
-#define DL_TICK_MS       1000
+#define DL_EMERGENCY_MS 10000
+#define DL_SAFE_MS      30000
+#define DL_BLOCK_SIZE   (256 * 1024)
+#define DL_TICK_MS      1000
 
 /* ── Forward declarations ──────────────────────────────────────────── */
 
@@ -41,11 +43,11 @@ dlp_ctx_t dlp_init(const dlp_conf_t *conf) {
 
   xEventLoopEnter(ctx->loop);
 
-  ctx->url_map   = xMapCreate(xMapType_Hash, 64, xMapStrHash, xMapStrEq);
-  ctx->task_map  = xMapCreate(xMapType_Hash, 64, xMapStrHash, xMapStrEq);
-  ctx->bus       = dlp_bus_create();
-  ctx->cache     = dlp_cache_init(ctx->conf.cache_dir, ctx->loop);
-  ctx->dl_http = dlp_http_init(ctx);
+  ctx->url_map  = xMapCreate(xMapType_Hash, 64, xMapStrHash, xMapStrEq);
+  ctx->task_map = xMapCreate(xMapType_Hash, 64, xMapStrHash, xMapStrEq);
+  ctx->bus      = dlp_bus_create();
+  ctx->cache    = dlp_cache_init(ctx->conf.cache_dir, ctx->loop);
+  ctx->dl_http  = dlp_http_init(ctx);
 
   xEventLoopLeave();
   return ctx;
@@ -58,12 +60,15 @@ fail:
 xErrno dlp_run(dlp_ctx_t ctx, dlp_mode_t mode) {
   if (!ctx) return xErrno_InvalidArg;
   struct dlp_ctx *c = (struct dlp_ctx *)ctx;
-  c->mode = mode;
+  c->mode           = mode;
 
   if (mode == DL_MODE_POLL) {
     xEventLoopEnter(c->loop);
     c->proxy = dlp_proxy_init(ctx, c->loop, c->conf.port);
-    if (!c->proxy) { xEventLoopLeave(); return xErrno_SysError; }
+    if (!c->proxy) {
+      xEventLoopLeave();
+      return xErrno_SysError;
+    }
     xEventLoopRun(c->loop, X_RUN_DEFAULT);
     dlp_proxy_deinit(c->proxy);
     xEventLoopLeave();
@@ -99,12 +104,12 @@ dlp_task_t dlp_task_create(dlp_ctx_t ctx, const dlp_task_conf_t *conf) {
 
   snprintf(t->rid, sizeof(t->rid), "%s", conf->rid);
   snprintf(t->url, sizeof(t->url), "%s", conf->url);
-  t->ctx          = c;
-  t->format       = conf->format;
-  t->emergency_ms = c->conf.emergency_ms;
-  t->safe_ms      = c->conf.safe_ms;
-  t->bitrate      = conf->bitrate ? conf->bitrate : 500 * 1024;
-  t->sched        = (conf->format == DLP_FMT_HLS) ? &dlp_sched_hls : &dlp_sched_mp4;
+  t->ctx             = c;
+  t->format          = conf->format;
+  t->emergency_ms    = c->conf.emergency_ms;
+  t->safe_ms         = c->conf.safe_ms;
+  t->bitrate         = conf->bitrate ? conf->bitrate : 500 * 1024;
+  t->sched           = (conf->format == DLP_FMT_HLS) ? &dlp_sched_hls : &dlp_sched_mp4;
   t->downloading_off = (uint64_t)-1;
   t->downloading_seg = (uint32_t)-1;
 
@@ -117,8 +122,8 @@ dlp_task_t dlp_task_create(dlp_ctx_t ctx, const dlp_task_conf_t *conf) {
     dlp_cache_open_clip(c->cache, t->rid, "0.mp4", conf->size);
   }
 
-  XDEBUGL0("task created rid=%s url=%s size=%llu",
-          conf->rid, conf->url, (unsigned long long)conf->size);
+  XDEBUGL0("task created rid=%s url=%s size=%llu", conf->rid, conf->url,
+           (unsigned long long)conf->size);
   return t;
 }
 
@@ -134,9 +139,9 @@ xErrno dlp_task_start(dlp_task_t task) {
   if (!task) return xErrno_InvalidArg;
   struct dlp_task *t = (struct dlp_task *)task;
 
-  t->running     = true;
-  t->was_pulling = false;
-  t->downloading_off = (uint64_t)-1;  /* no download in progress */
+  t->running         = true;
+  t->was_pulling     = false;
+  t->downloading_off = (uint64_t)-1; /* no download in progress */
   t->downloading_seg = (uint32_t)-1;
 
   /* Enter event loop for timer creation — dlp_task_start may be called
@@ -171,18 +176,17 @@ xErrno dlp_task_stop(dlp_task_t task) {
   return xErrno_Ok;
 }
 
-void dlp_task_update_position(dlp_task_t task, uint64_t byte_offset,
-                               int remain_ms) {
+void dlp_task_update_position(dlp_task_t task, uint64_t byte_offset, int remain_ms) {
   if (!task) return;
   struct dlp_task *t = (struct dlp_task *)task;
-  t->read_offset    = byte_offset;
-  t->remain_time_ms = remain_ms;
+  t->read_offset     = byte_offset;
+  t->remain_time_ms  = remain_ms;
 }
 
 void dlp_task_destroy(dlp_task_t task) {
   if (!task) return;
   struct dlp_task *t = (struct dlp_task *)task;
-  struct dlp_ctx *c = t->ctx;
+  struct dlp_ctx  *c = t->ctx;
 
   dlp_task_stop(task);
 
@@ -195,10 +199,9 @@ void dlp_task_destroy(dlp_task_t task) {
 
 xErrno dlp_task_proxy_url(dlp_task_t task, char *buf, size_t buf_len) {
   if (!task || !buf || buf_len == 0) return xErrno_InvalidArg;
-  struct dlp_task *t = (struct dlp_task *)task;
-  struct dlp_ctx *c = t->ctx;
-  const char *suffix = (t->format == DLP_FMT_HLS) ? "vod.m3u8" : "vod.mp4";
-  snprintf(buf, buf_len, "http://127.0.0.1:%d/%s/%s",
-           c->conf.port, t->rid, suffix);
+  struct dlp_task *t      = (struct dlp_task *)task;
+  struct dlp_ctx  *c      = t->ctx;
+  const char      *suffix = (t->format == DLP_FMT_HLS) ? "vod.m3u8" : "vod.mp4";
+  snprintf(buf, buf_len, "http://127.0.0.1:%d/%s/%s", c->conf.port, t->rid, suffix);
   return xErrno_Ok;
 }

@@ -70,9 +70,9 @@
 #ifndef XBASE_IO_H
 #define XBASE_IO_H
 
-#include <x/base/base.h>
-
 #include <stddef.h>
+
+#include <x/base/base.h>
 
 #ifdef _WIN32
 typedef long    xSsize;

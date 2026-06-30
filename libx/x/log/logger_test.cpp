@@ -6,8 +6,6 @@
  * logger_test.cpp - Unit tests for the xlog async logger
  */
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -17,6 +15,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/event.h>
@@ -485,4 +485,3 @@ TEST_F(LoggerTest, ContextMacrosUseCurrentLogger) {
   EXPECT_NE(content.find("context info message"), std::string::npos);
   EXPECT_NE(content.find("context warn message"), std::string::npos);
 }
-

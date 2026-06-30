@@ -51,7 +51,8 @@ TEST_F(StunAttrTest, XorMappedAddressIPv4RoundTrip) {
   addr.sin_port   = htons(12345);
   inet_pton(AF_INET, "192.168.1.100", &addr.sin_addr);
 
-  xErrno err = xStunAttrWriteXorMappedAddress(&writer, reinterpret_cast<struct sockaddr *>(&addr), txn_id);
+  xErrno err =
+    xStunAttrWriteXorMappedAddress(&writer, reinterpret_cast<struct sockaddr *>(&addr), txn_id);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Decode */
@@ -83,7 +84,8 @@ TEST_F(StunAttrTest, XorMappedAddressIPv6RoundTrip) {
   addr.sin6_port   = htons(54321);
   inet_pton(AF_INET6, "2001:db8::1", &addr.sin6_addr);
 
-  xErrno err = xStunAttrWriteXorMappedAddress(&writer, reinterpret_cast<struct sockaddr *>(&addr), txn_id);
+  xErrno err =
+    xStunAttrWriteXorMappedAddress(&writer, reinterpret_cast<struct sockaddr *>(&addr), txn_id);
   ASSERT_EQ(err, xErrno_Ok);
 
   size_t total;

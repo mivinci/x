@@ -6,12 +6,11 @@
  * sha256_test.cpp - Unit tests for xSha256
  */
 
-#include <x/crypto/sha256.h>
-
-#include <gtest/gtest.h>
-
 #include <cstring>
 #include <string>
+
+#include <gtest/gtest.h>
+#include <x/crypto/sha256.h>
 
 /* ── Helper: hex-encode a digest ───────────────────────── */
 

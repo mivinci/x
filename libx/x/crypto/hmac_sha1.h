@@ -9,13 +9,13 @@
 #ifndef XCRYPTO_HMAC_SHA1_H
 #define XCRYPTO_HMAC_SHA1_H
 
-#include <x/base/base.h>
-#include <x/base/error.h>
+#include "hash_private.h"
 
 #include <stddef.h>
 #include <stdint.h>
 
-#include "hash_private.h"
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 /** @brief SHA-1 hash vtable (backend selected at build time). */
 XCAPI(const xHashVtable) xHashVtableSha1;

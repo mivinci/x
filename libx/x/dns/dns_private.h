@@ -11,6 +11,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 #include <x/base/event.h>
@@ -19,23 +20,23 @@
 
 /* ───────────────────── Wire constants ───────────────────── */
 
-#define DNS_PORT        53
-#define DNS_EDNS0_SIZE  4096u  /**< UDP payload size advertised via OPT */
+#define DNS_PORT       53
+#define DNS_EDNS0_SIZE 4096u /**< UDP payload size advertised via OPT */
 
 /* DNS QTYPE values (on-the-wire) */
 #define DNS_QTYPE_A     1u
 #define DNS_QTYPE_CNAME 5u
 #define DNS_QTYPE_AAAA  28u
-#define DNS_QTYPE_OPT   41u    /**< EDNS0 OPT pseudo-record */
+#define DNS_QTYPE_OPT   41u /**< EDNS0 OPT pseudo-record */
 
-#define DNS_QCLASS_IN   1u
+#define DNS_QCLASS_IN 1u
 
 /* Header flags */
-#define DNS_FLAG_QR     0x8000u
-#define DNS_FLAG_RD     0x0100u
-#define DNS_FLAG_RA     0x0080u
-#define DNS_FLAG_AA     0x0400u
-#define DNS_RCODE_MASK  0x000Fu
+#define DNS_FLAG_QR        0x8000u
+#define DNS_FLAG_RD        0x0100u
+#define DNS_FLAG_RA        0x0080u
+#define DNS_FLAG_AA        0x0400u
+#define DNS_RCODE_MASK     0x000Fu
 #define DNS_RCODE_NXDOMAIN 3u
 
 /* ───────────────────── Types ───────────────────── */
@@ -55,7 +56,7 @@ typedef struct {
   char     name[256]; /**< Decoded QNAME, NUL-terminated                  */
   uint16_t qtype;
   uint16_t qclass;
-  size_t   wire_off;  /**< Offset in the packet just past this question   */
+  size_t   wire_off; /**< Offset in the packet just past this question   */
 } dns_question_t;
 
 /* ───────────────────── Packet builder ───────────────────── */
@@ -71,8 +72,8 @@ typedef struct {
  * @return        Packet length on success, or -1 on error (buffer too small
  *                or malformed name).
  */
-XCAPI(int) dns_build_query(uint8_t *buf, size_t buflen, uint16_t id,
-                                  const char *name, uint16_t qtype);
+XCAPI(int) dns_build_query(uint8_t *buf, size_t buflen, uint16_t id, const char *name,
+                           uint16_t qtype);
 
 /**
  * Build a DNS response packet.
@@ -87,8 +88,7 @@ XCAPI(int) dns_build_query(uint8_t *buf, size_t buflen, uint16_t id,
  * @return              Packet length on success, or -1 on error.
  */
 XCAPI(int) dns_build_response(uint8_t *buf, size_t buflen, uint16_t id, int rcode,
-                                     const char *qname, uint16_t qtype,
-                                     const xDnsRecord *answers);
+                              const char *qname, uint16_t qtype, const xDnsRecord *answers);
 
 /* ───────────────────── Packet parser ───────────────────── */
 
@@ -105,8 +105,8 @@ XCAPI(int) dns_build_response(uint8_t *buf, size_t buflen, uint16_t id, int rcod
  *                  dns_records_free().
  * @return          xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) dns_parse(const uint8_t *buf, size_t len, dns_header_t *hdr,
-                              dns_question_t *q, xDnsRecord **answers);
+XCAPI(xErrno) dns_parse(const uint8_t *buf, size_t len, dns_header_t *hdr, dns_question_t *q,
+                        xDnsRecord **answers);
 
 /* ───────────────────── Record helpers ───────────────────── */
 
@@ -161,7 +161,7 @@ XCAPI(xDnsRecord *) dns_cache_lookup(xMap cache, const char *name, uint16_t qtyp
  * @param ttl     TTL in seconds.
  */
 XCAPI(void) dns_cache_insert(xMap cache, const char *name, uint16_t qtype,
-                                   const xDnsRecord *records, uint32_t ttl);
+                             const xDnsRecord *records, uint32_t ttl);
 
 /* ───────────────────── Config ───────────────────── */
 

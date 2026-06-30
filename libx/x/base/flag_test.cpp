@@ -6,16 +6,15 @@
  * flag_test.cpp - Tests for xbase/flag.h command-line flag parser
  */
 
-#include <gtest/gtest.h>
-
-#include <x/base/error.h>
-#include <x/base/flag.h>
-
 #include <stdlib.h>
 #include <string.h>
 
 #include <initializer_list>
 #include <vector>
+
+#include <gtest/gtest.h>
+#include <x/base/error.h>
+#include <x/base/flag.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 

@@ -9,11 +9,10 @@
 #ifndef XLOG_LOGGER_PRIVATE_H
 #define XLOG_LOGGER_PRIVATE_H
 
-#include <x/log/logger.h>
-
 #include <stdio.h>
 
 #include <x/base/mpsc.h>
+#include <x/log/logger.h>
 
 /* ── Default flush interval (ms) ── */
 
@@ -68,8 +67,8 @@ struct xLogger_ {
   xMpsc *tail;
 
   /* Timer mode fields */
-  xTimer timer; /**< Active timer handle, or NULL    */
-  uint64_t    flush_interval_ms;
+  xTimer   timer; /**< Active timer handle, or NULL    */
+  uint64_t flush_interval_ms;
 
   /* Notify / Mixed mode fields */
   int          pipe_rfd; /**< Pipe read end (-1 if unused)    */

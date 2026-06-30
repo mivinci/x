@@ -6,11 +6,11 @@
  * event_post_test.cpp - Unit tests for xEventLoopPost
  */
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <thread>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/event.h>
@@ -170,7 +170,10 @@ TEST_F(EventPostTest, NullFnReturnsError) {
 
 TEST_F(EventPostTest, PostStopsRunningLoop) {
   /* Post a callback that stops the loop, then run the loop. */
-  auto stop_fn = [](void *arg) { (void)arg; xEventLoopStop(static_cast<xEventLoop>(arg)); };
+  auto stop_fn = [](void *arg) {
+    (void)arg;
+    xEventLoopStop(static_cast<xEventLoop>(arg));
+  };
 
   ASSERT_EQ(xEventLoopPost(this->loop, stop_fn, loop), xErrno_Ok);
 
@@ -181,4 +184,3 @@ TEST_F(EventPostTest, PostStopsRunningLoop) {
   /* If we get here, the loop was stopped successfully. */
   SUCCEED();
 }
-

@@ -6,10 +6,10 @@
  * speed_tracker.c - EMA-smoothed speed tracker
  */
 
+#include <stdio.h>
+
 #include <x/base/speed_tracker.h>
 #include <x/base/time.h>
-
-#include <stdio.h>
 
 void xSpeedTrackerUpdate(xSpeedTracker *t, uint64_t transferred) {
   uint64_t now_ms = xMonoMs();

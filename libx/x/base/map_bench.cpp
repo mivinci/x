@@ -6,10 +6,10 @@
  * map_bench.cpp - Micro-benchmarks for xbase map
  */
 
-#include <benchmark/benchmark.h>
-
 #include <cstdlib>
 #include <vector>
+
+#include <benchmark/benchmark.h>
 
 extern "C" {
 #include <x/base/map.h>

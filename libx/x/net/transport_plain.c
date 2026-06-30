@@ -8,13 +8,14 @@
  * Maps transport read/writev directly to read(2)/writev(2) syscalls.
  */
 
-#include "transport_private.h"
 #include "transport.h"
+#include "transport_private.h"
 
 #include <errno.h>
 #include <stdlib.h>
-#include <sys/uio.h>
 #include <unistd.h>
+
+#include <sys/uio.h>
 
 /* ───────────────────── Plain TCP context ───────────────────── */
 

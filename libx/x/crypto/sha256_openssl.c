@@ -8,9 +8,9 @@
 
 #include "sha256.h"
 
-#include <openssl/evp.h>
-
 #include <string.h>
+
+#include <openssl/evp.h>
 
 /* ── Internal layout stored in xSha256Ctx.opaque ─────────── */
 

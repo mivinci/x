@@ -9,20 +9,18 @@
 #ifndef XHTTP_SERVER_TEST_HELPER_H_
 #define XHTTP_SERVER_TEST_HELPER_H_
 
-#include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <cstring>
 #include <string>
 
-#include <x/http/server.h>
-
-#include <x/base/test_helper.h>
-
 #include <arpa/inet.h>
+#include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <unistd.h>
+#include <x/base/test_helper.h>
+#include <x/http/server.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -139,10 +137,10 @@ struct ParamHandlerCtx {
 
 class HttpServerTest : public ::testing::Test {
 protected:
-  xEventLoop  loop     = nullptr;
-  xHttpServer server   = nullptr;
-  xHttpMux    mux      = nullptr;
-  uint16_t    port     = 0;
+  xEventLoop  loop   = nullptr;
+  xHttpServer server = nullptr;
+  xHttpMux    mux    = nullptr;
+  uint16_t    port   = 0;
 
   void SetUp() override {
     loop = xEventLoopCreate();

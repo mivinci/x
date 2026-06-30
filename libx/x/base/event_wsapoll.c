@@ -20,10 +20,10 @@
 #include "event_private.h"
 
 #define WIN32_LEAN_AND_MEAN
+#include <mswsock.h>
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
-
-#include <mswsock.h>
 
 /* ───────────────────── WSAStartup ───────────────────── */
 
@@ -162,8 +162,8 @@ static xErrno wsapoll_init(struct xEventLoop_ *loop) {
 
   wsa_ensure_init();
 
-  loop->wake_event    = NULL; /* not used by WSAPoll backend */
-  loop->task_group    = NULL;
+  loop->wake_event = NULL; /* not used by WSAPoll backend */
+  loop->task_group = NULL;
   source_array_init(&loop->sources);
   loop->done_head     = NULL;
   loop->done_tail     = NULL;
@@ -210,7 +210,8 @@ static void wsapoll_destroy(struct xEventLoop_ *loop) {
   free(wl->pollfds);
 }
 
-static int wsapoll_poll(struct xEventLoop_ *loop, struct xPollEvent_ *events, int max_events, int timeout_ms) {
+static int wsapoll_poll(struct xEventLoop_ *loop, struct xPollEvent_ *events, int max_events,
+                        int timeout_ms) {
   struct xEventLoopWSAPoll_ *wl = (struct xEventLoopWSAPoll_ *)loop;
 
   pfd_rebuild(wl);
@@ -244,7 +245,7 @@ static int wsapoll_poll(struct xEventLoop_ *loop, struct xPollEvent_ *events, in
     if (src->deleted) continue;
 
     xEventMask ready = 0;
-    if (pfd->revents & POLLIN)  ready |= xEvent_Read;
+    if (pfd->revents & POLLIN) ready |= xEvent_Read;
     if (pfd->revents & POLLOUT) ready |= xEvent_Write;
     /* POLLERR/POLLHUP map to read so the user gets notified */
     if (pfd->revents & (POLLERR | POLLHUP)) ready |= xEvent_Read;
@@ -330,16 +331,16 @@ static xErrno wsapoll_signal(struct xEventLoop_ *loop, int signo, xSignalFunc fn
 /* ───────────────────── Backend vtable ───────────────────── */
 
 const struct xEventBackend_ g_wsapoll_backend = {
-  .size       = sizeof(struct xEventLoopWSAPoll_),
-  .init       = wsapoll_init,
-  .destroy    = wsapoll_destroy,
-  .poll       = wsapoll_poll,
-  .wake       = wsapoll_wake,
-  .fd         = wsapoll_fd,
-  .add        = wsapoll_add,
-  .mod        = wsapoll_mod,
-  .del        = wsapoll_del,
-  .signal = wsapoll_signal,
+  .size    = sizeof(struct xEventLoopWSAPoll_),
+  .init    = wsapoll_init,
+  .destroy = wsapoll_destroy,
+  .poll    = wsapoll_poll,
+  .wake    = wsapoll_wake,
+  .fd      = wsapoll_fd,
+  .add     = wsapoll_add,
+  .mod     = wsapoll_mod,
+  .del     = wsapoll_del,
+  .signal  = wsapoll_signal,
 };
 
 #endif /* _WIN32 */

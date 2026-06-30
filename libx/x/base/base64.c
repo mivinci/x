@@ -6,9 +6,9 @@
  * base64.c - Base64 encoding and decoding (RFC 4648)
  */
 
-#include <x/base/base64.h>
-
 #include <string.h>
+
+#include <x/base/base64.h>
 
 static const char kAlphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 

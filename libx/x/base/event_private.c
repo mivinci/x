@@ -76,19 +76,19 @@ int loop_run_timers(struct xEventLoop_ *loop) {
     struct xTimer_ *t = (struct xTimer_ *)xHeapPeek(loop->timer_heap);
     if (t->deadline > now) break;
     xHeapPop(loop->timer_heap);
-    t->fired     = 1;
-    t->heap_idx  = TIMER_INVALID_IDX; /* needed for rearm / free check */
+    t->fired    = 1;
+    t->heap_idx = TIMER_INVALID_IDX; /* needed for rearm / free check */
     xListAddTail(&ready, &t->ready_node);
   }
 
-  int dispatched = 0;
+  int             dispatched = 0;
   struct xTimer_ *t, *tmp;
   xListForEachEntrySafe(t, tmp, &ready, ready_node) {
     xListDel(&t->ready_node);
     /* Re-arm or recycle BEFORE firing the callback. */
     if (t->repeat_ms > 0 && t->heap_idx == TIMER_INVALID_IDX) {
       t->deadline += t->repeat_ms;
-      t->fired    = 0;
+      t->fired = 0;
       xHeapPush(loop->timer_heap, t);
     } else if (t->heap_idx == TIMER_INVALID_IDX) {
       timer_free(loop, t);
@@ -125,7 +125,7 @@ int loop_run_done(struct xEventLoop_ *loop, int max_batch) {
     } else {
       if (!w->cancelled && w->post_fn) w->post_fn(w->arg);
     }
-free_it:
+  free_it:
     event_work_free(loop, w);
     dispatched++;
   } while (1);

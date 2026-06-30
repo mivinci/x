@@ -6,13 +6,13 @@
  * dns_test.cpp - Unit tests for xnet DNS async resolution
  */
 
-#include <gtest/gtest.h>
+#include <pthread.h>
 
 #include <atomic>
 #include <chrono>
 #include <thread>
 
-#include <pthread.h>
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/net/dns.h>
@@ -93,7 +93,7 @@ static void dns_callback(xDnsResult *result, void *arg) {
 TEST_F(DnsTest, ResolveLocalhost) {
   DnsCtx ctx;
 
-  xDnsQuery q = xDnsResolve( "localhost", NULL, NULL, dns_callback, &ctx);
+  xDnsQuery q = xDnsResolve("localhost", NULL, NULL, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   RunUntilDone(ctx.called);
@@ -110,8 +110,7 @@ TEST_F(DnsTest, ResolveLocalhost) {
 TEST_F(DnsTest, ResolveNonExistentDomain) {
   DnsCtx ctx;
 
-  xDnsQuery q =
-    xDnsResolve( "this.domain.does.not.exist.invalid", NULL, NULL, dns_callback, &ctx);
+  xDnsQuery q = xDnsResolve("this.domain.does.not.exist.invalid", NULL, NULL, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   RunUntilDone(ctx.called);
@@ -132,7 +131,7 @@ TEST_F(DnsTest, ResolveIPv4Only) {
   hints.ai_family       = AF_INET;
   hints.ai_socktype     = SOCK_STREAM;
 
-  xDnsQuery q = xDnsResolve( "localhost", NULL, &hints, dns_callback, &ctx);
+  xDnsQuery q = xDnsResolve("localhost", NULL, &hints, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   RunUntilDone(ctx.called);
@@ -158,7 +157,7 @@ TEST_F(DnsTest, ResolveIPv6Only) {
   hints.ai_family       = AF_INET6;
   hints.ai_socktype     = SOCK_STREAM;
 
-  xDnsQuery q = xDnsResolve( "localhost", NULL, &hints, dns_callback, &ctx);
+  xDnsQuery q = xDnsResolve("localhost", NULL, &hints, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   RunUntilDone(ctx.called);
@@ -186,17 +185,17 @@ TEST_F(DnsTest, NullLoopReturnsNull) {
 }
 
 TEST_F(DnsTest, NullHostnameReturnsNull) {
-  xDnsQuery q = xDnsResolve( NULL, NULL, NULL, dns_callback, NULL);
+  xDnsQuery q = xDnsResolve(NULL, NULL, NULL, dns_callback, NULL);
   EXPECT_EQ(q, nullptr);
 }
 
 TEST_F(DnsTest, EmptyHostnameReturnsNull) {
-  xDnsQuery q = xDnsResolve( "", NULL, NULL, dns_callback, NULL);
+  xDnsQuery q = xDnsResolve("", NULL, NULL, dns_callback, NULL);
   EXPECT_EQ(q, nullptr);
 }
 
 TEST_F(DnsTest, NullCallbackReturnsNull) {
-  xDnsQuery q = xDnsResolve( "localhost", NULL, NULL, NULL, NULL);
+  xDnsQuery q = xDnsResolve("localhost", NULL, NULL, NULL, NULL);
   EXPECT_EQ(q, nullptr);
 }
 
@@ -211,11 +210,11 @@ TEST_F(DnsTest, CancelPreventsCallback) {
     xDnsResultFree(result);
   };
 
-  xDnsQuery q = xDnsResolve( "localhost", NULL, NULL, cancel_cb, &called);
+  xDnsQuery q = xDnsResolve("localhost", NULL, NULL, cancel_cb, &called);
   ASSERT_NE(q, nullptr);
 
   /* Cancel immediately */
-  xDnsCancel( q);
+  xDnsCancel(q);
 
   /* Pump the event loop to let the done callback fire (or not) */
   run_for(loop, 1000);
@@ -227,7 +226,7 @@ TEST_F(DnsTest, CancelPreventsCallback) {
 /* ───────────────────── xDnsCancel(NULL) is safe ───────────────────── */
 
 TEST_F(DnsTest, CancelNullIsSafe) {
-  xDnsCancel( NULL); /* should not crash */
+  xDnsCancel(NULL); /* should not crash */
 }
 
 /* ───────────────────── xDnsResultFree(NULL) is safe ───────────────────── */
@@ -241,7 +240,7 @@ TEST_F(DnsTest, ResultFreeNullIsSafe) {
 TEST_F(DnsTest, CallbackOnEventLoopThread) {
   DnsCtx ctx;
 
-  xDnsQuery q = xDnsResolve( "localhost", NULL, NULL, dns_callback, &ctx);
+  xDnsQuery q = xDnsResolve("localhost", NULL, NULL, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   /* Run the event loop on the current thread so we can compare thread IDs */
@@ -264,7 +263,7 @@ TEST_F(DnsTest, CallbackOnEventLoopThread) {
 TEST_F(DnsTest, ResolveIPv4Literal) {
   DnsCtx ctx;
 
-  xDnsQuery q = xDnsResolve( "127.0.0.1", NULL, NULL, dns_callback, &ctx);
+  xDnsQuery q = xDnsResolve("127.0.0.1", NULL, NULL, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   RunUntilDone(ctx.called);
@@ -280,7 +279,7 @@ TEST_F(DnsTest, ResolveIPv4Literal) {
 TEST_F(DnsTest, ResolveIPv6Literal) {
   DnsCtx ctx;
 
-  xDnsQuery q = xDnsResolve( "::1", NULL, NULL, dns_callback, &ctx);
+  xDnsQuery q = xDnsResolve("::1", NULL, NULL, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   RunUntilDone(ctx.called);
@@ -297,7 +296,7 @@ TEST_F(DnsTest, ResolveIPv6Literal) {
 TEST_F(DnsTest, ResolveWithService) {
   DnsCtx ctx;
 
-  xDnsQuery q = xDnsResolve( "localhost", "80", NULL, dns_callback, &ctx);
+  xDnsQuery q = xDnsResolve("localhost", "80", NULL, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   RunUntilDone(ctx.called);
@@ -308,4 +307,3 @@ TEST_F(DnsTest, ResolveWithService) {
 
   xDnsResultFree(ctx.result);
 }
-

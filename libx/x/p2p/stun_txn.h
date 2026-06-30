@@ -59,8 +59,8 @@ XDEF_STRUCT(xStunTxn) {
   xStunTxnSendFunc send_fn;  /**< Send function.              */
   void            *send_arg; /**< User argument for send.     */
 
-  xEventLoop  loop;  /**< Event loop for timers.      */
-  xTimer timer; /**< Retransmission timer.       */
+  xEventLoop loop;  /**< Event loop for timers.      */
+  xTimer     timer; /**< Retransmission timer.       */
 
   int      retransmit_count; /**< Current retransmit count.   */
   uint32_t rto_ms;           /**< Current RTO in milliseconds. */
@@ -112,8 +112,9 @@ XCAPI(void) xStunTxnMgrDestroy(xStunTxnMgr *mgr);
  * @return            xErrno_Ok on success.
  */
 XCAPI(xErrno) xStunTxnMgrSend(xStunTxnMgr *mgr, xStunMsgType msg_type, const uint8_t *attrs,
-                       uint16_t attrs_len, const struct sockaddr *dest, xStunTxnSendFunc send_fn,
-                       void *send_arg, xStunTxnFunc on_complete, void *cb_arg);
+                              uint16_t attrs_len, const struct sockaddr *dest,
+                              xStunTxnSendFunc send_fn, void *send_arg, xStunTxnFunc on_complete,
+                              void *cb_arg);
 
 /**
  * @brief Send a pre-built STUN request and start a transaction.
@@ -131,8 +132,8 @@ XCAPI(xErrno) xStunTxnMgrSend(xStunTxnMgr *mgr, xStunMsgType msg_type, const uin
  * @return            xErrno_Ok on success.
  */
 XCAPI(xErrno) xStunTxnMgrSendRaw(xStunTxnMgr *mgr, const uint8_t *msg_buf, size_t msg_len,
-                          const struct sockaddr *dest, xStunTxnSendFunc send_fn, void *send_arg,
-                          xStunTxnFunc on_complete, void *cb_arg);
+                                 const struct sockaddr *dest, xStunTxnSendFunc send_fn,
+                                 void *send_arg, xStunTxnFunc on_complete, void *cb_arg);
 
 /**
  * @brief Handle an incoming STUN response.
@@ -149,7 +150,7 @@ XCAPI(xErrno) xStunTxnMgrSendRaw(xStunTxnMgr *mgr, const uint8_t *msg_buf, size_
  * @return         true if the response was matched to a transaction.
  */
 XCAPI(bool) xStunTxnMgrOnResponse(xStunTxnMgr *mgr, const xStunMsg *msg, const uint8_t *raw_buf,
-                           size_t raw_len, const struct sockaddr *from);
+                                  size_t raw_len, const struct sockaddr *from);
 
 /**
  * @brief Cancel all pending transactions.

@@ -6,21 +6,23 @@
  * transport_test.cpp - Unit tests for xnet transport layer
  */
 
-#include <gtest/gtest.h>
-
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #if defined(X_HAS_OPENSSL) || defined(X_HAS_MBEDTLS)
 #include "tls_private.h"
 #endif
 #include "transport_private.h"
+
 #include <x/net/transport.h>
 }
 
+#include <unistd.h>
+
 #include <sys/socket.h>
 #include <sys/uio.h>
-#include <unistd.h>
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Plain TCP Transport Tests

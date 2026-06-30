@@ -37,6 +37,7 @@
 #define XBASE_SLAB_H
 
 #include <stddef.h>
+
 #include <x/base/base.h>
 
 /** @brief Default slot alignment when 0 is passed to xSlabCreate / xSlabMtCreate. */

@@ -6,10 +6,10 @@
  * backtrace_test.cpp - xBacktrace unit tests
  */
 
-#include <gtest/gtest.h>
-
 #include <cstring>
 #include <string>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/backtrace.h>

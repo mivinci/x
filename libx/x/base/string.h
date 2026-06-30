@@ -17,6 +17,7 @@
 
 #include <stdarg.h>
 #include <stddef.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 
@@ -31,7 +32,7 @@
 typedef char *xString;
 
 /** Sentinel value returned by xStringFind / xStringFindStr when not found. */
-#define XSTRING_NONE ((size_t) - 1)
+#define XSTRING_NONE ((size_t)-1)
 
 /* ───────────────────── Lifecycle ───────────────────── */
 

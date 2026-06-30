@@ -8,6 +8,9 @@
 
 #include "dtls_backend.h"
 
+#include <stdlib.h>
+#include <string.h>
+
 #include <openssl/bio.h>
 #include <openssl/ec.h>
 #include <openssl/err.h>
@@ -15,9 +18,6 @@
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
-
-#include <stdlib.h>
-#include <string.h>
 
 /* ───────────────────── Internal Context ───────────────────── */
 

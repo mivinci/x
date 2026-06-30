@@ -96,9 +96,8 @@ typedef void (*xNatProbeFunc)(const xNatProbeResult *result, void *arg);
  * @return             A probe handle on success, or NULL on failure.
  *                     The handle is automatically freed after @p cb returns.
  */
-XCAPI(xNatProbe) xNatProbeStart( const char *stun_host1, uint16_t stun_port1,
-                                const char *stun_host2, uint16_t stun_port2, int timeout_ms,
-                                xNatProbeFunc cb, void *arg);
+XCAPI(xNatProbe) xNatProbeStart(const char *stun_host1, uint16_t stun_port1, const char *stun_host2,
+                                uint16_t stun_port2, int timeout_ms, xNatProbeFunc cb, void *arg);
 
 /**
  * @brief Cancel an in-progress NAT probe.

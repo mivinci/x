@@ -11,18 +11,18 @@
 
 #include "ws_handshake_client.h"
 #include "ws_private.h"
-#include <x/net/transport_private.h>
 
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
 #include <unistd.h>
 
+#include <sys/socket.h>
+#include <sys/uio.h>
 #include <x/base/log.h>
 #include <x/net/dns.h>
+#include <x/net/transport_private.h>
 #include <x/net/url.h>
 
 /* Default connect timeout: 10 seconds */
@@ -86,7 +86,7 @@ XDEF_STRUCT(xWsConnector) {
 
   /* Timeout */
   xTimer timer;
-  int         timeout_ms;
+  int    timeout_ms;
 
   /* HTTP Upgrade */
   xIOBuffer write_buf;
@@ -223,8 +223,7 @@ static void connector_do_tcp_connect(xWsConnector *c) {
   xDnsAddr *addr = c->current_addr;
 
   /* Create socket */
-  c->sock =
-    xSocketCreate( addr->family, SOCK_STREAM, 0, xEvent_Write, connector_sock_cb, c);
+  c->sock = xSocketCreate(addr->family, SOCK_STREAM, 0, xEvent_Write, connector_sock_cb, c);
   if (!c->sock) {
     connector_try_next_addr(c);
     return;
@@ -540,8 +539,7 @@ static void connector_sock_cb(xSocket sock, xEventMask mask, void *arg) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-xErrno xWsConnect( const xWsConnectConf *conf, const xWsCallbacks *callbacks,
-                  void *arg) {
+xErrno xWsConnect(const xWsConnectConf *conf, const xWsCallbacks *callbacks, void *arg) {
   xEventLoop loop = xEventLoopCurrent();
   if (!loop || !conf || !callbacks) return xErrno_InvalidArg;
   if (!conf->url) return xErrno_InvalidArg;

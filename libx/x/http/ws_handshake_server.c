@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+
 #include <x/base/compat.h>
 
 /* RFC 6455 §4.2.2: magic GUID for Sec-WebSocket-Accept */
@@ -102,8 +103,8 @@ xErrno xWsUpgrade(xHttpCtx *ctx, const xWsCallbacks *callbacks, void *arg) {
    * to the connection. */
   struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
   if (!stream) return xErrno_InvalidArg;
-  struct xHttpConn_   *conn   = stream->conn;
-  struct xHttpServer_ *s      = conn->server;
+  struct xHttpConn_   *conn = stream->conn;
+  struct xHttpServer_ *s    = conn->server;
 
   /* 1. Method must be GET */
   if (!ctx->method || strcmp(ctx->method, "GET") != 0) {

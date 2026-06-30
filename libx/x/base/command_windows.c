@@ -21,6 +21,7 @@
 #ifdef _WIN32
 
 #include "event_private.h"
+
 #include <x/base/command.h>
 #include <x/base/string.h>
 
@@ -1256,4 +1257,3 @@ int xCommandExecutorStdinFd(xCommandExecutor exec_) {
 }
 
 #endif /* _WIN32 */
-

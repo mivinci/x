@@ -39,7 +39,7 @@ void xCondInit(xCond *c) {
 }
 
 void xCondDestroy(xCond *c) {
-  (void) c; /* CONDITION_VARIABLE needs no destruction */
+  (void)c; /* CONDITION_VARIABLE needs no destruction */
 }
 
 void xCondSignal(xCond *c) {
@@ -55,13 +55,13 @@ void xCondWait(xCond *c, xMutex *m) {
 }
 
 int xCondTimedWait(xCond *c, xMutex *m, unsigned timeout_ms) {
-  if (SleepConditionVariableCS(c, m, (DWORD) timeout_ms)) return 0;
+  if (SleepConditionVariableCS(c, m, (DWORD)timeout_ms)) return 0;
   if (GetLastError() == ERROR_TIMEOUT) return 1;
   return -1;
 }
 
 int xThreadCreate(xThread *t, void *(*fn)(void *), void *arg) {
-  *t = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE) fn, arg, 0, NULL);
+  *t = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)fn, arg, 0, NULL);
   return *t ? 0 : -1;
 }
 
@@ -71,14 +71,14 @@ void xThreadJoin(xThread t) {
 }
 
 static BOOL CALLBACK _xonce_trampoline(PINIT_ONCE o, PVOID param, PVOID *ctx) {
-  (void) o;
-  (void) ctx;
-  ((void (*)(void)) param)();
+  (void)o;
+  (void)ctx;
+  ((void (*)(void))param)();
   return TRUE;
 }
 
 void xOnceCall(xOnce *o, void (*fn)(void)) {
-  InitOnceExecuteOnce(o, _xonce_trampoline, (PVOID) fn, NULL);
+  InitOnceExecuteOnce(o, _xonce_trampoline, (PVOID)fn, NULL);
 }
 
 #else /* _WIN32 */
@@ -131,8 +131,8 @@ int xCondTimedWait(xCond *c, xMutex *m, unsigned timeout_ms) {
    * Compute now + timeout_ms; on EAGAIN/ETIMEDOUT return 1. */
   struct timespec ts;
   clock_gettime(CLOCK_REALTIME, &ts);
-  ts.tv_sec += (time_t) (timeout_ms / 1000);
-  ts.tv_nsec += (long) (timeout_ms % 1000) * 1000000L;
+  ts.tv_sec += (time_t)(timeout_ms / 1000);
+  ts.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
   if (ts.tv_nsec >= 1000000000L) {
     ts.tv_sec += 1;
     ts.tv_nsec -= 1000000000L;

@@ -6,11 +6,11 @@
  * event_offload_test.cpp - Unit tests for xEventLoopSubmit (async offload)
  */
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <thread>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/event.h>
@@ -132,15 +132,18 @@ TEST_F(EventOffloadTest, ConcurrentSubmits) {
     threads.emplace_back([&]() {
       xEventLoopEnter(this->loop);
       for (int i = 0; i < PER_THREAD; i++) {
-        xWorkSubmit(group, [](void *arg) -> void * {
+        xWorkSubmit(
+          group,
+          [](void *arg) -> void * {
             auto *ctx = static_cast<SubmitCtx *>(arg);
             ctx->work_cnt->fetch_add(1, std::memory_order_relaxed);
             return nullptr;
-          }, [](void *arg, void *) {
+          },
+          [](void *arg, void *) {
             auto *ctx = static_cast<SubmitCtx *>(arg);
             ctx->done_cnt->fetch_add(1, std::memory_order_relaxed);
-          }, NULL,
-          &sctx);
+          },
+          NULL, &sctx);
       }
       xEventLoopLeave();
     });
@@ -217,10 +220,12 @@ TEST_F(EventOffloadTest, WorkFreelistReuse) {
     std::atomic<int> done_count{0};
 
     for (int i = 0; i < PER_ROUND; i++) {
-      xWorkSubmit(group, [](void *) -> void * { return nullptr; }, [](void *arg, void *) {
+      xWorkSubmit(
+        group, [](void *) -> void * { return nullptr; },
+        [](void *arg, void *) {
           static_cast<std::atomic<int> *>(arg)->fetch_add(1, std::memory_order_relaxed);
-        }, NULL,
-        &done_count);
+        },
+        NULL, &done_count);
     }
 
     /* Pump until all done callbacks fire */
@@ -240,13 +245,16 @@ TEST_F(EventOffloadTest, SubmitFailsWhenGroupFull) {
 
   /* Block the single worker */
   std::atomic<bool> unblock{false};
-  xWorkSubmit(small, [](void *arg) -> void * {
+  xWorkSubmit(
+    small,
+    [](void *arg) -> void * {
       auto *flag = static_cast<std::atomic<bool> *>(arg);
       while (!flag->load(std::memory_order_acquire)) {
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
       return nullptr;
-    }, nullptr, NULL, &unblock);
+    },
+    nullptr, NULL, &unblock);
 
   /* Give the worker time to pick up the blocking task */
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -268,7 +276,7 @@ TEST_F(EventOffloadTest, SubmitFailsWhenGroupFull) {
 /* ───────────────────── Cancel offload ───────────────────── */
 
 TEST_F(EventOffloadTest, CancelNullReturnsError) {
-  EXPECT_EQ(xWorkCancel( nullptr), xErrno_InvalidArg);
+  EXPECT_EQ(xWorkCancel(nullptr), xErrno_InvalidArg);
   EXPECT_EQ(xWorkCancel(nullptr), xErrno_InvalidArg);
 }
 
@@ -280,26 +288,32 @@ TEST_F(EventOffloadTest, CancelQueuedWork) {
   ASSERT_NE(small, nullptr);
 
   /* Block the worker */
-  xWorkSubmit(small, [](void *arg) -> void * {
+  xWorkSubmit(
+    small,
+    [](void *arg) -> void * {
       auto *flag = static_cast<std::atomic<bool> *>(arg);
       while (!flag->load(std::memory_order_acquire)) {
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
       return nullptr;
-    }, nullptr, NULL, &unblock);
+    },
+    nullptr, NULL, &unblock);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   /* Submit a task that should stay queued, get the work handle */
   std::atomic<bool> done_called{false};
-  xWork        work = xWorkSubmit(small, [](void *arg) -> void * {
-                static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
-                return nullptr;
-              }, [](void *arg, void *) {
-                /* done_fn — should NOT be called if cancelled */
-                static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
-              }, NULL,
-              &done_called);
+  xWork             work = xWorkSubmit(
+    small,
+    [](void *arg) -> void             *{
+      static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
+      return nullptr;
+    },
+    [](void *arg, void *) {
+      /* done_fn — should NOT be called if cancelled */
+      static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
+    },
+    NULL, &done_called);
   ASSERT_NE(work, nullptr);
 
   /* Cancel should succeed — task is still queued */
@@ -332,16 +346,17 @@ TEST_F(EventOffloadTest, CancelRunningWorkReturnsOkAndSkipsDone) {
   };
   Ctx ctx{&started, &unblock, &done_fired};
 
-  xWork work = xWorkSubmit(group, [](void *arg) -> void * {
-                auto *c = static_cast<Ctx *>(arg);
-                c->started->store(true, std::memory_order_release);
-                while (!c->unblock->load(std::memory_order_acquire)) {
-                  std::this_thread::sleep_for(std::chrono::microseconds(100));
-                }
-                return nullptr;
-              }, [](void *arg, void *) {
-                static_cast<Ctx *>(arg)->done_fired->store(true);
-              }, NULL, &ctx);
+  xWork work = xWorkSubmit(
+    group,
+    [](void *arg) -> void * {
+      auto *c = static_cast<Ctx *>(arg);
+      c->started->store(true, std::memory_order_release);
+      while (!c->unblock->load(std::memory_order_acquire)) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
+      return nullptr;
+    },
+    [](void *arg, void *) { static_cast<Ctx *>(arg)->done_fired->store(true); }, NULL, &ctx);
   ASSERT_NE(work, nullptr);
 
   /* Wait until the task is actually running */
@@ -372,10 +387,12 @@ TEST_F(EventOffloadTest, CancelSubmitOutHandle) {
 TEST_F(EventOffloadTest, CancelSubmitNullOutStillWorks) {
   /* Passing NULL for out should still work (backward compat). */
   std::atomic<bool> done{false};
-  ASSERT_NE(xWorkSubmit(group, [](void *) -> void * { return nullptr; }, [](void *arg, void *) {
+  ASSERT_NE(xWorkSubmit(
+              group, [](void *) -> void * { return nullptr; },
+              [](void *arg, void *) {
                 static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
-              }, NULL,
-              &done),
+              },
+              NULL, &done),
             nullptr);
 
   run_until(loop, done, 5000);

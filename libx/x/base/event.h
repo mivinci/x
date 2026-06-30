@@ -19,6 +19,7 @@
 #define XBASE_EVENT_H
 
 #include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 #include <x/base/task.h>
@@ -28,8 +29,9 @@
  * @brief Bitmask of I/O events.
  */
 XDEF_ENUM(xEventMask){
-  xEvent_Read = 1 << 0, xEvent_Write = 1 << 1,
-  xEvent_Timeout = 1 << 2, /* Used by higher-level modules (e.g., xSocket) */
+  xEvent_Read           = 1 << 0,
+  xEvent_Write          = 1 << 1,
+  xEvent_Timeout        = 1 << 2, /* Used by higher-level modules (e.g., xSocket) */
   xEvent_LevelTriggered = 1 << 3, /* Registration flag: use level-triggered
                                      instead of edge-triggered.  Pass this in
                                      the mask to xEventAdd() to get repeated
@@ -93,8 +95,8 @@ typedef void (*xSignalFunc)(int signo, void *arg);
  * Zero-initialize for defaults: no task group, no thread name.
  */
 XDEF_STRUCT(xEventLoopConf) {
-  xTaskGroup   group; /**< Default task group for offload, or NULL            */
-  const char  *name;  /**< Thread name (max 15 chars, truncated), NULL = no-op */
+  xTaskGroup  group; /**< Default task group for offload, or NULL            */
+  const char *name;  /**< Thread name (max 15 chars, truncated), NULL = no-op */
 };
 
 /**
@@ -246,8 +248,8 @@ typedef void (*xWorkCancelFunc)(void *arg, void *result);
  * @param arg      Argument forwarded to both @p work_fn and @p done_fn.
  * @return         An xWork handle, or NULL on failure.
  */
-XCAPI(xWork) xWorkSubmit(xTaskGroup group, xTaskFunc work_fn,
-                       xWorkDoneFunc done_fn, xWorkCancelFunc on_cancel, void *arg);
+XCAPI(xWork) xWorkSubmit(xTaskGroup group, xTaskFunc work_fn, xWorkDoneFunc done_fn,
+                         xWorkCancelFunc on_cancel, void *arg);
 
 /**
  * @brief Cancel a previously submitted offload work item.

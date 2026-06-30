@@ -6,12 +6,12 @@
  * memory_test.cpp - xAlloc/xFree/xRetain/xRelease/xCopy/xMove unit tests
  */
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <cstring>
 #include <thread>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/memory.h>

@@ -6,9 +6,9 @@
  * heap.c - Generic min-heap implementation
  */
 
-#include <x/base/heap.h>
-
 #include <stdlib.h>
+
+#include <x/base/heap.h>
 
 #define HEAP_DEFAULT_CAP 16
 

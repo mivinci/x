@@ -45,6 +45,7 @@
 #define XBASE_COMMAND_H
 
 #include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 #include <x/base/event.h>

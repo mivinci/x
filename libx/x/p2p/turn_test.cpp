@@ -204,7 +204,8 @@ TEST_F(TurnClientTest, ChannelDataSendViaChannel) {
 
   /* Send data — should use ChannelData */
   uint8_t data[] = {0xDE, 0xAD, 0xBE, 0xEF};
-  xErrno  err    = xTurnClientSendData(&client, reinterpret_cast<struct sockaddr *>(&peer), data, sizeof(data));
+  xErrno  err =
+    xTurnClientSendData(&client, reinterpret_cast<struct sockaddr *>(&peer), data, sizeof(data));
   ASSERT_EQ(err, xErrno_Ok);
   EXPECT_EQ(g_turn_send.call_count, 1);
 
@@ -223,7 +224,8 @@ TEST_F(TurnClientTest, SendDataFallbackToIndication) {
 
   /* No channel bound — should use Send Indication */
   uint8_t data[] = {0x01, 0x02};
-  xErrno  err    = xTurnClientSendData(&client, reinterpret_cast<struct sockaddr *>(&peer), data, sizeof(data));
+  xErrno  err =
+    xTurnClientSendData(&client, reinterpret_cast<struct sockaddr *>(&peer), data, sizeof(data));
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Verify it's a STUN message (Send Indication) */
@@ -264,7 +266,8 @@ TEST_F(TurnClientTest, AllocateWith401ThenRetryWithCredentials) {
   /* Feed the 401 response to the client */
   xStunMsg resp_decoded;
   ASSERT_EQ(xStunMsgDecode(&resp_decoded, resp_buf, resp_len), xErrno_Ok);
-  xTurnClientOnMessage(&client, &resp_decoded, resp_buf, resp_len, reinterpret_cast<struct sockaddr *>(&server));
+  xTurnClientOnMessage(&client, &resp_decoded, resp_buf, resp_len,
+                       reinterpret_cast<struct sockaddr *>(&server));
 
   /* Client should have retried with credentials */
   EXPECT_EQ(g_turn_send.call_count, 2);
@@ -336,7 +339,8 @@ TEST_F(TurnClientTest, RefreshTimerScheduledOnAllocateSuccess) {
   /* Feed the success response */
   xStunMsg resp_decoded;
   ASSERT_EQ(xStunMsgDecode(&resp_decoded, resp_buf, resp_len), xErrno_Ok);
-  xTurnClientOnMessage(&client, &resp_decoded, resp_buf, resp_len, reinterpret_cast<struct sockaddr *>(&server));
+  xTurnClientOnMessage(&client, &resp_decoded, resp_buf, resp_len,
+                       reinterpret_cast<struct sockaddr *>(&server));
 
   /* Verify allocation succeeded */
   EXPECT_TRUE(g_alloc_result.allocated);

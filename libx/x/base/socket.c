@@ -6,10 +6,10 @@
  * socket.c - Async socket abstraction over xEventLoop
  */
 
-#include <x/base/socket.h>
-
 #include <errno.h>
 #include <stdlib.h>
+
+#include <x/base/socket.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -17,9 +17,10 @@
 #include <ws2tcpip.h>
 #else
 #include <fcntl.h>
+#include <unistd.h>
+
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <unistd.h>
 #endif
 
 /* ───────────────────── Internal structure ───────────────────── */
@@ -31,8 +32,8 @@ struct xSocket_ {
   xEventMask   mask;
   xSocketFunc  callback;
   void        *userp;
-  xTimer  read_timer;
-  xTimer  write_timer;
+  xTimer       read_timer;
+  xTimer       write_timer;
   int          read_timeout_ms;
   int          write_timeout_ms;
 };
@@ -101,8 +102,7 @@ static void reset_read_timer(struct xSocket_ *s) {
 static void reset_write_timer(struct xSocket_ *s) {
   if (s->write_timeout_ms <= 0) return;
   cancel_write_timer(s);
-  s->write_timer =
-    xTimerStart(write_timeout_cb, s, (uint64_t)s->write_timeout_ms, 0);
+  s->write_timer = xTimerStart(write_timeout_cb, s, (uint64_t)s->write_timeout_ms, 0);
 }
 
 /* ───────────────────── Lifecycle ───────────────────── */
@@ -153,8 +153,8 @@ fail:
 #endif
 }
 
-xSocket xSocketCreate( int family, int type, int protocol, xEventMask mask,
-                      xSocketFunc callback, void *userp) {
+xSocket xSocketCreate(int family, int type, int protocol, xEventMask mask, xSocketFunc callback,
+                      void *userp) {
   xEventLoop loop = xEventLoopCurrent();
   if (!loop || !callback) return NULL;
 
@@ -187,12 +187,11 @@ fail:
   return NULL;
 }
 
-xSocket xSocketCreateFromFd( int fd, xEventMask mask, xSocketFunc callback,
-                            void *userp) {
+xSocket xSocketCreateFromFd(int fd, xEventMask mask, xSocketFunc callback, void *userp) {
   xEventLoop loop = xEventLoopCurrent();
   if (!loop || !callback || fd < 0) return NULL;
 
-    /* Ensure non-blocking + close-on-exec */
+  /* Ensure non-blocking + close-on-exec */
 #ifdef _WIN32
   {
     u_long mode = 1;
@@ -244,7 +243,7 @@ void xSocketDestroy(xSocket sock) {
 
 /* ───────────────────── Event mask ───────────────────── */
 
-xErrno xSocketSetMask( xSocket sock, xEventMask mask) {
+xErrno xSocketSetMask(xSocket sock, xEventMask mask) {
   if (!sock) return xErrno_InvalidArg;
   struct xSocket_ *s = (struct xSocket_ *)sock;
 
@@ -304,8 +303,8 @@ xEventMask xSocketMask(xSocket sock) {
 
 /* ───────────────────── Datagram I/O ───────────────────── */
 
-ssize_t xSocketSendTo(xSocket sock, const void *buf, size_t len,
-                      const struct sockaddr *dest, socklen_t destlen) {
+ssize_t xSocketSendTo(xSocket sock, const void *buf, size_t len, const struct sockaddr *dest,
+                      socklen_t destlen) {
   if (!sock || (!buf && len > 0) || !dest) {
     errno = EINVAL;
     return -1;
@@ -318,8 +317,8 @@ ssize_t xSocketSendTo(xSocket sock, const void *buf, size_t len,
 #endif
 }
 
-ssize_t xSocketRecvFrom(xSocket sock, void *buf, size_t len,
-                        struct sockaddr *src, socklen_t *srclen) {
+ssize_t xSocketRecvFrom(xSocket sock, void *buf, size_t len, struct sockaddr *src,
+                        socklen_t *srclen) {
   if (!sock || (!buf && len > 0)) {
     errno = EINVAL;
     return -1;
@@ -330,9 +329,8 @@ ssize_t xSocketRecvFrom(xSocket sock, void *buf, size_t len,
   }
   int fd = ((struct xSocket_ *)sock)->fd;
 #ifdef _WIN32
-  int fromlen = srclen ? (int)*srclen : 0;
-  ssize_t n = (ssize_t)recvfrom(fd, (char *)buf, (int)len, 0, src,
-                                srclen ? &fromlen : NULL);
+  int     fromlen = srclen ? (int)*srclen : 0;
+  ssize_t n       = (ssize_t)recvfrom(fd, (char *)buf, (int)len, 0, src, srclen ? &fromlen : NULL);
   if (srclen) *srclen = (socklen_t)fromlen;
   return n;
 #else

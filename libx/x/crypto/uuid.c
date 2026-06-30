@@ -6,14 +6,14 @@
  * uuid.c - UUID generation (v4, v5, v7), formatting, and parsing
  */
 
-#include <x/crypto/uuid.h>
-#include <x/base/random.h>
-#include <x/base/time.h>
-#include <x/crypto/sha1.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <x/base/random.h>
+#include <x/base/time.h>
+#include <x/crypto/sha1.h>
+#include <x/crypto/uuid.h>
 
 /* ── Helpers ────────────────────────────────────────────────────── */
 
@@ -45,7 +45,7 @@ xUuid xUuidV4(void) {
 /* ── v7: Time-ordered random (RFC 9562) ─────────────────────────── */
 
 xUuid xUuidV7(void) {
-  xUuid u;
+  xUuid    u;
   uint64_t now_ms = xMonoMs();
 
   u.bytes[0] = (uint8_t)(now_ms >> 40);
@@ -109,7 +109,7 @@ xErrno xUuidFromString(const char *str, xUuid *out) {
 
 void xUuidToString(xUuid uuid, char buf[37]) {
   static const char hex[] = "0123456789abcdef";
-  int bi = 0, si = 0;
+  int               bi = 0, si = 0;
   for (int group = 0; group < 5; group++) {
     int group_len = (group == 0) ? 4 : (group == 1) ? 2 : (group == 2) ? 2 : (group == 3) ? 2 : 6;
     for (int j = 0; j < group_len; j++) {
@@ -138,14 +138,46 @@ bool xUuidIsNil(xUuid uuid) {
 /* ── Predefined namespaces ──────────────────────────────────────── */
 
 static const xUuid g_ns_dns = {{
-    0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1,
-    0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
+  0x6b,
+  0xa7,
+  0xb8,
+  0x10,
+  0x9d,
+  0xad,
+  0x11,
+  0xd1,
+  0x80,
+  0xb4,
+  0x00,
+  0xc0,
+  0x4f,
+  0xd4,
+  0x30,
+  0xc8,
 }};
 
 static const xUuid g_ns_url = {{
-    0x6b, 0xa7, 0xb8, 0x11, 0x9d, 0xad, 0x11, 0xd1,
-    0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
+  0x6b,
+  0xa7,
+  0xb8,
+  0x11,
+  0x9d,
+  0xad,
+  0x11,
+  0xd1,
+  0x80,
+  0xb4,
+  0x00,
+  0xc0,
+  0x4f,
+  0xd4,
+  0x30,
+  0xc8,
 }};
 
-const xUuid *xUuidNamespaceDns(void) { return &g_ns_dns; }
-const xUuid *xUuidNamespaceUrl(void) { return &g_ns_url; }
+const xUuid *xUuidNamespaceDns(void) {
+  return &g_ns_dns;
+}
+const xUuid *xUuidNamespaceUrl(void) {
+  return &g_ns_url;
+}

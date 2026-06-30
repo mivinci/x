@@ -4,10 +4,10 @@
  * found in the LICENSE file.
  */
 
-#include <x/base/string.h>
+#include <string>
 
 #include <gtest/gtest.h>
-#include <string>
+#include <x/base/string.h>
 
 /* ───────────────────── Lifecycle ───────────────────── */
 

@@ -9,57 +9,53 @@ extern "C" {
 
 /* ── Fixtures ──────────────────────────────────────────────────────── */
 
-static const char *kSimpleMediaPlaylist =
-    "#EXTM3U\n"
-    "#EXT-X-VERSION:3\n"
-    "#EXT-X-TARGETDURATION:10\n"
-    "#EXT-X-MEDIA-SEQUENCE:0\n"
-    "#EXTINF:10.0,\n"
-    "segment0.ts\n"
-    "#EXTINF:10.0,\n"
-    "segment1.ts\n"
-    "#EXTINF:8.5,\n"
-    "segment2.ts\n"
-    "#EXT-X-ENDLIST\n";
+static const char *kSimpleMediaPlaylist = "#EXTM3U\n"
+                                          "#EXT-X-VERSION:3\n"
+                                          "#EXT-X-TARGETDURATION:10\n"
+                                          "#EXT-X-MEDIA-SEQUENCE:0\n"
+                                          "#EXTINF:10.0,\n"
+                                          "segment0.ts\n"
+                                          "#EXTINF:10.0,\n"
+                                          "segment1.ts\n"
+                                          "#EXTINF:8.5,\n"
+                                          "segment2.ts\n"
+                                          "#EXT-X-ENDLIST\n";
 
 static const char *kMasterPlaylist =
-    "#EXTM3U\n"
-    "#EXT-X-VERSION:3\n"
-    "#EXT-X-STREAM-INF:BANDWIDTH=1280000,RESOLUTION=720x480,CODECS=\"avc1.42c01e\"\n"
-    "low.m3u8\n"
-    "#EXT-X-STREAM-INF:BANDWIDTH=2560000,RESOLUTION=1280x720,CODECS=\"avc1.42c01e\"\n"
-    "high.m3u8\n";
+  "#EXTM3U\n"
+  "#EXT-X-VERSION:3\n"
+  "#EXT-X-STREAM-INF:BANDWIDTH=1280000,RESOLUTION=720x480,CODECS=\"avc1.42c01e\"\n"
+  "low.m3u8\n"
+  "#EXT-X-STREAM-INF:BANDWIDTH=2560000,RESOLUTION=1280x720,CODECS=\"avc1.42c01e\"\n"
+  "high.m3u8\n";
 
-static const char *kByterangePlaylist =
-    "#EXTM3U\n"
-    "#EXT-X-VERSION:4\n"
-    "#EXT-X-TARGETDURATION:10\n"
-    "#EXT-X-MEDIA-SEQUENCE:0\n"
-    "#EXTINF:10.0,\n"
-    "#EXT-X-BYTERANGE:1000@5000\n"
-    "all.ts\n"
-    "#EXTINF:10.0,\n"
-    "#EXT-X-BYTERANGE:2000\n"
-    "all.ts\n"
-    "#EXT-X-ENDLIST\n";
+static const char *kByterangePlaylist = "#EXTM3U\n"
+                                        "#EXT-X-VERSION:4\n"
+                                        "#EXT-X-TARGETDURATION:10\n"
+                                        "#EXT-X-MEDIA-SEQUENCE:0\n"
+                                        "#EXTINF:10.0,\n"
+                                        "#EXT-X-BYTERANGE:1000@5000\n"
+                                        "all.ts\n"
+                                        "#EXTINF:10.0,\n"
+                                        "#EXT-X-BYTERANGE:2000\n"
+                                        "all.ts\n"
+                                        "#EXT-X-ENDLIST\n";
 
-static const char *kEncryptedPlaylist =
-    "#EXTM3U\n"
-    "#EXT-X-VERSION:3\n"
-    "#EXT-X-TARGETDURATION:10\n"
-    "#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"\n"
-    "#EXTINF:10.0,\n"
-    "segment0.ts\n"
-    "#EXT-X-ENDLIST\n";
+static const char *kEncryptedPlaylist = "#EXTM3U\n"
+                                        "#EXT-X-VERSION:3\n"
+                                        "#EXT-X-TARGETDURATION:10\n"
+                                        "#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"\n"
+                                        "#EXTINF:10.0,\n"
+                                        "segment0.ts\n"
+                                        "#EXT-X-ENDLIST\n";
 
-static const char *kAbsoluteUriPlaylist =
-    "#EXTM3U\n"
-    "#EXT-X-TARGETDURATION:5\n"
-    "#EXTINF:5.0,\n"
-    "https://cdn.example.com/seg1.ts\n"
-    "#EXTINF:5.0,\n"
-    "https://cdn.example.com/seg2.ts\n"
-    "#EXT-X-ENDLIST\n";
+static const char *kAbsoluteUriPlaylist = "#EXTM3U\n"
+                                          "#EXT-X-TARGETDURATION:5\n"
+                                          "#EXTINF:5.0,\n"
+                                          "https://cdn.example.com/seg1.ts\n"
+                                          "#EXTINF:5.0,\n"
+                                          "https://cdn.example.com/seg2.ts\n"
+                                          "#EXT-X-ENDLIST\n";
 
 /* ── Tests ─────────────────────────────────────────────────────────── */
 
@@ -124,8 +120,8 @@ TEST(M3u8Parser, ParseByterange) {
 }
 
 TEST(M3u8Parser, RelativeUriResolution) {
-  auto *pl = hls_parse_playlist(kSimpleMediaPlaylist,
-                                 "https://cdn.example.com/subdir/playlist.m3u8");
+  auto *pl =
+    hls_parse_playlist(kSimpleMediaPlaylist, "https://cdn.example.com/subdir/playlist.m3u8");
   ASSERT_NE(pl, nullptr);
   EXPECT_STREQ(pl->segments[0].uri, "https://cdn.example.com/subdir/segment0.ts");
   hls_playlist_free(pl);
@@ -149,16 +145,15 @@ TEST(M3u8Parser, EncryptedFlag) {
 }
 
 TEST(M3u8Parser, UnknownTagsIgnored) {
-  const char *playlist =
-      "#EXTM3U\n"
-      "#EXT-X-VERSION:3\n"
-      "#EXT-X-TARGETDURATION:10\n"
-      "#EXT-X-ALLOW-CACHE:YES\n"
-      "#EXT-X-PLAYLIST-TYPE:VOD\n"
-      "#EXTINF:5.0,\n"
-      "seg.ts\n"
-      "#EXT-X-ENDLIST\n";
-  auto *pl = hls_parse_playlist(playlist, nullptr);
+  const char *playlist = "#EXTM3U\n"
+                         "#EXT-X-VERSION:3\n"
+                         "#EXT-X-TARGETDURATION:10\n"
+                         "#EXT-X-ALLOW-CACHE:YES\n"
+                         "#EXT-X-PLAYLIST-TYPE:VOD\n"
+                         "#EXTINF:5.0,\n"
+                         "seg.ts\n"
+                         "#EXT-X-ENDLIST\n";
+  auto       *pl       = hls_parse_playlist(playlist, nullptr);
   ASSERT_NE(pl, nullptr);
   EXPECT_EQ(pl->segment_count, 1u);
   EXPECT_TRUE(pl->is_vod);
@@ -175,16 +170,15 @@ TEST(M3u8Parser, NoExtm3uHeader) {
 }
 
 TEST(M3u8Parser, MediaSequenceOffset) {
-  const char *playlist =
-      "#EXTM3U\n"
-      "#EXT-X-MEDIA-SEQUENCE:100\n"
-      "#EXT-X-TARGETDURATION:5\n"
-      "#EXTINF:5.0,\n"
-      "seg100.ts\n"
-      "#EXTINF:5.0,\n"
-      "seg101.ts\n"
-      "#EXT-X-ENDLIST\n";
-  auto *pl = hls_parse_playlist(playlist, nullptr);
+  const char *playlist = "#EXTM3U\n"
+                         "#EXT-X-MEDIA-SEQUENCE:100\n"
+                         "#EXT-X-TARGETDURATION:5\n"
+                         "#EXTINF:5.0,\n"
+                         "seg100.ts\n"
+                         "#EXTINF:5.0,\n"
+                         "seg101.ts\n"
+                         "#EXT-X-ENDLIST\n";
+  auto       *pl       = hls_parse_playlist(playlist, nullptr);
   ASSERT_NE(pl, nullptr);
   EXPECT_EQ(pl->media_seq, 100u);
   EXPECT_EQ(pl->segments[0].seq, 100u);

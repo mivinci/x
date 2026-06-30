@@ -20,13 +20,14 @@
 
 extern "C" {
 #include "dtls_transport.h"
+
 #include <x/base/event.h>
 }
 
-#include <x/base/test_helper.h>
-
 #include <cstring>
 #include <vector>
+
+#include <x/base/test_helper.h>
 
 /* ═══════════════════════════════════════════════════════════
  *  Fingerprint String Helpers
@@ -533,9 +534,8 @@ protected:
       },
       this, 5, 5);
 
-    xTimer watchdog = xTimerStart(
-      [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
-      loop, static_cast<uint64_t>(timeout_ms), 0);
+    xTimer watchdog = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
+                                  loop, static_cast<uint64_t>(timeout_ms), 0);
 
     xEventLoopRun(loop, X_RUN_DEFAULT);
 
@@ -630,7 +630,7 @@ TEST_F(DtlsHandshakeTest, DataExchangeAfterHandshake) {
 
   /* Send data from Active → Passive */
   const char *msg1 = "Hello from Active!";
-  xErrno      err  = xDtlsTransportSend(active, reinterpret_cast<const uint8_t *>(msg1), strlen(msg1));
+  xErrno err = xDtlsTransportSend(active, reinterpret_cast<const uint8_t *>(msg1), strlen(msg1));
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Tick to let data flow */
@@ -641,7 +641,7 @@ TEST_F(DtlsHandshakeTest, DataExchangeAfterHandshake) {
 
   /* Send data from Passive → Active */
   const char *msg2 = "Hello from Passive!";
-  err              = xDtlsTransportSend(passive, reinterpret_cast<const uint8_t *>(msg2), strlen(msg2));
+  err = xDtlsTransportSend(passive, reinterpret_cast<const uint8_t *>(msg2), strlen(msg2));
   ASSERT_EQ(err, xErrno_Ok);
 
   run_for(loop, 50);
@@ -766,9 +766,8 @@ TEST_F(DtlsWrongFingerprintTest, WrongFingerprintCausesFailure) {
     },
     &ctx, 5, 5);
 
-  xTimer watchdog = xTimerStart(
-    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
-    loop, 5000, 0);
+  xTimer watchdog =
+    xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 5000, 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
 
@@ -786,7 +785,7 @@ TEST_F(DtlsWrongFingerprintTest, WrongFingerprintCausesFailure) {
 
 class DtlsTimeoutTest : public ::testing::Test {
 protected:
-  xEventLoop loop     = nullptr;
+  xEventLoop loop = nullptr;
 
   void SetUp() override {
     loop = xEventLoopCreate();
@@ -994,5 +993,3 @@ TEST_F(DtlsFeedInputTest, FeedGarbageDoesNotCrash) {
 
   xDtlsTransportDestroy(t);
 }
-
-

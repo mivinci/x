@@ -15,11 +15,11 @@
 
 #include "sctp_transport.h"
 
-#include <x/base/base.h>
-#include <x/base/error.h>
-
 #include <stdbool.h>
 #include <stdint.h>
+
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 /* ───────────────────── Constants ───────────────────── */
 

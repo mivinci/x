@@ -17,7 +17,7 @@
 static char *xstrdup(const char *s) {
   if (!s) return NULL;
   size_t n = strlen(s);
-  char *p = (char *)malloc(n + 1);
+  char  *p = (char *)malloc(n + 1);
   if (p) memcpy(p, s, n + 1);
   return p;
 }
@@ -33,7 +33,8 @@ static char *xstrndup(const char *s, size_t n) {
 
 /* Skip leading whitespace, return pointer to first non-ws char */
 static const char *skip_ws(const char *s) {
-  while (*s == ' ' || *s == '\t') s++;
+  while (*s == ' ' || *s == '\t')
+    s++;
   return s;
 }
 
@@ -46,8 +47,8 @@ static bool starts_with(const char *line, const char *tag) {
 /* Extract attribute value from a #EXT-X-STREAM-INF line.
  * Returns NULL if not found. Caller does NOT free (points into line buffer). */
 static const char *find_attr(const char *line, const char *key) {
-  size_t klen = strlen(key);
-  const char *p = line;
+  size_t      klen = strlen(key);
+  const char *p    = line;
   while (*p) {
     if (strncmp(p, key, klen) == 0 && p[klen] == '=') {
       const char *v = p + klen + 1;
@@ -75,7 +76,8 @@ static char *copy_quoted_attr(const char *line, const char *key) {
   }
   /* Unquoted — read until comma or end */
   const char *end = v;
-  while (*end && *end != ',') end++;
+  while (*end && *end != ',')
+    end++;
   return xstrndup(v, (size_t)(end - v));
 }
 
@@ -110,8 +112,8 @@ static char *resolve_uri(const char *uri, const char *base_url) {
     /* Actually: scheme + "://" + uri (uri already has //) */
     char *result = (char *)malloc(slen + strlen(uri) + 1);
     if (result) {
-      memcpy(result, base_url, slen);      /* "https://" */
-      strcpy(result + slen, uri);          /* "//cdn..." */
+      memcpy(result, base_url, slen); /* "https://" */
+      strcpy(result + slen, uri);     /* "//cdn..." */
     }
     (void)n;
     return result;
@@ -125,7 +127,7 @@ static char *resolve_uri(const char *uri, const char *base_url) {
     const char *path = strchr(path_start, '/');
     if (path) {
       size_t prefix_len = (size_t)(path - base_url);
-      char *result = (char *)malloc(prefix_len + strlen(uri) + 1);
+      char  *result     = (char *)malloc(prefix_len + strlen(uri) + 1);
       if (result) {
         memcpy(result, base_url, prefix_len);
         strcpy(result + prefix_len, uri);
@@ -133,8 +135,8 @@ static char *resolve_uri(const char *uri, const char *base_url) {
       return result;
     }
     /* No path in base — append */
-    size_t blen = strlen(base_url);
-    char *result = (char *)malloc(blen + strlen(uri) + 1);
+    size_t blen   = strlen(base_url);
+    char  *result = (char *)malloc(blen + strlen(uri) + 1);
     if (result) {
       memcpy(result, base_url, blen);
       strcpy(result + blen, uri);
@@ -149,8 +151,8 @@ static char *resolve_uri(const char *uri, const char *base_url) {
   const char *last_slash = strrchr(path_start, '/');
   if (!last_slash) {
     /* No path in base — just append */
-    size_t blen = strlen(base_url);
-    char *result = (char *)malloc(blen + 1 + strlen(uri) + 1);
+    size_t blen   = strlen(base_url);
+    char  *result = (char *)malloc(blen + 1 + strlen(uri) + 1);
     if (result) {
       memcpy(result, base_url, blen);
       result[blen] = '/';
@@ -159,7 +161,7 @@ static char *resolve_uri(const char *uri, const char *base_url) {
     return result;
   }
   size_t prefix_len = (size_t)(last_slash - base_url + 1);
-  char *result = (char *)malloc(prefix_len + strlen(uri) + 1);
+  char  *result     = (char *)malloc(prefix_len + strlen(uri) + 1);
   if (result) {
     memcpy(result, base_url, prefix_len);
     strcpy(result + prefix_len, uri);
@@ -172,8 +174,8 @@ static char *resolve_uri(const char *uri, const char *base_url) {
 static bool segments_push(struct hls_segment **arr, size_t *count, size_t *cap,
                           struct hls_segment seg) {
   if (*count == *cap) {
-    size_t ncap = *cap ? *cap * 2 : 16;
-    struct hls_segment *n = (struct hls_segment *)realloc(*arr, ncap * sizeof(**arr));
+    size_t              ncap = *cap ? *cap * 2 : 16;
+    struct hls_segment *n    = (struct hls_segment *)realloc(*arr, ncap * sizeof(**arr));
     if (!n) return false;
     *arr = n;
     *cap = ncap;
@@ -185,8 +187,8 @@ static bool segments_push(struct hls_segment **arr, size_t *count, size_t *cap,
 static bool variants_push(struct hls_variant **arr, size_t *count, size_t *cap,
                           struct hls_variant var) {
   if (*count == *cap) {
-    size_t ncap = *cap ? *cap * 2 : 8;
-    struct hls_variant *n = (struct hls_variant *)realloc(*arr, ncap * sizeof(**arr));
+    size_t              ncap = *cap ? *cap * 2 : 8;
+    struct hls_variant *n    = (struct hls_variant *)realloc(*arr, ncap * sizeof(**arr));
     if (!n) return false;
     *arr = n;
     *cap = ncap;
@@ -206,23 +208,23 @@ struct hls_playlist *hls_parse_playlist(const char *text, const char *base_url) 
   struct hls_playlist *pl = (struct hls_playlist *)calloc(1, sizeof(*pl));
   if (!pl) return NULL;
   pl->is_master = false;
-  pl->is_vod = false;
+  pl->is_vod    = false;
   pl->encrypted = false;
-  pl->version = 1;
+  pl->version   = 1;
   pl->media_seq = 0;
 
-  struct hls_segment *segs = NULL;
-  size_t seg_count = 0, seg_cap = 0;
-  struct hls_variant *vars = NULL;
-  size_t var_count = 0, var_cap = 0;
+  struct hls_segment *segs      = NULL;
+  size_t              seg_count = 0, seg_cap = 0;
+  struct hls_variant *vars      = NULL;
+  size_t              var_count = 0, var_cap = 0;
 
   /* Per-segment state */
-  double pending_duration = 0.0;
-  bool has_pending_duration = false;
-  bool has_pending_byterange = false;
-  uint64_t pending_byte_offset = 0;
-  uint64_t pending_byte_length = 0;
-  uint32_t next_seq = 0; /* will be set by EXT-X-MEDIA-SEQUENCE */
+  double   pending_duration      = 0.0;
+  bool     has_pending_duration  = false;
+  bool     has_pending_byterange = false;
+  uint64_t pending_byte_offset   = 0;
+  uint64_t pending_byte_length   = 0;
+  uint32_t next_seq              = 0; /* will be set by EXT-X-MEDIA-SEQUENCE */
 
   /* Line-by-line parse */
   const char *cursor = text;
@@ -231,9 +233,9 @@ struct hls_playlist *hls_parse_playlist(const char *text, const char *base_url) 
   const char *nl = strchr(cursor, '\n');
   if (!nl) {
     /* Entire file is just #EXTM3U */
-    pl->segments = NULL;
+    pl->segments      = NULL;
     pl->segment_count = 0;
-    pl->variants = NULL;
+    pl->variants      = NULL;
     pl->variant_count = 0;
     return pl;
   }
@@ -242,7 +244,7 @@ struct hls_playlist *hls_parse_playlist(const char *text, const char *base_url) 
   while (*cursor) {
     /* Extract one line */
     const char *line_end = strchr(cursor, '\n');
-    size_t line_len;
+    size_t      line_len;
     if (line_end)
       line_len = (size_t)(line_end - cursor);
     else
@@ -277,16 +279,16 @@ struct hls_playlist *hls_parse_playlist(const char *text, const char *base_url) 
         pl->target_duration = (uint32_t)strtoul(trimmed + 22, NULL, 10);
       } else if (starts_with(trimmed, "#EXT-X-MEDIA-SEQUENCE:")) {
         pl->media_seq = (uint32_t)strtoul(trimmed + 22, NULL, 10);
-        next_seq = pl->media_seq;
+        next_seq      = pl->media_seq;
       } else if (starts_with(trimmed, "#EXTINF:")) {
         /* #EXTINF:<duration>,<title> */
-        pending_duration = strtod(trimmed + 8, NULL);
+        pending_duration     = strtod(trimmed + 8, NULL);
         has_pending_duration = true;
       } else if (starts_with(trimmed, "#EXT-X-BYTERANGE:")) {
         /* #EXT-X-BYTERANGE:<length>@<offset> */
-        const char *p = trimmed + 17;
+        const char *p       = trimmed + 17;
         pending_byte_length = strtoull(p, NULL, 10);
-        const char *at = strchr(p, '@');
+        const char *at      = strchr(p, '@');
         if (at) {
           pending_byte_offset = strtoull(at + 1, NULL, 10);
         } else {
@@ -297,13 +299,13 @@ struct hls_playlist *hls_parse_playlist(const char *text, const char *base_url) 
       } else if (starts_with(trimmed, "#EXT-X-STREAM-INF:")) {
         /* Master playlist variant */
         struct hls_variant var = {0};
-        var.bandwidth = parse_uint_attr(trimmed, "BANDWIDTH");
-        var.codecs = copy_quoted_attr(trimmed, "CODECS");
+        var.bandwidth          = parse_uint_attr(trimmed, "BANDWIDTH");
+        var.codecs             = copy_quoted_attr(trimmed, "CODECS");
 
         /* RESOLUTION=<w>x<h> */
         const char *res = find_attr(trimmed, "RESOLUTION");
         if (res) {
-          var.width = (uint32_t)strtoul(res, NULL, 10);
+          var.width     = (uint32_t)strtoul(res, NULL, 10);
           const char *x = strchr(res, 'x');
           if (x) var.height = (uint32_t)strtoul(x + 1, NULL, 10);
         }
@@ -347,27 +349,27 @@ struct hls_playlist *hls_parse_playlist(const char *text, const char *base_url) 
       } else if (has_pending_duration) {
         /* Media segment */
         struct hls_segment seg = {0};
-        seg.seq = next_seq++;
-        seg.duration = pending_duration;
-        seg.uri = resolved;
-        seg.has_byterange = has_pending_byterange;
-        seg.byte_offset = pending_byte_offset;
-        seg.byte_length = pending_byte_length;
+        seg.seq                = next_seq++;
+        seg.duration           = pending_duration;
+        seg.uri                = resolved;
+        seg.has_byterange      = has_pending_byterange;
+        seg.byte_offset        = pending_byte_offset;
+        seg.byte_length        = pending_byte_length;
 
         if (!segments_push(&segs, &seg_count, &seg_cap, seg)) {
           free(resolved);
           goto fail;
         }
-        has_pending_duration = false;
+        has_pending_duration  = false;
         has_pending_byterange = false;
-        pending_byte_offset = 0;
-        pending_byte_length = 0;
+        pending_byte_offset   = 0;
+        pending_byte_length   = 0;
       } else {
         /* URI without preceding EXTINF — treat as a segment with duration 0 */
         struct hls_segment seg = {0};
-        seg.seq = next_seq++;
-        seg.duration = 0.0;
-        seg.uri = resolved;
+        seg.seq                = next_seq++;
+        seg.duration           = 0.0;
+        seg.uri                = resolved;
         if (!segments_push(&segs, &seg_count, &seg_cap, seg)) {
           free(resolved);
           goto fail;
@@ -386,8 +388,7 @@ struct hls_playlist *hls_parse_playlist(const char *text, const char *base_url) 
     if (segs[i].has_byterange && segs[i].byte_offset == (uint64_t)-1) {
       /* Find previous segment with same URI */
       for (size_t j = i; j > 0; j--) {
-        if (segs[j - 1].uri && segs[i].uri &&
-            strcmp(segs[j - 1].uri, segs[i].uri) == 0) {
+        if (segs[j - 1].uri && segs[i].uri && strcmp(segs[j - 1].uri, segs[i].uri) == 0) {
           segs[i].byte_offset = segs[j - 1].byte_offset + segs[j - 1].byte_length;
           break;
         }
@@ -396,9 +397,9 @@ struct hls_playlist *hls_parse_playlist(const char *text, const char *base_url) 
     }
   }
 
-  pl->segments = segs;
+  pl->segments      = segs;
   pl->segment_count = seg_count;
-  pl->variants = vars;
+  pl->variants      = vars;
   pl->variant_count = var_count;
   return pl;
 

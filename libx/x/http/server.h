@@ -15,6 +15,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 #include <x/base/event.h>
@@ -83,7 +84,7 @@ XDEF_STRUCT(xHttpServerConf) {
  * @brief Configuration for registering a route with @ref xHttpMux.
  */
 XDEF_STRUCT(xHttpRouteConf) {
-  const char  *pattern;    /**< "METHOD /path" or "/path" (any method)   */
+  const char   *pattern;    /**< "METHOD /path" or "/path" (any method)   */
   xHttpInitFunc on_request; /**< Called after headers (may be NULL)       */
   xHttpDataFunc on_data;    /**< Per body chunk callback (may be NULL)    */
   xHttpDoneFunc on_done;    /**< Called at request completion (may be NULL) */

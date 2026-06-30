@@ -7,11 +7,13 @@
  */
 
 #include "datachannel.h"
+
 #include "sctp_transport.h"
 
-#include <arpa/inet.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <arpa/inet.h>
 
 /* ───────────────────── Internal Structures ───────────────────── */
 

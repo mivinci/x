@@ -13,11 +13,11 @@
 #ifndef XCRYPTO_MD5_H
 #define XCRYPTO_MD5_H
 
-#include <x/base/base.h>
-#include <x/base/error.h>
-
 #include <stddef.h>
 #include <stdint.h>
+
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 /* ───────────────────── Constants ───────────────────── */
 

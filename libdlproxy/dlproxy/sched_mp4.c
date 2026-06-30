@@ -9,16 +9,17 @@
 #include "dlproxy_internal.h"
 
 #include <string.h>
+
 #include <x/base/event.h>
 #include <x/base/log.h>
 
 #define DL_BLOCK_SIZE (256u * 1024u)
 
 static void mp4_on_tick(struct dlp_task *task) {
-  struct dlp_ctx *c = task->ctx;
-  int remain    = task->remain_time_ms;
-  int emergency = task->emergency_ms;
-  int safe      = task->safe_ms;
+  struct dlp_ctx *c         = task->ctx;
+  int             remain    = task->remain_time_ms;
+  int             emergency = task->emergency_ms;
+  int             safe      = task->safe_ms;
 
   /* Three-zone decision */
   bool should_pull = false;
@@ -34,8 +35,8 @@ static void mp4_on_tick(struct dlp_task *task) {
   }
 
   /* Find first unfinished block at or after read_offset */
-  uint32_t block  = (uint32_t)(task->read_offset / DL_BLOCK_SIZE);
-  uint64_t boff   = (uint64_t)block * DL_BLOCK_SIZE;
+  uint32_t block = (uint32_t)(task->read_offset / DL_BLOCK_SIZE);
+  uint64_t boff  = (uint64_t)block * DL_BLOCK_SIZE;
 
   if (dlp_cache_is_ready(c->cache, task->rid, "0.mp4", boff, DL_BLOCK_SIZE)) {
     task->was_pulling = true;
@@ -45,33 +46,30 @@ static void mp4_on_tick(struct dlp_task *task) {
   /* Avoid duplicate downloads of the same block */
   if (task->downloading_off == boff) return;
 
-  XDEBUGL0("mp4 tick: rid=%s remain=%dms emergency=%dms block=%u offset=%llu",
-           task->rid, remain, emergency, block, (unsigned long long)boff);
+  XDEBUGL0("mp4 tick: rid=%s remain=%dms emergency=%dms block=%u offset=%llu", task->rid, remain,
+           emergency, block, (unsigned long long)boff);
   task->downloading_off = boff;
-  xErrno rc = dlp_http_fetch(c->dl_http, task->rid, "0.mp4", task->url, boff,
-                       DL_BLOCK_SIZE, task);
+  xErrno rc = dlp_http_fetch(c->dl_http, task->rid, "0.mp4", task->url, boff, DL_BLOCK_SIZE, task);
   XDEBUGL0("mp4 tick: rc=%d block=%u offset=%llu", rc, block, (unsigned long long)boff);
   task->was_pulling = true;
 }
 
 static void mp4_on_block_done(struct dlp_task *task, uint64_t offset, size_t len) {
-  struct dlp_ctx *c = task->ctx;
-  uint64_t boff = (offset / DL_BLOCK_SIZE) * DL_BLOCK_SIZE;
+  struct dlp_ctx *c    = task->ctx;
+  uint64_t        boff = (offset / DL_BLOCK_SIZE) * DL_BLOCK_SIZE;
   (void)len;
   if (task->downloading_off == boff) task->downloading_off = 0;
 
   /* Scan forward from read_offset to estimate remain_time */
-  int cached_blocks = 0;
-  uint64_t pos = task->read_offset;
+  int      cached_blocks = 0;
+  uint64_t pos           = task->read_offset;
   for (int i = 0; i < 256; i++) {
-    if (!dlp_cache_is_ready(c->cache, task->rid, "0.mp4", pos, DL_BLOCK_SIZE))
-      break;
+    if (!dlp_cache_is_ready(c->cache, task->rid, "0.mp4", pos, DL_BLOCK_SIZE)) break;
     cached_blocks++;
     pos += DL_BLOCK_SIZE;
   }
-  task->remain_time_ms = (int)
-    ((uint64_t)cached_blocks * DL_BLOCK_SIZE * 1000 /
-     (task->bitrate > 0 ? task->bitrate : 1));
+  task->remain_time_ms =
+    (int)((uint64_t)cached_blocks * DL_BLOCK_SIZE * 1000 / (task->bitrate > 0 ? task->bitrate : 1));
 }
 
 static void mp4_on_start(struct dlp_task *task) {

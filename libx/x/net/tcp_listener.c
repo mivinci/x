@@ -12,15 +12,15 @@
 #include "tcp_private.h"
 #include "transport_private.h"
 
-#include <arpa/inet.h>
 #include <errno.h>
-#include <netinet/in.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <unistd.h>
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <x/base/log.h>
 
 /* Default listen backlog */
@@ -194,8 +194,8 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
       }
 
       /* Create xSocket for the accepted fd */
-      pc->sock = xSocketCreateFromFd(client_fd, xEvent_Read | xEvent_Write,
-                                     pending_conn_on_event, pc);
+      pc->sock =
+        xSocketCreateFromFd(client_fd, xEvent_Read | xEvent_Write, pending_conn_on_event, pc);
       if (!pc->sock) {
         if (pc->transport.destroy) pc->transport.destroy(pc->transport.ctx);
         close(client_fd);
@@ -250,8 +250,7 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
         continue;
       }
 
-      xSocket client_sock =
-        xSocketCreateFromFd(client_fd, xEvent_Read, noop_sock_cb, NULL);
+      xSocket client_sock = xSocketCreateFromFd(client_fd, xEvent_Read, noop_sock_cb, NULL);
       if (!client_sock) {
         if (transport.destroy) transport.destroy(transport.ctx);
         close(client_fd);
@@ -275,9 +274,8 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-xTcpListener xTcpListenerCreate( const char *host, uint16_t port,
-                                const xTcpListenerConf *conf, xTcpListenerFunc callback,
-                                void *arg) {
+xTcpListener xTcpListenerCreate(const char *host, uint16_t port, const xTcpListenerConf *conf,
+                                xTcpListenerFunc callback, void *arg) {
   xEventLoop loop = xEventLoopCurrent();
   if (!loop || !callback) return NULL;
 

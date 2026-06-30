@@ -9,13 +9,13 @@
 #ifndef XCRYPTO_HMAC_MD5_H
 #define XCRYPTO_HMAC_MD5_H
 
-#include <x/base/base.h>
-#include <x/base/error.h>
+#include "hash_private.h"
 
 #include <stddef.h>
 #include <stdint.h>
 
-#include "hash_private.h"
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 /** @brief MD5 hash vtable (pure-C implementation). */
 XCAPI(const xHashVtable) xHashVtableMd5;

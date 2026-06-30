@@ -7,13 +7,15 @@
  */
 
 #include "proto_h2.h"
+
 #include "server_private.h"
 
 #include <ctype.h>
-#include <nghttp2/nghttp2.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <nghttp2/nghttp2.h>
 #include <x/base/log.h>
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -24,7 +26,7 @@
 #define XHTTP_H2_MAX_PENDING_DISPATCH 16
 
 XDEF_STRUCT(xHttpProtoH2) {
-  nghttp2_session *session;
+  nghttp2_session     *session;
   struct xHttpStream_ *pending_dispatch[XHTTP_H2_MAX_PENDING_DISPATCH];
   int                  pending_count;
 };
@@ -32,9 +34,9 @@ XDEF_STRUCT(xHttpProtoH2) {
 XDEF_STRUCT(xH2StreamData) {
   struct xHttpStream_ *stream;
   char                *method;
-  xIOBuffer stream_buf;
-  int       stream_eof;
-  int       buf_initialized;
+  xIOBuffer            stream_buf;
+  int                  stream_eof;
+  int                  buf_initialized;
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════

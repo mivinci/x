@@ -14,17 +14,18 @@ extern "C" {
 #include "stun_msg.h"
 }
 
-#include <x/base/test_helper.h>
+#include <poll.h>
+#include <unistd.h>
 
-#include <arpa/inet.h>
 #include <atomic>
 #include <cerrno>
 #include <cstring>
-#include <netinet/in.h>
-#include <poll.h>
-#include <sys/socket.h>
 #include <thread>
-#include <unistd.h>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <x/base/test_helper.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -54,7 +55,8 @@ static int build_stun_response(const uint8_t txn_id[XSTUN_TXN_ID_SIZE], uint16_t
   addr.sin_port   = htons(port);
   inet_pton(AF_INET, "203.0.113.1", &addr.sin_addr);
 
-  if (xStunAttrWriteXorMappedAddress(&writer, reinterpret_cast<struct sockaddr *>(&addr), txn_id) != xErrno_Ok) {
+  if (xStunAttrWriteXorMappedAddress(&writer, reinterpret_cast<struct sockaddr *>(&addr), txn_id) !=
+      xErrno_Ok) {
     return -1;
   }
 
@@ -178,8 +180,9 @@ private:
       if (pfds[1].revents & (POLLIN | POLLHUP | POLLERR)) break;
       if (!(pfds[0].revents & POLLIN)) continue;
 
-      from_len  = sizeof(from);
-      ssize_t n = recvfrom(fd_, buf, sizeof(buf), 0, reinterpret_cast<struct sockaddr *>(&from), &from_len);
+      from_len = sizeof(from);
+      ssize_t n =
+        recvfrom(fd_, buf, sizeof(buf), 0, reinterpret_cast<struct sockaddr *>(&from), &from_len);
       if (n <= 0) {
         if (n < 0 && (errno == EAGAIN || errno == EINTR)) continue;
         break;
@@ -198,7 +201,8 @@ private:
       int     resp_len = build_stun_response(req.txn_id, port, resp_buf, sizeof(resp_buf));
       if (resp_len < 0) continue;
 
-      sendto(fd_, resp_buf, static_cast<size_t>(resp_len), 0, reinterpret_cast<struct sockaddr *>(&from), from_len);
+      sendto(fd_, resp_buf, static_cast<size_t>(resp_len), 0,
+             reinterpret_cast<struct sockaddr *>(&from), from_len);
     }
   }
 
@@ -371,9 +375,8 @@ TEST(NatProbeAPI, NullHost1ReturnsNull) {
   ASSERT_NE(loop, nullptr);
   xEventLoopEnter(loop);
   ProbeCtx ctx;
-  EXPECT_EQ(
-    xNatProbeStart(nullptr, 3478, "stun1.l.google.com", 3478, 1000, probe_callback, &ctx),
-    nullptr);
+  EXPECT_EQ(xNatProbeStart(nullptr, 3478, "stun1.l.google.com", 3478, 1000, probe_callback, &ctx),
+            nullptr);
   xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
@@ -383,9 +386,8 @@ TEST(NatProbeAPI, NullHost2ReturnsNull) {
   ASSERT_NE(loop, nullptr);
   xEventLoopEnter(loop);
   ProbeCtx ctx;
-  EXPECT_EQ(
-    xNatProbeStart("stun.l.google.com", 3478, nullptr, 3478, 1000, probe_callback, &ctx),
-    nullptr);
+  EXPECT_EQ(xNatProbeStart("stun.l.google.com", 3478, nullptr, 3478, 1000, probe_callback, &ctx),
+            nullptr);
   xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
@@ -394,9 +396,9 @@ TEST(NatProbeAPI, NullCallbackReturnsNull) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
   xEventLoopEnter(loop);
-  EXPECT_EQ(xNatProbeStart("stun.l.google.com", 3478, "stun1.l.google.com", 3478, 1000,
-                           nullptr, nullptr),
-            nullptr);
+  EXPECT_EQ(
+    xNatProbeStart("stun.l.google.com", 3478, "stun1.l.google.com", 3478, 1000, nullptr, nullptr),
+    nullptr);
   xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
@@ -642,8 +644,9 @@ private:
     socklen_t               from_len;
 
     while (running_) {
-      from_len  = sizeof(from);
-      ssize_t n = recvfrom(fd_, buf, sizeof(buf), 0, reinterpret_cast<struct sockaddr *>(&from), &from_len);
+      from_len = sizeof(from);
+      ssize_t n =
+        recvfrom(fd_, buf, sizeof(buf), 0, reinterpret_cast<struct sockaddr *>(&from), &from_len);
       if (n <= 0) break;
 
       if (!xStunMsgIsStun(buf, static_cast<size_t>(n))) continue;
@@ -659,7 +662,8 @@ private:
       int     resp_len = build_stun_response(req.txn_id, port, resp_buf, sizeof(resp_buf));
       if (resp_len < 0) continue;
 
-      sendto(fd_, resp_buf, static_cast<size_t>(resp_len), 0, reinterpret_cast<struct sockaddr *>(&from), from_len);
+      sendto(fd_, resp_buf, static_cast<size_t>(resp_len), 0,
+             reinterpret_cast<struct sockaddr *>(&from), from_len);
     }
   }
 
@@ -962,8 +966,7 @@ TEST(NatProbeIntegration, DefaultTimeout) {
 
   ProbeCtx ctx;
   /* timeout_ms = 0 → should use default. */
-  xNatProbe probe =
-    xNatProbeStart("127.0.0.1", port1, "127.0.0.1", port2, 0, probe_callback, &ctx);
+  xNatProbe probe = xNatProbeStart("127.0.0.1", port1, "127.0.0.1", port2, 0, probe_callback, &ctx);
   ASSERT_NE(probe, nullptr);
 
   ASSERT_TRUE(wait_for_probe(loop, ctx));
@@ -975,4 +978,3 @@ TEST(NatProbeIntegration, DefaultTimeout) {
   xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
-

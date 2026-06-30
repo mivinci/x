@@ -25,72 +25,73 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
+#include <unistd.h>
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <unistd.h>
 #endif
 
 /* ───────────────────── Types ───────────────────── */
 
-typedef struct query query_t;
+typedef struct query   query_t;
 typedef struct request request_t;
 
 /** Per-nameserver UDP connection. */
 typedef struct {
-  xSocket                 sock;         /* UDP socket, or NULL if not open */
-  struct sockaddr_storage addr;         /* nameserver address              */
-  socklen_t               addrlen;      /* length of addr                  */
-  int                     query_count;  /* sent since open                 */
-  int                     max_queries;  /* rotation threshold (0=unlim)    */
+  xSocket                 sock;        /* UDP socket, or NULL if not open */
+  struct sockaddr_storage addr;        /* nameserver address              */
+  socklen_t               addrlen;     /* length of addr                  */
+  int                     query_count; /* sent since open                 */
+  int                     max_queries; /* rotation threshold (0=unlim)    */
 } conn_t;
 
 struct query {
-  uint16_t    id;
-  uint16_t    qtype;       /* wire QTYPE                                */
-  char        name[256];
-  int         ns_index;    /* current nameserver index                  */
-  int         retries_left;
-  xTimer      timer;
-  query_t    *next;        /* sibling queries within the same request   */
-  request_t  *req;
+  uint16_t   id;
+  uint16_t   qtype; /* wire QTYPE                                */
+  char       name[256];
+  int        ns_index; /* current nameserver index                  */
+  int        retries_left;
+  xTimer     timer;
+  query_t   *next; /* sibling queries within the same request   */
+  request_t *req;
 };
 
 struct request {
   xDnsClient   client;
   xDnsCallback cb;
   void        *arg;
-  int          pending;    /* outstanding queries                       */
-  xDnsRecord  *results;    /* accumulated (append at tail)              */
+  int          pending; /* outstanding queries                       */
+  xDnsRecord  *results; /* accumulated (append at tail)              */
   xDnsRecord  *results_tail;
   int          had_success;
   xErrno       last_err;
-  query_t     *queries;    /* head of query list                        */
+  query_t     *queries; /* head of query list                        */
 };
 
 struct xDnsClient_ {
-  conn_t     conns[8];             /* per-nameserver connections          */
-  int        sock_family;          /* AF_INET or AF_INET6               */
-  xMap       queries;              /* id (void*) → query_t*              */
-  xMap       cache;                /* NULL if disabled                   */
-  xMap       hosts;                /* NULL if disabled                   */
+  conn_t conns[8];    /* per-nameserver connections          */
+  int    sock_family; /* AF_INET or AF_INET6               */
+  xMap   queries;     /* id (void*) → query_t*              */
+  xMap   cache;       /* NULL if disabled                   */
+  xMap   hosts;       /* NULL if disabled                   */
   /* Nameserver addresses (pre-resolved) */
   struct sockaddr_storage ns_addr[8];
   socklen_t               ns_len[8];
   int                     ns_count;
-  int      timeout_ms;
-  int      retries;
-  int      enable_cache;
-  int      enable_hosts;
-  uint16_t next_id;
+  int                     timeout_ms;
+  int                     retries;
+  int                     enable_cache;
+  int                     enable_hosts;
+  uint16_t                next_id;
 };
 
 /* ───────────────────── Forward declarations ───────────────────── */
 
-static void on_readable(xSocket sock, xEventMask mask, void *arg);
-static void on_query_timeout(void *arg);
-static void query_destroy(query_t *q);
-static void request_maybe_complete(request_t *req);
+static void   on_readable(xSocket sock, xEventMask mask, void *arg);
+static void   on_query_timeout(void *arg);
+static void   query_destroy(query_t *q);
+static void   request_maybe_complete(request_t *req);
 static xErrno send_query(struct xDnsClient_ *c, query_t *q);
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -118,8 +119,7 @@ static uint16_t alloc_id(struct xDnsClient_ *c) {
 
 /** Open a UDP socket for conn and register with the event loop. */
 static int conn_open(struct xDnsClient_ *c, conn_t *conn) {
-  xSocket s = xSocketCreate(c->sock_family, SOCK_DGRAM, 0, xEvent_Read,
-                            on_readable, c);
+  xSocket s = xSocketCreate(c->sock_family, SOCK_DGRAM, 0, xEvent_Read, on_readable, c);
   if (!s) return -1;
   int fd = xSocketFd(s);
   if (c->sock_family == AF_INET6) {
@@ -155,12 +155,15 @@ static int conns_init(struct xDnsClient_ *c) {
   /* Determine socket family */
   int need_v6 = 0;
   for (int i = 0; i < c->ns_count; ++i)
-    if (c->ns_addr[i].ss_family == AF_INET6) { need_v6 = 1; break; }
+    if (c->ns_addr[i].ss_family == AF_INET6) {
+      need_v6 = 1;
+      break;
+    }
   c->sock_family = need_v6 ? AF_INET6 : AF_INET;
 
   for (int i = 0; i < c->ns_count; ++i) {
     memcpy(&c->conns[i].addr, &c->ns_addr[i], sizeof(c->ns_addr[i]));
-    c->conns[i].addrlen    = c->ns_len[i];
+    c->conns[i].addrlen     = c->ns_len[i];
     c->conns[i].max_queries = 0; /* set below from config */
     if (conn_open(c, &c->conns[i]) != 0) return -1;
   }
@@ -169,7 +172,8 @@ static int conns_init(struct xDnsClient_ *c) {
 
 /** Close all connections. */
 static void conns_cleanup(struct xDnsClient_ *c) {
-  for (int i = 0; i < c->ns_count; ++i) conn_close(&c->conns[i]);
+  for (int i = 0; i < c->ns_count; ++i)
+    conn_close(&c->conns[i]);
 }
 
 /** Find the connection belonging to a given socket fd. */
@@ -193,14 +197,13 @@ static conn_t *conn_ready(struct xDnsClient_ *c, int ns_index) {
 /* Resolve the nameserver address for sending. If the socket is AF_INET6
  * but the nameserver is IPv4, produce an IPv4-mapped IPv6 address. */
 static const struct sockaddr *resolve_ns(struct xDnsClient_ *c, int idx,
-                                         struct sockaddr_in6 *mapped,
-                                         socklen_t *outlen) {
+                                         struct sockaddr_in6 *mapped, socklen_t *outlen) {
   struct sockaddr_storage *ss = &c->ns_addr[idx];
   if (c->sock_family == AF_INET6 && ss->ss_family == AF_INET) {
     struct sockaddr_in *in = (struct sockaddr_in *)ss;
     memset(mapped, 0, sizeof(*mapped));
-    mapped->sin6_family   = AF_INET6;
-    mapped->sin6_port     = in->sin_port;
+    mapped->sin6_family                 = AF_INET6;
+    mapped->sin6_port                   = in->sin_port;
     ((uint8_t *)&mapped->sin6_addr)[10] = 0xff;
     ((uint8_t *)&mapped->sin6_addr)[11] = 0xff;
     memcpy(&mapped->sin6_addr.s6_addr[12], &in->sin_addr, 4);
@@ -223,7 +226,10 @@ static xMap hosts_load(void) {
   if (!fp) return NULL;
 
   xMap m = xMapCreate(xMapType_Hash, 64, xMapStrHash, xMapStrEq);
-  if (!m) { fclose(fp); return NULL; }
+  if (!m) {
+    fclose(fp);
+    return NULL;
+  }
 
   char line[1024];
   while (fgets(line, sizeof(line), fp)) {
@@ -233,7 +239,7 @@ static xMap hosts_load(void) {
 
     /* Parse: IP hostname [alias...] */
     char ip[64], name[256];
-    int n = 0;
+    int  n = 0;
     if (sscanf(line, "%63s %255s%n", ip, name, &n) < 2) continue;
     if (ip[0] == '\0' || name[0] == '\0') continue;
 
@@ -249,7 +255,10 @@ static xMap hosts_load(void) {
     rec->name  = strdup(name);
     rec->rdata = malloc(4);
     if (!rec->name || !rec->rdata) {
-      free((void *)rec->name); free((void *)rec->rdata); free(rec); continue;
+      free((void *)rec->name);
+      free((void *)rec->rdata);
+      free(rec);
+      continue;
     }
     memcpy((void *)rec->rdata, &sin.sin_addr, 4);
     rec->rdlength = 4;
@@ -258,7 +267,8 @@ static xMap hosts_load(void) {
     xDnsRecord *existing = (xDnsRecord *)xMapGet(m, name);
     if (existing) {
       xDnsRecord *tail = existing;
-      while (tail->next) tail = tail->next;
+      while (tail->next)
+        tail = tail->next;
       tail->next = rec;
     } else {
       xMapSet(m, name, rec);
@@ -270,23 +280,30 @@ static xMap hosts_load(void) {
       char aname[256];
       if (sscanf(alias, "%255s%n", aname, &n) != 1) break;
       if (aname[0] == '\0') break;
-      if (strcasecmp(aname, name) == 0) { alias += n; continue; }
+      if (strcasecmp(aname, name) == 0) {
+        alias += n;
+        continue;
+      }
       /* Create a duplicate record for the alias */
       xDnsRecord *arec = (xDnsRecord *)calloc(1, sizeof(xDnsRecord));
       if (!arec) break;
-      arec->qtype    = DNS_QTYPE_A;
-      arec->ttl      = 0;
-      arec->name     = strdup(aname);
-      arec->rdata    = malloc(4);
+      arec->qtype = DNS_QTYPE_A;
+      arec->ttl   = 0;
+      arec->name  = strdup(aname);
+      arec->rdata = malloc(4);
       if (!arec->name || !arec->rdata) {
-        free((void *)arec->name); free((void *)arec->rdata); free(arec); break;
+        free((void *)arec->name);
+        free((void *)arec->rdata);
+        free(arec);
+        break;
       }
       memcpy((void *)arec->rdata, &sin.sin_addr, 4);
-      arec->rdlength = 4;
+      arec->rdlength     = 4;
       xDnsRecord *aexist = (xDnsRecord *)xMapGet(m, aname);
       if (aexist) {
         xDnsRecord *atail = aexist;
-        while (atail->next) atail = atail->next;
+        while (atail->next)
+          atail = atail->next;
         atail->next = arec;
       } else {
         xMapSet(m, aname, arec);
@@ -303,7 +320,8 @@ static xDnsRecord *hosts_lookup(xMap m, const char *name, uint16_t qtype) {
   xDnsRecord *rec = (xDnsRecord *)xMapGet(m, name);
   if (!rec) return NULL;
   /* Filter by qtype */
-  for (; rec; rec = rec->next) if (rec->qtype == qtype) break;
+  for (; rec; rec = rec->next)
+    if (rec->qtype == qtype) break;
   return rec;
 }
 
@@ -318,7 +336,8 @@ static void hosts_record_free(xDnsRecord *rec) {
 }
 
 static bool hosts_free_cb(const void *key, void *val, void *arg) {
-  (void)key; (void)arg;
+  (void)key;
+  (void)arg;
   hosts_record_free((xDnsRecord *)val);
   return true;
 }
@@ -350,14 +369,14 @@ xDnsClient xDnsClientCreate(const xDnsClientConf *conf) {
   char nss[8][46];
   int  ns_count = 0;
   if (conf) {
-    c->timeout_ms   = conf->timeout_ms   > 0 ? conf->timeout_ms : 5000;
-    c->retries      = conf->retries      >= 0 ? conf->retries    : 2;
-    c->enable_cache = conf->enable_cache    ? 1 : 0;
-    c->enable_hosts = conf->enable_hosts    ? 1 : 0;
+    c->timeout_ms   = conf->timeout_ms > 0 ? conf->timeout_ms : 5000;
+    c->retries      = conf->retries >= 0 ? conf->retries : 2;
+    c->enable_cache = conf->enable_cache ? 1 : 0;
+    c->enable_hosts = conf->enable_hosts ? 1 : 0;
     for (int i = 0; i < 8 && conf->nameservers[i]; ++i) {
       strncpy(nss[i], conf->nameservers[i], 45);
       nss[i][45] = '\0';
-      ns_count = i + 1;
+      ns_count   = i + 1;
     }
   }
   if (ns_count == 0) {
@@ -368,8 +387,8 @@ xDnsClient xDnsClientCreate(const xDnsClientConf *conf) {
    * Each string may be "host" (port 53), "ipv4:port", or "[ipv6]:port". */
   for (int i = 0; i < ns_count && c->ns_count < 8; ++i) {
     const char *s = nss[i];
-    char host[64];
-    int  port = DNS_PORT;
+    char        host[64];
+    int         port = DNS_PORT;
 
     if (s[0] == '[') {
       /* [ipv6]:port */
@@ -389,7 +408,7 @@ xDnsClient xDnsClientCreate(const xDnsClientConf *conf) {
         if (hl >= sizeof(host)) continue;
         memcpy(host, s, hl);
         host[hl] = '\0';
-        port = atoi(c1 + 1);
+        port     = atoi(c1 + 1);
       } else {
         /* no colon (ipv4 or ipv6) or multiple colons (bare ipv6) */
         strncpy(host, s, sizeof(host) - 1);
@@ -399,7 +418,7 @@ xDnsClient xDnsClientCreate(const xDnsClientConf *conf) {
     if (port <= 0) port = DNS_PORT;
 
     /* Try IPv4 first. */
-    struct sockaddr_in  sin;
+    struct sockaddr_in sin;
     memset(&sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
     sin.sin_port   = htons((uint16_t)port);
@@ -428,8 +447,8 @@ xDnsClient xDnsClientCreate(const xDnsClientConf *conf) {
     sin.sin_port   = htons(DNS_PORT);
     inet_pton(AF_INET, "8.8.8.8", &sin.sin_addr);
     memcpy(&c->ns_addr[0], &sin, sizeof(sin));
-    c->ns_len[0]  = sizeof(sin);
-    c->ns_count   = 1;
+    c->ns_len[0] = sizeof(sin);
+    c->ns_count  = 1;
   }
 
   if (c->enable_cache) {
@@ -451,7 +470,8 @@ xDnsClient xDnsClientCreate(const xDnsClientConf *conf) {
 
   /* Apply per-connection max_queries from config. */
   int max_q = conf ? conf->udp_max_queries : 0;
-  for (int i = 0; i < c->ns_count; ++i) c->conns[i].max_queries = max_q;
+  for (int i = 0; i < c->ns_count; ++i)
+    c->conns[i].max_queries = max_q;
 
   /* Load hosts file if enabled. */
   if (c->enable_hosts) c->hosts = hosts_load();
@@ -466,7 +486,7 @@ void xDnsClientDestroy(xDnsClient client) {
   /* Cancel all outstanding queries (callbacks NOT invoked). Collect unique
    * requests so each is freed exactly once. */
   if (c->queries) {
-    xMap          m = c->queries;
+    xMap        m    = c->queries;
     request_t **reqs = NULL;
     size_t      nreq = 0, capreq = 0;
     for (uint32_t id = 0; id < 65536; ++id) {
@@ -527,13 +547,13 @@ static xErrno send_query(struct xDnsClient_ *c, query_t *q) {
   if (!conn) return xErrno_SysError;
 
   uint8_t buf[512];
-  int n = dns_build_query(buf, sizeof(buf), q->id, q->name, q->qtype);
+  int     n = dns_build_query(buf, sizeof(buf), q->id, q->name, q->qtype);
   if (n < 0) return xErrno_DnsError;
 
-  struct sockaddr_in6     mapped;
-  socklen_t               addrlen;
-  const struct sockaddr  *addr = resolve_ns(c, q->ns_index, &mapped, &addrlen);
-  ssize_t s = xSocketSendTo(conn->sock, buf, (size_t)n, addr, addrlen);
+  struct sockaddr_in6    mapped;
+  socklen_t              addrlen;
+  const struct sockaddr *addr = resolve_ns(c, q->ns_index, &mapped, &addrlen);
+  ssize_t                s    = xSocketSendTo(conn->sock, buf, (size_t)n, addr, addrlen);
   if (s < 0) return xErrno_SysError;
 
   conn->query_count++;
@@ -542,7 +562,7 @@ static xErrno send_query(struct xDnsClient_ *c, query_t *q) {
 
 static void on_query_timeout(void *arg) {
   query_t *q = (query_t *)arg;
-  q->timer = NULL;
+  q->timer   = NULL;
 
   struct xDnsClient_ *c = (struct xDnsClient_ *)q->req->client;
 
@@ -552,7 +572,7 @@ static void on_query_timeout(void *arg) {
     if (c->ns_count > 1) q->ns_index = (q->ns_index + 1) % c->ns_count;
     if (send_query(c, q) == xErrno_Ok) {
       /* Exponential backoff: 2x timeout for subsequent retries */
-      int to = c->retries - q->retries_left > 1 ? c->timeout_ms * 2 : c->timeout_ms;
+      int to   = c->retries - q->retries_left > 1 ? c->timeout_ms * 2 : c->timeout_ms;
       q->timer = xTimerStart(on_query_timeout, q, (uint64_t)to, 0);
       return;
     }
@@ -562,9 +582,10 @@ static void on_query_timeout(void *arg) {
   /* Final failure for this query. */
   id_del(c->queries, q->id);
   request_t *req = q->req;
-  req->last_err = xErrno_Timeout;
+  req->last_err  = xErrno_Timeout;
   /* detach q from req->queries */
-  if (req->queries == q) req->queries = q->next;
+  if (req->queries == q)
+    req->queries = q->next;
   else {
     for (query_t *p = req->queries; p; p = p->next) {
       if (p->next == q) {
@@ -581,10 +602,10 @@ static void on_query_timeout(void *arg) {
 static void request_maybe_complete(request_t *req) {
   if (req->pending > 0) return;
 
-  xErrno           err = req->had_success ? xErrno_Ok : req->last_err;
+  xErrno            err  = req->had_success ? xErrno_Ok : req->last_err;
   const xDnsRecord *recs = req->had_success ? req->results : NULL;
-  xDnsCallback     cb   = req->cb;
-  void            *arg  = req->arg;
+  xDnsCallback      cb   = req->cb;
+  void             *arg  = req->arg;
 
   /* Cache successful results (per-qtype). */
   if (req->had_success && recs) {
@@ -614,8 +635,8 @@ static void lowercase(char *s) {
   }
 }
 
-xErrno xDnsClientDo(xDnsClient client, const char *name, xDnsType type,
-                    xDnsCallback cb, void *arg) {
+xErrno xDnsClientDo(xDnsClient client, const char *name, xDnsType type, xDnsCallback cb,
+                    void *arg) {
   if (!client || !name || !cb || type == 0) return xErrno_InvalidArg;
   struct xDnsClient_ *c = (struct xDnsClient_ *)client;
 
@@ -626,8 +647,8 @@ xErrno xDnsClientDo(xDnsClient client, const char *name, xDnsType type,
 
   /* Hosts file lookup: check before cache and DNS. */
   if (c->hosts) {
-    xDnsType t = type;
-    uint16_t qt = dns_qtype_take_next(&t);
+    xDnsType    t   = type;
+    uint16_t    qt  = dns_qtype_take_next(&t);
     xDnsRecord *rec = hosts_lookup(c->hosts, lname, qt);
     if (rec) {
       cb(xErrno_Ok, rec, arg);
@@ -653,9 +674,12 @@ xErrno xDnsClientDo(xDnsClient client, const char *name, xDnsType type,
         merged = NULL;
         break;
       }
-      if (!merged) merged = hit;
-      else         merged_tail->next = hit;
-      while (hit->next) hit = hit->next;
+      if (!merged)
+        merged = hit;
+      else
+        merged_tail->next = hit;
+      while (hit->next)
+        hit = hit->next;
       merged_tail = hit;
     }
     if (all_hit && merged) {
@@ -673,8 +697,8 @@ xErrno xDnsClientDo(xDnsClient client, const char *name, xDnsType type,
   req->arg      = arg;
   req->last_err = xErrno_Timeout;
 
-  xDnsType remaining = type;
-  query_t **qtail = &req->queries;
+  xDnsType  remaining = type;
+  query_t **qtail     = &req->queries;
   for (;;) {
     uint16_t qt = dns_qtype_take_next(&remaining);
     if (qt == 0) break;
@@ -708,8 +732,8 @@ xErrno xDnsClientDo(xDnsClient client, const char *name, xDnsType type,
     }
 
     q->timer = xTimerStart(on_query_timeout, q, (uint64_t)c->timeout_ms, 0);
-    *qtail = q;
-    qtail  = &q->next;
+    *qtail   = q;
+    qtail    = &q->next;
     ++req->pending;
   }
 
@@ -727,25 +751,23 @@ xErrno xDnsClientDo(xDnsClient client, const char *name, xDnsType type,
 
 static void on_readable(xSocket sock, xEventMask mask, void *arg) {
   if (!(mask & xEvent_Read)) return;
-  struct xDnsClient_ *c = (struct xDnsClient_ *)arg;
-  conn_t *conn = conn_find(c, sock);
+  struct xDnsClient_ *c    = (struct xDnsClient_ *)arg;
+  conn_t             *conn = conn_find(c, sock);
   if (!conn) return;
 
-  uint8_t buf[DNS_EDNS0_SIZE + 1];
+  uint8_t                 buf[DNS_EDNS0_SIZE + 1];
   struct sockaddr_storage src;
   socklen_t               srclen;
 
   for (;;) {
-    srclen = sizeof(src);
-    ssize_t n = xSocketRecvFrom(conn->sock, buf, sizeof(buf),
-                                (struct sockaddr *)&src, &srclen);
+    srclen    = sizeof(src);
+    ssize_t n = xSocketRecvFrom(conn->sock, buf, sizeof(buf), (struct sockaddr *)&src, &srclen);
     if (n < 0) break; /* EAGAIN / error — stop draining */
 
     dns_header_t   hdr;
     dns_question_t q;
     xDnsRecord    *answers = NULL;
-    if (dns_parse((const uint8_t *)buf, (size_t)n, &hdr, &q, &answers) != xErrno_Ok)
-      continue;
+    if (dns_parse((const uint8_t *)buf, (size_t)n, &hdr, &q, &answers) != xErrno_Ok) continue;
 
     query_t *qx = id_del(c->queries, hdr.id);
     if (!qx) {
@@ -762,7 +784,8 @@ static void on_readable(xSocket sock, xEventMask mask, void *arg) {
     }
 
     /* detach qx from req->queries */
-    if (req->queries == qx) req->queries = qx->next;
+    if (req->queries == qx)
+      req->queries = qx->next;
     else {
       for (query_t *p = req->queries; p; p = p->next) {
         if (p->next == qx) {
@@ -772,19 +795,24 @@ static void on_readable(xSocket sock, xEventMask mask, void *arg) {
       }
     }
 
-    int rcode = hdr.flags & DNS_RCODE_MASK;
-    xErrno qerr = xErrno_Ok;
-    if (rcode == 3)      qerr = xErrno_DnsNotFound;
-    else if (rcode != 0) qerr = xErrno_DnsError;
+    int    rcode = hdr.flags & DNS_RCODE_MASK;
+    xErrno qerr  = xErrno_Ok;
+    if (rcode == 3)
+      qerr = xErrno_DnsNotFound;
+    else if (rcode != 0)
+      qerr = xErrno_DnsError;
 
     if (qerr == xErrno_Ok) {
       /* success — append answers (if any) to request results. */
       req->had_success = 1;
       if (answers) {
-        if (!req->results)      req->results      = answers;
-        else                    req->results_tail->next = answers;
+        if (!req->results)
+          req->results = answers;
+        else
+          req->results_tail->next = answers;
         xDnsRecord *t = answers;
-        while (t->next) t = t->next;
+        while (t->next)
+          t = t->next;
         req->results_tail = t;
       }
     } else {

@@ -4,8 +4,8 @@
 #ifndef DLP_BUS_H
 #define DLP_BUS_H
 
-#include <x/base/error.h>
 #include <x/base/base.h>
+#include <x/base/error.h>
 
 /** Opaque bus handle. */
 typedef struct dlp_bus *dlp_bus_t;

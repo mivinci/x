@@ -6,11 +6,10 @@
  * crc32_test.cpp - Unit tests for xCrc32
  */
 
-#include <x/crypto/crc32.h>
+#include <cstring>
 
 #include <gtest/gtest.h>
-
-#include <cstring>
+#include <x/crypto/crc32.h>
 
 TEST(Crc32, Empty) {
   EXPECT_EQ(xCrc32((const uint8_t *)"", 0), 0x00000000u);

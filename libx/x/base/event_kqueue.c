@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+
 #include <sys/event.h>
 #include <sys/types.h>
 #include <x/base/log.h>
@@ -31,7 +32,7 @@ static int set_nonblock(int fd) {
  */
 static int kq_apply(int kqfd, struct xEventSource_ *src, xEventMask mask) {
   struct kevent changes[2];
-  int           n = 0;
+  int           n     = 0;
   int           flags = EV_ADD | (src->level_triggered ? 0 : EV_CLEAR);
 
   if (mask & xEvent_Read) {
@@ -194,10 +195,8 @@ static int kq_poll(struct xEventLoop_ *loop, struct xPollEvent_ *events, int max
     if (kevents[i].filter == EVFILT_READ) mask |= xEvent_Read;
     if (kevents[i].filter == EVFILT_WRITE) mask |= xEvent_Write;
 
-    XDEBUGL1("kq: fd=%d %s%s src=%p", src->fd,
-             (mask & xEvent_Read) ? "R" : "",
-             (mask & xEvent_Write) ? "W" : "",
-             (void*)src);
+    XDEBUGL1("kq: fd=%d %s%s src=%p", src->fd, (mask & xEvent_Read) ? "R" : "",
+             (mask & xEvent_Write) ? "W" : "", (void *)src);
 
     events[count].type      = X_POLL_FD;
     events[count].fd        = src->fd;

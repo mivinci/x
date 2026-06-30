@@ -15,10 +15,10 @@
 #ifndef XBASE_HEX_H
 #define XBASE_HEX_H
 
-#include <x/base/base.h>
-
 #include <stddef.h>
 #include <stdint.h>
+
+#include <x/base/base.h>
 
 /**
  * @brief Compute the maximum encoded length for a given input size.

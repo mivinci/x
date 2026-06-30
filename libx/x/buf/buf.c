@@ -6,13 +6,13 @@
  * buf.c - Linear auto-growing byte buffer implementation
  */
 
-#include <x/buf/buf.h>
-
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+#include <x/buf/buf.h>
 
 /* ───────────────────── Types ───────────────────── */
 

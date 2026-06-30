@@ -7,23 +7,24 @@
  */
 
 #include <stdlib.h>
+
 #include <x/base/command.h>
 
 #ifdef _WIN32
 /* Windows implementation is in command_windows.c */
 #else /* POSIX implementation */
 
-#include <x/base/command.h>
-#include <x/base/string.h>
-
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <unistd.h>
+#include <x/base/command.h>
+#include <x/base/string.h>
 
 #ifdef X_HAS_PTY
 #ifdef X_HAS_UTIL_H
@@ -187,7 +188,7 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec, const xC
 static int pipe_cloexec_nonblock(int fds[2]) {
 #if defined(__linux__) && defined(__NR_pipe2)
   if (pipe2(fds, O_CLOEXEC | O_NONBLOCK) == 0) return 0;
-    /* Fall through to manual approach on pipe2 failure */
+  /* Fall through to manual approach on pipe2 failure */
 #endif
 
   if (pipe(fds) != 0) return -1;
@@ -500,16 +501,14 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
 
   /* Watch read ends for output */
   if (conf->stdout_mode != xCommandOutput_Discard && exec->stdout_pipe[0] >= 0) {
-    exec->stdout_src =
-      xEventAdd(exec->stdout_pipe[0], xEvent_Read, on_stdout_readable, exec);
+    exec->stdout_src = xEventAdd(exec->stdout_pipe[0], xEvent_Read, on_stdout_readable, exec);
     if (!exec->stdout_src) goto fail_sigchld;
   } else {
     exec->stdout_eof = 1;
   }
 
   if (conf->stderr_mode != xCommandOutput_Discard && exec->stderr_pipe[0] >= 0) {
-    exec->stderr_src =
-      xEventAdd(exec->stderr_pipe[0], xEvent_Read, on_stderr_readable, exec);
+    exec->stderr_src = xEventAdd(exec->stderr_pipe[0], xEvent_Read, on_stderr_readable, exec);
     if (!exec->stderr_src) goto fail_sigchld;
   } else {
     exec->stderr_eof = 1;
@@ -919,7 +918,7 @@ static void on_timeout(void *arg) {
   cmd_kill_pg(exec, SIGTERM);
   exec->result.timed_out = 1;
   exec->state            = xCommandExecutorState_Cancelling;
-  exec->cancel_timer = xTimerStart(on_cancel_grace, exec, CMD_CANCEL_GRACE_MS, 0);
+  exec->cancel_timer     = xTimerStart(on_cancel_grace, exec, CMD_CANCEL_GRACE_MS, 0);
 }
 
 /* ───────────────────── Cancel grace period ───────────────────── */

@@ -11,10 +11,11 @@
 #endif
 
 #include "event_private.h"
+
 #include <limits.h>
+#include <pthread.h>
 #include <signal.h>
 #include <string.h>
-#include <pthread.h>
 
 /* ───────────────── Backend selection ───────────────── */
 
@@ -37,7 +38,7 @@ static __thread xEventLoop tl_loop;
 #endif
 
 void xEventLoopEnter(xEventLoop loop) {
-  struct xEventLoop_ *l   = (struct xEventLoop_ *)loop;
+  struct xEventLoop_ *l = (struct xEventLoop_ *)loop;
   if (l) l->prev = (struct xEventLoop_ *)tl_loop;
   tl_loop = loop;
 
@@ -52,12 +53,12 @@ void xEventLoopEnter(xEventLoop loop) {
 }
 
 void xEventLoopLeave(void) {
-  struct xEventLoop_ *cur  = (struct xEventLoop_ *)tl_loop;
+  struct xEventLoop_ *cur = (struct xEventLoop_ *)tl_loop;
   if (!cur) return;
 
   struct xEventLoop_ *prev = cur->prev;
-  cur->prev                 = NULL;
-  tl_loop                   = (xEventLoop)prev;
+  cur->prev                = NULL;
+  tl_loop                  = (xEventLoop)prev;
 
   /* Restore thread name from the previous loop in the chain */
 #if defined(__linux__) || defined(__APPLE__)
@@ -115,7 +116,7 @@ xEventLoop xEventLoopCreate(void) {
 }
 
 xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
-  xEventLoopConf conf = { .group = group };
+  xEventLoopConf conf = {.group = group};
   return xEventLoopCreateWithConf(&conf);
 }
 

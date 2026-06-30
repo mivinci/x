@@ -6,12 +6,12 @@
  * mpsc_test.cpp - xMpsc 单元测试
  */
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <set>
 #include <thread>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/mpsc.h>

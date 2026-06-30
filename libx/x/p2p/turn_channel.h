@@ -9,10 +9,9 @@
 #ifndef XP2P_TURN_CHANNEL_H
 #define XP2P_TURN_CHANNEL_H
 
+#include <netinet/in.h>
 #include <x/base/base.h>
 #include <x/base/error.h>
-
-#include <netinet/in.h>
 
 /** ChannelData header size: 2 (channel) + 2 (length). */
 #define XTURN_CHANNEL_HEADER_SIZE 4
@@ -45,8 +44,8 @@ static inline bool xTurnIsChannelData(uint8_t first_byte) {
  * @param out_cap  Output buffer capacity.
  * @return         Total encoded length, or -1 on error.
  */
-XCAPI(int) xTurnChannelDataEncode(uint16_t channel, const uint8_t *data, uint16_t data_len, uint8_t *out,
-                           size_t out_cap);
+XCAPI(int) xTurnChannelDataEncode(uint16_t channel, const uint8_t *data, uint16_t data_len,
+                                  uint8_t *out, size_t out_cap);
 
 /**
  * @brief Decode a ChannelData message.
@@ -59,6 +58,6 @@ XCAPI(int) xTurnChannelDataEncode(uint16_t channel, const uint8_t *data, uint16_
  * @return          xErrno_Ok on success.
  */
 XCAPI(xErrno) xTurnChannelDataDecode(const uint8_t *buf, size_t buf_len, uint16_t *channel,
-                              const uint8_t **data, uint16_t *data_len);
+                                     const uint8_t **data, uint16_t *data_len);
 
 #endif /* XP2P_TURN_CHANNEL_H */

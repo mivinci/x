@@ -6,10 +6,10 @@
  * mpsc.c - Multi-Producer Single-Consumer queue implementation
  */
 
+#include <stddef.h>
+
 #include <x/base/atomic.h>
 #include <x/base/mpsc.h>
-
-#include <stddef.h>
 
 void xMpscPush(xMpsc **head, xMpsc **tail, xMpsc *node) {
   xMpsc *_tail;

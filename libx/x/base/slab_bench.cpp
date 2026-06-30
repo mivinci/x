@@ -10,11 +10,11 @@
  * many small objects allocated and freed at high frequency.
  */
 
-#include <benchmark/benchmark.h>
-
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+
+#include <benchmark/benchmark.h>
 
 extern "C" {
 #include <x/base/slab.h>

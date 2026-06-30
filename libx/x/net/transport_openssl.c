@@ -12,16 +12,16 @@
 #ifdef X_HAS_OPENSSL
 
 #include "tls_private.h"
-#include "transport_private.h"
 #include "transport.h"
-
-#include <openssl/err.h>
-#include <openssl/ssl.h>
-#include <openssl/x509v3.h>
+#include "transport_private.h"
 
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#include <openssl/x509v3.h>
 #include <sys/uio.h>
 #include <x/base/log.h>
 

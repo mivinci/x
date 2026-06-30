@@ -10,20 +10,21 @@
 #include "proto_h2.h"
 #include "server_private.h"
 #include "ws_private.h"
-#include <x/net/transport_private.h>
 
-#include <arpa/inet.h>
 #include <errno.h>
-#include <netinet/in.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
-#include <unistd.h>
 #include <x/base/log.h>
+#include <x/net/transport_private.h>
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Forward declarations
@@ -160,8 +161,8 @@ void xHttpRouteFreeSegments_(struct xHttpRouteSegment_ *segs, int count) {
   free(segs);
 }
 
-int xHttpRouteMatch_(const struct xHttpRouteSegment_ *segments, int segment_count,
-                     const char *url, struct xHttpParam_ *params, int *param_count) {
+int xHttpRouteMatch_(const struct xHttpRouteSegment_ *segments, int segment_count, const char *url,
+                     struct xHttpParam_ *params, int *param_count) {
   *param_count = 0;
 
   const char *p       = url;
@@ -213,7 +214,7 @@ xHttpMux xHttpMuxCreate(void) {
 
 void xHttpMuxDestroy(xHttpMux mux) {
   if (!mux) return;
-  struct xHttpMux_ *m = (struct xHttpMux_ *)mux;
+  struct xHttpMux_      *m = (struct xHttpMux_ *)mux;
   struct xHttpMuxRoute_ *r = m->routes;
   while (r) {
     struct xHttpMuxRoute_ *next = r->next;
@@ -252,8 +253,8 @@ xErrno xHttpMuxHandle(xHttpMux mux, const xHttpRouteConf *conf) {
     return xErrno_NoMemory;
   }
 
-  route->method        = method_str;
-  route->path          = strdup(path);
+  route->method          = method_str;
+  route->path            = strdup(path);
   route->info.on_request = conf->on_request;
   route->info.on_data    = conf->on_data;
   route->info.on_done    = conf->on_done;
@@ -290,10 +291,10 @@ const xHttpRouteInfo *xHttpMuxResolve(void *router, xHttpCtx *ctx) {
 
   struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
 
-  int                 path_matched = 0;
-  struct xHttpMuxRoute_ *r         = m->routes;
-  struct xHttpParam_    params[XHTTP_MAX_PARAMS + 1];
-  int                   param_count = 0;
+  int                    path_matched = 0;
+  struct xHttpMuxRoute_ *r            = m->routes;
+  struct xHttpParam_     params[XHTTP_MAX_PARAMS + 1];
+  int                    param_count = 0;
 
   while (r) {
     if (xHttpRouteMatch_(r->segments, r->segment_count, ctx->url, params, &param_count)) {
@@ -348,15 +349,17 @@ xHttpServer xHttpServerCreate(const xHttpServerConf *conf) {
 
   /* Apply configuration */
   if (conf) {
-    s->resolve          = conf->resolve;
-    s->router           = conf->router;
-    s->idle_timeout_ms  = conf->idle_timeout_ms > 0 ? conf->idle_timeout_ms : XHTTP_DEFAULT_IDLE_TIMEOUT_MS;
-    s->max_header_size  = conf->max_header_size > 0 ? conf->max_header_size : XHTTP_DEFAULT_MAX_HEADER_SIZE;
+    s->resolve = conf->resolve;
+    s->router  = conf->router;
+    s->idle_timeout_ms =
+      conf->idle_timeout_ms > 0 ? conf->idle_timeout_ms : XHTTP_DEFAULT_IDLE_TIMEOUT_MS;
+    s->max_header_size =
+      conf->max_header_size > 0 ? conf->max_header_size : XHTTP_DEFAULT_MAX_HEADER_SIZE;
   } else {
-    s->resolve          = NULL;
-    s->router           = NULL;
-    s->idle_timeout_ms  = XHTTP_DEFAULT_IDLE_TIMEOUT_MS;
-    s->max_header_size  = XHTTP_DEFAULT_MAX_HEADER_SIZE;
+    s->resolve         = NULL;
+    s->router          = NULL;
+    s->idle_timeout_ms = XHTTP_DEFAULT_IDLE_TIMEOUT_MS;
+    s->max_header_size = XHTTP_DEFAULT_MAX_HEADER_SIZE;
   }
 
   return (xHttpServer)s;
@@ -784,8 +787,8 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
 
       if (rc < 0) {
         if (conn->stream && conn->stream->pending_error) {
-          int         code   = conn->stream->pending_error;
-          const char *reason = conn->stream->pending_error_reason;
+          int         code                   = conn->stream->pending_error;
+          const char *reason                 = conn->stream->pending_error_reason;
           conn->stream->pending_error        = 0;
           conn->stream->pending_error_reason = NULL;
           xHttpConnSendError(conn, code, reason);
@@ -830,9 +833,9 @@ void xHttpStreamResolve(struct xHttpStream_ *stream) {
 
   /* Build the per-request xHttpCtx */
   memset(&stream->ctx, 0, sizeof(stream->ctx));
-  stream->ctx.method      = conn->proto.method(stream);
-  stream->ctx.url         = stream->url ? (const char *)xBufferData(stream->url) : "/";
-  stream->ctx.headers     = stream->headers_raw ? (const char *)xBufferData(stream->headers_raw) : "";
+  stream->ctx.method  = conn->proto.method(stream);
+  stream->ctx.url     = stream->url ? (const char *)xBufferData(stream->url) : "/";
+  stream->ctx.headers = stream->headers_raw ? (const char *)xBufferData(stream->headers_raw) : "";
   stream->ctx.headers_len = stream->headers_raw ? xBufferLen(stream->headers_raw) - 1 : 0;
   stream->ctx.internal_   = stream;
 
@@ -855,7 +858,7 @@ void xHttpStreamResolve(struct xHttpStream_ *stream) {
   /* Call on_request if present */
   if (stream->route_info->on_request) {
     stream->on_request_done = 1;
-    int rc = stream->route_info->on_request(&stream->ctx, stream->route_info->arg);
+    int rc                  = stream->route_info->on_request(&stream->ctx, stream->route_info->arg);
     if (rc != 0) {
       stream->request_aborted = 1;
     }
@@ -872,8 +875,8 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
 
   /* If there was a pending error (404, 413, etc.), send it */
   if (stream->pending_error) {
-    int         code   = stream->pending_error;
-    const char *reason = stream->pending_error_reason;
+    int         code             = stream->pending_error;
+    const char *reason           = stream->pending_error_reason;
     stream->pending_error        = 0;
     stream->pending_error_reason = NULL;
     xHttpConnSendError(conn, code, reason);
@@ -935,16 +938,16 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
 
 void xHttpCtxSetStatus(xHttpCtx *ctx, int code) {
   if (!ctx) return;
-  ctx->status_code = code;
+  ctx->status_code            = code;
   struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
   if (stream) stream->writer.status_code = code;
 }
 
 xErrno xHttpCtxSetHeader(xHttpCtx *ctx, const char *key, const char *value) {
   if (!ctx || !key || !value) return xErrno_InvalidArg;
-  struct xHttpStream_         *stream = (struct xHttpStream_ *)ctx->internal_;
+  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
   if (!stream) return xErrno_InvalidArg;
-  struct xHttpResponseWriter_ *w      = &stream->writer;
+  struct xHttpResponseWriter_ *w = &stream->writer;
 
   struct xHttpHeader_ *h = (struct xHttpHeader_ *)calloc(1, sizeof(struct xHttpHeader_));
   if (!h) return xErrno_NoMemory;
@@ -972,9 +975,9 @@ xErrno xHttpCtxSetHeader(xHttpCtx *ctx, const char *key, const char *value) {
 
 xErrno xHttpCtxSend(xHttpCtx *ctx, const char *body, size_t body_len) {
   if (!ctx) return xErrno_InvalidArg;
-  struct xHttpStream_         *stream = (struct xHttpStream_ *)ctx->internal_;
+  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
   if (!stream) return xErrno_InvalidArg;
-  struct xHttpResponseWriter_ *w      = &stream->writer;
+  struct xHttpResponseWriter_ *w = &stream->writer;
 
   if (w->sent || w->streaming) return xErrno_InvalidState;
   w->sent = 1;
@@ -989,9 +992,9 @@ xErrno xHttpCtxSend(xHttpCtx *ctx, const char *body, size_t body_len) {
 
 xErrno xHttpCtxWrite(xHttpCtx *ctx, const char *data, size_t len) {
   if (!ctx) return xErrno_InvalidArg;
-  struct xHttpStream_         *stream = (struct xHttpStream_ *)ctx->internal_;
+  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
   if (!stream) return xErrno_InvalidArg;
-  struct xHttpResponseWriter_ *w      = &stream->writer;
+  struct xHttpResponseWriter_ *w = &stream->writer;
 
   if (w->sent) return xErrno_InvalidState;
 

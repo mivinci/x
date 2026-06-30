@@ -17,7 +17,10 @@ int main(int argc, char **argv) {
   if (argc > 1) port = atoi(argv[1]);
 
   xEventLoop loop = xEventLoopCreate();
-  if (!loop) { fprintf(stderr, "Failed to create event loop\n"); return 1; }
+  if (!loop) {
+    fprintf(stderr, "Failed to create event loop\n");
+    return 1;
+  }
   xEventLoopEnter(loop);
 
   xDnsZone zone = xDnsZoneCreate();
@@ -30,13 +33,17 @@ int main(int argc, char **argv) {
     xDnsZoneAdd(zone, name, xDnsType_A, ip, 4, 3600);
   }
 
-  xDnsServerConf conf = {};
-  xDnsServer server = xDnsServerCreate(&conf);
-  if (!server) { fprintf(stderr, "Failed to create server\n"); return 1; }
+  xDnsServerConf conf   = {};
+  xDnsServer     server = xDnsServerCreate(&conf);
+  if (!server) {
+    fprintf(stderr, "Failed to create server\n");
+    return 1;
+  }
 
   xDnsServerAddZone(server, zone);
   if (xDnsServerListen(server, "127.0.0.1", (uint16_t)port) != xErrno_Ok) {
-    fprintf(stderr, "Failed to listen on port %d\n", port); return 1;
+    fprintf(stderr, "Failed to listen on port %d\n", port);
+    return 1;
   }
 
   fprintf(stderr, "DNS bench server listening on 127.0.0.1:%d\n", port);

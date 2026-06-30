@@ -6,14 +6,15 @@
  * ws_frame_test.cpp - WebSocket frame masking unit tests
  */
 
-#include <gtest/gtest.h>
-
 #include <cstring>
 #include <string>
 #include <vector>
 
+#include <gtest/gtest.h>
+
 extern "C" {
 #include "ws_frame.h"
+
 #include <x/buf/io.h>
 }
 

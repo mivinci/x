@@ -12,8 +12,9 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/uio.h>
 #include <unistd.h>
+
+#include <sys/uio.h>
 #include <x/base/log.h>
 
 /* Maximum iovec entries for writev */
@@ -304,8 +305,7 @@ static void ws_reset_idle_timer(struct xWsConn_ *conn) {
   if (conn->idle_timer) {
     xTimerStop(conn->idle_timer);
   }
-  conn->idle_timer =
-    xTimerStart(ws_idle_timeout, conn, (uint64_t)conn->idle_timeout_ms, 0);
+  conn->idle_timer = xTimerStart(ws_idle_timeout, conn, (uint64_t)conn->idle_timeout_ms, 0);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

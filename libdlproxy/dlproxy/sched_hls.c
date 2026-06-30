@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include <x/base/event.h>
 #include <x/base/log.h>
 #include <x/http/client.h>
@@ -20,7 +21,7 @@
 
 struct m3u8_fetch_ctx {
   struct dlp_task *task;
-  char            *text;     /* accumulated response body */
+  char            *text; /* accumulated response body */
   size_t           text_len;
   size_t           text_cap;
   int              done;
@@ -31,10 +32,11 @@ static int on_m3u8_data(const char *data, size_t len, void *arg) {
   struct m3u8_fetch_ctx *fc = (struct m3u8_fetch_ctx *)arg;
   if (fc->text_len + len + 1 > fc->text_cap) {
     size_t ncap = fc->text_cap ? fc->text_cap * 2 : 4096;
-    while (ncap < fc->text_len + len + 1) ncap *= 2;
+    while (ncap < fc->text_len + len + 1)
+      ncap *= 2;
     char *n = (char *)realloc(fc->text, ncap);
     if (!n) return 1; /* abort */
-    fc->text = n;
+    fc->text     = n;
     fc->text_cap = ncap;
   }
   memcpy(fc->text + fc->text_len, data, len);
@@ -44,29 +46,27 @@ static int on_m3u8_data(const char *data, size_t len, void *arg) {
 }
 
 static void on_m3u8_done(xHttpCtx *ctx, void *arg) {
-  struct m3u8_fetch_ctx *fc = (struct m3u8_fetch_ctx *)arg;
-  fc->done = 1;
-  fc->status = ctx->status_code;
+  struct m3u8_fetch_ctx *fc   = (struct m3u8_fetch_ctx *)arg;
+  fc->done                    = 1;
+  fc->status                  = ctx->status_code;
   fc->task->playlist_fetching = false;
 
   if (fc->status >= 200 && fc->status < 300 && fc->text) {
-    struct dlp_task *task = fc->task;
-    struct hls_playlist *pl = hls_parse_playlist(fc->text, task->url);
+    struct dlp_task     *task = fc->task;
+    struct hls_playlist *pl   = hls_parse_playlist(fc->text, task->url);
     if (pl) {
       /* If master playlist, select first variant and fetch its URL */
       if (pl->is_master && pl->variant_count > 0) {
-        XDEBUGL0("hls: master playlist, selecting variant 0: %s",
-                 pl->variants[0].uri);
+        XDEBUGL0("hls: master playlist, selecting variant 0: %s", pl->variants[0].uri);
         snprintf(task->url, sizeof(task->url), "%s", pl->variants[0].uri);
         hls_playlist_free(pl);
         /* Re-fetch as media playlist on next tick */
         task->playlist_fetched = false;
       } else {
         /* Media playlist — store it */
-        task->playlist = pl;
+        task->playlist         = pl;
         task->playlist_fetched = true;
-        XDEBUGL0("hls: playlist parsed, %zu segments, vod=%d",
-                 pl->segment_count, pl->is_vod);
+        XDEBUGL0("hls: playlist parsed, %zu segments, vod=%d", pl->segment_count, pl->is_vod);
       }
     } else {
       XDEBUGL0("hls: failed to parse playlist");
@@ -99,8 +99,7 @@ static void hls_fetch_playlist(struct dlp_task *task) {
   }
   fc->task = task;
 
-  dlp_http_fetch_text(c->dl_http, task->url,
-                      (int (*)(const char *, size_t, void *))on_m3u8_data,
+  dlp_http_fetch_text(c->dl_http, task->url, (int (*)(const char *, size_t, void *))on_m3u8_data,
                       (void (*)(xHttpCtx *, void *))on_m3u8_done, fc);
 }
 
@@ -116,22 +115,21 @@ static void hls_on_tick(struct dlp_task *task) {
   if (!task->playlist || task->playlist->segment_count == 0) return;
 
   /* Compute remain_time from contiguous cached segments */
-  int remain_ms = 0;
+  int      remain_ms = 0;
   uint32_t seg_count = (uint32_t)task->playlist->segment_count;
   for (uint32_t i = task->read_segment; i < seg_count; i++) {
     char clip_id[32];
     snprintf(clip_id, sizeof(clip_id), "%u.ts", i);
     struct hls_segment *seg = &task->playlist->segments[i];
     /* Check if segment is fully cached — read 1 byte at offset 0 */
-    if (!dlp_cache_is_ready(c->cache, task->rid, clip_id, 0, 1))
-      break;
+    if (!dlp_cache_is_ready(c->cache, task->rid, clip_id, 0, 1)) break;
     remain_ms += (int)(seg->duration * 1000);
   }
   task->remain_time_ms = remain_ms;
 
   /* Three-zone decision */
-  int emergency = task->emergency_ms;
-  int safe      = task->safe_ms;
+  int  emergency   = task->emergency_ms;
+  int  safe        = task->safe_ms;
   bool should_pull = false;
   if (remain_ms < emergency) {
     should_pull = true;
@@ -171,12 +169,10 @@ static void hls_on_tick(struct dlp_task *task) {
     }
 
     task->downloading_seg = i;
-    XDEBUGL0("hls tick: rid=%s seg=%u remain=%dms fetching %s",
-             task->rid, i, remain_ms, seg->uri);
+    XDEBUGL0("hls tick: rid=%s seg=%u remain=%dms fetching %s", task->rid, i, remain_ms, seg->uri);
 
     if (seg->has_byterange) {
-      dlp_http_fetch(c->dl_http, task->rid, clip_id, seg->uri,
-                     fetch_offset, fetch_len, task);
+      dlp_http_fetch(c->dl_http, task->rid, clip_id, seg->uri, fetch_offset, fetch_len, task);
     } else {
       /* Full segment fetch — no Range header (let CDN serve full file) */
       dlp_http_fetch_full(c->dl_http, task->rid, clip_id, seg->uri, task);

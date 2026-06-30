@@ -17,6 +17,7 @@
 #define XHTTP_WS_CRYPTO_H
 
 #include <stddef.h>
+
 #include <x/base/base.h>
 
 /** SHA-1 digest size in bytes. */

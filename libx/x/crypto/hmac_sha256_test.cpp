@@ -6,14 +6,13 @@
  * hmac_sha256_test.cpp - Unit tests for HMAC-SHA256
  */
 
+#include <cstring>
+#include <string>
+
+#include <gtest/gtest.h>
 #include <x/crypto/hmac.h>
 #include <x/crypto/hmac_sha256.h>
 #include <x/crypto/sha256.h>
-
-#include <gtest/gtest.h>
-
-#include <cstring>
-#include <string>
 
 /* ── Helper: hex-encode a digest ───────────────────────── */
 

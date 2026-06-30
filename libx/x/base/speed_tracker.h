@@ -9,10 +9,10 @@
 #ifndef XBASE_SPEED_TRACKER_H
 #define XBASE_SPEED_TRACKER_H
 
-#include <x/base/base.h>
-
 #include <stddef.h>
 #include <stdint.h>
+
+#include <x/base/base.h>
 
 /* ── EMA-smoothed speed tracker ────────────────────────── */
 

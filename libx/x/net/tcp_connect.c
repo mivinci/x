@@ -13,13 +13,13 @@
 #include "transport_private.h"
 
 #include <errno.h>
-#include <netinet/tcp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <unistd.h>
 
+#include <netinet/tcp.h>
+#include <sys/socket.h>
 #include <x/base/log.h>
 #include <x/net/dns.h>
 
@@ -230,8 +230,7 @@ static void connector_do_tcp_connect(xTcpConnector_ *c) {
   xDnsAddr *addr = c->dns_result->addrs;
 
   /* Create socket */
-  c->sock =
-    xSocketCreate(addr->family, SOCK_STREAM, 0, xEvent_Write, connector_sock_cb, c);
+  c->sock = xSocketCreate(addr->family, SOCK_STREAM, 0, xEvent_Write, connector_sock_cb, c);
   if (!c->sock) {
     connector_fail(c, xErrno_SysError);
     return;
@@ -389,7 +388,7 @@ static void connector_sock_cb(xSocket sock, xEventMask mask, void *arg) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-xErrno xTcpConnect( const char *host, uint16_t port, const xTcpConnectConf *conf,
+xErrno xTcpConnect(const char *host, uint16_t port, const xTcpConnectConf *conf,
                    xTcpConnectFunc callback, void *arg) {
   xEventLoop loop = xEventLoopCurrent();
   if (!loop || !host || !callback) return xErrno_InvalidArg;

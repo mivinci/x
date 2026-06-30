@@ -6,13 +6,13 @@
  * event_test.cpp - Unit tests for xEventLoop
  */
 
-#include <x/base/event.h>
-
 #include <atomic>
 #include <chrono>
 #include <cstring>
 #include <thread>
 #include <vector>
+
+#include <x/base/event.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -25,7 +25,6 @@
 #endif
 
 #include <gtest/gtest.h>
-
 #include <x/base/task.h>
 #include <x/base/test_helper.h>
 
@@ -373,7 +372,8 @@ TEST(EventMod, SwitchReadToWrite) {
 
   /* No data to read — wait briefly, no read event expected */
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 50, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 50, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -382,7 +382,8 @@ TEST(EventMod, SwitchReadToWrite) {
   EXPECT_EQ(xEventMod(src, xEvent_Write), xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 50, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 50, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -422,8 +423,9 @@ TEST(EventTimeout, TimesOutWhenNoEvents) {
   ASSERT_NE(loop, nullptr);
   xEventLoopEnter(loop);
 
-  auto start = std::chrono::steady_clock::now();
-  xTimer t   = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 80, 0);
+  auto   start = std::chrono::steady_clock::now();
+  xTimer t =
+    xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 80, 0);
   xEventLoopRun(loop, X_RUN_DEFAULT);
   if (t) xTimerStop(t);
   auto elapsed = std::chrono::duration_cast<ms>(std::chrono::steady_clock::now() - start).count();
@@ -446,7 +448,7 @@ TEST(EventWake, WakeFromAnotherThread) {
     xEventLoopWake(loop);
   });
 
-  auto start   = std::chrono::steady_clock::now();
+  auto start = std::chrono::steady_clock::now();
   xEventLoopRun(loop, X_RUN_ONCE); /* long timeout, should be woken early */
   auto elapsed = std::chrono::duration_cast<ms>(std::chrono::steady_clock::now() - start).count();
 
@@ -584,7 +586,8 @@ TEST(EventConcurrent, WakeWhileWaiting) {
   });
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -635,7 +638,8 @@ TEST(EventStress, ManySourcesManyEvents) {
       write_fd(pipes[i][1], "x", 1);
 
     {
-      xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+      xTimer t =
+        xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
       xEventLoopRun(loop, X_RUN_DEFAULT);
       if (t) xTimerStop(t);
     }
@@ -790,6 +794,7 @@ TEST(EventReadWrite, BothReadAndWrite) {
 
 #ifndef _WIN32
 #include <csignal>
+
 #include <sys/types.h>
 
 TEST(EventSignal, BasicRegisterAndTrigger) {
@@ -815,7 +820,8 @@ TEST(EventSignal, BasicRegisterAndTrigger) {
   kill(getpid(), SIGUSR1);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -836,13 +842,13 @@ TEST(EventSignal, CancelStopsCallback) {
 
   int count = 0;
 
-  EXPECT_EQ(xSignal(
-              SIGUSR1, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count),
-            xErrno_Ok);
+  EXPECT_EQ(
+    xSignal(SIGUSR1, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count), xErrno_Ok);
 
   kill(getpid(), SIGUSR1);
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -854,7 +860,8 @@ TEST(EventSignal, CancelStopsCallback) {
   int saved = count;
   kill(getpid(), SIGUSR1);
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -873,18 +880,17 @@ TEST(EventSignal, ReplaceCallback) {
 
   int count1 = 0, count2 = 0;
 
-  EXPECT_EQ(xSignal(
-              SIGUSR1, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count1),
-            xErrno_Ok);
+  EXPECT_EQ(
+    xSignal(SIGUSR1, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count1), xErrno_Ok);
 
-  EXPECT_EQ(xSignal(
-              SIGUSR1, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count2),
-            xErrno_Ok);
+  EXPECT_EQ(
+    xSignal(SIGUSR1, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count2), xErrno_Ok);
 
   kill(getpid(), SIGUSR1);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -920,19 +926,18 @@ TEST(EventSignal, MultipleSignals) {
 
   int count1 = 0, count2 = 0;
 
-  EXPECT_EQ(xSignal(
-              SIGUSR1, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count1),
-            xErrno_Ok);
+  EXPECT_EQ(
+    xSignal(SIGUSR1, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count1), xErrno_Ok);
 
-  EXPECT_EQ(xSignal(
-              SIGUSR2, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count2),
-            xErrno_Ok);
+  EXPECT_EQ(
+    xSignal(SIGUSR2, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count2), xErrno_Ok);
 
   kill(getpid(), SIGUSR1);
   kill(getpid(), SIGUSR2);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -952,9 +957,7 @@ TEST(EventSignal, StopLoopFromCallback) {
   xEventLoopEnter(loop);
 
   EXPECT_EQ(
-    xSignal(
-      SIGUSR1, [](int, void *arg) { xEventLoopStop((xEventLoop)arg); }, loop),
-    xErrno_Ok);
+    xSignal(SIGUSR1, [](int, void *arg) { xEventLoopStop((xEventLoop)arg); }, loop), xErrno_Ok);
 
   std::thread sender([&]() {
     sleep_ms(50);
@@ -973,7 +976,6 @@ TEST(EventSignal, StopLoopFromCallback) {
   xEventLoopDestroy(loop);
 }
 #endif /* _WIN32 */
-
 
 /* ───────────────────── xEventLoopFd / xEventLoopNextTimeout ──────────────────── */
 
@@ -1048,8 +1050,8 @@ TEST(EventLoopConf, CreateWithNullConf) {
 
 TEST(EventLoopConf, CreateWithGroupAndName) {
   xEventLoopConf conf = {};
-  conf.name  = "test-looper";
-  xEventLoop loop = xEventLoopCreateWithConf(&conf);
+  conf.name           = "test-looper";
+  xEventLoop loop     = xEventLoopCreateWithConf(&conf);
   ASSERT_NE(loop, nullptr);
 
   xEventLoopEnter(loop);
@@ -1068,8 +1070,8 @@ TEST(EventLoopConf, CreateWithGroupAndName) {
 
 TEST(EventLoopConf, NameTruncation) {
   xEventLoopConf conf = {};
-  conf.name = "this-name-is-way-too-long-for-a-thread";
-  xEventLoop loop = xEventLoopCreateWithConf(&conf);
+  conf.name           = "this-name-is-way-too-long-for-a-thread";
+  xEventLoop loop     = xEventLoopCreateWithConf(&conf);
   ASSERT_NE(loop, nullptr);
 
   xEventLoopEnter(loop);
@@ -1097,13 +1099,13 @@ TEST(EventLoopConf, WrappersWorkIdentically) {
 
   /* xEventLoopCreateWithGroup should set the group */
   xTaskGroupConf tgconf = {};
-  tgconf.nthreads = 1;
-  xTaskGroup tg = xTaskGroupCreate(&tgconf);
+  tgconf.nthreads       = 1;
+  xTaskGroup tg         = xTaskGroupCreate(&tgconf);
   ASSERT_NE(tg, nullptr);
 
   xEventLoopConf conf = {};
-  conf.group = tg;
-  xEventLoop loop2 = xEventLoopCreateWithConf(&conf);
+  conf.group          = tg;
+  xEventLoop loop2    = xEventLoopCreateWithConf(&conf);
   ASSERT_NE(loop2, nullptr);
   xEventLoopDestroy(loop2);
 
@@ -1117,8 +1119,8 @@ TEST(EventLoopConf, WrappersWorkIdentically) {
 
 TEST(EventLoopConf, ThreadNameClearedAfterLeave) {
   xEventLoopConf conf = {};
-  conf.name = "restore-loop";
-  xEventLoop loop = xEventLoopCreateWithConf(&conf);
+  conf.name           = "restore-loop";
+  xEventLoop loop     = xEventLoopCreateWithConf(&conf);
   ASSERT_NE(loop, nullptr);
 
   xEventLoopEnter(loop);
@@ -1129,20 +1131,19 @@ TEST(EventLoopConf, ThreadNameClearedAfterLeave) {
 #if defined(__linux__) || defined(__APPLE__)
   char name[32] = {0};
   pthread_getname_np(pthread_self(), name, sizeof(name));
-  EXPECT_STREQ(name, "")
-      << "Thread name should be cleared after outermost Leave";
+  EXPECT_STREQ(name, "") << "Thread name should be cleared after outermost Leave";
 #endif
 }
 
 TEST(EventLoopConf, ThreadNameRestoredOnNestedLeave) {
   xEventLoopConf outer_conf = {};
-  outer_conf.name = "outer-loop";
-  xEventLoop outer = xEventLoopCreateWithConf(&outer_conf);
+  outer_conf.name           = "outer-loop";
+  xEventLoop outer          = xEventLoopCreateWithConf(&outer_conf);
   ASSERT_NE(outer, nullptr);
 
   xEventLoopConf inner_conf = {};
-  inner_conf.name = "inner-loop";
-  xEventLoop inner = xEventLoopCreateWithConf(&inner_conf);
+  inner_conf.name           = "inner-loop";
+  xEventLoop inner          = xEventLoopCreateWithConf(&inner_conf);
   ASSERT_NE(inner, nullptr);
 
   xEventLoopEnter(outer);

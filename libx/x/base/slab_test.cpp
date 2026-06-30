@@ -6,14 +6,14 @@
  * slab_test.cpp - xSlab / xSlabMt unit tests
  */
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <thread>
 #include <unordered_set>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/slab.h>

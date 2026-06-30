@@ -6,11 +6,11 @@
  * speed_tracker_test.cpp - Unit tests for xSpeedTracker
  */
 
-#include <gtest/gtest.h>
-
 #include <chrono>
 #include <cstring>
 #include <thread>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/speed_tracker.h>

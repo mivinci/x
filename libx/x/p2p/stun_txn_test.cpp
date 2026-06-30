@@ -96,8 +96,9 @@ protected:
 /* ───────────────────── Tests ───────────────────── */
 
 TEST_F(StunTxnTest, SendCreatesTransaction) {
-  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0, reinterpret_cast<struct sockaddr *>(&dest),
-                               mock_send, NULL, mock_on_complete, NULL);
+  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0,
+                               reinterpret_cast<struct sockaddr *>(&dest), mock_send, NULL,
+                               mock_on_complete, NULL);
   ASSERT_EQ(err, xErrno_Ok);
   EXPECT_EQ(g_send.call_count, 1);
   EXPECT_EQ(mgr.count, 1);
@@ -107,8 +108,9 @@ TEST_F(StunTxnTest, SendCreatesTransaction) {
 }
 
 TEST_F(StunTxnTest, ResponseMatchesTransaction) {
-  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0, reinterpret_cast<struct sockaddr *>(&dest),
-                               mock_send, NULL, mock_on_complete, NULL);
+  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0,
+                               reinterpret_cast<struct sockaddr *>(&dest), mock_send, NULL,
+                               mock_on_complete, NULL);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Decode the sent request to get the txn_id */
@@ -127,8 +129,8 @@ TEST_F(StunTxnTest, ResponseMatchesTransaction) {
   ASSERT_EQ(xStunMsgDecode(&decoded_resp, resp_buf, resp_len), xErrno_Ok);
 
   /* Feed it to the manager */
-  bool matched =
-    xStunTxnMgrOnResponse(&mgr, &decoded_resp, resp_buf, resp_len, reinterpret_cast<struct sockaddr *>(&dest));
+  bool matched = xStunTxnMgrOnResponse(&mgr, &decoded_resp, resp_buf, resp_len,
+                                       reinterpret_cast<struct sockaddr *>(&dest));
   EXPECT_TRUE(matched);
   EXPECT_TRUE(g_complete.called);
   EXPECT_FALSE(g_complete.timed_out);
@@ -136,8 +138,9 @@ TEST_F(StunTxnTest, ResponseMatchesTransaction) {
 }
 
 TEST_F(StunTxnTest, UnmatchedResponseDiscarded) {
-  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0, reinterpret_cast<struct sockaddr *>(&dest),
-                               mock_send, NULL, mock_on_complete, NULL);
+  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0,
+                               reinterpret_cast<struct sockaddr *>(&dest), mock_send, NULL,
+                               mock_on_complete, NULL);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Build a response with a different txn_id */
@@ -153,8 +156,8 @@ TEST_F(StunTxnTest, UnmatchedResponseDiscarded) {
   xStunMsg decoded_resp;
   ASSERT_EQ(xStunMsgDecode(&decoded_resp, resp_buf, resp_len), xErrno_Ok);
 
-  bool matched =
-    xStunTxnMgrOnResponse(&mgr, &decoded_resp, resp_buf, resp_len, reinterpret_cast<struct sockaddr *>(&dest));
+  bool matched = xStunTxnMgrOnResponse(&mgr, &decoded_resp, resp_buf, resp_len,
+                                       reinterpret_cast<struct sockaddr *>(&dest));
   EXPECT_FALSE(matched);
   EXPECT_FALSE(g_complete.called);
   EXPECT_EQ(mgr.count, 1); /* Transaction still pending */
@@ -175,8 +178,9 @@ TEST_F(StunTxnTest, CancelAllCleansUp) {
 }
 
 TEST_F(StunTxnTest, SendFailReturnsError) {
-  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0, reinterpret_cast<struct sockaddr *>(&dest),
-                               mock_send_fail, NULL, mock_on_complete, NULL);
+  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0,
+                               reinterpret_cast<struct sockaddr *>(&dest), mock_send_fail, NULL,
+                               mock_on_complete, NULL);
   EXPECT_NE(err, xErrno_Ok);
   EXPECT_EQ(mgr.count, 0);
 }
@@ -190,8 +194,9 @@ TEST_F(StunTxnTest, SendRawWorks) {
   int     msg_len = xStunMsgEncode(&msg, msg_buf, sizeof(msg_buf));
   ASSERT_GT(msg_len, 0);
 
-  xErrno err = xStunTxnMgrSendRaw(&mgr, msg_buf, msg_len, reinterpret_cast<struct sockaddr *>(&dest), mock_send, NULL,
-                                  mock_on_complete, NULL);
+  xErrno err =
+    xStunTxnMgrSendRaw(&mgr, msg_buf, msg_len, reinterpret_cast<struct sockaddr *>(&dest),
+                       mock_send, NULL, mock_on_complete, NULL);
   ASSERT_EQ(err, xErrno_Ok);
   EXPECT_EQ(mgr.count, 1);
 
@@ -218,8 +223,8 @@ TEST_F(StunTxnTest, MultipleTransactionsMultiplex) {
   xStunMsg decoded_resp;
   ASSERT_EQ(xStunMsgDecode(&decoded_resp, resp_buf, resp_len), xErrno_Ok);
 
-  bool matched =
-    xStunTxnMgrOnResponse(&mgr, &decoded_resp, resp_buf, resp_len, reinterpret_cast<struct sockaddr *>(&dest));
+  bool matched = xStunTxnMgrOnResponse(&mgr, &decoded_resp, resp_buf, resp_len,
+                                       reinterpret_cast<struct sockaddr *>(&dest));
   EXPECT_TRUE(matched);
   EXPECT_EQ(mgr.count, 2); /* One removed, two remaining */
 }

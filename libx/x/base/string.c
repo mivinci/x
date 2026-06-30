@@ -6,13 +6,13 @@
  * string.c - SDS-style dynamic string implementation
  */
 
-#include <x/base/compat.h>
-#include <x/base/string.h>
-
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <x/base/compat.h>
+#include <x/base/string.h>
 
 /* ───────────────────── Internal header ───────────────────── */
 

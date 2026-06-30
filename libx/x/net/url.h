@@ -14,10 +14,10 @@
 #ifndef XNET_URL_H
 #define XNET_URL_H
 
+#include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
-
-#include <stdint.h>
 
 /**
  * @brief Parsed URL components.

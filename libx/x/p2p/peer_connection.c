@@ -10,13 +10,14 @@
  */
 
 #include "peer_connection.h"
+
 #include "sdp.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 
+#include <sys/socket.h>
 #include <x/base/log.h>
 
 /* ───────────────────── Internal Structure ───────────────────── */
@@ -312,7 +313,7 @@ static void pc_on_remote_datachannel(xDataChannelMgr mgr, xDataChannel channel, 
 
 /* ───────────────────── Public API ───────────────────── */
 
-xPeerConnection xPeerConnectionCreate( const xPeerConnectionConf *conf) {
+xPeerConnection xPeerConnectionCreate(const xPeerConnectionConf *conf) {
   xEventLoop loop = xEventLoopCurrent();
   if (!loop || !conf) return NULL;
 

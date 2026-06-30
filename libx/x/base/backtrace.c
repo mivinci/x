@@ -12,11 +12,11 @@
  *   4. stub       (fallback)
  */
 
-#include <x/base/backtrace.h>
-
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+
+#include <x/base/backtrace.h>
 
 /* Maximum number of frames to capture */
 #define MAX_FRAMES 128

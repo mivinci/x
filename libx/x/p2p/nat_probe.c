@@ -11,18 +11,20 @@
  */
 
 #include "nat_probe.h"
+
 #include "stun_attr.h"
 #include "stun_msg.h"
-#include <x/base/log.h>
-#include <x/net/dns.h>
 
-#include <arpa/inet.h>
 #include <errno.h>
-#include <netinet/in.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <unistd.h>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <x/base/log.h>
+#include <x/net/dns.h>
 
 /* ───────────────────── Constants ───────────────────── */
 
@@ -90,10 +92,10 @@ XDEF_STRUCT(xNatProbe_) {
   xNatProbeTest phase2_tests[XNAT_PHASE2_COUNT];
   int           phase2_done_count;
 
-  xDnsQuery   dns_query; /**< Pending DNS query handle.         */
-  int         timeout_ms;
-  xTimer timeout_timer; /**< Overall timeout timer.        */
-  bool        finished;      /**< Probe already completed/cancelled. */
+  xDnsQuery dns_query; /**< Pending DNS query handle.         */
+  int       timeout_ms;
+  xTimer    timeout_timer; /**< Overall timeout timer.        */
+  bool      finished;      /**< Probe already completed/cancelled. */
 };
 
 /* ───────────────────── Forward declarations ───────────────────── */
@@ -601,8 +603,7 @@ static bool nat_probe_start_phase2(xNatProbe_ *p) {
 
     nat_probe_gen_txn_id(t->txn_id);
 
-    t->sock =
-      xSocketCreate(family, SOCK_DGRAM, 0, xEvent_Read, nat_probe_phase2_on_readable, t);
+    t->sock = xSocketCreate(family, SOCK_DGRAM, 0, xEvent_Read, nat_probe_phase2_on_readable, t);
     if (!t->sock) {
       XDEBUGL0("[nat-probe] phase2: xSocketCreate failed for test[%d]", i);
       return false;
@@ -667,9 +668,8 @@ static void nat_probe_gen_txn_id(uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
 
 /* ───────────────────── Public API ───────────────────── */
 
-XCAPI(xNatProbe) xNatProbeStart(const char *stun_host1, uint16_t stun_port1,
-                                const char *stun_host2, uint16_t stun_port2, int timeout_ms,
-                                xNatProbeFunc cb, void *arg) {
+XCAPI(xNatProbe) xNatProbeStart(const char *stun_host1, uint16_t stun_port1, const char *stun_host2,
+                                uint16_t stun_port2, int timeout_ms, xNatProbeFunc cb, void *arg) {
   xEventLoop loop = xEventLoopCurrent();
   if (!loop || !stun_host1 || !stun_host2 || !cb) return NULL;
 
@@ -704,8 +704,7 @@ XCAPI(xNatProbe) xNatProbeStart(const char *stun_host1, uint16_t stun_port1,
 
   /* Schedule overall timeout — covers DNS + Phase1 + Phase2. */
   int total_timeout = timeout_ms * 2 + 2000; /* generous for two phases */
-  p->timeout_timer =
-    xTimerStart(nat_probe_on_timeout, p, (uint64_t)total_timeout, 0);
+  p->timeout_timer  = xTimerStart(nat_probe_on_timeout, p, (uint64_t)total_timeout, 0);
 
   /* Resolve STUN server 1 first. */
   p->phase = xNatProbePhase_DNS1;

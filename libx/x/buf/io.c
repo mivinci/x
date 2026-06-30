@@ -6,17 +6,17 @@
  * io.c - Reference-counted block-chain I/O buffer implementation
  */
 
-#include <x/base/atomic.h>
-#include <x/buf/io.h>
-
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/uio.h>
 #include <unistd.h>
+
+#include <sys/uio.h>
+#include <x/base/atomic.h>
+#include <x/buf/io.h>
 
 /* ═══════════════════════════════════════════════════════
  *  Block pool — lock-free stack (Treiber stack)

@@ -6,9 +6,9 @@
  * list_test.cpp - xList unit tests
  */
 
-#include <gtest/gtest.h>
-
 #include <vector>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/list.h>

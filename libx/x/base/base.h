@@ -70,36 +70,36 @@
  * -fvisibility=hidden default so the symbol becomes public.
  */
 #if defined(_WIN32)
-  #if defined(X_BUILD_SHARED)
-    #if defined(X_BUILDING_LIB)
-      /* Building the library itself: export symbols. */
-      #define X_EXPORT __declspec(dllexport)
-    #else
-      /* Consuming the library: import symbols through the IAT. */
-      #define X_EXPORT __declspec(dllimport)
-    #endif
-  #else
-    /* Static build (Windows default): no export markers needed. */
-    #define X_EXPORT
-  #endif
-  /* Windows has no "hidden" attribute — non-exported symbols simply don't
-   * carry dllexport. X_LOCAL is a no-op here. */
-  #define X_LOCAL
-#elif defined(__GNUC__) || defined(__clang__)
-  #if defined(X_BUILD_SHARED)
-    /* Public symbol: override -fvisibility=hidden default. */
-    #define X_EXPORT __attribute__((visibility("default")))
-    /* Hidden symbol: explicitly keep out of the dynamic symbol table. */
-    #define X_LOCAL  __attribute__((visibility("hidden")))
-  #else
-    /* Static build (Unix default): no export markers needed. */
-    #define X_EXPORT
-    #define X_LOCAL
-  #endif
+#if defined(X_BUILD_SHARED)
+#if defined(X_BUILDING_LIB)
+/* Building the library itself: export symbols. */
+#define X_EXPORT __declspec(dllexport)
 #else
-  /* Unknown compiler: fall back to no markers. */
-  #define X_EXPORT
-  #define X_LOCAL
+/* Consuming the library: import symbols through the IAT. */
+#define X_EXPORT __declspec(dllimport)
+#endif
+#else
+/* Static build (Windows default): no export markers needed. */
+#define X_EXPORT
+#endif
+/* Windows has no "hidden" attribute — non-exported symbols simply don't
+ * carry dllexport. X_LOCAL is a no-op here. */
+#define X_LOCAL
+#elif defined(__GNUC__) || defined(__clang__)
+#if defined(X_BUILD_SHARED)
+/* Public symbol: override -fvisibility=hidden default. */
+#define X_EXPORT __attribute__((visibility("default")))
+/* Hidden symbol: explicitly keep out of the dynamic symbol table. */
+#define X_LOCAL  __attribute__((visibility("hidden")))
+#else
+/* Static build (Unix default): no export markers needed. */
+#define X_EXPORT
+#define X_LOCAL
+#endif
+#else
+/* Unknown compiler: fall back to no markers. */
+#define X_EXPORT
+#define X_LOCAL
 #endif
 
 /* ── XCAPI(T) — public API ───────────────────────────────────────────────

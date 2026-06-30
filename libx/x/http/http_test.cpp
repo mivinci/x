@@ -9,12 +9,12 @@
  * exercising the full request/response path over HTTP/1.1 and HTTP/2.
  */
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <cstring>
 #include <string>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/http/client.h>
@@ -50,7 +50,7 @@ static int on_data_collect(const char *data, size_t len, void *arg) {
 }
 
 static size_t on_read_provide(char *buf, size_t bufsize, void *arg) {
-  auto *c        = static_cast<RespCtx *>(arg);
+  auto  *c         = static_cast<RespCtx *>(arg);
   size_t remaining = c->upload_data.size() - c->upload_offset;
   if (remaining == 0) return 0;
   size_t n = bufsize < remaining ? bufsize : remaining;
@@ -126,7 +126,7 @@ static void sse_handler(xHttpCtx *ctx, void *arg) {
   xHttpCtxWrite(ctx, "data: alpha\n\n", 13);
   xHttpCtxWrite(ctx, "event: custom\ndata: beta\n\n", 26);
   xHttpCtxWrite(ctx, "data: gamma\n\n", 13);
-xHttpCtxEndStream(ctx);
+  xHttpCtxEndStream(ctx);
 }
 
 /* ───────────────────── Fixture ───────────────────── */
@@ -205,13 +205,13 @@ TEST_F(IntegrationTest, H1Get) {
   route("GET /hello", hello_handler);
   listen_and_pump();
 
-  RespCtx     ctx;
-  std::string url = make_url("/hello");
+  RespCtx          ctx;
+  std::string      url  = make_url("/hello");
   xHttpRequestConf conf = {};
-  conf.url     = url.c_str();
-  conf.on_data = on_data_collect;
-  conf.on_done = on_resp;
-  xErrno      err = xHttpClientGet(client, &conf, &ctx);
+  conf.url              = url.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
+  xErrno err            = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -234,12 +234,12 @@ TEST_F(IntegrationTest, H1PostEcho) {
   const char *body = "{\"msg\":\"integration\"}";
   ctx.upload_data.assign(body, strlen(body));
   xHttpRequestConf conf = {};
-  conf.url            = url.c_str();
-  conf.on_read        = on_read_provide;
-  conf.content_length = strlen(body);
-  conf.on_data        = on_data_collect;
-  conf.on_done        = on_resp;
-  xErrno      err  = xHttpClientPost(client, &conf, &ctx);
+  conf.url              = url.c_str();
+  conf.on_read          = on_read_provide;
+  conf.content_length   = strlen(body);
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
+  xErrno err            = xHttpClientPost(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -286,13 +286,13 @@ TEST_F(IntegrationTest, H1NotFound) {
   route("GET /exists", hello_handler);
   listen_and_pump();
 
-  RespCtx     ctx;
-  std::string url = make_url("/nonexistent");
+  RespCtx          ctx;
+  std::string      url  = make_url("/nonexistent");
   xHttpRequestConf conf = {};
-  conf.url     = url.c_str();
-  conf.on_data = on_data_collect;
-  conf.on_done = on_resp;
-  xErrno      err = xHttpClientGet(client, &conf, &ctx);
+  conf.url              = url.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
+  xErrno err            = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -379,10 +379,10 @@ TEST_F(IntegrationTest, ClientDefaultH2c) {
   std::string url = make_url("/hello");
 
   xHttpRequestConf req_conf = {};
-  req_conf.url    = url.c_str();
-  req_conf.on_data = on_data_collect;
-  req_conf.on_done = on_resp;
-  xErrno err = xHttpClientGet(client, &req_conf, &ctx);
+  req_conf.url              = url.c_str();
+  req_conf.on_data          = on_data_collect;
+  req_conf.on_done          = on_resp;
+  xErrno err                = xHttpClientGet(client, &req_conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -399,7 +399,7 @@ TEST_F(IntegrationTest, SseGet) {
   route("GET /events", sse_handler);
   listen_and_pump();
 
-  SseTestCtx ctx;
+  SseTestCtx  ctx;
   std::string url = make_url("/events");
 
   xErrno err = xHttpClientGetSse(client, url.c_str(), on_sse_ev, on_sse_end, &ctx);
@@ -422,7 +422,7 @@ TEST_F(IntegrationTest, SseGetH2c) {
   route("GET /events", sse_handler);
   listen_and_pump();
 
-  SseTestCtx ctx;
+  SseTestCtx  ctx;
   std::string url = make_url("/events");
 
   xHttpRequestConf config;
@@ -474,7 +474,7 @@ TEST_F(IntegrationTest, H1CustomHeaders) {
   RespCtx     ctx;
   std::string url = make_url("/headers");
 
-  const char *hdrs[] = {"X-Custom: my-value", NULL};
+  const char      *hdrs[] = {"X-Custom: my-value", NULL};
   xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
   config.url     = url.c_str();
@@ -516,13 +516,13 @@ TEST_F(IntegrationTest, H1RouteParam) {
   route("GET /users/:id", param_echo_handler);
   listen_and_pump();
 
-  RespCtx     ctx;
-  std::string url = make_url("/users/42");
+  RespCtx          ctx;
+  std::string      url  = make_url("/users/42");
   xHttpRequestConf conf = {};
-  conf.url     = url.c_str();
-  conf.on_data = on_data_collect;
-  conf.on_done = on_resp;
-  xErrno      err = xHttpClientGet(client, &conf, &ctx);
+  conf.url              = url.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
+  xErrno err            = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 5000);
@@ -655,17 +655,16 @@ TEST_F(IntegrationTest, LargeBodyRoundTrip) {
 
   std::string large_body(4000, 'X');
 
-  RespCtx     ctx;
-  ctx.upload_data = large_body;
-  std::string url = make_url("/echo");
+  RespCtx ctx;
+  ctx.upload_data       = large_body;
+  std::string      url  = make_url("/echo");
   xHttpRequestConf conf = {};
-  conf.url            = url.c_str();
-  conf.on_read        = on_read_provide;
-  conf.content_length = large_body.size();
-  conf.on_data        = on_data_collect;
-  conf.on_done        = on_resp;
-  xErrno      err =
-    xHttpClientPost(client, &conf, &ctx);
+  conf.url              = url.c_str();
+  conf.on_read          = on_read_provide;
+  conf.content_length   = large_body.size();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
+  xErrno err            = xHttpClientPost(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(loop, ctx.done, 10000);
@@ -680,14 +679,14 @@ TEST_F(IntegrationTest, LargeBodyRoundTrip) {
 /* ───────────────────── SSE POST context (combines SSE + upload) ───────────────────── */
 
 struct SsePostCtx {
-  SseTestCtx   sse;
-  std::string  upload_data;
-  size_t       upload_offset{0};
-  std::string  body;
+  SseTestCtx  sse;
+  std::string upload_data;
+  size_t      upload_offset{0};
+  std::string body;
 };
 
 static size_t sse_post_on_read(char *buf, size_t bufsize, void *arg) {
-  auto *c        = static_cast<SsePostCtx *>(arg);
+  auto  *c         = static_cast<SsePostCtx *>(arg);
   size_t remaining = c->upload_data.size() - c->upload_offset;
   if (remaining == 0) return 0;
   size_t n = bufsize < remaining ? bufsize : remaining;
@@ -724,7 +723,7 @@ static void sse_post_handler(xHttpCtx *ctx, void *arg) {
   int  n = snprintf(buf, sizeof(buf), "data: %s\n\n", c->body.c_str());
   xHttpCtxWrite(ctx, buf, static_cast<size_t>(n));
   xHttpCtxWrite(ctx, "event: done\ndata: [DONE]\n\n", 26);
-xHttpCtxEndStream(ctx);
+  xHttpCtxEndStream(ctx);
 }
 
 TEST_F(IntegrationTest, SseDoPostH1) {
@@ -800,8 +799,8 @@ TEST_F(IntegrationTest, H1EmptyBodyResponse) {
 
   xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
-  config.url    = url.c_str();
-  config.method = xHttpMethod_DELETE;
+  config.url     = url.c_str();
+  config.method  = xHttpMethod_DELETE;
   config.on_data = on_data_collect;
   config.on_done = on_resp;
 
@@ -832,11 +831,11 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
   ASSERT_NE(client_h2c, nullptr);
 
   xHttpRequestConf req_conf = {};
-  req_conf.url    = url.c_str();
-  req_conf.method = xHttpMethod_GET;
-  req_conf.on_data = on_data_collect;
-  req_conf.on_done = on_resp;
-  xErrno err1 = xHttpClientGet(client, &req_conf, &ctx_h1);
+  req_conf.url              = url.c_str();
+  req_conf.method           = xHttpMethod_GET;
+  req_conf.on_data          = on_data_collect;
+  req_conf.on_done          = on_resp;
+  xErrno err1               = xHttpClientGet(client, &req_conf, &ctx_h1);
   ASSERT_EQ(err1, xErrno_Ok);
 
   xHttpRequestConf config;
@@ -856,16 +855,14 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
   } both{&ctx_h1.done, &ctx_h2c.done};
 
   xTimer checker = xTimerStart(
-      [](void *arg) {
-        auto *b = static_cast<BothDone *>(arg);
-        if (b->a->load(std::memory_order_acquire) &&
-            b->b->load(std::memory_order_acquire))
-          xEventLoopStop(xEventLoopCurrent());
-      },
-      &both, 5, 5);
-  xTimer watchdog = xTimerStart(
-      [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
-      loop, 5000, 0);
+    [](void *arg) {
+      auto *b = static_cast<BothDone *>(arg);
+      if (b->a->load(std::memory_order_acquire) && b->b->load(std::memory_order_acquire))
+        xEventLoopStop(xEventLoopCurrent());
+    },
+    &both, 5, 5);
+  xTimer watchdog =
+    xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 5000, 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
   if (checker) xTimerStop(checker);

@@ -17,6 +17,7 @@
 
 #ifdef XHTTP_WS_DEFLATE
 #include "ws_deflate.h"
+
 #include <x/base/base.h>
 #endif
 
@@ -35,7 +36,7 @@
  * @return 0 on success, -1 on error.
  */
 XCAPI(int) xWsClientBuildUpgradeRequest(xIOBuffer *io, const xUrl *url, const char *headers,
-                                 char *accept_out, size_t accept_sz);
+                                        char *accept_out, size_t accept_sz);
 
 /**
  * Validate a 101 Switching Protocols response.
@@ -48,7 +49,8 @@ XCAPI(int) xWsClientBuildUpgradeRequest(xIOBuffer *io, const xUrl *url, const ch
  * @param expected_accept Expected Sec-WebSocket-Accept value.
  * @return 0 if valid, -1 on protocol error.
  */
-XCAPI(int) xWsClientValidateUpgradeResponse(const char *data, size_t len, const char *expected_accept);
+XCAPI(int) xWsClientValidateUpgradeResponse(const char *data, size_t len,
+                                            const char *expected_accept);
 
 #ifdef XHTTP_WS_DEFLATE
 /**

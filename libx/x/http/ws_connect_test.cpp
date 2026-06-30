@@ -8,11 +8,11 @@
 
 #include "server_test_helper.h"
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <cstring>
 #include <string>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/http/server.h>
@@ -101,10 +101,10 @@ static void server_on_close(xWsConn conn, uint16_t code, const char *reason, siz
 
 static void ws_echo_handler(xHttpCtx *ctx, void *arg) {
   WsServerCtx *sctx = reinterpret_cast<WsServerCtx *>(arg);
-  xWsCallbacks cbs = {};
-  cbs.on_open      = server_on_open;
-  cbs.on_message   = server_on_message;
-  cbs.on_close     = server_on_close;
+  xWsCallbacks cbs  = {};
+  cbs.on_open       = server_on_open;
+  cbs.on_message    = server_on_message;
+  cbs.on_close      = server_on_close;
   xWsUpgrade(ctx, &cbs, sctx);
 }
 

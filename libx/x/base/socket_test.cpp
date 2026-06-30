@@ -13,16 +13,15 @@ TEST(Socket, SkipOnWindows) {
   GTEST_SKIP() << "Socket tests need POSIX adapter";
 }
 #else
-#include <x/base/socket.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <chrono>
 
-#include <fcntl.h>
+#include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <unistd.h>
-
-#include <gtest/gtest.h>
+#include <x/base/socket.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -42,7 +41,8 @@ static void drain_fd(int fd) {
  * with X_RUN_DEFAULT to guarantee the full timeout window.
  */
 static void pump_loop(xEventLoop loop, int total_ms) {
-  xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, static_cast<uint64_t>(total_ms), 0);
+  xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                         static_cast<uint64_t>(total_ms), 0);
   xEventLoopRun(loop, X_RUN_DEFAULT);
   if (t) xTimerStop(t);
 }
@@ -233,7 +233,8 @@ TEST(SocketTimeout, ReadTimeout) {
     int        count;
   } ctx = {nullptr, 0, 0};
 
-  xSocket sock = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Read,
+  xSocket sock = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Read,
     [](xSocket s, xEventMask m, void *arg) {
       auto *c = static_cast<Ctx *>(arg);
       c->sock = s;
@@ -270,7 +271,8 @@ TEST(SocketTimeout, WriteTimeout) {
     int        timeout_count;
   } ctx = {0, 0};
 
-  xSocket sock = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Read,
+  xSocket sock = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Read,
     [](xSocket, xEventMask m, void *arg) {
       auto *c = static_cast<Ctx *>(arg);
       if (m & xEvent_Timeout) {
@@ -303,7 +305,8 @@ TEST(SocketTimeout, IdleReset) {
 
   int timeout_count = 0;
 
-  xSocket sock = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Read,
+  xSocket sock = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Read,
     [](xSocket, xEventMask m, void *arg) {
       if (m & xEvent_Timeout) (*static_cast<int *>(arg))++;
     },
@@ -341,7 +344,8 @@ TEST(SocketTimeout, CancelWithZero) {
 
   int timeout_count = 0;
 
-  xSocket sock = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Read,
+  xSocket sock = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Read,
     [](xSocket, xEventMask m, void *arg) {
       if (m & xEvent_Timeout) (*static_cast<int *>(arg))++;
     },
@@ -368,7 +372,8 @@ TEST(SocketTimeout, ReplaceTimeout) {
 
   int timeout_count = 0;
 
-  xSocket sock = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Read,
+  xSocket sock = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Read,
     [](xSocket, xEventMask m, void *arg) {
       if (m & xEvent_Timeout) (*static_cast<int *>(arg))++;
     },
@@ -399,7 +404,8 @@ TEST(SocketTimeout, DestroyCancel) {
 
   int timeout_count = 0;
 
-  xSocket sock = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Read,
+  xSocket sock = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Read,
     [](xSocket, xEventMask m, void *arg) {
       if (m & xEvent_Timeout) (*static_cast<int *>(arg))++;
     },
@@ -429,7 +435,8 @@ TEST(SocketCallback, HandleMatch) {
 
   xSocket received_sock = nullptr;
 
-  xSocket sock = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Read,
+  xSocket sock = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Read,
     [](xSocket s, xEventMask, void *arg) { *static_cast<xSocket *>(arg) = s; }, &received_sock);
   ASSERT_NE(sock, nullptr);
 
@@ -451,7 +458,8 @@ TEST(SocketCallback, UserpMatch) {
 
   int sentinel = 42;
 
-  xSocket sock = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Read,
+  xSocket sock = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Read,
     [](xSocket, xEventMask, void *) {
       /* arg IS the userp we passed */
     },
@@ -468,7 +476,8 @@ TEST(SocketCallback, UserpMatch) {
   /* Recreate with a ctx that captures the arg */
   xSocketDestroy(sock);
 
-  sock = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Read,
+  sock = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Read,
     [](xSocket, xEventMask, void *arg) {
       auto *c         = static_cast<Ctx *>(arg);
       c->received_arg = arg;
@@ -496,7 +505,8 @@ TEST(SocketCallback, MaskReflectsEvent) {
   /* Test 1: Read timeout — mask includes xEvent_Read */
   xEventMask read_timeout_mask = 0;
 
-  xSocket sock_read = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Read,
+  xSocket sock_read = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Read,
     [](xSocket, xEventMask m, void *arg) { *static_cast<xEventMask *>(arg) = m; },
     &read_timeout_mask);
   ASSERT_NE(sock_read, nullptr);
@@ -513,7 +523,8 @@ TEST(SocketCallback, MaskReflectsEvent) {
   /* Test 2: Write timeout — mask includes xEvent_Write */
   xEventMask write_timeout_mask = 0;
 
-  xSocket sock_write = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Write,
+  xSocket sock_write = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Write,
     [](xSocket, xEventMask m, void *arg) { *static_cast<xEventMask *>(arg) = m; },
     &write_timeout_mask);
   ASSERT_NE(sock_write, nullptr);
@@ -536,8 +547,9 @@ TEST(SocketCallback, MaskReflectsEvent) {
   xEventMask io_mask = 0;
 
   /* Register fds[0] for write — socketpair fds are always writable initially */
-  xEventSource src = xEventAdd(fds[0], xEvent_Write,
-    [](int, xEventMask m, void *arg) { *static_cast<xEventMask *>(arg) = m; }, &io_mask);
+  xEventSource src = xEventAdd(
+    fds[0], xEvent_Write, [](int, xEventMask m, void *arg) { *static_cast<xEventMask *>(arg) = m; },
+    &io_mask);
   ASSERT_NE(src, nullptr);
 
   xEventLoopRun(loop, X_RUN_ONCE);
@@ -548,7 +560,8 @@ TEST(SocketCallback, MaskReflectsEvent) {
   /* Test 4: Read event mask — write data to trigger read */
   xEventMask read_mask = 0;
 
-  xEventSource src2 = xEventAdd(fds[0], xEvent_Read,
+  xEventSource src2 = xEventAdd(
+    fds[0], xEvent_Read,
     [](int fd, xEventMask m, void *arg) {
       *static_cast<xEventMask *>(arg) = m;
       drain_fd(fd);
@@ -650,7 +663,8 @@ TEST(SocketCreateFromFd, IOCallback) {
     int        count;
   } ctx = {0, 0};
 
-  xSocket sock = xSocketCreateFromFd(fds[0], xEvent_Read,
+  xSocket sock = xSocketCreateFromFd(
+    fds[0], xEvent_Read,
     [](xSocket, xEventMask m, void *arg) {
       auto *c = static_cast<Ctx *>(arg);
       c->mask = m;
@@ -682,7 +696,8 @@ TEST(SocketSetCallback, ReplaceCallback) {
   int original_count = 0;
   int new_count      = 0;
 
-  xSocket sock = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Read,
+  xSocket sock = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Read,
     [](xSocket, xEventMask, void *arg) { (*static_cast<int *>(arg))++; }, &original_count);
   ASSERT_NE(sock, nullptr);
 
@@ -740,7 +755,8 @@ TEST(SocketTimeout, BothReadAndWriteTimeout) {
     int write_timeout_count;
   } ctx = {0, 0};
 
-  xSocket sock = xSocketCreate(AF_INET, SOCK_STREAM, 0, xEvent_Read,
+  xSocket sock = xSocketCreate(
+    AF_INET, SOCK_STREAM, 0, xEvent_Read,
     [](xSocket, xEventMask m, void *arg) {
       auto *c = static_cast<Ctx *>(arg);
       if ((m & xEvent_Timeout) && (m & xEvent_Read)) c->read_timeout_count++;
@@ -776,7 +792,8 @@ TEST(SocketTimeout, IOResetsReadTimer) {
     int rfd;
   } ctx = {0, 0, fds[0]};
 
-  xSocket sock = xSocketCreateFromFd(fds[0], xEvent_Read,
+  xSocket sock = xSocketCreateFromFd(
+    fds[0], xEvent_Read,
     [](xSocket, xEventMask m, void *arg) {
       auto *c = static_cast<Ctx *>(arg);
       if (m & xEvent_Timeout) {
@@ -832,7 +849,8 @@ TEST(SocketTimeout, IOResetsWriteTimer) {
   } ctx = {0, 0};
 
   /* Monitor for write events — socketpair is always writable */
-  xSocket sock = xSocketCreateFromFd(fds[0], xEvent_Write,
+  xSocket sock = xSocketCreateFromFd(
+    fds[0], xEvent_Write,
     [](xSocket, xEventMask m, void *arg) {
       auto *c = static_cast<Ctx *>(arg);
       if (m & xEvent_Timeout) {
@@ -870,10 +888,10 @@ TEST(Socket, UdpSendToRecvFrom) {
   ASSERT_NE(loop, nullptr);
   xEventLoopEnter(loop);
 
-  xSocket a = xSocketCreate(AF_INET, SOCK_DGRAM, 0, xEvent_Read,
-                            [](xSocket, xEventMask, void *) {}, nullptr);
-  xSocket b = xSocketCreate(AF_INET, SOCK_DGRAM, 0, xEvent_Read,
-                            [](xSocket, xEventMask, void *) {}, nullptr);
+  xSocket a =
+    xSocketCreate(AF_INET, SOCK_DGRAM, 0, xEvent_Read, [](xSocket, xEventMask, void *) {}, nullptr);
+  xSocket b =
+    xSocketCreate(AF_INET, SOCK_DGRAM, 0, xEvent_Read, [](xSocket, xEventMask, void *) {}, nullptr);
   ASSERT_NE(a, nullptr);
   ASSERT_NE(b, nullptr);
 
@@ -888,7 +906,7 @@ TEST(Socket, UdpSendToRecvFrom) {
   ASSERT_GT(ntohs(bin.sin_port), 0);
 
   const char *msg = "hello";
-  ssize_t s = xSocketSendTo(a, msg, 5, reinterpret_cast<struct sockaddr *>(&bin), sizeof(bin));
+  ssize_t     s = xSocketSendTo(a, msg, 5, reinterpret_cast<struct sockaddr *>(&bin), sizeof(bin));
   EXPECT_EQ(s, 5);
 
   pump_loop(loop, 10);
@@ -896,8 +914,8 @@ TEST(Socket, UdpSendToRecvFrom) {
   char                    rbuf[16] = {0};
   struct sockaddr_storage src;
   socklen_t               srclen = sizeof(src);
-  ssize_t r = xSocketRecvFrom(b, rbuf, sizeof(rbuf) - 1,
-                              reinterpret_cast<struct sockaddr *>(&src), &srclen);
+  ssize_t                 r =
+    xSocketRecvFrom(b, rbuf, sizeof(rbuf) - 1, reinterpret_cast<struct sockaddr *>(&src), &srclen);
   EXPECT_EQ(r, 5);
   EXPECT_STREQ(rbuf, "hello");
 

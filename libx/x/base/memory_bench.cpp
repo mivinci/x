@@ -6,9 +6,9 @@
  * memory_bench.cpp - Micro-benchmarks for xbase memory allocator
  */
 
-#include <benchmark/benchmark.h>
-
 #include <cstdlib>
+
+#include <benchmark/benchmark.h>
 
 extern "C" {
 #include <x/base/memory.h>

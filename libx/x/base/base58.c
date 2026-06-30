@@ -6,10 +6,10 @@
  * base58.c - Base58 encoding and decoding (Bitcoin alphabet)
  */
 
-#include <x/base/base58.h>
-
 #include <stdlib.h>
 #include <string.h>
+
+#include <x/base/base58.h>
 
 /* Bitcoin Base58 alphabet */
 static const char kAlphabet[] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";

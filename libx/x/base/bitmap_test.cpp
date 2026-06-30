@@ -6,9 +6,9 @@
  * bitmap_test.cpp - xBitmap unit tests
  */
 
-#include <gtest/gtest.h>
-
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/bitmap.h>

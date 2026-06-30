@@ -9,6 +9,11 @@
 #ifndef XBASE_EVENT_PRIVATE_H
 #define XBASE_EVENT_PRIVATE_H
 
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
 #include <x/base/atomic.h>
 #include <x/base/event.h>
 #include <x/base/heap.h>
@@ -16,11 +21,6 @@
 #include <x/base/mpsc.h>
 #include <x/base/task.h>
 #include <x/base/thread.h>
-
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
 
 #ifndef _WIN32
 #include <fcntl.h>
@@ -35,14 +35,14 @@
 
 struct xSignalWatch_ {
   xSignalFunc fn;
-  void            *arg;
+  void       *arg;
 };
 
 /* ───────────────────── Source ───────────────────── */
 
 struct xEventSource_ {
   int        fd;
-  xEventMask mask;            /* read/write flags (no LevelTriggered bit) */
+  xEventMask mask; /* read/write flags (no LevelTriggered bit) */
   xEventFunc fn;
   void      *arg;
   int        deleted;         /* marked for deferred removal */
@@ -72,10 +72,10 @@ static inline int source_array_remove(struct xEventSourceArray_ *s, struct xEven
 }
 
 /* Non-inline implementations — see event_private.c */
-XCAPI(void) source_array_free(struct xEventSourceArray_ *s);
-XCAPI(struct xEventSource_ *) source_array_add(struct xEventSourceArray_ *s, int fd, xEventMask mask,
-                                                      xEventFunc fn, void *arg);
-XCAPI(void) source_array_sweep(struct xEventSourceArray_ *s);
+XCAPI(void)                   source_array_free(struct xEventSourceArray_ *s);
+XCAPI(struct xEventSource_ *) source_array_add(struct xEventSourceArray_ *s, int fd,
+                                               xEventMask mask, xEventFunc fn, void *arg);
+XCAPI(void)                   source_array_sweep(struct xEventSourceArray_ *s);
 
 static inline struct xEventSource_ *source_array_find_fd(struct xEventSourceArray_ *s, int fd) {
   for (size_t i = 0; i < s->len; i++) {
@@ -150,8 +150,8 @@ struct xWork_ {
     void (*done_fn)(void *arg, void *result); /* offload completion   */
     xEventLoopPostFunc post_fn;               /* posted callback      */
   };
-  void          (*on_cancel)(void *arg, void *result); /* cancel cleanup */
-  
+  void (*on_cancel)(void *arg, void *result); /* cancel cleanup */
+
   void          *arg;
   void          *result;
   int            cancelled; /* set by xWorkCancel; loop_run_done skips done_fn */
@@ -392,7 +392,7 @@ struct xEventBackend_ {
   void (*destroy)(struct xEventLoop_ *loop);
   int (*poll)(struct xEventLoop_ *loop, struct xPollEvent_ *events, int max_events, int timeout_ms);
   void (*wake)(struct xEventLoop_ *loop);
-  int  (*fd)(struct xEventLoop_ *loop);
+  int (*fd)(struct xEventLoop_ *loop);
   xErrno (*add)(struct xEventLoop_ *loop, struct xEventSource_ *src);
   xErrno (*mod)(struct xEventLoop_ *loop, struct xEventSource_ *src, xEventMask mask);
   xErrno (*del)(struct xEventLoop_ *loop, struct xEventSource_ *src);

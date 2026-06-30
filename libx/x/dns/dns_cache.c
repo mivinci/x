@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include <x/base/map.h>
 #include <x/base/time.h>
 
@@ -29,7 +30,7 @@ static char *make_key(const char *name, uint16_t qtype) {
   size_t nl = strlen(name);
   /* qtype as decimal: up to 5 digits + ':' + NUL */
   size_t cap = nl + 16;
-  char *k = (char *)malloc(cap);
+  char  *k   = (char *)malloc(cap);
   if (!k) return NULL;
   snprintf(k, cap, "%s:%u", name, (unsigned)qtype);
   return k;
@@ -87,8 +88,8 @@ xDnsRecord *dns_cache_lookup(xMap cache, const char *name, uint16_t qtype) {
   return dns_records_clone(e->records);
 }
 
-void dns_cache_insert(xMap cache, const char *name, uint16_t qtype,
-                      const xDnsRecord *records, uint32_t ttl) {
+void dns_cache_insert(xMap cache, const char *name, uint16_t qtype, const xDnsRecord *records,
+                      uint32_t ttl) {
   if (!cache || !name) return;
 
   char *key = make_key(name, qtype);
@@ -98,8 +99,7 @@ void dns_cache_insert(xMap cache, const char *name, uint16_t qtype,
   void *old = xMapDel(cache, key);
   if (old) entry_free(old);
 
-  dns_cache_entry_t *e =
-    (dns_cache_entry_t *)calloc(1, sizeof(dns_cache_entry_t));
+  dns_cache_entry_t *e = (dns_cache_entry_t *)calloc(1, sizeof(dns_cache_entry_t));
   if (!e) {
     free(key);
     return;

@@ -10,11 +10,13 @@
  */
 
 #include "hmac.h"
+
 #include "hash_private.h"
-#include "x/base/base.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+#include "x/base/base.h"
 
 /* Maximum block size we support (SHA-512 = 128). */
 #define HMAC_MAX_BLOCK_SIZE  128

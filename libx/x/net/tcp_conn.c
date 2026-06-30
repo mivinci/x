@@ -10,6 +10,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+
 #include <sys/uio.h>
 
 /* ───────────────────── Internal constructor ───────────────────── */

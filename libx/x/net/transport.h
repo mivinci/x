@@ -12,12 +12,12 @@
 #ifndef XNET_TRANSPORT_H
 #define XNET_TRANSPORT_H
 
-#include <x/base/base.h>
-#include <x/net/tls.h>
-
 #include <stddef.h>
+
 #include <sys/types.h>
 #include <sys/uio.h>
+#include <x/base/base.h>
+#include <x/net/tls.h>
 
 /* ───────────────────── Transport handshake result ───────────────────── */
 

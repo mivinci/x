@@ -10,9 +10,10 @@
 
 #include "ws_crypto.h"
 
+#include <string.h>
+
 #include <openssl/evp.h>
 #include <openssl/sha.h>
-#include <string.h>
 
 void xWsSHA1(const unsigned char *input, size_t len, unsigned char *output) {
   SHA1(input, len, output);

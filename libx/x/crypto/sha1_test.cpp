@@ -6,12 +6,11 @@
  * sha1_test.cpp - Unit tests for xSha1
  */
 
-#include <x/crypto/sha1.h>
-
-#include <gtest/gtest.h>
-
 #include <cstring>
 #include <string>
+
+#include <gtest/gtest.h>
+#include <x/crypto/sha1.h>
 
 /* ── Helper: hex-encode a digest ───────────────────────── */
 

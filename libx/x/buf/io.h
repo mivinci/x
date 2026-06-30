@@ -40,12 +40,12 @@
 #ifndef XBUF_IO_H
 #define XBUF_IO_H
 
-#include <x/base/base.h>
-#include <x/base/error.h>
-
 #include <stddef.h>
+
 #include <sys/types.h>
 #include <sys/uio.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 /* ───────────────────── Configuration ───────────────────── */
 

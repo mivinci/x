@@ -16,6 +16,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <x/base/base.h>
 
 /* ───────────────── Negotiated parameters ───────────────── */
@@ -72,7 +73,7 @@ XCAPI(void) xWsDeflateDestroy(xWsDeflateCtx *ctx);
  * @return 0 on success, -1 on error.
  */
 XCAPI(int) xWsDeflateCompress(xWsDeflateCtx *ctx, const uint8_t *in, size_t in_len, uint8_t **out,
-                       size_t *out_len);
+                              size_t *out_len);
 
 /**
  * Decompress a message payload.
@@ -89,7 +90,7 @@ XCAPI(int) xWsDeflateCompress(xWsDeflateCtx *ctx, const uint8_t *in, size_t in_l
  * @return 0 on success, -1 on error.
  */
 XCAPI(int) xWsDeflateDecompress(xWsDeflateCtx *ctx, const uint8_t *in, size_t in_len, uint8_t **out,
-                         size_t *out_len);
+                                size_t *out_len);
 
 /**
  * Parse a Sec-WebSocket-Extensions header value and populate

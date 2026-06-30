@@ -14,6 +14,7 @@
 #define XHTTP_CLIENT_H
 
 #include <stddef.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 #include <x/base/event.h>
@@ -36,14 +37,14 @@ XDEF_HANDLE(xHttpClient);
  * @ref xHttpDataFunc, or discarded if @ref xHttpRequestConf.on_data is NULL.
  */
 XDEF_STRUCT(xHttpCtx) {
-  const char *method;       /**< Request method (client: NULL)                */
-  const char *url;          /**< Request URL (client: NULL)                   */
-  long        status_code;  /**< HTTP status code (e.g. 200), 0 on failure    */
-  int         curl_code;    /**< CURLcode (0 = CURLE_OK on success)           */
-  const char *curl_error;   /**< Human-readable curl error, or NULL           */
-  const char *headers;      /**< Raw response headers (NUL-terminated)        */
-  size_t      headers_len;  /**< Length of @p headers in bytes                */
-  void       *internal_;    /**< Internal use (server-side; client: NULL)     */
+  const char *method;      /**< Request method (client: NULL)                */
+  const char *url;         /**< Request URL (client: NULL)                   */
+  long        status_code; /**< HTTP status code (e.g. 200), 0 on failure    */
+  int         curl_code;   /**< CURLcode (0 = CURLE_OK on success)           */
+  const char *curl_error;  /**< Human-readable curl error, or NULL           */
+  const char *headers;     /**< Raw response headers (NUL-terminated)        */
+  size_t      headers_len; /**< Length of @p headers in bytes                */
+  void       *internal_;   /**< Internal use (server-side; client: NULL)     */
 };
 
 /**
@@ -171,7 +172,7 @@ XDEF_STRUCT(xHttpClientConf) {
  * @param conf  Client configuration, or NULL for defaults.
  * @return      A new client handle, or NULL on failure.
  */
-XCAPI(xHttpClient) xHttpClientCreate( const xHttpClientConf *conf);
+XCAPI(xHttpClient) xHttpClientCreate(const xHttpClientConf *conf);
 
 /**
  * @brief Destroy an HTTP client and release all resources.

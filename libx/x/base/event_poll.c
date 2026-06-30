@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+
 #include <sys/ioctl.h>
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -104,9 +105,9 @@ static void pfd_rebuild(struct xEventLoopPoll_ *loop) {
 static xErrno poll_init(struct xEventLoop_ *loop) {
   struct xEventLoopPoll_ *pl = (struct xEventLoopPoll_ *)loop;
 
-  loop->wake_rfd      = -1;
-  loop->wake_wfd      = -1;
-  loop->task_group    = NULL;
+  loop->wake_rfd   = -1;
+  loop->wake_wfd   = -1;
+  loop->task_group = NULL;
   source_array_init(&loop->sources);
   loop->done_head     = NULL;
   loop->done_tail     = NULL;
@@ -163,7 +164,8 @@ static void poll_destroy(struct xEventLoop_ *loop) {
   free(pl->pollfds);
 }
 
-static int poll_poll(struct xEventLoop_ *loop, struct xPollEvent_ *events, int max_events, int timeout_ms) {
+static int poll_poll(struct xEventLoop_ *loop, struct xPollEvent_ *events, int max_events,
+                     int timeout_ms) {
   struct xEventLoopPoll_ *pl = (struct xEventLoopPoll_ *)loop;
 
   pfd_rebuild(pl);
@@ -194,7 +196,7 @@ static int poll_poll(struct xEventLoop_ *loop, struct xPollEvent_ *events, int m
     if (src->deleted) continue;
 
     xEventMask ready = 0;
-    if (pfd->revents & POLLIN)  ready |= xEvent_Read;
+    if (pfd->revents & POLLIN) ready |= xEvent_Read;
     if (pfd->revents & POLLOUT) ready |= xEvent_Write;
 
     if (ready) {
@@ -341,16 +343,16 @@ static xErrno poll_signal(struct xEventLoop_ *loop, int signo, xSignalFunc fn) {
 /* ───────────────────── Backend vtable ───────────────────── */
 
 const struct xEventBackend_ g_poll_backend = {
-  .size       = sizeof(struct xEventLoopPoll_),
-  .init       = poll_init,
-  .destroy    = poll_destroy,
-  .poll       = poll_poll,
-  .wake       = poll_wake,
-  .fd         = poll_fd,
-  .add        = poll_add,
-  .mod        = poll_mod,
-  .del        = poll_del,
-  .signal = poll_signal,
+  .size    = sizeof(struct xEventLoopPoll_),
+  .init    = poll_init,
+  .destroy = poll_destroy,
+  .poll    = poll_poll,
+  .wake    = poll_wake,
+  .fd      = poll_fd,
+  .add     = poll_add,
+  .mod     = poll_mod,
+  .del     = poll_del,
+  .signal  = poll_signal,
 };
 
 #endif /* !X_HAS_KQUEUE && !X_HAS_EPOLL */

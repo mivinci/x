@@ -9,8 +9,8 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <x/crypto/uuid.h>
 #include <x/base/random.h>
+#include <x/crypto/uuid.h>
 }
 
 #include <cstring>
@@ -81,15 +81,15 @@ TEST(Uuid, V7Sortable) {
 
 TEST(Uuid, V5Determinism) {
   xUuid ns = *xUuidNamespaceDns();
-  xUuid a = xUuidV5(ns, "example.com");
-  xUuid b = xUuidV5(ns, "example.com");
+  xUuid a  = xUuidV5(ns, "example.com");
+  xUuid b  = xUuidV5(ns, "example.com");
   EXPECT_EQ(xUuidCompare(a, b), 0);
 }
 
 TEST(Uuid, V5DifferentNames) {
   xUuid ns = *xUuidNamespaceDns();
-  xUuid a = xUuidV5(ns, "example.com");
-  xUuid b = xUuidV5(ns, "example.org");
+  xUuid a  = xUuidV5(ns, "example.com");
+  xUuid b  = xUuidV5(ns, "example.org");
   EXPECT_NE(xUuidCompare(a, b), 0);
 }
 
@@ -102,7 +102,7 @@ TEST(Uuid, V5VersionAndVariant) {
 TEST(Uuid, V5RfcTestVector) {
   /* RFC 4122 Appendix A: v5(DNS, "example.com") */
   xUuid u = xUuidV5(*xUuidNamespaceDns(), "example.com");
-  char buf[37];
+  char  buf[37];
   xUuidToString(u, buf);
   /* Known test vector from RFC 4122 */
   EXPECT_STREQ(buf, "cfbff0d1-9375-5685-968c-48ce8b15ae17");
@@ -112,14 +112,14 @@ TEST(Uuid, V5RfcTestVector) {
 
 TEST(Uuid, ToStringNil) {
   xUuid nil = {};
-  char buf[37];
+  char  buf[37];
   xUuidToString(nil, buf);
   EXPECT_STREQ(buf, "00000000-0000-0000-0000-000000000000");
 }
 
 TEST(Uuid, ToStringRoundTrip) {
   xUuid u = xUuidV4();
-  char buf[37];
+  char  buf[37];
   xUuidToString(u, buf);
 
   xUuid parsed;
@@ -166,9 +166,9 @@ TEST(Uuid, CompareEqual) {
 }
 
 TEST(Uuid, CompareLessThan) {
-  xUuid a = {};
+  xUuid a     = {};
   a.bytes[15] = 1;
-  xUuid b = {};
+  xUuid b     = {};
   b.bytes[15] = 2;
   EXPECT_LT(xUuidCompare(a, b), 0);
   EXPECT_GT(xUuidCompare(b, a), 0);
@@ -188,14 +188,14 @@ TEST(Uuid, IsNil) {
 
 TEST(Uuid, NamespaceDns) {
   xUuid ns = *xUuidNamespaceDns();
-  char buf[37];
+  char  buf[37];
   xUuidToString(ns, buf);
   EXPECT_STREQ(buf, "6ba7b810-9dad-11d1-80b4-00c04fd430c8");
 }
 
 TEST(Uuid, NamespaceUrl) {
   xUuid ns = *xUuidNamespaceUrl();
-  char buf[37];
+  char  buf[37];
   xUuidToString(ns, buf);
   EXPECT_STREQ(buf, "6ba7b811-9dad-11d1-80b4-00c04fd430c8");
 }

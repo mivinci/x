@@ -2,27 +2,29 @@
  * fs_test.cpp - Async filesystem tests
  */
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
-#include <chrono>
 #include <thread>
 
 #if !defined(_WIN32)
 #include <fcntl.h>
 #include <unistd.h>
+
 #include <sys/stat.h>
 #define XFS_CLOSE(fd) close(fd)
 #define XFS_UNLINK(p) unlink(p)
 #define XFS_RMDIR(p)  rmdir(p)
-#define XFS_TMPDIR "/tmp"
+#define XFS_TMPDIR    "/tmp"
 #else
 #include <fcntl.h>
 #include <io.h>
+
 #include <sys/stat.h>
 #define XFS_CLOSE(fd) _close(fd)
 #define XFS_UNLINK(p) _unlink(p)
 #define XFS_RMDIR(p)  _rmdir(p)
-#define XFS_TMPDIR "."
+#define XFS_TMPDIR    "."
 #endif
 
 extern "C" {
@@ -50,11 +52,11 @@ protected:
 
 TEST_F(FsTest, OpenCloseAsync) {
   xFsReq r = {};
-  r.op   = xFsOpOpen;
-  r.path = XFS_TMPDIR "/__xfs_test_open.tmp";
-  r.flags = O_CREAT | O_RDWR | O_TRUNC;
-  r.mode  = 0644;
-  r.cb    = [](xFsReq *r) {
+  r.op     = xFsOpOpen;
+  r.path   = XFS_TMPDIR "/__xfs_test_open.tmp";
+  r.flags  = O_CREAT | O_RDWR | O_TRUNC;
+  r.mode   = 0644;
+  r.cb     = [](xFsReq *r) {
     EXPECT_EQ(r->result, xErrno_Ok);
     EXPECT_NE(r->out_file, nullptr);
     XFS_CLOSE((int)(intptr_t)r->out_file);
@@ -80,7 +82,7 @@ TEST_F(FsTest, OpenCloseSync) {
 /* ───────────────────── Read / Write ───────────────────── */
 
 TEST_F(FsTest, WriteRead) {
-  const char *msg = "hello async fs!";
+  const char *msg     = "hello async fs!";
   char        buf[64] = {0};
 
   xFsReq r = {};
@@ -91,23 +93,23 @@ TEST_F(FsTest, WriteRead) {
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
   ASSERT_NE(r.out_file, nullptr);
 
-  r.op    = xFsOpWrite;
-  r.file  = r.out_file;
-  r.buf   = const_cast<char *>(msg);
-  r.len   = strlen(msg);
-  r.cb    = [](xFsReq *r) {
+  r.op   = xFsOpWrite;
+  r.file = r.out_file;
+  r.buf  = const_cast<char *>(msg);
+  r.len  = strlen(msg);
+  r.cb   = [](xFsReq *r) {
     EXPECT_EQ(r->result, xErrno_Ok);
     xEventLoopStop(xEventLoopCurrent());
   };
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Pending);
   xEventLoopRun(loop, X_RUN_DEFAULT);
 
-  xFile f = r.file;
-  r.op    = xFsOpRead;
-  r.buf   = buf;
-  r.len   = sizeof(buf);
+  xFile f  = r.file;
+  r.op     = xFsOpRead;
+  r.buf    = buf;
+  r.len    = sizeof(buf);
   r.offset = 0;
-  r.cb    = [](xFsReq *r) {
+  r.cb     = [](xFsReq *r) {
     EXPECT_EQ(r->result, xErrno_Ok);
     EXPECT_EQ(memcmp(r->buf, "hello async fs!", r->retval), 0);
     XFS_CLOSE((int)(intptr_t)r->file);
@@ -124,11 +126,11 @@ TEST_F(FsTest, Stat) {
   xFsReq r = {};
   r.op     = xFsOpStat;
 #if !defined(_WIN32)
-  r.path   = "/tmp";
+  r.path = "/tmp";
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
   EXPECT_TRUE(r.stat.mode & S_IFDIR);
 #else
-  r.path   = ".";
+  r.path = ".";
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
   EXPECT_TRUE(r.stat.mode & _S_IFDIR);
 #endif
@@ -138,9 +140,9 @@ TEST_F(FsTest, Stat) {
 
 TEST_F(FsTest, MkdirAndCleanup) {
   xFsReq r = {};
-  r.op   = xFsOpMkdir;
-  r.path = XFS_TMPDIR "/__xfs_test_dir";
-  r.mode = 0755;
+  r.op     = xFsOpMkdir;
+  r.path   = XFS_TMPDIR "/__xfs_test_dir";
+  r.mode   = 0755;
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
   XFS_RMDIR(XFS_TMPDIR "/__xfs_test_dir");
 }
@@ -154,7 +156,7 @@ TEST_F(FsTest, UnlinkFile) {
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
   XFS_CLOSE((int)(intptr_t)r.out_file);
 
-  r.op   = xFsOpUnlink;
+  r.op = xFsOpUnlink;
   ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
 }
 

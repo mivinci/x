@@ -23,6 +23,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 #include <x/base/event.h>
@@ -56,12 +57,12 @@ XDEF_ENUM(xDnsType){
  * the xDnsType bitmask.
  */
 XDEF_STRUCT(xDnsRecord) {
-  uint16_t     qtype;    /**< DNS QTYPE (1=A, 28=AAAA, 5=CNAME)         */
-  uint32_t     ttl;      /**< TTL in seconds (from the response)         */
-  const char  *name;     /**< Owner name (NUL-terminated, lowercase)     */
-  const void  *rdata;    /**< Raw RDATA                                  */
-  size_t       rdlength; /**< Length of @p rdata in bytes                */
-  xDnsRecord  *next;     /**< Next record in the list, or NULL           */
+  uint16_t    qtype;    /**< DNS QTYPE (1=A, 28=AAAA, 5=CNAME)         */
+  uint32_t    ttl;      /**< TTL in seconds (from the response)         */
+  const char *name;     /**< Owner name (NUL-terminated, lowercase)     */
+  const void *rdata;    /**< Raw RDATA                                  */
+  size_t      rdlength; /**< Length of @p rdata in bytes                */
+  xDnsRecord *next;     /**< Next record in the list, or NULL           */
 };
 
 /* ───────────────────── Client ───────────────────── */
@@ -81,13 +82,13 @@ XDEF_STRUCT(xDnsClientConf) {
   const char *nameservers[8]; /**< Up to 8 nameservers ("8.8.8.8", ...).
                                    NULL-terminated. If nameservers[0]
                                    is NULL, system config is used.        */
-  int          timeout_ms;    /**< Per-query timeout (default 5000).       */
-  int          retries;       /**< Retries with next nameserver (default 2).*/
-  int          enable_cache;  /**< 1=enable TTL cache (default), 0=disable.*/
-  int          udp_max_queries; /**< Max queries per UDP connection before
-                                     rotating to a new source port.
-                                     0 = unlimited (default).             */
-  int          enable_hosts;  /**< 1=load and use /etc/hosts (default),
+  int timeout_ms;             /**< Per-query timeout (default 5000).       */
+  int retries;                /**< Retries with next nameserver (default 2).*/
+  int enable_cache;           /**< 1=enable TTL cache (default), 0=disable.*/
+  int udp_max_queries;        /**< Max queries per UDP connection before
+                                   rotating to a new source port.
+                                   0 = unlimited (default).             */
+  int enable_hosts;           /**< 1=load and use /etc/hosts (default),
                                      0=disable.                           */
 };
 
@@ -151,8 +152,8 @@ XCAPI(void) xDnsClientReloadHosts(xDnsClient client);
  * @param arg     User argument forwarded to @p cb.
  * @return        xErrno_Ok on success, xErrno_InvalidArg on bad args.
  */
-XCAPI(xErrno) xDnsClientDo(xDnsClient client, const char *name, xDnsType type,
-                            xDnsCallback cb, void *arg);
+XCAPI(xErrno) xDnsClientDo(xDnsClient client, const char *name, xDnsType type, xDnsCallback cb,
+                           void *arg);
 
 /* ───────────────────── Server ───────────────────── */
 
@@ -188,7 +189,7 @@ typedef int (*xDnsFilterFunc)(const char *name, uint16_t type, void *arg);
  * Zero-initialize for defaults: no forwarder, no filter, cache disabled.
  */
 XDEF_STRUCT(xDnsServerConf) {
-  xDnsClient     forwarder;     /**< Upstream resolver, or NULL
+  xDnsClient forwarder;         /**< Upstream resolver, or NULL
                                      (authoritative-only).                */
   xDnsFilterFunc filter;        /**< Query filter, or NULL.               */
   void          *filter_arg;    /**< Argument forwarded to @p filter.     */
@@ -258,7 +259,7 @@ XCAPI(void) xDnsZoneDestroy(xDnsZone zone);
  * @param ttl    TTL in seconds.
  * @return       xErrno_Ok on success.
  */
-XCAPI(xErrno) xDnsZoneAdd(xDnsZone zone, const char *name, xDnsType type,
-                           const void *rdata, size_t rdlen, uint32_t ttl);
+XCAPI(xErrno) xDnsZoneAdd(xDnsZone zone, const char *name, xDnsType type, const void *rdata,
+                          size_t rdlen, uint32_t ttl);
 
 #endif /* XDNS_DNS_H */

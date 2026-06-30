@@ -13,10 +13,10 @@
 #ifndef XCRYPTO_CRC32_H
 #define XCRYPTO_CRC32_H
 
-#include <x/base/base.h>
-
 #include <stddef.h>
 #include <stdint.h>
+
+#include <x/base/base.h>
 
 /* ───────────────────── One-shot API ───────────────────── */
 

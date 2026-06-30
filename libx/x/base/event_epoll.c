@@ -31,6 +31,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 
@@ -74,10 +75,10 @@ static int find_signal_by_fd(struct xEventLoopEpoll_ *loop, int fd) {
 static xErrno ep_init(struct xEventLoop_ *loop) {
   struct xEventLoopEpoll_ *el = (struct xEventLoopEpoll_ *)loop;
 
-  el->epfd            = -1;
-  loop->wake_rfd      = -1;
-  loop->wake_wfd      = -1;
-  loop->task_group    = NULL;
+  el->epfd         = -1;
+  loop->wake_rfd   = -1;
+  loop->wake_wfd   = -1;
+  loop->task_group = NULL;
   source_array_init(&loop->sources);
   loop->done_head     = NULL;
   loop->done_tail     = NULL;
@@ -147,7 +148,8 @@ static void ep_destroy(struct xEventLoop_ *loop) {
   source_array_free(&loop->sources);
 }
 
-static int ep_poll(struct xEventLoop_ *loop, struct xPollEvent_ *events, int max_events, int timeout_ms) {
+static int ep_poll(struct xEventLoop_ *loop, struct xPollEvent_ *events, int max_events,
+                   int timeout_ms) {
   struct xEventLoopEpoll_ *el = (struct xEventLoopEpoll_ *)loop;
 
   struct epoll_event epevents[X_EVENT_IO_BATCH_MAX];
@@ -316,16 +318,16 @@ static xErrno ep_signal(struct xEventLoop_ *loop, int signo, xSignalFunc fn) {
 /* ───────────────────── Backend vtable ───────────────────── */
 
 const struct xEventBackend_ g_epoll_backend = {
-  .size       = sizeof(struct xEventLoopEpoll_),
-  .init       = ep_init,
-  .destroy    = ep_destroy,
-  .poll       = ep_poll,
-  .wake       = ep_wake,
-  .fd         = ep_fd,
-  .add        = ep_add,
-  .mod        = ep_mod,
-  .del        = ep_del,
-  .signal = ep_signal,
+  .size    = sizeof(struct xEventLoopEpoll_),
+  .init    = ep_init,
+  .destroy = ep_destroy,
+  .poll    = ep_poll,
+  .wake    = ep_wake,
+  .fd      = ep_fd,
+  .add     = ep_add,
+  .mod     = ep_mod,
+  .del     = ep_del,
+  .signal  = ep_signal,
 };
 
 #endif /* X_HAS_EPOLL */

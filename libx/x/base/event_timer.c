@@ -7,11 +7,12 @@
  */
 
 #include "event_private.h"
+
 #include <stdlib.h>
 
 static xTimer submit_timer(xTimerFunc fn, void *arg, uint64_t abs_ms, uint64_t repeat_ms) {
-  xEventLoop         loop_ = xEventLoopCurrent();
-  struct xEventLoop_ *loop = (struct xEventLoop_ *)loop_;
+  xEventLoop          loop_ = xEventLoopCurrent();
+  struct xEventLoop_ *loop  = (struct xEventLoop_ *)loop_;
   if (!loop || !fn) return NULL;
   struct xTimer_ *t = timer_alloc(loop);
   if (!t) return NULL;
@@ -39,12 +40,11 @@ xTimer xTimerStart(xTimerFunc fn, void *arg, uint64_t timeout_ms, uint64_t repea
 /* ── Stop ── */
 
 static xErrno timer_stop_direct(xTimer timer_) {
-  struct xTimer_    *timer = (struct xTimer_ *)timer_;
+  struct xTimer_     *timer = (struct xTimer_ *)timer_;
   struct xEventLoop_ *loop;
   if (!timer) return xErrno_InvalidArg;
   loop = (struct xEventLoop_ *)timer->loop;
-  if (timer->fired || timer->heap_idx == TIMER_INVALID_IDX)
-    return xErrno_InvalidState;
+  if (timer->fired || timer->heap_idx == TIMER_INVALID_IDX) return xErrno_InvalidState;
   xHeapRemove(loop->timer_heap, timer->heap_idx);
   timer->heap_idx = TIMER_INVALID_IDX;
   timer_free(loop, timer);
@@ -52,14 +52,20 @@ static xErrno timer_stop_direct(xTimer timer_) {
 }
 
 static void timer_stop_post(void *arg) {
-  struct { xEventLoop loop; xTimer timer; } *ctx = arg;
+  struct {
+    xEventLoop loop;
+    xTimer     timer;
+  } *ctx = arg;
   timer_stop_direct(ctx->timer);
   free(ctx);
 }
 
 xErrno xTimerStop(xTimer timer_) {
   struct xTimer_ *timer = (struct xTimer_ *)timer_;
-  struct { xEventLoop loop; xTimer timer; } *ctx;
+  struct {
+    xEventLoop loop;
+    xTimer     timer;
+  } *ctx;
   if (!timer) return xErrno_InvalidArg;
   if (xEventLoopCurrent() != timer->loop) {
     ctx = malloc(sizeof(*ctx));

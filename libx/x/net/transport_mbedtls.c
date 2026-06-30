@@ -12,8 +12,8 @@
 #ifdef X_HAS_MBEDTLS
 
 #include "tls_private.h"
-#include "transport_private.h"
 #include "transport.h"
+#include "transport_private.h"
 
 /* mbedTLS 3.x+ provides build_info.h; mbedTLS 2.x uses version.h */
 #if __has_include(<mbedtls/build_info.h>)
@@ -47,8 +47,9 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/uio.h>
 #include <unistd.h>
+
+#include <sys/uio.h>
 #include <x/base/log.h>
 
 /* ═══════════════════════════════════════════════════════════════════

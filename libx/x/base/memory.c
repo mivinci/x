@@ -6,12 +6,12 @@
  * memory.c - Memory allocation and reference counting
  */
 
-#include <x/base/atomic.h>
-#include <x/base/memory.h>
-
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <x/base/atomic.h>
+#include <x/base/memory.h>
 
 XDEF_STRUCT(Header) {
   const char *name; /* for debug */

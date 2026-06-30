@@ -6,8 +6,6 @@
  * flag.c - Command-line flag parser implementation
  */
 
-#include <x/base/flag.h>
-
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -16,6 +14,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <x/base/flag.h>
 
 /* ───────────────────── Internal types ───────────────────── */
 

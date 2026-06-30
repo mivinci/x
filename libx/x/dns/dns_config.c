@@ -18,13 +18,15 @@
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 #include <iphlpapi.h>
+#include <windows.h>
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
-#include <arpa/inet.h>
 #include <netdb.h>
+
+#include <arpa/inet.h>
 #include <sys/socket.h>
 #endif
 
@@ -35,24 +37,25 @@ static int parse_resolv_conf(char out[][46], int max) {
   FILE *f = fopen("/etc/resolv.conf", "r");
   if (!f) return 0;
 
-  char  line[256];
-  int   n = 0;
+  char line[256];
+  int  n = 0;
   while (n < max && fgets(line, sizeof(line), f)) {
     /* skip comments and blanks */
     char *p = line;
-    while (*p == ' ' || *p == '\t') ++p;
+    while (*p == ' ' || *p == '\t')
+      ++p;
     if (*p == '#' || *p == ';' || *p == '\n' || *p == '\0') continue;
 
     /* match "nameserver <ip>" */
     if (strncmp(p, "nameserver", 10) != 0) continue;
     p += 10;
-    while (*p == ' ' || *p == '\t') ++p;
+    while (*p == ' ' || *p == '\t')
+      ++p;
 
     /* extract token */
     char ip[46];
     int  i = 0;
-    while (*p && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r' &&
-           i < (int)sizeof(ip) - 1) {
+    while (*p && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r' && i < (int)sizeof(ip) - 1) {
       ip[i++] = *p++;
     }
     ip[i] = '\0';
@@ -112,7 +115,7 @@ int dns_config_load_nameservers(char out[][46], int max) {
     /* fallback */
     strncpy(out[0], "8.8.8.8", 45);
     out[0][45] = '\0';
-    n = 1;
+    n          = 1;
   }
   return n;
 }

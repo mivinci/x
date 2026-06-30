@@ -73,7 +73,7 @@ void xBitmapSet(xBitmap *bm, uint32_t i) {
 
 void xBitmapClear(xBitmap *bm, uint32_t i) {
   if (!bm || i >= bm->nbits) return;
-  bm->data[i / 8] &= (uint8_t) ~(1u << (i % 8));
+  bm->data[i / 8] &= (uint8_t)~(1u << (i % 8));
 }
 
 bool xBitmapTest(const xBitmap *bm, uint32_t i) {

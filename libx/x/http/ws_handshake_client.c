@@ -7,12 +7,14 @@
  */
 
 #include "ws_handshake_client.h"
+
 #include "ws_crypto.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+
 #include <x/base/compat.h>
 
 #ifdef __linux__

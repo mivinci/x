@@ -2,26 +2,31 @@
  * bus.c - Pub/sub notification bus
  */
 #include "bus.h"
+
 #include <stdlib.h>
 #include <string.h>
+
 #include <x/base/log.h>
 #include <x/base/map.h>
 
 struct dlp_sub {
-  dlp_bus_cb  cb;
-  void       *arg;
+  dlp_bus_cb      cb;
+  void           *arg;
   struct dlp_sub *next;
 };
 
 struct dlp_bus {
-  xMap subs;  /* key (str) → dlp_sub* */
+  xMap subs; /* key (str) → dlp_sub* */
 };
 
 dlp_bus_t dlp_bus_create(void) {
   struct dlp_bus *b = (struct dlp_bus *)calloc(1, sizeof(*b));
   if (!b) return NULL;
   b->subs = xMapCreate(xMapType_Hash, 64, xMapStrHash, xMapStrEq);
-  if (!b->subs) { free(b); return NULL; }
+  if (!b->subs) {
+    free(b);
+    return NULL;
+  }
   return b;
 }
 
@@ -44,7 +49,10 @@ xErrno dlp_bus_subscribe(dlp_bus_t b, const char *key, dlp_bus_cb cb, void *arg)
 
   /* Prepend to linked list in map; strdup key — xMapSet stores raw pointer */
   char *dup_key = strdup(key);
-  if (!dup_key) { free(s); return xErrno_NoMemory; }
+  if (!dup_key) {
+    free(s);
+    return xErrno_NoMemory;
+  }
 
   struct dlp_sub *head = (struct dlp_sub *)xMapGet(b->subs, dup_key);
   if (head) {

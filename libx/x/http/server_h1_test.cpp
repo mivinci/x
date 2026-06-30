@@ -16,7 +16,7 @@ TEST(HttpServerLifecycle, CreateAndDestroy) {
   xEventLoopEnter(loop);
 
   xHttpServerConf conf = {};
-  xHttpServer s = xHttpServerCreate(&conf);
+  xHttpServer     s    = xHttpServerCreate(&conf);
   ASSERT_NE(s, nullptr);
 
   xHttpServerDestroy(s);
@@ -26,7 +26,7 @@ TEST(HttpServerLifecycle, CreateAndDestroy) {
 
 TEST(HttpServerLifecycle, CreateWithoutEnteringLoopSucceeds) {
   xHttpServerConf conf = {};
-  xHttpServer s = xHttpServerCreate(&conf);
+  xHttpServer     s    = xHttpServerCreate(&conf);
   (void)s;
 }
 
@@ -62,7 +62,7 @@ TEST_F(HttpServerTest, SetMaxHeaderSize) {
 /* ───────────────────── Basic GET request ───────────────────── */
 
 static void echo_handler(xHttpCtx *ctx, void *arg) {
-  auto *c = static_cast<HandlerCtx *>(arg);
+  auto *c        = static_cast<HandlerCtx *>(arg);
   c->last_method = ctx->method;
   c->last_url    = ctx->url;
   c->call_count.fetch_add(1, std::memory_order_release);
@@ -114,7 +114,7 @@ static int echo_body_on_data(const char *data, size_t len, void *arg) {
 }
 
 static void echo_body_on_done(xHttpCtx *ctx, void *arg) {
-  auto *c = static_cast<BodyEchoCtx *>(arg);
+  auto *c        = static_cast<BodyEchoCtx *>(arg);
   c->last_method = ctx->method;
   c->last_url    = ctx->url;
   c->call_count.fetch_add(1, std::memory_order_release);
@@ -124,7 +124,7 @@ static void echo_body_on_done(xHttpCtx *ctx, void *arg) {
 }
 
 TEST_F(HttpServerTest, PostRequestWithBody) {
-  BodyEchoCtx ctx;
+  BodyEchoCtx    ctx;
   xHttpRouteConf conf = {};
   conf.pattern        = "POST /echo";
   conf.on_data        = echo_body_on_data;
@@ -160,7 +160,9 @@ TEST_F(HttpServerTest, PostRequestWithBody) {
 
 /* ───────────────────── 404 Not Found ───────────────────── */
 
-static void dummy_handler(xHttpCtx *ctx, void *) { xHttpCtxSend(ctx, "", 0); }
+static void dummy_handler(xHttpCtx *ctx, void *) {
+  xHttpCtxSend(ctx, "", 0);
+}
 
 TEST_F(HttpServerTest, NotFoundResponse) {
   route("GET /exists", dummy_handler);
@@ -380,7 +382,7 @@ static void stream_handler(xHttpCtx *ctx, void *arg) {
 
   xHttpCtxWrite(ctx, "data: hello\n\n", 13);
   xHttpCtxWrite(ctx, "data: world\n\n", 13);
-xHttpCtxEndStream(ctx);
+  xHttpCtxEndStream(ctx);
 }
 
 TEST_F(HttpServerTest, StreamingResponse) {
@@ -445,11 +447,11 @@ TEST_F(HttpServerTest, StreamingAutoEnd) {
 
 static void write_then_send_handler(xHttpCtx *ctx, void *arg) {
   xHttpCtxWrite(ctx, "data", 4);
-  xErrno err = xHttpCtxSend(ctx, "body", 4);
-  auto  *c = static_cast<HandlerCtx *>(arg);
+  xErrno err   = xHttpCtxSend(ctx, "body", 4);
+  auto  *c     = static_cast<HandlerCtx *>(arg);
   c->last_body = (err == xErrno_InvalidState) ? "InvalidState" : "Other";
   c->call_count.fetch_add(1, std::memory_order_release);
-xHttpCtxEndStream(ctx);
+  xHttpCtxEndStream(ctx);
 }
 
 TEST_F(HttpServerTest, WriteAndSendMutuallyExclusive) {
@@ -545,8 +547,8 @@ static void multi_param_handler(xHttpCtx *ctx, void *arg) {
   if (action && action_len > 0) c->param_action.assign(action, action_len);
 
   char body[256];
-  int  blen = snprintf(body, sizeof(body), "id=%s,action=%s", c->param_id.c_str(),
-                       c->param_action.c_str());
+  int  blen =
+    snprintf(body, sizeof(body), "id=%s,action=%s", c->param_id.c_str(), c->param_action.c_str());
   xHttpCtxSetStatus(ctx, 200);
   xHttpCtxSend(ctx, body, static_cast<size_t>(blen));
 }
@@ -603,7 +605,7 @@ static void missing_param_handler(xHttpCtx *ctx, void *arg) {
 
   size_t      len = 0;
   const char *val = xHttpCtxParam(ctx, "nonexistent", &len);
-  c->param_id   = val ? "found" : "null";
+  c->param_id     = val ? "found" : "null";
 
   xHttpCtxSend(ctx, "ok", 2);
 }
@@ -747,7 +749,7 @@ TEST_F(HttpServerTest, DeferredResponseSend) {
   EXPECT_FALSE(ctx.send_done.load());
 
   {
-    char buf[64];
+    char    buf[64];
     ssize_t n = recv(fd, buf, sizeof(buf) - 1, MSG_DONTWAIT);
     EXPECT_LT(n, 0) << "Expected no data yet, got: " << std::string(buf, n > 0 ? n : 0);
   }

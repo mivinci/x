@@ -66,6 +66,7 @@
 #define XBASE_FLAG_H
 
 #include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 
@@ -86,11 +87,12 @@ XDEF_HANDLE(xFlagSet);
  * xFlagAdd* function.
  */
 XDEF_ENUM(xFlagAttr){
-  xFlagAttr_None = 0, xFlagAttr_Required = 1 << 0, /**< Parse fails if the flag is absent  */
-  xFlagAttr_Hidden = 1 << 1,                       /**< Omit from --help output            */
-  xFlagAttr_Multi  = 1 << 2,                       /**< Allow repetition; collect into an
-                                                        internal NUL-terminated array; only
-                                                        meaningful for string flags        */
+  xFlagAttr_None     = 0,
+  xFlagAttr_Required = 1 << 0, /**< Parse fails if the flag is absent  */
+  xFlagAttr_Hidden   = 1 << 1, /**< Omit from --help output            */
+  xFlagAttr_Multi    = 1 << 2, /**< Allow repetition; collect into an
+                                    internal NUL-terminated array; only
+                                    meaningful for string flags        */
 };
 
 /* ───────────────────── Lifecycle ───────────────────── */

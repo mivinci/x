@@ -25,9 +25,8 @@
  * efficiently in poll instead of busy-looping.
  */
 static inline void run_for(xEventLoop loop, int ms) {
-  xTimer t = xTimerStart(
-    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
-    loop, static_cast<uint64_t>(ms), 0);
+  xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                         static_cast<uint64_t>(ms), 0);
   xEventLoopRun(loop, X_RUN_DEFAULT);
   if (t) xTimerStop(t);
 }
@@ -39,8 +38,7 @@ static inline void run_for(xEventLoop loop, int ms) {
  * is set.  A one-shot watchdog timer stops the loop after @p timeout_ms to
  * prevent hangs on failure.
  */
-static inline void run_until(xEventLoop loop, std::atomic<bool> &flag,
-                             int timeout_ms = 5000) {
+static inline void run_until(xEventLoop loop, std::atomic<bool> &flag, int timeout_ms = 5000) {
   if (flag.load(std::memory_order_acquire)) return;
 
   struct RunUntilCtx {
@@ -51,14 +49,12 @@ static inline void run_until(xEventLoop loop, std::atomic<bool> &flag,
   xTimer checker = xTimerStart(
     [](void *arg) {
       auto *c = static_cast<RunUntilCtx *>(arg);
-      if (c->flag->load(std::memory_order_acquire))
-        xEventLoopStop(c->loop);
+      if (c->flag->load(std::memory_order_acquire)) xEventLoopStop(c->loop);
     },
     &ctx, 5, 5);
 
-  xTimer watchdog = xTimerStart(
-    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
-    loop, static_cast<uint64_t>(timeout_ms), 0);
+  xTimer watchdog = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
+                                loop, static_cast<uint64_t>(timeout_ms), 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
 
@@ -72,27 +68,25 @@ static inline void run_until(xEventLoop loop, std::atomic<bool> &flag,
  * Same efficient X_RUN_DEFAULT pattern as run_until, but for integer
  * counters (e.g. event counts).
  */
-static inline void run_until_count(xEventLoop loop, std::atomic<int> &count,
-                                   int target, int timeout_ms = 10000) {
+static inline void run_until_count(xEventLoop loop, std::atomic<int> &count, int target,
+                                   int timeout_ms = 10000) {
   if (count.load(std::memory_order_acquire) >= target) return;
 
   struct RunUntilCountCtx {
-    xEventLoop          loop;
-    std::atomic<int>   *count;
-    int                 target;
+    xEventLoop        loop;
+    std::atomic<int> *count;
+    int               target;
   } ctx{loop, &count, target};
 
   xTimer checker = xTimerStart(
     [](void *arg) {
       auto *c = static_cast<RunUntilCountCtx *>(arg);
-      if (c->count->load(std::memory_order_acquire) >= c->target)
-        xEventLoopStop(c->loop);
+      if (c->count->load(std::memory_order_acquire) >= c->target) xEventLoopStop(c->loop);
     },
     &ctx, 5, 5);
 
-  xTimer watchdog = xTimerStart(
-    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
-    loop, static_cast<uint64_t>(timeout_ms), 0);
+  xTimer watchdog = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
+                                loop, static_cast<uint64_t>(timeout_ms), 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
 

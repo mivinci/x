@@ -7,13 +7,14 @@
  */
 
 #include "dtls_transport.h"
-#include "dtls_backend.h"
 
-#include <x/base/log.h>
+#include "dtls_backend.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <x/base/log.h>
 
 /* ───────────────────── Default Timeout ───────────────────── */
 
@@ -32,8 +33,8 @@ XDEF_STRUCT(xDtlsTransport_) {
   uint8_t local_fingerprint[XDTLS_FINGERPRINT_SIZE];
 
   xTimer handshake_timer;
-  bool        driving;            /**< Re-entrancy guard for drive_handshake. */
-  bool        feed_while_driving; /**< Data arrived while driving. */
+  bool   driving;            /**< Re-entrancy guard for drive_handshake. */
+  bool   feed_while_driving; /**< Data arrived while driving. */
 };
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -260,8 +261,7 @@ xErrno xDtlsTransportStart(xDtlsTransport transport) {
   set_state(t, xDtlsState_Connecting);
 
   /* Start handshake timeout */
-  t->handshake_timer =
-    xTimerStart(handshake_timeout_cb, t, t->conf.handshake_timeout_ms, 0);
+  t->handshake_timer = xTimerStart(handshake_timeout_cb, t, t->conf.handshake_timeout_ms, 0);
 
   /* Drive the handshake (for active role, this sends ClientHello) */
   drive_handshake(t);

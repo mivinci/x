@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
 #include <x/base/event.h>
 
 /* ───────────────────── Worker ───────────────────── */
@@ -24,14 +25,14 @@ static void *fs_worker(void *arg) {
 
   switch (r->op) {
   case xFsOpOpen:
-    r->retval  = open(r->path, r->flags, (mode_t)r->mode);
-    r->result  = (r->retval < 0) ? xErrno_SysError : xErrno_Ok;
+    r->retval   = open(r->path, r->flags, (mode_t)r->mode);
+    r->result   = (r->retval < 0) ? xErrno_SysError : xErrno_Ok;
     r->out_file = (r->retval >= 0) ? (xFile)(intptr_t)r->retval : NULL;
     break;
 
   case xFsOpClose:
     if (r->file) {
-      fd = (int)(intptr_t)r->file;
+      fd        = (int)(intptr_t)r->file;
       r->retval = close(fd);
     } else {
       r->retval = 0;
@@ -48,7 +49,7 @@ static void *fs_worker(void *arg) {
       break;
     }
     size_t chunk = r->len; /* single-chunk read */
-    r->retval   = pread(fd, r->buf, chunk, r->offset);
+    r->retval    = pread(fd, r->buf, chunk, r->offset);
     if (r->retval < 0) {
       r->result = xErrno_SysError;
       r->done   = true;
@@ -83,8 +84,8 @@ static void *fs_worker(void *arg) {
       r->result = xErrno_SysError;
       r->retval = -1;
     } else {
-      r->result  = xErrno_Ok;
-      r->retval  = 0;
+      r->result     = xErrno_Ok;
+      r->retval     = 0;
       r->stat.size  = st.st_size;
       r->stat.mode  = st.st_mode;
       r->stat.mtime = (uint64_t)st.st_mtime * 1000;

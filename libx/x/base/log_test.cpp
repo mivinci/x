@@ -6,12 +6,12 @@
  * log_test.cpp - xLog unit tests
  */
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <cstring>
 #include <string>
 #include <thread>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/log.h>

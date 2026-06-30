@@ -9,12 +9,12 @@
 #ifndef XNET_DNS_H
 #define XNET_DNS_H
 
+#include <netdb.h>
+
+#include <sys/socket.h>
 #include <x/base/base.h>
 #include <x/base/error.h>
 #include <x/base/event.h>
-
-#include <netdb.h>
-#include <sys/socket.h>
 
 /**
  * @brief A single resolved address entry (linked list node).
@@ -74,7 +74,7 @@ typedef void (*xDnsCallback)(xDnsResult *result, void *arg);
  * @param arg       Argument forwarded to callback.
  * @return          A query handle, or NULL on invalid arguments.
  */
-XCAPI(xDnsQuery) xDnsResolve( const char *hostname, const char *service,
+XCAPI(xDnsQuery) xDnsResolve(const char *hostname, const char *service,
                              const struct addrinfo *hints, xDnsCallback callback, void *arg);
 
 /**

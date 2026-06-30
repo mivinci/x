@@ -9,10 +9,10 @@
 #ifndef XBASE_BITMAP_H
 #define XBASE_BITMAP_H
 
+#include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
-
-#include <stdint.h>
 
 /**
  * @defgroup xBitmap Bitmap

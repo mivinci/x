@@ -9,12 +9,11 @@
 #ifndef XBASE_SOCKET_H
 #define XBASE_SOCKET_H
 
+#include <sys/socket.h> /* struct sockaddr, socklen_t, sendto, recvfrom */
+#include <sys/types.h>
 #include <x/base/base.h>
 #include <x/base/error.h>
 #include <x/base/event.h>
-
-#include <sys/types.h>
-#include <sys/socket.h> /* struct sockaddr, socklen_t, sendto, recvfrom */
 
 /* ───────────────────── Types ───────────────────── */
 
@@ -164,8 +163,8 @@ XCAPI(xEventMask) xSocketMask(xSocket sock);
  * @param destlen  Length of @p dest.
  * @return         Bytes sent, or -1 on error (errno set).
  */
-XCAPI(ssize_t) xSocketSendTo(xSocket sock, const void *buf, size_t len,
-                             const struct sockaddr *dest, socklen_t destlen);
+XCAPI(ssize_t) xSocketSendTo(xSocket sock, const void *buf, size_t len, const struct sockaddr *dest,
+                             socklen_t destlen);
 
 /**
  * @brief Receive a datagram, capturing the source address.
@@ -183,7 +182,7 @@ XCAPI(ssize_t) xSocketSendTo(xSocket sock, const void *buf, size_t len,
  * @return        Bytes received, or -1 on error (errno set to EAGAIN /
  *                EWOULDBLOCK when no data is available).
  */
-XCAPI(ssize_t) xSocketRecvFrom(xSocket sock, void *buf, size_t len,
-                               struct sockaddr *src, socklen_t *srclen);
+XCAPI(ssize_t) xSocketRecvFrom(xSocket sock, void *buf, size_t len, struct sockaddr *src,
+                               socklen_t *srclen);
 
 #endif /* XBASE_SOCKET_H */

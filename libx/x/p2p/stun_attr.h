@@ -12,8 +12,9 @@
 #include "ice_private.h"
 #include "stun_msg.h"
 
-#include <netinet/in.h>
 #include <stdint.h>
+
+#include <netinet/in.h>
 #include <x/base/base.h>
 
 /* ───────────────────── Attribute Writer ───────────────────── */
@@ -48,7 +49,7 @@ XCAPI(void) xStunAttrWriterInit(xStunAttrWriter *w, uint8_t *buf, size_t cap);
  * @return        xErrno_Ok on success.
  */
 XCAPI(xErrno) xStunAttrWriteXorMappedAddress(xStunAttrWriter *w, const struct sockaddr *addr,
-                                      const uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
+                                             const uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
 
 /**
  * @brief Write a MAPPED-ADDRESS attribute.
@@ -64,7 +65,7 @@ XCAPI(xErrno) xStunAttrWriteMappedAddress(xStunAttrWriter *w, const struct socka
  * @return            xErrno_Ok on success.
  */
 XCAPI(xErrno) xStunAttrWriteUsername(xStunAttrWriter *w, const char *remote_ufrag,
-                              const char *local_ufrag);
+                                     const char *local_ufrag);
 
 /**
  * @brief Write a MESSAGE-INTEGRITY attribute (HMAC-SHA1).
@@ -80,8 +81,8 @@ XCAPI(xErrno) xStunAttrWriteUsername(xStunAttrWriter *w, const char *remote_ufra
  * @param key_len  Length of key.
  * @return         xErrno_Ok on success.
  */
-XCAPI(xErrno) xStunAttrWriteMessageIntegrity(xStunAttrWriter *w, uint8_t *msg_buf, const uint8_t *key,
-                                      size_t key_len);
+XCAPI(xErrno) xStunAttrWriteMessageIntegrity(xStunAttrWriter *w, uint8_t *msg_buf,
+                                             const uint8_t *key, size_t key_len);
 
 /**
  * @brief Write a FINGERPRINT attribute (CRC-32).
@@ -150,7 +151,7 @@ XCAPI(xErrno) xStunAttrWriteRequestedTransport(xStunAttrWriter *w, uint32_t tran
  * @brief Write a XOR-PEER-ADDRESS attribute.
  */
 XCAPI(xErrno) xStunAttrWriteXorPeerAddress(xStunAttrWriter *w, const struct sockaddr *addr,
-                                    const uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
+                                           const uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
 
 /**
  * @brief Write a CHANNEL-NUMBER attribute.
@@ -212,8 +213,8 @@ XCAPI(bool) xStunAttrIterNext(xStunAttrIter *iter, xStunAttr *attr);
  * @return        xErrno_Ok on success.
  */
 XCAPI(xErrno) xStunAttrDecodeXorMappedAddress(const xStunAttr         *attr,
-                                       const uint8_t            txn_id[XSTUN_TXN_ID_SIZE],
-                                       struct sockaddr_storage *out);
+                                              const uint8_t            txn_id[XSTUN_TXN_ID_SIZE],
+                                              struct sockaddr_storage *out);
 
 /**
  * @brief Decode a MAPPED-ADDRESS attribute value.
@@ -230,7 +231,7 @@ XCAPI(xErrno) xStunAttrDecodeMappedAddress(const xStunAttr *attr, struct sockadd
  * @return        xErrno_Ok on success.
  */
 XCAPI(xErrno) xStunAttrDecodeErrorCode(const xStunAttr *attr, int *code, const char **reason,
-                                size_t *reason_len);
+                                       size_t *reason_len);
 
 /**
  * @brief Verify MESSAGE-INTEGRITY attribute.
@@ -243,7 +244,8 @@ XCAPI(xErrno) xStunAttrDecodeErrorCode(const xStunAttr *attr, int *code, const c
  * @return          xErrno_Ok if valid, xErrno_InvalidArg if mismatch.
  */
 XCAPI(xErrno) xStunAttrVerifyMessageIntegrity(const uint8_t *msg_buf, size_t msg_len,
-                                       const xStunAttr *attr, const uint8_t *key, size_t key_len);
+                                              const xStunAttr *attr, const uint8_t *key,
+                                              size_t key_len);
 
 /**
  * @brief Verify FINGERPRINT attribute.
@@ -253,7 +255,8 @@ XCAPI(xErrno) xStunAttrVerifyMessageIntegrity(const uint8_t *msg_buf, size_t msg
  * @param attr      The FINGERPRINT attribute.
  * @return          xErrno_Ok if valid, xErrno_InvalidArg if mismatch.
  */
-XCAPI(xErrno) xStunAttrVerifyFingerprint(const uint8_t *msg_buf, size_t msg_len, const xStunAttr *attr);
+XCAPI(xErrno) xStunAttrVerifyFingerprint(const uint8_t *msg_buf, size_t msg_len,
+                                         const xStunAttr *attr);
 
 /**
  * @brief Check if an unknown attribute type is comprehension-required.

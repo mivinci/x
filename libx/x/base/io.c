@@ -6,10 +6,10 @@
  * io.c - Abstract I/O interface implementations
  */
 
-#include <x/base/io.h>
-
 #include <stdlib.h>
 #include <string.h>
+
+#include <x/base/io.h>
 
 #ifndef _WIN32
 #include <errno.h>

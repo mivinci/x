@@ -46,7 +46,8 @@ XDEF_STRUCT(xIceCandidate) {
  * @param component_id  Component ID (1-256).
  * @return              Computed priority.
  */
-XCAPI(uint32_t) xIceCandidatePriority(xIceCandidateType type, uint16_t local_pref, int component_id);
+XCAPI(uint32_t) xIceCandidatePriority(xIceCandidateType type, uint16_t local_pref,
+                                      int component_id);
 
 /**
  * @brief Get the type preference for a candidate type.

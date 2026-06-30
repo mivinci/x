@@ -12,8 +12,9 @@ extern "C" {
 #include "sdp.h"
 }
 
-#include <arpa/inet.h>
 #include <string.h>
+
+#include <arpa/inet.h>
 
 /* ───────────────────── Candidate Line ───────────────────── */
 

@@ -52,7 +52,7 @@ uint64_t xWallMs(void) {
 #include <mach/mach_time.h>
 #include <x/base/thread.h>
 
-static xOnce              tb_init = X_ONCE_INIT;
+static xOnce                     tb_init = X_ONCE_INIT;
 static mach_timebase_info_data_t tb;
 
 static void timebase_init(void) {

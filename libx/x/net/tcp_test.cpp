@@ -6,12 +6,12 @@
  * tcp_test.cpp - Unit tests for xTcpConn, xTcpConnect, xTcpListener
  */
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <chrono>
 #include <cstring>
 #include <thread>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/io.h>
@@ -19,10 +19,11 @@ extern "C" {
 #include <x/net/transport.h>
 }
 
+#include <unistd.h>
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <unistd.h>
 
 /**
  * Helper: get a free port by binding to port 0 and reading back the port.
@@ -57,7 +58,7 @@ static void sleep_ms(int n) {
 
 class TcpTest : public ::testing::Test {
 protected:
-  xEventLoop loop     = nullptr;
+  xEventLoop loop = nullptr;
 
   void SetUp() override {
     loop = xEventLoopCreate();
@@ -145,8 +146,7 @@ TEST_F(TcpTest, LoopbackPlainTcp) {
 
   /* Create listener */
   xTcpListenerConf lconf = {};
-  xTcpListener     listener =
-    xTcpListenerCreate("127.0.0.1", port, &lconf, loopback_accept_cb, &ctx);
+  xTcpListener listener  = xTcpListenerCreate("127.0.0.1", port, &lconf, loopback_accept_cb, &ctx);
   ASSERT_NE(listener, nullptr);
 
   /* Connect to the listener */
@@ -333,8 +333,7 @@ TEST_F(TcpTest, TakeSocketAndTransport) {
   ASSERT_GT(port, 0);
 
   xTcpListenerConf lconf = {};
-  xTcpListener     listener =
-    xTcpListenerCreate("127.0.0.1", port, &lconf, transfer_accept_cb, &ctx);
+  xTcpListener listener  = xTcpListenerCreate("127.0.0.1", port, &lconf, transfer_accept_cb, &ctx);
   ASSERT_NE(listener, nullptr);
 
   xErrno err = xTcpConnect("127.0.0.1", port, nullptr, transfer_connect_cb, &ctx);
@@ -402,8 +401,7 @@ TEST_F(TcpTest, ListenerDestroyStopsAccept) {
   ASSERT_GT(lport, 0);
 
   xTcpListenerConf lconf = {};
-  xTcpListener     listener =
-    xTcpListenerCreate("127.0.0.1", lport, &lconf, accept_cb, &accept_count);
+  xTcpListener listener  = xTcpListenerCreate("127.0.0.1", lport, &lconf, accept_cb, &accept_count);
   ASSERT_NE(listener, nullptr);
 
   /* Destroy the listener immediately */
@@ -466,8 +464,7 @@ TEST_F(TcpTest, ReaderWriterAdapterLoopback) {
   ASSERT_GT(port, 0);
 
   xTcpListenerConf lconf = {};
-  xTcpListener     listener =
-    xTcpListenerCreate("127.0.0.1", port, &lconf, adapter_accept_cb, &ctx);
+  xTcpListener listener  = xTcpListenerCreate("127.0.0.1", port, &lconf, adapter_accept_cb, &ctx);
   ASSERT_NE(listener, nullptr);
 
   xErrno err = xTcpConnect("127.0.0.1", port, nullptr, adapter_connect_cb, &ctx);

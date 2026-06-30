@@ -22,6 +22,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 #include <x/base/event.h>
@@ -219,8 +220,7 @@ XDEF_STRUCT(xWsConnectConf) {
  * @return           xErrno_Ok if the async process started,
  *                   or xErrno_InvalidArg for bad parameters.
  */
-XCAPI(xErrno) xWsConnect( const xWsConnectConf *conf, const xWsCallbacks *callbacks,
-                         void *arg);
+XCAPI(xErrno) xWsConnect(const xWsConnectConf *conf, const xWsCallbacks *callbacks, void *arg);
 
 /* ── Convenience: WebSocket-only server ─────────────────────────────── */
 
@@ -242,7 +242,7 @@ XCAPI(xErrno) xWsConnect( const xWsConnectConf *conf, const xWsCallbacks *callba
  * @param arg        User argument forwarded to all callbacks.
  * @return           The server handle, or NULL on failure.
  */
-XCAPI(xHttpServer) xWsServe( const char *host, uint16_t port,
-                            const xWsCallbacks *callbacks, void *arg);
+XCAPI(xHttpServer) xWsServe(const char *host, uint16_t port, const xWsCallbacks *callbacks,
+                            void *arg);
 
 #endif /* XHTTP_WS_H */

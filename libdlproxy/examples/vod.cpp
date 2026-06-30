@@ -5,10 +5,10 @@
  *
  * Each URL creates a task. .m3u8 → HLS (rid=test-hls), otherwise MP4 (rid=test-mp4).
  */
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <csignal>
 
 extern "C" {
 #include <dlproxy.h>
@@ -33,8 +33,8 @@ int main(int argc, char **argv) {
   if (argc > 2) cache_dir = argv[2];
 
   dlp_conf_t conf = {0};
-  conf.port      = port;
-  conf.cache_dir = cache_dir;
+  conf.port       = port;
+  conf.cache_dir  = cache_dir;
 
   g_ctx = dlp_init(&conf);
   if (!g_ctx) {
@@ -45,8 +45,8 @@ int main(int argc, char **argv) {
   /* Create a task for each URL argument */
   for (int i = 3; i < argc; i++) {
     dlp_task_conf_t tc = {0};
-    tc.url  = argv[i];
-    tc.size = 0;
+    tc.url             = argv[i];
+    tc.size            = 0;
 
     if (ends_with(argv[i], ".m3u8")) {
       tc.format = DLP_FMT_HLS;
@@ -61,8 +61,8 @@ int main(int argc, char **argv) {
       dlp_task_start(task);
       char proxy_url[256];
       dlp_task_proxy_url(task, proxy_url, sizeof(proxy_url));
-      fprintf(stderr, "Task '%s' (%s): %s\n", tc.rid,
-              tc.format == DLP_FMT_HLS ? "HLS" : "MP4", argv[i]);
+      fprintf(stderr, "Task '%s' (%s): %s\n", tc.rid, tc.format == DLP_FMT_HLS ? "HLS" : "MP4",
+              argv[i]);
       fprintf(stderr, "Proxy URL: %s\n", proxy_url);
     } else {
       fprintf(stderr, "dlp_task_create failed for %s\n", argv[i]);

@@ -16,8 +16,6 @@
  *   - Concurrent HTTPS requests
  */
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -26,6 +24,8 @@
 #include <thread>
 #include <vector>
 
+#include <gtest/gtest.h>
+
 extern "C" {
 #include <x/http/client.h>
 #include <x/http/server.h>
@@ -33,10 +33,11 @@ extern "C" {
 
 #include "server_test_helper.h"
 
+#include <unistd.h>
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <unistd.h>
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Helpers
@@ -73,12 +74,12 @@ TEST(HttpsClientConfig, SetTlsNullConfResetsToDefaults) {
   tls.skip_verify      = 1;
   xHttpClientConf conf = {};
   conf.tls             = &tls;
-  xHttpClient client   = xHttpClientCreate( &conf);
+  xHttpClient client   = xHttpClientCreate(&conf);
   ASSERT_NE(client, nullptr);
 
   /* Recreate with defaults (NULL conf) */
   xHttpClientDestroy(client);
-  client = xHttpClientCreate( nullptr);
+  client = xHttpClientCreate(nullptr);
   ASSERT_NE(client, nullptr);
 
   /* Should not crash on subsequent use */
@@ -100,7 +101,7 @@ TEST(HttpsClientConfig, SetTlsWithAllFields) {
   tls.skip_verify      = 0;
   xHttpClientConf conf = {};
   conf.tls             = &tls;
-  xHttpClient client   = xHttpClientCreate( &conf);
+  xHttpClient client   = xHttpClientCreate(&conf);
   ASSERT_NE(client, nullptr);
 
   /* Overwrite with different config by recreating */
@@ -109,7 +110,7 @@ TEST(HttpsClientConfig, SetTlsWithAllFields) {
   tls2.skip_verify      = 1;
   xHttpClientConf conf2 = {};
   conf2.tls             = &tls2;
-  client                = xHttpClientCreate( &conf2);
+  client                = xHttpClientCreate(&conf2);
   ASSERT_NE(client, nullptr);
 
   xHttpClientDestroy(client);
@@ -136,8 +137,8 @@ struct RespCtx {
   std::string       headers{};
   std::string       curl_error{};
   /* Upload state — used when on_read is set */
-  std::string       upload_data{};
-  size_t            upload_offset{0};
+  std::string upload_data{};
+  size_t      upload_offset{0};
 };
 
 static void on_resp(xHttpCtx *ctx, void *arg) {
@@ -156,7 +157,7 @@ static int on_data_collect(const char *data, size_t len, void *arg) {
 }
 
 static size_t on_read_provide(char *buf, size_t bufsize, void *arg) {
-  auto *c        = static_cast<RespCtx *>(arg);
+  auto  *c         = static_cast<RespCtx *>(arg);
   size_t remaining = c->upload_data.size() - c->upload_offset;
   if (remaining == 0) return 0; /* EOF */
   size_t n = bufsize < remaining ? bufsize : remaining;
@@ -249,8 +250,8 @@ protected:
   std::thread       loop_thread;
 
   /* Client-side */
-  xEventLoop  client_loop     = nullptr;
-  xHttpClient client          = nullptr;
+  xEventLoop  client_loop = nullptr;
+  xHttpClient client      = nullptr;
 
   void SetUp() override {
     /* ── Server setup ── */
@@ -393,13 +394,13 @@ TEST_F(HttpsIntegrationTest, GetWithSkipVerify) {
   listen_tls_and_start();
   client_skip_verify();
 
-  RespCtx ctx{};
-  std::string u = url("/hello");
+  RespCtx          ctx{};
+  std::string      u    = url("/hello");
   xHttpRequestConf conf = {};
-  conf.url     = u.c_str();
-  conf.on_data = on_data_collect;
-  conf.on_done = on_resp;
-  xErrno  err = xHttpClientGet(client, &conf, &ctx);
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
+  xErrno err            = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -421,14 +422,14 @@ TEST_F(HttpsIntegrationTest, PostWithSkipVerify) {
   RespCtx     ctx{};
   const char *body = "request-body-data";
   ctx.upload_data.assign(body, strlen(body));
-  std::string u = url("/echo");
+  std::string      u    = url("/echo");
   xHttpRequestConf conf = {};
-  conf.url            = u.c_str();
-  conf.on_read        = on_read_provide;
-  conf.content_length = strlen(body);
-  conf.on_data        = on_data_collect;
-  conf.on_done        = on_resp;
-  xErrno err = xHttpClientPost(client, &conf, &ctx);
+  conf.url              = u.c_str();
+  conf.on_read          = on_read_provide;
+  conf.content_length   = strlen(body);
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
+  xErrno err            = xHttpClientPost(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -448,8 +449,8 @@ TEST_F(HttpsIntegrationTest, DoWithCustomHeaders) {
   client_skip_verify();
 
   RespCtx     ctx{};
-  const char *hdrs[]  = {"X-Custom: test-value", NULL};
-  const char *body    = "put-body";
+  const char *hdrs[] = {"X-Custom: test-value", NULL};
+  const char *body   = "put-body";
   ctx.upload_data.assign(body, strlen(body));
   std::string req_url = url("/data");
 
@@ -516,13 +517,13 @@ TEST_F(HttpsIntegrationTest, GetWithCorrectCaPath) {
   /* Use the self-signed cert as CA — should pass verification */
   client_set_ca(ca_cert_path);
 
-  RespCtx ctx{};
-  std::string u = url("/hello");
+  RespCtx          ctx{};
+  std::string      u    = url("/hello");
   xHttpRequestConf conf = {};
-  conf.url     = u.c_str();
-  conf.on_data = on_data_collect;
-  conf.on_done = on_resp;
-  xErrno  err = xHttpClientGet(client, &conf, &ctx);
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
+  xErrno err            = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -544,13 +545,13 @@ TEST_F(HttpsIntegrationTest, SelfSignedCertRejectedWithoutSkipVerify) {
    * Recreate client with no TLS config (defaults). */
   create_client(nullptr);
 
-  RespCtx ctx{};
-  std::string u = url("/hello");
+  RespCtx          ctx{};
+  std::string      u    = url("/hello");
   xHttpRequestConf conf = {};
-  conf.url     = u.c_str();
-  conf.on_data = on_data_collect;
-  conf.on_done = on_resp;
-  xErrno  err = xHttpClientGet(client, &conf, &ctx);
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
+  xErrno err            = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok); /* submission succeeds, failure is async */
 
   run_until(client_loop, ctx.done, 5000);
@@ -572,13 +573,13 @@ TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
   tls.ca       = "/tmp/nonexistent_ca_xhttps_test.pem";
   create_client(&tls);
 
-  RespCtx ctx{};
-  std::string u = url("/hello");
+  RespCtx          ctx{};
+  std::string      u    = url("/hello");
   xHttpRequestConf conf = {};
-  conf.url     = u.c_str();
-  conf.on_data = on_data_collect;
-  conf.on_done = on_resp;
-  xErrno  err = xHttpClientGet(client, &conf, &ctx);
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
+  xErrno err            = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -624,10 +625,10 @@ TEST_F(HttpsIntegrationTest, ConcurrentHttpsRequests) {
 
   for (int i = 0; i < N; i++) {
     xHttpRequestConf conf = {};
-    conf.url     = u.c_str();
-    conf.on_data = multi_on_data;
-    conf.on_done = multi_cb;
-    xErrno err = xHttpClientGet(client, &conf, &ctxs[i]);
+    conf.url              = u.c_str();
+    conf.on_data          = multi_on_data;
+    conf.on_done          = multi_cb;
+    xErrno err            = xHttpClientGet(client, &conf, &ctxs[i]);
     ASSERT_EQ(err, xErrno_Ok);
   }
 
@@ -664,8 +665,8 @@ protected:
   std::atomic<bool> loop_running{false};
   std::thread       loop_thread;
 
-  xEventLoop  client_loop     = nullptr;
-  xHttpClient client          = nullptr;
+  xEventLoop  client_loop = nullptr;
+  xHttpClient client      = nullptr;
 
   void SetUp() override {
     server_loop = xEventLoopCreate();
@@ -679,7 +680,7 @@ protected:
     sconf.resolve         = xHttpMuxResolve;
     sconf.router          = mux;
     sconf.idle_timeout_ms = 60000;
-    server = xHttpServerCreate(&sconf);
+    server                = xHttpServerCreate(&sconf);
     ASSERT_NE(server, nullptr);
     xEventLoopLeave();
 
@@ -814,13 +815,13 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
   client = xHttpClientCreate(&cli_conf);
   ASSERT_NE(client, nullptr);
 
-  RespCtx ctx{};
-  std::string u = url("/secure");
+  RespCtx          ctx{};
+  std::string      u    = url("/secure");
   xHttpRequestConf conf = {};
-  conf.url     = u.c_str();
-  conf.on_data = on_data_collect;
-  conf.on_done = on_resp;
-  err = xHttpClientGet(client, &conf, &ctx);
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
+  err                   = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -854,13 +855,13 @@ TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
   client = xHttpClientCreate(&cli_conf);
   ASSERT_NE(client, nullptr);
 
-  RespCtx ctx{};
-  std::string u = url("/secure");
+  RespCtx          ctx{};
+  std::string      u    = url("/secure");
   xHttpRequestConf conf = {};
-  conf.url     = u.c_str();
-  conf.on_data = on_data_collect;
-  conf.on_done = on_resp;
-  err = xHttpClientGet(client, &conf, &ctx);
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
+  err                   = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until(client_loop, ctx.done, 5000);
@@ -947,11 +948,11 @@ TEST_F(HttpsIntegrationTest, DestroyWithInflightHttpsRequest) {
     flag->store(true, std::memory_order_release);
   };
 
-  std::string u = url("/hello");
+  std::string      u    = url("/hello");
   xHttpRequestConf conf = {};
-  conf.url     = u.c_str();
-  conf.on_done = cb;
-  xErrno err = xHttpClientGet(client, &conf, &cb_called);
+  conf.url              = u.c_str();
+  conf.on_done          = cb;
+  xErrno err            = xHttpClientGet(client, &conf, &cb_called);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Pump briefly to let curl start the TLS handshake */
@@ -975,13 +976,13 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
     create_client(&tls);
   }
 
-  RespCtx ctx1{};
-  std::string u1 = url("/hello");
+  RespCtx          ctx1{};
+  std::string      u1    = url("/hello");
   xHttpRequestConf conf1 = {};
-  conf1.url     = u1.c_str();
-  conf1.on_data = on_data_collect;
-  conf1.on_done = on_resp;
-  xErrno  err = xHttpClientGet(client, &conf1, &ctx1);
+  conf1.url              = u1.c_str();
+  conf1.on_data          = on_data_collect;
+  conf1.on_done          = on_resp;
+  xErrno err             = xHttpClientGet(client, &conf1, &ctx1);
   ASSERT_EQ(err, xErrno_Ok);
   run_until(client_loop, ctx1.done, 5000);
   ASSERT_TRUE(ctx1.done.load());
@@ -991,13 +992,13 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
   /* Reset to defaults (verify enabled) → self-signed should fail */
   create_client(nullptr);
 
-  RespCtx ctx2{};
-  std::string u2 = url("/hello");
+  RespCtx          ctx2{};
+  std::string      u2    = url("/hello");
   xHttpRequestConf conf2 = {};
-  conf2.url     = u2.c_str();
-  conf2.on_data = on_data_collect;
-  conf2.on_done = on_resp;
-  err = xHttpClientGet(client, &conf2, &ctx2);
+  conf2.url              = u2.c_str();
+  conf2.on_data          = on_data_collect;
+  conf2.on_done          = on_resp;
+  err                    = xHttpClientGet(client, &conf2, &ctx2);
   ASSERT_EQ(err, xErrno_Ok);
   run_until(client_loop, ctx2.done, 5000);
   ASSERT_TRUE(ctx2.done.load());
@@ -1012,4 +1013,3 @@ TEST(HttpsIntegration, SkippedNoTlsBackend) {
 }
 
 #endif /* X_HAS_OPENSSL */
-

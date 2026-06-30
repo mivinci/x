@@ -6,13 +6,12 @@
  * dns.c - Asynchronous DNS resolution via thread-pool offload
  */
 
-#include <x/net/dns.h>
-
-#include <x/base/atomic.h>
-
-#include <arpa/inet.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <arpa/inet.h>
+#include <x/base/atomic.h>
+#include <x/net/dns.h>
 
 /* ───────────────────── Internal types ───────────────────── */
 
@@ -189,8 +188,8 @@ static void dns_on_cancel(void *arg, void *result) {
 
 /* ───────────────────── Public API ───────────────────── */
 
-xDnsQuery xDnsResolve( const char *hostname, const char *service,
-                      const struct addrinfo *hints, xDnsCallback callback, void *arg) {
+xDnsQuery xDnsResolve(const char *hostname, const char *service, const struct addrinfo *hints,
+                      xDnsCallback callback, void *arg) {
   xEventLoop loop = xEventLoopCurrent();
   if (!loop || !hostname || !hostname[0] || !callback) {
     return NULL;
@@ -216,8 +215,8 @@ xDnsQuery xDnsResolve( const char *hostname, const char *service,
     req->hints.ai_socktype = SOCK_STREAM;
   }
 
-  req->callback  = callback;
-  req->arg       = arg;
+  req->callback = callback;
+  req->arg      = arg;
 
   req->work = xWorkSubmit(NULL, dns_work_fn, dns_done_fn, dns_on_cancel, req);
   if (!req->work) goto fail;

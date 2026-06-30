@@ -9,11 +9,11 @@
 #ifndef XBASE_EVENT_TIMER_TEST_HELPERS_H
 #define XBASE_EVENT_TIMER_TEST_HELPERS_H
 
-#include <x/base/event.h>
-
 #include <chrono>
 #include <cstring>
 #include <thread>
+
+#include <x/base/event.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN

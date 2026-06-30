@@ -15,12 +15,12 @@
 
 #include "dtls_transport.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/error.h>
 #include <x/base/event.h>
-
-#include <stdbool.h>
-#include <stdint.h>
 
 /* ───────────────────── Constants ───────────────────── */
 

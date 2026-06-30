@@ -11,6 +11,7 @@
 
 #include "ice_candidate.h"
 #include "ice_private.h"
+
 #include <x/base/base.h>
 
 /** Maximum SDP string length. */
@@ -67,7 +68,7 @@ XDEF_STRUCT(xIceSdp) {
  * @return            Length of encoded SDP, or -1 on error.
  */
 XCAPI(int) xIceSdpEncode(const char *ufrag, const char *pwd, const xIceCandidate *candidates,
-                  int cand_count, bool trickle, char *out, size_t out_cap);
+                         int cand_count, bool trickle, char *out, size_t out_cap);
 
 /**
  * @brief Decode an SDP string.
@@ -118,7 +119,8 @@ XCAPI(xErrno) xIceSdpDecodeCandidate(const char *line, xIceCandidate *cand);
  * @return             Length of encoded SDP, or -1 on error.
  */
 XCAPI(int) xIceSdpEncodeWebRTC(const char *ufrag, const char *pwd, const xIceCandidate *candidates,
-                        int cand_count, bool trickle, const char *fingerprint, xIceSdpSetup setup,
-                        const char *mid, uint16_t sctp_port, char *out, size_t out_cap);
+                               int cand_count, bool trickle, const char *fingerprint,
+                               xIceSdpSetup setup, const char *mid, uint16_t sctp_port, char *out,
+                               size_t out_cap);
 
 #endif /* XP2P_SDP_H */

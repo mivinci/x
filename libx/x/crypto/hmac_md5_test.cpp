@@ -6,14 +6,13 @@
  * hmac_md5_test.cpp - Unit tests for HMAC-MD5
  */
 
+#include <cstring>
+#include <string>
+
+#include <gtest/gtest.h>
 #include <x/crypto/hmac.h>
 #include <x/crypto/hmac_md5.h>
 #include <x/crypto/md5.h>
-
-#include <gtest/gtest.h>
-
-#include <cstring>
-#include <string>
 
 /* ── Helper: hex-encode a digest ───────────────────────── */
 

@@ -11,12 +11,12 @@
 #include "ice_private.h"
 #include "stun_attr.h"
 #include "stun_msg.h"
-#include <x/crypto/md5.h>
-
-#include <x/base/log.h>
 
 #include <stdlib.h>
 #include <string.h>
+
+#include <x/base/log.h>
+#include <x/crypto/md5.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 

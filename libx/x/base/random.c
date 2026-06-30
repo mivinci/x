@@ -6,14 +6,14 @@
  * random.c - Cross-platform cryptographically secure random bytes
  */
 
-#include <x/base/random.h>
-
 #include <errno.h>
 #include <string.h>
 
+#include <x/base/random.h>
+
 #ifdef _WIN32
-#include <windows.h>
 #include <bcrypt.h>
+#include <windows.h>
 #pragma comment(lib, "bcrypt.lib")
 #else
 #include <fcntl.h>
@@ -31,8 +31,7 @@ xErrno xRandomBytes(void *buf, size_t len) {
   if (len == 0) return xErrno_Ok;
 
 #ifdef _WIN32
-  NTSTATUS status = BCryptGenRandom(NULL, (PUCHAR)buf, (ULONG)len,
-                                    BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+  NTSTATUS status = BCryptGenRandom(NULL, (PUCHAR)buf, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
   if (!BCRYPT_SUCCESS(status)) return xErrno_SysError;
   return xErrno_Ok;
 

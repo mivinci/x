@@ -6,10 +6,10 @@
  * time_test.cpp - Unit tests for xMonoMs and xWallMs
  */
 
-#include <gtest/gtest.h>
-
 #include <chrono>
 #include <thread>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/time.h>

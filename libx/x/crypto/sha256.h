@@ -15,11 +15,11 @@
 #ifndef XCRYPTO_SHA256_H
 #define XCRYPTO_SHA256_H
 
-#include <x/base/base.h>
-#include <x/base/error.h>
-
 #include <stddef.h>
 #include <stdint.h>
+
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 /* ───────────────────── Constants ───────────────────── */
 

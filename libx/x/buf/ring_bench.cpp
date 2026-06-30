@@ -6,9 +6,9 @@
  * ring_bench.cpp - Micro-benchmarks for xRingBuffer
  */
 
-#include <benchmark/benchmark.h>
-
 #include <vector>
+
+#include <benchmark/benchmark.h>
 
 extern "C" {
 #include <x/buf/ring.h>

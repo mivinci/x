@@ -6,35 +6,34 @@
  * dns_test.cpp - Tests for the async DNS module
  */
 
-#include <gtest/gtest.h>
+#include "dns_private.h"
 
 #include <cerrno>
 #include <cstring>
 
+#include <gtest/gtest.h>
 #include <x/base/event.h>
 #include <x/base/socket.h>
 #include <x/base/time.h>
 #include <x/dns/dns.h>
-
-#include "dns_private.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
+#include <unistd.h>
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <unistd.h>
 #endif
 
 /* ───────────────────── Helpers ───────────────────── */
 
 static void pump_loop(xEventLoop loop, int total_ms) {
-  xTimer t = xTimerStart(
-    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
-    static_cast<uint64_t>(total_ms), 0);
+  xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                         static_cast<uint64_t>(total_ms), 0);
   xEventLoopRun(loop, X_RUN_DEFAULT);
   if (t) xTimerStop(t);
 }
@@ -54,26 +53,24 @@ static bool can_reach_dns(void) {
 
   struct sockaddr_in sin;
   memset(&sin, 0, sizeof(sin));
-  sin.sin_family      = AF_INET;
-  sin.sin_port        = htons(53);
+  sin.sin_family = AF_INET;
+  sin.sin_port   = htons(53);
   inet_pton(AF_INET, "8.8.8.8", &sin.sin_addr);
 
   /* Minimal DNS query for "example.com" type A */
-  uint8_t query[] = {
-    0xab, 0xcd,                   /* ID */
-    0x01, 0x00,                   /* flags: RD */
-    0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* counts */
-    0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e',
-    0x03, 'c', 'o', 'm', 0x00,
-    0x00, 0x01, 0x00, 0x01};
+  uint8_t query[] = {0xab, 0xcd,                                     /* ID */
+                     0x01, 0x00,                                     /* flags: RD */
+                     0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* counts */
+                     0x07, 'e',  'x',  'a',  'm',  'p',  'l',  'e',  0x03,
+                     'c',  'o',  'm',  0x00, 0x00, 0x01, 0x00, 0x01};
   sendto(fd, reinterpret_cast<const char *>(query), sizeof(query), 0,
          reinterpret_cast<struct sockaddr *>(&sin), sizeof(sin));
 
-  uint8_t buf[512];
+  uint8_t                 buf[512];
   struct sockaddr_storage src;
-  socklen_t srclen = sizeof(src);
-  ssize_t n = recvfrom(fd, reinterpret_cast<char *>(buf), sizeof(buf), 0,
-                       reinterpret_cast<struct sockaddr *>(&src), &srclen);
+  socklen_t               srclen = sizeof(src);
+  ssize_t                 n      = recvfrom(fd, reinterpret_cast<char *>(buf), sizeof(buf), 0,
+                                            reinterpret_cast<struct sockaddr *>(&src), &srclen);
   close(fd);
   return n > 0;
 #endif
@@ -85,18 +82,18 @@ static bool can_reach_dns(void) {
 
 TEST(DnsPacket, BuildQueryA) {
   uint8_t buf[512];
-  int n = dns_build_query(buf, sizeof(buf), 0x1234, "example.com", DNS_QTYPE_A);
+  int     n = dns_build_query(buf, sizeof(buf), 0x1234, "example.com", DNS_QTYPE_A);
   ASSERT_GT(n, 0);
 
   /* Header: 12 bytes */
   ASSERT_GE(n, 12);
-  EXPECT_EQ((buf[0] << 8) | buf[1], 0x1234);          /* ID */
+  EXPECT_EQ((buf[0] << 8) | buf[1], 0x1234); /* ID */
   uint16_t flags = (buf[2] << 8) | buf[3];
-  EXPECT_TRUE(flags & DNS_FLAG_RD);                    /* RD set */
-  EXPECT_EQ((buf[4] << 8) | buf[5], 1);                /* QDCOUNT=1 */
-  EXPECT_EQ((buf[6] << 8) | buf[7], 0);                /* ANCOUNT=0 */
-  EXPECT_EQ((buf[8] << 8) | buf[9], 0);                /* NSCOUNT=0 */
-  EXPECT_EQ((buf[10] << 8) | buf[11], 1);              /* ARCOUNT=1 (OPT) */
+  EXPECT_TRUE(flags & DNS_FLAG_RD);       /* RD set */
+  EXPECT_EQ((buf[4] << 8) | buf[5], 1);   /* QDCOUNT=1 */
+  EXPECT_EQ((buf[6] << 8) | buf[7], 0);   /* ANCOUNT=0 */
+  EXPECT_EQ((buf[8] << 8) | buf[9], 0);   /* NSCOUNT=0 */
+  EXPECT_EQ((buf[10] << 8) | buf[11], 1); /* ARCOUNT=1 (OPT) */
 
   /* QNAME: \x07example\x03com\x00 */
   EXPECT_EQ(buf[12], 7);
@@ -113,7 +110,7 @@ TEST(DnsPacket, BuildQueryA) {
 TEST(DnsPacket, BuildQueryRoundTrip) {
   for (uint16_t qt : {DNS_QTYPE_A, DNS_QTYPE_AAAA, DNS_QTYPE_CNAME}) {
     uint8_t buf[512];
-    int n = dns_build_query(buf, sizeof(buf), 0x4242, "example.com", qt);
+    int     n = dns_build_query(buf, sizeof(buf), 0x4242, "example.com", qt);
     ASSERT_GT(n, 0);
 
     dns_header_t   hdr;
@@ -133,17 +130,16 @@ TEST(DnsPacket, BuildQueryRoundTrip) {
 
 TEST(DnsPacket, ParseResponseA) {
   /* Build a response by hand: 1 A record for example.com → 93.184.216.34 */
-  uint8_t ip[4] = {93, 184, 216, 34};
-  xDnsRecord rec = {};
-  rec.qtype    = DNS_QTYPE_A;
-  rec.ttl      = 300;
-  rec.name     = "example.com";
-  rec.rdata    = ip;
-  rec.rdlength = 4;
+  uint8_t    ip[4] = {93, 184, 216, 34};
+  xDnsRecord rec   = {};
+  rec.qtype        = DNS_QTYPE_A;
+  rec.ttl          = 300;
+  rec.name         = "example.com";
+  rec.rdata        = ip;
+  rec.rdlength     = 4;
 
   uint8_t buf[512];
-  int n = dns_build_response(buf, sizeof(buf), 0x7777, 0, "example.com",
-                             DNS_QTYPE_A, &rec);
+  int     n = dns_build_response(buf, sizeof(buf), 0x7777, 0, "example.com", DNS_QTYPE_A, &rec);
   ASSERT_GT(n, 0);
 
   dns_header_t   hdr;
@@ -163,17 +159,16 @@ TEST(DnsPacket, ParseResponseA) {
 }
 
 TEST(DnsPacket, ParseResponseAAAA) {
-  uint8_t ip[16] = {0x26, 0x06, 0x28, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10};
-  xDnsRecord rec = {};
-  rec.qtype    = DNS_QTYPE_AAAA;
-  rec.ttl      = 300;
-  rec.name     = "example.com";
-  rec.rdata    = ip;
-  rec.rdlength = 16;
+  uint8_t    ip[16] = {0x26, 0x06, 0x28, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10};
+  xDnsRecord rec    = {};
+  rec.qtype         = DNS_QTYPE_AAAA;
+  rec.ttl           = 300;
+  rec.name          = "example.com";
+  rec.rdata         = ip;
+  rec.rdlength      = 16;
 
   uint8_t buf[512];
-  int n = dns_build_response(buf, sizeof(buf), 0x01, 0, "example.com",
-                             DNS_QTYPE_AAAA, &rec);
+  int     n = dns_build_response(buf, sizeof(buf), 0x01, 0, "example.com", DNS_QTYPE_AAAA, &rec);
   ASSERT_GT(n, 0);
 
   dns_header_t   hdr;
@@ -189,15 +184,14 @@ TEST(DnsPacket, ParseResponseAAAA) {
 
 TEST(DnsPacket, ParseResponseCNAME) {
   xDnsRecord rec = {};
-  rec.qtype    = DNS_QTYPE_CNAME;
-  rec.ttl      = 300;
-  rec.name     = "www.example.com";
-  rec.rdata    = "example.com";
-  rec.rdlength = 12; /* length of "example.com" + NUL as stored by parser */
+  rec.qtype      = DNS_QTYPE_CNAME;
+  rec.ttl        = 300;
+  rec.name       = "www.example.com";
+  rec.rdata      = "example.com";
+  rec.rdlength   = 12; /* length of "example.com" + NUL as stored by parser */
 
   uint8_t buf[512];
-  int n = dns_build_response(buf, sizeof(buf), 0x02, 0, "www.example.com",
-                             DNS_QTYPE_CNAME, &rec);
+  int n = dns_build_response(buf, sizeof(buf), 0x02, 0, "www.example.com", DNS_QTYPE_CNAME, &rec);
   ASSERT_GT(n, 0);
 
   dns_header_t   hdr;
@@ -218,31 +212,50 @@ TEST(DnsPacket, CompressionPointer) {
   size_t  off = 0;
 
   /* Header */
-  buf[off++] = 0xaa; buf[off++] = 0xbb;       /* ID */
-  buf[off++] = 0x80; buf[off++] = 0x00;       /* flags: QR=1 */
-  buf[off++] = 0; buf[off++] = 1;             /* QDCOUNT=1 */
-  buf[off++] = 0; buf[off++] = 1;             /* ANCOUNT=1 */
-  buf[off++] = 0; buf[off++] = 0;             /* NSCOUNT=0 */
-  buf[off++] = 0; buf[off++] = 0;             /* ARCOUNT=0 */
+  buf[off++] = 0xaa;
+  buf[off++] = 0xbb; /* ID */
+  buf[off++] = 0x80;
+  buf[off++] = 0x00; /* flags: QR=1 */
+  buf[off++] = 0;
+  buf[off++] = 1; /* QDCOUNT=1 */
+  buf[off++] = 0;
+  buf[off++] = 1; /* ANCOUNT=1 */
+  buf[off++] = 0;
+  buf[off++] = 0; /* NSCOUNT=0 */
+  buf[off++] = 0;
+  buf[off++] = 0; /* ARCOUNT=0 */
 
   /* Question: \x07example\x03com\x00 + QTYPE=A + QCLASS=IN */
   size_t qname_off = off;
-  buf[off++] = 7;
-  memcpy(buf + off, "example", 7); off += 7;
+  buf[off++]       = 7;
+  memcpy(buf + off, "example", 7);
+  off += 7;
   buf[off++] = 3;
-  memcpy(buf + off, "com", 3); off += 3;
+  memcpy(buf + off, "com", 3);
+  off += 3;
   buf[off++] = 0;
-  buf[off++] = 0; buf[off++] = 1;             /* QTYPE=A */
-  buf[off++] = 0; buf[off++] = 1;             /* QCLASS=IN */
+  buf[off++] = 0;
+  buf[off++] = 1; /* QTYPE=A */
+  buf[off++] = 0;
+  buf[off++] = 1; /* QCLASS=IN */
 
   /* Answer: NAME = compression pointer to qname_off */
   buf[off++] = 0xC0;
   buf[off++] = static_cast<uint8_t>(qname_off);
-  buf[off++] = 0; buf[off++] = 1;             /* TYPE=A */
-  buf[off++] = 0; buf[off++] = 1;             /* CLASS=IN */
-  buf[off++] = 0; buf[off++] = 0; buf[off++] = 0; buf[off++] = 60; /* TTL=60 */
-  buf[off++] = 0; buf[off++] = 4;             /* RDLENGTH=4 */
-  buf[off++] = 1; buf[off++] = 2; buf[off++] = 3; buf[off++] = 4; /* RDATA */
+  buf[off++] = 0;
+  buf[off++] = 1; /* TYPE=A */
+  buf[off++] = 0;
+  buf[off++] = 1; /* CLASS=IN */
+  buf[off++] = 0;
+  buf[off++] = 0;
+  buf[off++] = 0;
+  buf[off++] = 60; /* TTL=60 */
+  buf[off++] = 0;
+  buf[off++] = 4; /* RDLENGTH=4 */
+  buf[off++] = 1;
+  buf[off++] = 2;
+  buf[off++] = 3;
+  buf[off++] = 4; /* RDATA */
 
   dns_header_t   hdr;
   dns_question_t q;
@@ -263,7 +276,7 @@ TEST(DnsPacket, CompressionPointer) {
 TEST(DnsPacket, MalformedTruncated) {
   /* A valid query truncated to 5 bytes should fail to parse. */
   uint8_t buf[512];
-  int n = dns_build_query(buf, sizeof(buf), 0x1, "example.com", DNS_QTYPE_A);
+  int     n = dns_build_query(buf, sizeof(buf), 0x1, "example.com", DNS_QTYPE_A);
   ASSERT_GT(n, 0);
   dns_header_t   hdr;
   dns_question_t q;
@@ -273,8 +286,8 @@ TEST(DnsPacket, MalformedTruncated) {
 
 TEST(DnsPacket, NxDomainResponse) {
   uint8_t buf[512];
-  int n = dns_build_response(buf, sizeof(buf), 0x99, static_cast<int>(DNS_RCODE_NXDOMAIN),
-                             "missing.example.com", DNS_QTYPE_A, nullptr);
+  int     n = dns_build_response(buf, sizeof(buf), 0x99, static_cast<int>(DNS_RCODE_NXDOMAIN),
+                                 "missing.example.com", DNS_QTYPE_A, nullptr);
   ASSERT_GT(n, 0);
   dns_header_t   hdr;
   dns_question_t q;
@@ -294,13 +307,13 @@ TEST(DnsCache, InsertLookup) {
   xMap cache = dns_cache_create();
   ASSERT_NE(cache, nullptr);
 
-  uint8_t ip[4] = {1, 2, 3, 4};
-  xDnsRecord rec = {};
-  rec.qtype = DNS_QTYPE_A;
-  rec.ttl   = 3600;
-  rec.name  = "test.example";
-  rec.rdata = ip;
-  rec.rdlength = 4;
+  uint8_t    ip[4] = {1, 2, 3, 4};
+  xDnsRecord rec   = {};
+  rec.qtype        = DNS_QTYPE_A;
+  rec.ttl          = 3600;
+  rec.name         = "test.example";
+  rec.rdata        = ip;
+  rec.rdlength     = 4;
 
   dns_cache_insert(cache, "test.example", DNS_QTYPE_A, &rec, 3600);
 
@@ -320,14 +333,14 @@ TEST(DnsCache, InsertLookup) {
 }
 
 TEST(DnsCache, Expiry) {
-  xMap cache = dns_cache_create();
-  uint8_t ip[4] = {10, 20, 30, 40};
-  xDnsRecord rec = {};
-  rec.qtype = DNS_QTYPE_A;
-  rec.ttl   = 0; /* immediate expiry */
-  rec.name  = "expire.test";
-  rec.rdata = ip;
-  rec.rdlength = 4;
+  xMap       cache = dns_cache_create();
+  uint8_t    ip[4] = {10, 20, 30, 40};
+  xDnsRecord rec   = {};
+  rec.qtype        = DNS_QTYPE_A;
+  rec.ttl          = 0; /* immediate expiry */
+  rec.name         = "expire.test";
+  rec.rdata        = ip;
+  rec.rdlength     = 4;
 
   dns_cache_insert(cache, "expire.test", DNS_QTYPE_A, &rec, 0);
   EXPECT_EQ(dns_cache_lookup(cache, "expire.test", DNS_QTYPE_A), nullptr);
@@ -336,13 +349,21 @@ TEST(DnsCache, Expiry) {
 }
 
 TEST(DnsCache, Replace) {
-  xMap cache = dns_cache_create();
-  uint8_t ip1[4] = {1, 1, 1, 1};
-  uint8_t ip2[4] = {2, 2, 2, 2};
-  xDnsRecord r1 = {};
-  r1.qtype = DNS_QTYPE_A; r1.ttl = 60; r1.name = "r.test"; r1.rdata = ip1; r1.rdlength = 4;
-  xDnsRecord r2 = {};
-  r2.qtype = DNS_QTYPE_A; r2.ttl = 60; r2.name = "r.test"; r2.rdata = ip2; r2.rdlength = 4;
+  xMap       cache  = dns_cache_create();
+  uint8_t    ip1[4] = {1, 1, 1, 1};
+  uint8_t    ip2[4] = {2, 2, 2, 2};
+  xDnsRecord r1     = {};
+  r1.qtype          = DNS_QTYPE_A;
+  r1.ttl            = 60;
+  r1.name           = "r.test";
+  r1.rdata          = ip1;
+  r1.rdlength       = 4;
+  xDnsRecord r2     = {};
+  r2.qtype          = DNS_QTYPE_A;
+  r2.ttl            = 60;
+  r2.name           = "r.test";
+  r2.rdata          = ip2;
+  r2.rdlength       = 4;
 
   dns_cache_insert(cache, "r.test", DNS_QTYPE_A, &r1, 60);
   dns_cache_insert(cache, "r.test", DNS_QTYPE_A, &r2, 60);
@@ -361,13 +382,12 @@ TEST(DnsCache, Replace) {
 
 TEST(DnsConfig, LoadNameservers) {
   char ns[8][46];
-  int n = dns_config_load_nameservers(ns, 8);
+  int  n = dns_config_load_nameservers(ns, 8);
   EXPECT_GE(n, 1);
   /* Whatever we got, the first entry should parse as an IP. */
   struct in_addr  a4;
   struct in6_addr a6;
-  EXPECT_TRUE(inet_pton(AF_INET, ns[0], &a4) == 1 ||
-              inet_pton(AF_INET6, ns[0], &a6) == 1);
+  EXPECT_TRUE(inet_pton(AF_INET, ns[0], &a4) == 1 || inet_pton(AF_INET6, ns[0], &a6) == 1);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -375,9 +395,9 @@ TEST(DnsConfig, LoadNameservers) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 struct DnsResult {
-  xErrno  err;
-  int     count;
-  bool    fired;
+  xErrno err;
+  int    count;
+  bool   fired;
   /* Captured fields of the first record (copied, since the library frees
    * the record list after the callback returns). */
   uint16_t first_qtype;
@@ -390,25 +410,24 @@ struct DnsResult {
 };
 
 static void capture_cb(xErrno err, const xDnsRecord *records, void *arg) {
-  auto *r = static_cast<DnsResult *>(arg);
-  r->err   = err;
-  r->fired = true;
-  r->count = 0;
+  auto *r        = static_cast<DnsResult *>(arg);
+  r->err         = err;
+  r->fired       = true;
+  r->count       = 0;
   r->has_records = false;
   r->has_a       = false;
   r->has_aaaa    = false;
   for (const xDnsRecord *p = records; p; p = p->next) {
     ++r->count;
-    if (p->qtype == DNS_QTYPE_A)    r->has_a    = true;
+    if (p->qtype == DNS_QTYPE_A) r->has_a = true;
     if (p->qtype == DNS_QTYPE_AAAA) r->has_aaaa = true;
     if (!r->has_records) {
-      r->has_records  = true;
-      r->first_qtype  = p->qtype;
-      r->first_ttl    = p->ttl;
-      r->first_rdlen  = p->rdlength;
+      r->has_records = true;
+      r->first_qtype = p->qtype;
+      r->first_ttl   = p->ttl;
+      r->first_rdlen = p->rdlength;
       if (p->rdlength > 0 && p->rdata) {
-        size_t n = p->rdlength < sizeof(r->first_rdata) ? p->rdlength
-                                                         : sizeof(r->first_rdata);
+        size_t n = p->rdlength < sizeof(r->first_rdata) ? p->rdlength : sizeof(r->first_rdata);
         memcpy(r->first_rdata, p->rdata, n);
       }
     }
@@ -432,8 +451,7 @@ TEST(DnsClient, ResolveA_8888) {
   ASSERT_NE(client, nullptr);
 
   DnsResult res = {};
-  ASSERT_EQ(xDnsClientDo(client, "example.com", xDnsType_A, capture_cb, &res),
-            xErrno_Ok);
+  ASSERT_EQ(xDnsClientDo(client, "example.com", xDnsType_A, capture_cb, &res), xErrno_Ok);
 
   pump_loop(loop, 6000);
   EXPECT_TRUE(res.fired);
@@ -466,10 +484,9 @@ TEST(DnsClient, ResolveAAndAAAA_8888) {
   ASSERT_NE(client, nullptr);
 
   DnsResult res = {};
-  ASSERT_EQ(xDnsClientDo(client, "google.com",
-                         (xDnsType)(xDnsType_A | xDnsType_AAAA),
-                         capture_cb, &res),
-            xErrno_Ok);
+  ASSERT_EQ(
+    xDnsClientDo(client, "google.com", (xDnsType)(xDnsType_A | xDnsType_AAAA), capture_cb, &res),
+    xErrno_Ok);
 
   pump_loop(loop, 6000);
   EXPECT_TRUE(res.fired);
@@ -535,8 +552,7 @@ TEST(DnsClient, TimeoutUnreachable) {
   ASSERT_NE(client, nullptr);
 
   DnsResult res = {};
-  ASSERT_EQ(xDnsClientDo(client, "example.com", xDnsType_A, capture_cb, &res),
-            xErrno_Ok);
+  ASSERT_EQ(xDnsClientDo(client, "example.com", xDnsType_A, capture_cb, &res), xErrno_Ok);
 
   pump_loop(loop, 2000);
   EXPECT_TRUE(res.fired);
@@ -570,18 +586,18 @@ TEST(DnsClient, PartialSuccessAResolvesAAAATimeout) {
   xDnsZoneAdd(zone, "partial.example", xDnsType_A, ip, 4, 300);
 
   xDnsServerConf sconf = {};
-  sconf.forwarder = NULL; /* authoritative only — no AAAA → NXDOMAIN */
-  xDnsServer server = xDnsServerCreate(&sconf);
+  sconf.forwarder      = NULL; /* authoritative only — no AAAA → NXDOMAIN */
+  xDnsServer server    = xDnsServerCreate(&sconf);
   ASSERT_NE(server, nullptr);
   xDnsServerAddZone(server, zone);
 
   uint16_t sport = 0;
   {
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    int                fd  = socket(AF_INET, SOCK_DGRAM, 0);
     struct sockaddr_in sin = {};
-    sin.sin_family      = AF_INET;
-    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    sin.sin_port        = 0;
+    sin.sin_family         = AF_INET;
+    sin.sin_addr.s_addr    = htonl(INADDR_LOOPBACK);
+    sin.sin_port           = 0;
     bind(fd, reinterpret_cast<struct sockaddr *>(&sin), sizeof(sin));
     socklen_t slen = sizeof(sin);
     getsockname(fd, reinterpret_cast<struct sockaddr *>(&sin), &slen);
@@ -595,7 +611,7 @@ TEST(DnsClient, PartialSuccessAResolvesAAAATimeout) {
    * A: zone hit → returns IP
    * AAAA: zone miss, no forwarder → NXDOMAIN (not a timeout, but partial) */
   xDnsClientConf cconf = {};
-  char ns[32];
+  char           ns[32];
   snprintf(ns, sizeof(ns), "127.0.0.1:%u", sport);
   cconf.nameservers[0] = ns;
   cconf.timeout_ms     = 2000;
@@ -606,8 +622,7 @@ TEST(DnsClient, PartialSuccessAResolvesAAAATimeout) {
   ASSERT_NE(client, nullptr);
 
   DnsResult res = {};
-  ASSERT_EQ(xDnsClientDo(client, "partial.example",
-                         (xDnsType)(xDnsType_A | xDnsType_AAAA),
+  ASSERT_EQ(xDnsClientDo(client, "partial.example", (xDnsType)(xDnsType_A | xDnsType_AAAA),
                          capture_cb, &res),
             xErrno_Ok);
 
@@ -635,11 +650,10 @@ TEST(DnsServer, AuthoritativeZone) {
   xDnsZone zone = xDnsZoneCreate();
   ASSERT_NE(zone, nullptr);
   uint8_t ip[4] = {10, 0, 0, 5};
-  ASSERT_EQ(xDnsZoneAdd(zone, "myapp.local", xDnsType_A, ip, 4, 3600),
-            xErrno_Ok);
+  ASSERT_EQ(xDnsZoneAdd(zone, "myapp.local", xDnsType_A, ip, 4, 3600), xErrno_Ok);
 
-  xDnsServerConf sconf = {};
-  xDnsServer server = xDnsServerCreate(&sconf);
+  xDnsServerConf sconf  = {};
+  xDnsServer     server = xDnsServerCreate(&sconf);
   ASSERT_NE(server, nullptr);
   ASSERT_EQ(xDnsServerAddZone(server, zone), xErrno_Ok);
   ASSERT_EQ(xDnsServerListen(server, "127.0.0.1", 0), xErrno_Ok);
@@ -654,12 +668,11 @@ TEST(DnsServer, AuthoritativeZone) {
   cconf.timeout_ms     = 2000;
   cconf.retries        = 0;
   cconf.enable_cache   = 0;
-  xDnsClient client = xDnsClientCreate(&cconf);
+  xDnsClient client    = xDnsClientCreate(&cconf);
   ASSERT_NE(client, nullptr);
 
   DnsResult res = {};
-  ASSERT_EQ(xDnsClientDo(client, "myapp.local", xDnsType_A, capture_cb, &res),
-            xErrno_Ok);
+  ASSERT_EQ(xDnsClientDo(client, "myapp.local", xDnsType_A, capture_cb, &res), xErrno_Ok);
   pump_loop(loop, 2000);
 
   EXPECT_TRUE(res.fired);
@@ -682,8 +695,8 @@ TEST(DnsServer, NxDomainWithoutForwarder) {
   ASSERT_NE(loop, nullptr);
   xEventLoopEnter(loop);
 
-  xDnsServerConf sconf = {};
-  xDnsServer server = xDnsServerCreate(&sconf);
+  xDnsServerConf sconf  = {};
+  xDnsServer     server = xDnsServerCreate(&sconf);
   ASSERT_NE(server, nullptr);
   ASSERT_EQ(xDnsServerListen(server, "127.0.0.1", 0), xErrno_Ok);
   uint16_t port = xDnsServerPort(server);
@@ -696,7 +709,7 @@ TEST(DnsServer, NxDomainWithoutForwarder) {
   cconf.timeout_ms     = 2000;
   cconf.retries        = 0;
   cconf.enable_cache   = 0;
-  xDnsClient client = xDnsClientCreate(&cconf);
+  xDnsClient client    = xDnsClientCreate(&cconf);
   ASSERT_NE(client, nullptr);
 
   DnsResult res = {};
@@ -722,14 +735,14 @@ TEST(DnsServer, FilterBlocks) {
   ASSERT_NE(loop, nullptr);
   xEventLoopEnter(loop);
 
-  xDnsZone zone = xDnsZoneCreate();
-  uint8_t ip[4] = {10, 0, 0, 5};
+  xDnsZone zone  = xDnsZoneCreate();
+  uint8_t  ip[4] = {10, 0, 0, 5};
   xDnsZoneAdd(zone, "blocked.local", xDnsType_A, ip, 4, 3600);
   xDnsZoneAdd(zone, "ok.local", xDnsType_A, ip, 4, 3600);
 
   xDnsServerConf sconf = {};
-  sconf.filter = block_filter;
-  xDnsServer server = xDnsServerCreate(&sconf);
+  sconf.filter         = block_filter;
+  xDnsServer server    = xDnsServerCreate(&sconf);
   ASSERT_NE(server, nullptr);
   xDnsServerAddZone(server, zone);
   ASSERT_EQ(xDnsServerListen(server, "127.0.0.1", 0), xErrno_Ok);
@@ -743,7 +756,7 @@ TEST(DnsServer, FilterBlocks) {
   cconf.timeout_ms     = 2000;
   cconf.retries        = 0;
   cconf.enable_cache   = 0;
-  xDnsClient client = xDnsClientCreate(&cconf);
+  xDnsClient client    = xDnsClientCreate(&cconf);
   ASSERT_NE(client, nullptr);
 
   /* Blocked name → NXDOMAIN */
@@ -781,13 +794,13 @@ TEST(DnsServer, Forwarding) {
   uconf.timeout_ms     = 5000;
   uconf.retries        = 1;
   uconf.enable_cache   = 0;
-  xDnsClient upstream = xDnsClientCreate(&uconf);
+  xDnsClient upstream  = xDnsClientCreate(&uconf);
   ASSERT_NE(upstream, nullptr);
 
   /* Local server forwards to upstream */
   xDnsServerConf sconf = {};
-  sconf.forwarder = upstream;
-  xDnsServer server = xDnsServerCreate(&sconf);
+  sconf.forwarder      = upstream;
+  xDnsServer server    = xDnsServerCreate(&sconf);
   ASSERT_NE(server, nullptr);
   ASSERT_EQ(xDnsServerListen(server, "127.0.0.1", 0), xErrno_Ok);
   uint16_t port = xDnsServerPort(server);
@@ -801,12 +814,11 @@ TEST(DnsServer, Forwarding) {
   cconf.timeout_ms     = 6000;
   cconf.retries        = 0;
   cconf.enable_cache   = 0;
-  xDnsClient client = xDnsClientCreate(&cconf);
+  xDnsClient client    = xDnsClientCreate(&cconf);
   ASSERT_NE(client, nullptr);
 
   DnsResult res = {};
-  ASSERT_EQ(xDnsClientDo(client, "example.com", xDnsType_A, capture_cb, &res),
-            xErrno_Ok);
+  ASSERT_EQ(xDnsClientDo(client, "example.com", xDnsType_A, capture_cb, &res), xErrno_Ok);
   pump_loop(loop, 7000);
 
   EXPECT_TRUE(res.fired);

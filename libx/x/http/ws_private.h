@@ -11,6 +11,7 @@
 
 #include "ws_deflate.h"
 #include "ws_frame.h"
+
 #include <x/base/base.h>
 #include <x/base/event.h>
 #include <x/base/socket.h>
@@ -60,7 +61,7 @@ XDEF_STRUCT(xWsConn_) {
 
   /* Idle timeout */
   xTimer idle_timer;
-  int         idle_timeout_ms;
+  int    idle_timeout_ms;
 
   /* User callbacks */
   xWsCallbacks callbacks;
@@ -99,8 +100,8 @@ XDEF_STRUCT(xWsConn_) {
  * @return            New xWsConn, or NULL on failure.
  */
 XCAPI(struct xWsConn_ *) xWsConnCreate(struct xHttpServer_ *server, xEventLoop loop, xSocket sock,
-                                              xTransport transport, const xWsCallbacks *callbacks, void *arg,
-                                              int timeout_ms);
+                                       xTransport transport, const xWsCallbacks *callbacks,
+                                       void *arg, int timeout_ms);
 
 /**
  * Destroy a WebSocket connection and free all resources.

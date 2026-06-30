@@ -6,9 +6,9 @@
  * error_test.cpp - Unit tests for xstrerror
  */
 
-#include <gtest/gtest.h>
-
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 extern "C" {
 #include <x/base/error.h>

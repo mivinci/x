@@ -6,10 +6,10 @@
  * event_global.c - Global (process-wide) event loop singleton
  */
 
+#include <stdlib.h>
+
 #include <x/base/event.h>
 #include <x/base/thread.h>
-
-#include <stdlib.h>
 
 static xEventLoop g_global_loop = NULL;
 static xOnce      g_global_once = X_ONCE_INIT;

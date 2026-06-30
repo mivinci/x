@@ -6,14 +6,13 @@
  * log.c - Per-thread lightweight logging implementation
  */
 
-#include <x/base/log.h>
-
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <x/base/backtrace.h>
+#include <x/base/log.h>
 
 /* ───────────────── Thread-local state ───────────────── */
 
