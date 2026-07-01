@@ -54,3 +54,5 @@
 
 - [libxpp](libxpp/promise.md)
   - [Promise\<T\>](libxpp/promise.md)
+  - [Option\<T\>](libxpp/option.md)
+  - [Own\<T\>](libxpp/own.md)
