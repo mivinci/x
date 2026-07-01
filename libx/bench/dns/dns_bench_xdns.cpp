@@ -23,7 +23,7 @@ static const char *remote_hosts[] = {
   "twitter.com", "linkedin.com",      "cloudflare.com", "zoom.us",       "dropbox.com",
   "spotify.com", "adobe.com",         "oracle.com",     "ibm.com",       "intel.com",
 };
-static const int n_remote_hosts = (int)(sizeof(remote_hosts) / sizeof(remote_hosts[0]));
+static const int n_remote_hosts = static_cast<int>(sizeof(remote_hosts) / sizeof(remote_hosts[0]));
 
 struct BenchResult {
   const char *scenario;
@@ -56,7 +56,7 @@ static BenchResult bench_single(xDnsClient client, const char *name) {
   xDnsClientDo(
     client, name, xDnsType_A,
     [](xErrno err, const xDnsRecord *, void *arg) {
-      int *ok = (int *)arg;
+      int *ok = static_cast<int *>(arg);
       *ok     = (err == xErrno_Ok) ? 1 : 0;
       xEventLoopStop(xEventLoopCurrent());
     },
@@ -83,7 +83,7 @@ static BenchResult bench_batch(xDnsClient client, const char **names, int count)
     xDnsClientDo(
       client, names[i], xDnsType_A,
       [](xErrno err, const xDnsRecord *, void *arg) {
-        auto *c = (decltype(&ctx))arg;
+        auto *c = static_cast<decltype(&ctx)>(arg);
         if (err == xErrno_Ok) c->ok.fetch_add(1);
         if (c->pending.fetch_sub(1) == 1) xEventLoopStop(xEventLoopCurrent());
       },
@@ -106,7 +106,7 @@ static BenchResult bench_cache(xDnsClient client, const char *name) {
   xDnsClientDo(
     client, name, xDnsType_A,
     [](xErrno err, const xDnsRecord *, void *arg) {
-      int *ok = (int *)arg;
+      int *ok = static_cast<int *>(arg);
       *ok     = (err == xErrno_Ok) ? 1 : 0;
       xEventLoopStop(xEventLoopCurrent());
     },
@@ -149,10 +149,11 @@ int main(int argc, char **argv) {
 
   /* Build batch names */
   int          batch_count = local ? 100 : n_remote_hosts;
-  const char **batch_names = (const char **)malloc((size_t)batch_count * sizeof(char *));
+  const char **batch_names =
+    static_cast<const char **>(malloc(static_cast<size_t>(batch_count) * sizeof(char *)));
   if (local) {
     for (int i = 0; i < 100; i++) {
-      char *buf = (char *)malloc(64);
+      char *buf = static_cast<char *>(malloc(64));
       snprintf(buf, 64, "bench-%d.local", i);
       batch_names[i] = buf;
     }
@@ -177,7 +178,7 @@ int main(int argc, char **argv) {
 
   if (local)
     for (int i = 0; i < 100; i++)
-      free((void *)batch_names[i]);
+      free(const_cast<char *>(batch_names[i]));
   free(batch_names);
 
   xDnsClientDestroy(client);

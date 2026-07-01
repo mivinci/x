@@ -24,7 +24,7 @@ static const char *remote_hosts[] = {
   "twitter.com", "linkedin.com",      "cloudflare.com", "zoom.us",       "dropbox.com",
   "spotify.com", "adobe.com",         "oracle.com",     "ibm.com",       "intel.com",
 };
-static const int n_remote_hosts = (int)(sizeof(remote_hosts) / sizeof(remote_hosts[0]));
+static const int n_remote_hosts = static_cast<int>(sizeof(remote_hosts) / sizeof(remote_hosts[0]));
 
 struct BenchResult {
   const char *scenario;
@@ -56,7 +56,7 @@ static BenchResult bench_single(const char *name) {
   xDnsResolve(
     name, nullptr, nullptr,
     [](xDnsResult *result, void *arg) {
-      int *ok = (int *)arg;
+      int *ok = static_cast<int *>(arg);
       *ok     = (result->error == xErrno_Ok) ? 1 : 0;
       xDnsResultFree(result);
       xEventLoopStop(xEventLoopCurrent());
@@ -83,7 +83,7 @@ static BenchResult bench_batch(const char **names, int count) {
     xDnsResolve(
       names[i], nullptr, nullptr,
       [](xDnsResult *result, void *arg) {
-        auto *c = (decltype(&ctx))arg;
+        auto *c = static_cast<decltype(&ctx)>(arg);
         if (result->error == xErrno_Ok) c->ok.fetch_add(1);
         xDnsResultFree(result);
         if (c->pending.fetch_sub(1) == 1) xEventLoopStop(xEventLoopCurrent());
@@ -115,7 +115,8 @@ int main(int argc, char **argv) {
   const char *single_host = "google.com";
 
   int          batch_count = n_remote_hosts;
-  const char **batch_hosts = (const char **)malloc((size_t)batch_count * sizeof(char *));
+  const char **batch_hosts =
+    static_cast<const char **>(malloc(static_cast<size_t>(batch_count) * sizeof(char *)));
   for (int i = 0; i < batch_count; i++)
     batch_hosts[i] = remote_hosts[i];
 

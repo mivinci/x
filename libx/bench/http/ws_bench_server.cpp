@@ -62,7 +62,7 @@ static const xWsCallbacks ws_cbs = {
 
 int main(int argc, char *argv[]) {
   uint16_t port = 9090;
-  if (argc > 1) port = (uint16_t)atoi(argv[1]);
+  if (argc > 1) port = static_cast<uint16_t>(atoi(argv[1]));
 
   g_loop = xEventLoopCreate();
   if (!g_loop) {
@@ -86,8 +86,9 @@ int main(int argc, char *argv[]) {
 
   xEventLoopRun(g_loop, X_RUN_DEFAULT);
 
-  fprintf(stdout, "\nTotal connections: %llu\n", (unsigned long long)g_connections.load());
-  fprintf(stdout, "Total messages:    %llu\n", (unsigned long long)g_messages.load());
+  fprintf(stdout, "\nTotal connections: %llu\n",
+          static_cast<unsigned long long>(g_connections.load()));
+  fprintf(stdout, "Total messages:    %llu\n", static_cast<unsigned long long>(g_messages.load()));
 
   xHttpServerDestroy(server);
   xEventLoopDestroy(g_loop);

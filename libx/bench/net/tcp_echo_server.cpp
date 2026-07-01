@@ -67,7 +67,7 @@ static void on_accept(xTcpListener listener, xTcpConn conn, const struct sockadd
 
 int main(int argc, char *argv[]) {
   uint16_t port = 9000;
-  if (argc > 1) port = (uint16_t)atoi(argv[1]);
+  if (argc > 1) port = static_cast<uint16_t>(atoi(argv[1]));
 
   g_loop = xEventLoopCreate();
   if (!g_loop) {

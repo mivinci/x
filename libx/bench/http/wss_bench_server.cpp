@@ -63,7 +63,7 @@ static const xWsCallbacks ws_cbs = {
 
 /* ── HTTP handler that upgrades to WebSocket ───────────── */
 
-static void ws_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
+static void ws_handler(xHttpResponseWriter w, const xHttpRequestConf *req, void *arg) {
   (void)arg;
   xWsUpgrade(w, req, &ws_cbs, nullptr);
 }
@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
   const char *cert_path = "bench_cert.pem";
   const char *key_path  = "bench_key.pem";
 
-  if (argc > 1) port = (uint16_t)atoi(argv[1]);
+  if (argc > 1) port = static_cast<uint16_t>(atoi(argv[1]));
   if (argc > 2) cert_path = argv[2];
   if (argc > 3) key_path = argv[3];
 
@@ -128,8 +128,9 @@ int main(int argc, char *argv[]) {
 
   xEventLoopRun(g_loop, X_RUN_DEFAULT);
 
-  fprintf(stdout, "\nTotal connections: %llu\n", (unsigned long long)g_connections.load());
-  fprintf(stdout, "Total messages:    %llu\n", (unsigned long long)g_messages.load());
+  fprintf(stdout, "\nTotal connections: %llu\n",
+          static_cast<unsigned long long>(g_connections.load()));
+  fprintf(stdout, "Total messages:    %llu\n", static_cast<unsigned long long>(g_messages.load()));
 
   xHttpServerDestroy(server);
   xEventLoopDestroy(g_loop);

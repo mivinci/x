@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
   for (int i = 0; i < 100; i++) {
     char name[64];
     snprintf(name, sizeof(name), "bench-%d.local", i);
-    uint8_t ip[4] = {192, 168, 0, (uint8_t)i};
+    uint8_t ip[4] = {192, 168, 0, static_cast<uint8_t>(i)};
     xDnsZoneAdd(zone, name, xDnsType_A, ip, 4, 3600);
   }
 
@@ -39,7 +39,7 @@ int main(int argc, char **argv) {
   }
 
   xDnsServerAddZone(server, zone);
-  if (xDnsServerListen(server, "127.0.0.1", (uint16_t)port) != xErrno_Ok) {
+  if (xDnsServerListen(server, "127.0.0.1", static_cast<uint16_t>(port)) != xErrno_Ok) {
     fprintf(stderr, "Failed to listen on port %d\n", port);
     return 1;
   }

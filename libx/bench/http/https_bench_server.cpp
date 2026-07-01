@@ -35,7 +35,7 @@
 static xEventLoop g_loop = nullptr;
 
 // GET /ping → "pong"
-static void handle_ping(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
+static void handle_ping(xHttpResponseWriter writer, const xHttpRequestConf *req, void *arg) {
   (void)req;
   (void)arg;
   xHttpResponseSetHeader(writer, "Content-Type", "text/plain");
@@ -44,7 +44,7 @@ static void handle_ping(xHttpResponseWriter writer, const xHttpRequest *req, voi
 
 // GET /echo?size=N → N bytes of 'x'
 // POST /echo → echo request body
-static void handle_echo(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
+static void handle_echo(xHttpResponseWriter writer, const xHttpRequestConf *req, void *arg) {
   (void)arg;
 
   if (strcmp(req->method, "POST") == 0) {
@@ -60,7 +60,7 @@ static void handle_echo(xHttpResponseWriter writer, const xHttpRequest *req, voi
   if (q) {
     const char *sp = strstr(q, "size=");
     if (sp) {
-      size = (size_t)atoi(sp + 5);
+      size = static_cast<size_t>(atoi(sp + 5));
       if (size == 0) size = 64;
       if (size > 1048576) size = 1048576; // cap at 1MB
     }
@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
   const char *cert_path = "bench_cert.pem";
   const char *key_path  = "bench_key.pem";
 
-  if (argc > 1) port = (uint16_t)atoi(argv[1]);
+  if (argc > 1) port = static_cast<uint16_t>(atoi(argv[1]));
   if (argc > 2) cert_path = argv[2];
   if (argc > 3) key_path = argv[3];
 
