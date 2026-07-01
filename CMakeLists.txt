@@ -104,4 +104,5 @@ endif()
 
 # ── Modules ───────────────────────────────────────────────────────────
 add_subdirectory(libx)
+add_subdirectory(libxpp)
 add_subdirectory(libdlproxy)

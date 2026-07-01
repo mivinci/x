@@ -51,6 +51,7 @@ build
 build-*
 build_*
 cmake-build-*
+__pycache__
 book
 tmp
 .claude
