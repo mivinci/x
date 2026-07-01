@@ -3,19 +3,18 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * promise.h - Promise<T>: composable deferred value.
- *
- * Design inspired by KJ (Cap'n Proto async library):
- *   https://github.com/capnproto/capnproto/blob/master/c%2B%2B/src/kj/async.h
+ * promise.h - Promise<T> + PromiseResolver<T>.
  *
  * Promise<T> represents a value that will be available in the future.
  * Chain transformations with then(), wait for the result with wait().
  *
- * This is Phase 1 of the async runtime: single-threaded, event-loop
- * driven, with the poll(Waker) interface designed for future co_await
- * integration.
+ * PromiseResolver<T>::create() returns a resolver; call .promise()
+ * to get the associated Promise, and .resolve() to fulfill it.
  *
- * C++11-compatible.
+ * Works within a WaitScope — no separate runtime layer required.
+ * The event loop drives poll/wake via xEventLoopPost.
+ *
+ * C++17-compatible.
  */
 
 #ifndef XPP_PROMISE_H
@@ -23,32 +22,26 @@
 
 #include <xpp/compiler.h>
 #include <xpp/event.h>
+#include <xpp/option.h>
+#include <xpp/own.h>
+#include <xpp/panic.h>
 #include <xpp/promise_node.h>
-#include <xpp/result.h>
+#include <xpp/void.h>
 
 #include <utility>
-
-#if XPP_HAS_COROUTINES
-#include <coroutine>
-#endif
 
 namespace xpp {
 
 /* ── Forward declarations ────────────────────────────────────────── */
 
-template <class T> class Resolver;
-template <class T> struct PromiseAndResolver;
-template <class T, typename E> class Result;
-struct Ok;
-struct Err;
+template <class T> class PromiseResolver;
 
-/* ── PromiseForResult ────────────────────────────────────────────── */
+/* ── ReturnType helper ──────────────────────────────────────────── */
 
 template <class Func, class T>
-using PromiseForResult = Promise<typename ReducePromise<ReturnType<Func, T>>::Type>;
+using ReturnType = decltype(std::declval<Func>()(std::declval<T>()));
 
-template <class Func>
-using PromiseForResultVoid = Promise<typename ReducePromise<ReturnTypeVoid<Func>>::Type>;
+template <class Func> using ReturnTypeVoid = decltype(std::declval<Func>()());
 
 /* ── Promise<T> ──────────────────────────────────────────────────── */
 
@@ -56,46 +49,31 @@ using PromiseForResultVoid = Promise<typename ReducePromise<ReturnTypeVoid<Func>
  * @brief A composable deferred value.
  * @tparam T  The value type. Use void for completion-only promises.
  *
+ * Move-only. Owns a PromiseNode<T> internally.
+ *
+ * @par Thread safety
+ * - @b wait(): Must be called on the WaitScope thread. It drives
+ *   xEventLoopRun internally.
+ * - @b then() / resolve(): Not thread-safe; call before sharing
+ *   across threads.
+ * - @b PromiseResolver::resolve(): Thread-safe. May be called from
+ *   any thread — the AdapterPromiseNode uses PromiseAtomicWaker +
+ *   atomic flag to coordinate concurrent poll and resolve without
+ *   a mutex.
+ *
  * @code
- *   int result = xpp::Promise<int>::eval([] { return 42; })
+ *   xpp::EventLoop loop;
+ *   xpp::WaitScope scope(loop);
+ *
+ *   int result = xpp::Promise<int>::resolve(42)
  *     .then([](int x) { return x * 2; })
- *     .wait(scope);
+ *     .wait();
+ *   // result == 84
  * @endcode
  */
 template <class T> class Promise {
 public:
   using ValueType = typename FixVoid<T>::Type;
-
-#if XPP_HAS_COROUTINES
-  /* ── Coroutine promise_type ─────────────────────────────────────── */
-
-  struct promise_type {
-    _::AdapterPromiseNode<ValueType> *adapter;
-
-    promise_type() {
-      adapter = new _::AdapterPromiseNode<ValueType>();
-    }
-
-    Promise get_return_object() {
-      return Promise(Own<_::PromiseNode<T>>(adapter));
-    }
-
-    std::suspend_never initial_suspend() noexcept {
-      return {};
-    }
-    std::suspend_never final_suspend() noexcept {
-      return {};
-    }
-
-    void return_value(ValueType value) {
-      adapter->resolve(std::move(value));
-    }
-
-    void unhandled_exception() {
-      XPP_PANIC("unhandled exception in coroutine returning Promise<T>");
-    }
-  };
-#endif // XPP_HAS_COROUTINES
 
   Promise() : m_node(nullptr) {}
   explicit Promise(Own<_::PromiseNode<T>> node) : m_node(std::move(node)) {}
@@ -107,6 +85,12 @@ public:
   Promise(const Promise &)            = delete;
   Promise &operator=(const Promise &) = delete;
 
+  /**
+   * @brief Chain a transformation on the resolved value.
+   *
+   * If func returns U, returns Promise<U>.
+   * If func returns Promise<U>, returns Promise<U> (auto-flatten).
+   */
   template <class Func, class V = ValueType,
             class = typename std::enable_if<!std::is_same<V, Void>::value>::type>
   auto then(Func &&func)
@@ -116,35 +100,12 @@ public:
             class = typename std::enable_if<std::is_same<V, Void>::value>::type, class = void>
   auto then(Func &&func) -> Promise<typename ReducePromise<decltype(std::declval<Func>()())>::Type>;
 
-  Promise<void> discard();
-
-#if XPP_HAS_COROUTINES
-  auto operator co_await() {
-    struct Awaiter {
-      _::PromiseNode<T> *node;
-
-      bool await_ready() const {
-        return false;
-      }
-
-      bool await_suspend(std::coroutine_handle<> h) {
-        _::Schedule *sched = new _::CoroWakeSchedule(h, EventLoop::current());
-        _::Waker     w(sched, nullptr);
-        if (node->poll(w)) {
-          w.wake();
-        }
-        return true;
-      }
-
-      auto await_resume() -> typename _::PromiseNode<T>::ValueType {
-        return node->take();
-      }
-    };
-    XPP_ASSERT(m_node != nullptr, "co_await on empty promise");
-    return Awaiter{m_node.get()};
+  /// Discard the value, returning a completion-only Promise<void>.
+  Promise<void> discard() {
+    return then([](ValueType) {});
   }
-#endif
 
+  /// Create an immediately-resolved promise.
   static Promise resolve(ValueType value) {
     Own<_::PromiseNode<T>> node(new _::ImmediatePromiseNode<T>(std::move(value)));
     return Promise(std::move(node));
@@ -157,6 +118,7 @@ public:
     return Promise(std::move(node));
   }
 
+  /// Evaluate a synchronous function as a promise.
   template <class Func, class V = ValueType,
             class = typename std::enable_if<std::is_same<V, Void>::value>::type>
   static auto eval(Func &&func) -> Promise<typename ReducePromise<ReturnTypeVoid<Func>>::Type> {
@@ -164,74 +126,120 @@ public:
       .then(std::forward<Func>(func));
   }
 
-  static PromiseAndResolver<T> make();
-
+  /// True if the promise holds a node (not empty).
   explicit operator bool() const {
     return m_node != nullptr;
-  }
-
-  Own<_::PromiseNode<T>> release_node() {
-    return std::move(m_node);
   }
 
   /**
    * @brief Block until the promise resolves, driving the event loop.
    *
-   * Must be called inside a WaitScope (i.e. after xEventLoopEnter).
-   * Polls the promise node; if not ready, runs the event loop until
-   * the waker fires and re-polls. Returns the resolved value.
+   * Must be called on the WaitScope thread. Polls the promise node;
+   * if not ready, runs the event loop until the waker fires and
+   * re-polls. Returns the resolved value. Consumes the promise.
    *
-   * Consumes the promise (move-only). After wait(), the promise is
-   * empty.
+   * @par Thread safety
+   * Not thread-safe. Only the WaitScope thread may call wait().
+   * However, the promise being waited on may be resolved from
+   * another thread via PromiseResolver::resolve() — that path is
+   * thread-safe (PromiseAtomicWaker + atomic flag).
+   *
+   * @par Nested wait()
+   * Safe to call wait() inside a callback that runs during another
+   * wait(). xEventLoopRun no longer calls Enter/Leave internally,
+   * so nested Run calls do not corrupt the thread-local loop binding.
    */
   ValueType wait() {
     XPP_ASSERT(m_node != nullptr, "wait() on empty promise");
 
-    _::SyncWaitSchedule sched(&m_done, EventLoop::current());
-    _::Waker             waker(&sched, nullptr);
+    bool         done = false;
+    PromiseWaker waker = PromiseWaker::sync_wait(&done);
 
-    // Initial poll
-    if (!m_node->poll(waker)) {
-      // Not ready — run the loop until waker fires
-      while (!m_done) {
+    while (true) {
+      Option<ValueType> result = m_node->poll(waker);
+      if (result.is_some()) {
+        return result.unwrap();
+      }
+      // Pending — run the loop until waker fires
+      while (!done) {
         xEventLoopRun(EventLoop::current(), X_RUN_DEFAULT);
       }
-      // Re-poll after wake
-      m_node->poll(waker);
+      done = false;  // reset for next poll iteration
     }
-
-    return m_node->take();
   }
 
 private:
   Own<_::PromiseNode<T>> m_node;
 
   template <class U> friend class Promise;
-  template <class U> friend class Resolver;
+  template <class U> friend class PromiseResolver;
   template <class U> friend class _::ChainPromiseNode;
 };
 
-/* ── Resolver<T> ─────────────────────────────────────────────────── */
+/* ── PromiseResolver<T> ─────────────────────────────────────────── */
 
-template <class T> class Resolver {
+/**
+ * @brief Manual resolver for a deferred Promise.
+ *
+ * Create via PromiseResolver<T>::create(), then call .promise() to
+ * obtain the associated Promise and .resolve() to fulfill it.
+ *
+ * Move-only. Holds a raw pointer to the AdapterPromiseNode (ownership
+ * stays with the Promise's Own<PromiseNode<T>>).
+ *
+ * @par Thread safety
+ * resolve() is thread-safe — may be called from any thread. The
+ * AdapterPromiseNode uses PromiseAtomicWaker (lock-free 2-bit state
+ * machine) and std::atomic<bool> for the resolved flag, so concurrent
+ * poll (loop thread) and resolve (any thread) are safe without a
+ * mutex.
+ *
+ * is_pending() is not atomic — only call on the thread that owns
+ * the PromiseResolver.
+ *
+ * @code
+ *   auto r = xpp::PromiseResolver<int>::create();
+ *   auto p = r.promise();
+ *   // ... pass r to an async operation ...
+ *   // ... later, from any thread:
+ *   r.resolve(42);
+ *   // ... in WaitScope:
+ *   EXPECT_EQ(p.wait(), 42);
+ * @endcode
+ */
+template <class T> class PromiseResolver {
 public:
   using ValueType = typename FixVoid<T>::Type;
 
-  explicit Resolver(_::AdapterPromiseNode<ValueType> *node) : m_node(node) {}
-
-  Resolver(Resolver &&o) noexcept : m_node(o.m_node) {
+  PromiseResolver(PromiseResolver &&o) noexcept : m_node(o.m_node) {
     o.m_node = nullptr;
   }
-  Resolver &operator=(Resolver &&o) noexcept {
+  PromiseResolver &operator=(PromiseResolver &&o) noexcept {
     m_node   = o.m_node;
     o.m_node = nullptr;
     return *this;
   }
-  Resolver(const Resolver &)            = delete;
-  Resolver &operator=(const Resolver &) = delete;
+  PromiseResolver(const PromiseResolver &)            = delete;
+  PromiseResolver &operator=(const PromiseResolver &) = delete;
+
+  /**
+   * @brief Obtain the associated Promise.
+   *
+   * Can be called at most once. The Promise takes ownership of the
+   * AdapterPromiseNode; after this call, the resolver still holds
+   * a raw pointer to the node (for resolve()), but lifecycle is
+   * managed by the Promise.
+   */
+  Promise<T> promise() {
+    XPP_ASSERT(m_node != nullptr, "promise() on empty or already-consumed resolver");
+    auto *node = m_node;
+    // Don't null m_node — resolve() still needs it.
+    // Lifecycle is transferred to Promise's Own<>.
+    return Promise<T>(Own<_::PromiseNode<T>>(static_cast<_::PromiseNode<T> *>(node)));
+  }
 
   void resolve(ValueType &&value) {
-    XPP_ASSERT(m_node != nullptr, "Resolver: already consumed or moved-from");
+    XPP_ASSERT(m_node != nullptr, "PromiseResolver: already consumed or moved-from");
     m_node->resolve(std::move(value));
     m_node = nullptr;
   }
@@ -244,25 +252,44 @@ public:
     return m_node != nullptr;
   }
 
+  /**
+   * @brief Create a PromiseResolver for deferred resolution.
+   *
+   * The returned resolver holds a raw pointer to a newly-allocated
+   * AdapterPromiseNode. Call .promise() to obtain the Promise (which
+   * takes ownership of the node), then call .resolve() to fulfill it.
+   */
+  static PromiseResolver create() {
+    auto *adapter = new _::AdapterPromiseNode<ValueType>();
+    return PromiseResolver(adapter);
+  }
+
 private:
+  explicit PromiseResolver(_::AdapterPromiseNode<ValueType> *node) : m_node(node) {}
+
   _::AdapterPromiseNode<ValueType> *m_node;
 };
 
-template <> class Resolver<void> {
+template <> class PromiseResolver<void> {
 public:
-  explicit Resolver(_::AdapterPromiseNode<Void> *node) : m_node(node) {}
-
-  Resolver(Resolver &&o) noexcept : m_node(o.m_node) {
+  PromiseResolver(PromiseResolver &&o) noexcept : m_node(o.m_node) {
     o.m_node = nullptr;
   }
-  Resolver &operator=(Resolver &&o) noexcept {
+  PromiseResolver &operator=(PromiseResolver &&o) noexcept {
     m_node   = o.m_node;
     o.m_node = nullptr;
     return *this;
   }
+  PromiseResolver(const PromiseResolver &)            = delete;
+  PromiseResolver &operator=(const PromiseResolver &) = delete;
+
+  Promise<void> promise() {
+    XPP_ASSERT(m_node != nullptr, "promise() on empty or already-consumed resolver");
+    return Promise<void>(Own<_::PromiseNode<void>>(static_cast<_::PromiseNode<void> *>(m_node)));
+  }
 
   void resolve() {
-    XPP_ASSERT(m_node != nullptr, "Resolver: already consumed or moved-from");
+    XPP_ASSERT(m_node != nullptr, "PromiseResolver: already consumed or moved-from");
     m_node->resolve();
     m_node = nullptr;
   }
@@ -271,24 +298,16 @@ public:
     return m_node != nullptr;
   }
 
+  static PromiseResolver create() {
+    auto *adapter = new _::AdapterPromiseNode<Void>();
+    return PromiseResolver(adapter);
+  }
+
 private:
+  explicit PromiseResolver(_::AdapterPromiseNode<Void> *node) : m_node(node) {}
+
   _::AdapterPromiseNode<Void> *m_node;
 };
-
-/* ── PromiseAndResolver ─────────────────────────────────────────────────── */
-
-template <class T> struct PromiseAndResolver {
-  Promise<T>  promise;
-  Resolver<T> resolver;
-};
-
-/* ── Promise<T>::make ──────────────────────────────────────────────── */
-
-template <class T> PromiseAndResolver<T> Promise<T>::make() {
-  auto                  *adapter = new _::AdapterPromiseNode<ValueType>();
-  Own<_::PromiseNode<T>> node(adapter);
-  return PromiseAndResolver<T>{Promise(std::move(node)), Resolver<T>(adapter)};
-}
 
 /* ── Free helper functions ──────────────────────────────────────── */
 
@@ -296,81 +315,9 @@ inline Promise<void> yield() {
   return Promise<void>(Own<_::PromiseNode<void>>(new _::YieldPromiseNode()));
 }
 
-/* ── Promise<T>::discard implementation ──────────────────────────── */
-
-template <class T> Promise<void> Promise<T>::discard() {
-  return then([](ValueType) {});
-}
-
-/* ── Blocking drive lives in xpp::runtime::Runtime::block_on ─────── */
-
-/* ── C++20 Coroutine support for Promise<void> ──────────────────── */
-
-#if XPP_HAS_COROUTINES
-
-template <> struct Promise<void>::promise_type {
-  _::AdapterPromiseNode<Void> *adapter;
-
-  promise_type() {
-    adapter = new _::AdapterPromiseNode<Void>();
-  }
-
-  Promise<void> get_return_object() {
-    return Promise<void>(Own<_::PromiseNode<void>>(adapter));
-  }
-
-  std::suspend_never initial_suspend() noexcept {
-    return {};
-  }
-  std::suspend_never final_suspend() noexcept {
-    return {};
-  }
-
-  void return_void() {
-    adapter->resolve();
-  }
-
-  void unhandled_exception() {
-    std::terminate();
-  }
-};
-
-#endif // XPP_HAS_COROUTINES
-
-/* ── ChainPromiseNode<T> implementation ─────────────────────────── */
+/* ── Chain helper ────────────────────────────────────────────────── */
 
 namespace _ {
-
-template <class T>
-inline Own<PromiseNode<T>> maybe_chain(Own<PromiseNode<Promise<T>>> node, Promise<T> *) {
-  return Own<PromiseNode<T>>(new ChainPromiseNode<T>(std::move(node)));
-}
-
-/* ── ChainPromiseNode<T> implementation ─────────────────────────── */
-
-template <class T>
-ChainPromiseNode<T>::ChainPromiseNode(Own<PromiseNode<Promise<T>>> outer)
-    : m_state(Step1), m_outer(std::move(outer)) {}
-
-template <class T> bool ChainPromiseNode<T>::poll(Waker waker) {
-  switch (m_state) {
-  case Step1:
-    if (!m_outer->poll(waker)) return false;
-    m_inner = std::move(m_outer->take().m_node);
-    m_outer = nullptr;
-    m_state = Step2;
-    return m_inner->poll(waker);
-  case Step2: return m_inner->poll(waker);
-  }
-  XPP_UNREACHABLE();
-}
-
-template <class T> typename PromiseNode<T>::ValueType ChainPromiseNode<T>::take() {
-  XPP_ASSERT(m_state == Step2, "ChainPromiseNode::take in Step1");
-  return m_inner->take();
-}
-
-/* ── chain helper: always returns Own<PromiseNode<ReducedT>> ── */
 
 namespace _chain {
 
@@ -389,9 +336,9 @@ chain(Own<PromiseNode<T>> dep, Func &&func) {
       std::move(dep), std::forward<Func>(func)))));
 }
 
-} // namespace _chain
+}  // namespace _chain
 
-} // namespace _
+}  // namespace _
 
 /* ── Promise<T>::then implementations ──────────────────────────── */
 
@@ -422,6 +369,6 @@ auto Promise<T>::then(Func &&func)
   return Promise<ReducedT>(std::move(node));
 }
 
-} // namespace xpp
+}  // namespace xpp
 
-#endif // XPP_PROMISE_H
+#endif  // XPP_PROMISE_H

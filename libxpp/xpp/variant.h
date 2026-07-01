@@ -11,13 +11,28 @@
 #ifndef XPP_VARIANT_H
 #define XPP_VARIANT_H
 
-#include <xpp/in_place.h>
 #include <xpp/panic.h>
 
 #include <cstddef>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
+namespace xpp {
+
+/**
+ * @brief Index-based tag for in-place constructing the N-th alternative.
+ *
+ * Analogous to std::in_place_index_t<N>. Used to disambiguate constructor
+ * overloads when types alone are insufficient (e.g. Variant<int, int>).
+ *
+ * Usage:
+ *   Variant<int, int> a(InPlaceIndex<0>{}, 42);  // first int
+ *   Variant<int, int> b(InPlaceIndex<1>{}, 42);  // second int
+ */
+template <size_t N> struct InPlaceIndex {
+  static constexpr size_t k_value = N;
+};
 
 namespace xpp {
 namespace _ {
