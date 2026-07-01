@@ -94,34 +94,34 @@ graph TD
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant Promise as Promise&lt;T&gt;
-    participant Node as AdapterPromiseNode
-    participant Waker as PromiseAtomicWaker
-    participant Loop as xEventLoop
+    participant U as User
+    participant P as Promise&lt;T&gt;
+    participant N as AdapterPromiseNode
+    participant W as PromiseAtomicWaker
+    participant L as xEventLoop
     participant R as PromiseResolver (other thread)
 
-    User->>Promise: wait()
-    Promise->>Node: poll(waker)
-    Node->>Waker: register_waker(waker)
-    Waker-->>Node: registered
-    Node-->>Promise: None (pending)
-    Promise->>Loop: xEventLoopRun(X_RUN_DEFAULT)
+    U->>P: wait()
+    P->>N: poll(waker)
+    N->>W: register_waker(waker)
+    W-->>N: registered
+    N-->>P: None (pending)
+    P->>L: xEventLoopRun(X_RUN_DEFAULT)
 
-    Note over Loop: drain done → poll I/O → timers → ...
+    Note over L: drain done → poll I/O → timers → ...
 
-    R->>Node: resolve(value)
-    Node->>Node: m_val = Some(value)
-    Node->>Node: m_resolved.store(true, release)
-    Node->>Waker: wake()
-    Waker->>Loop: xEventLoopPost(loop, set-done, &done)
-    Loop-->>Loop: drain done → *done = true
-    Loop-->>Promise: Run returns
+    R->>N: resolve(value)
+    N->>N: m_val = Some(value)
+    N->>N: m_resolved.store(true, release)
+    N->>W: wake()
+    W->>L: xEventLoopPost(loop, set-done, &done)
+    L-->>L: drain done → *done = true
+    L-->>P: Run returns
 
-    Promise->>Node: poll(waker)
-    Node->>Node: m_resolved.load(acquire) == true
-    Node-->>Promise: Some(value)
-    Promise-->>User: value
+    P->>N: poll(waker)
+    N->>N: m_resolved.load(acquire) == true
+    N-->>P: Some(value)
+    P-->>U: value
 ```
 
 ## API Reference
