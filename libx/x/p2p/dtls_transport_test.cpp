@@ -16,17 +16,13 @@
  *   - NULL-safety of all public APIs
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
 #include "dtls_transport.h"
-
-#include <x/base/event.h>
-}
 
 #include <cstring>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <x/base/event.h>
 #include <x/base/test_helper.h>
 
 /* ═══════════════════════════════════════════════════════════

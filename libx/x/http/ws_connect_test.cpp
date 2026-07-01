@@ -13,11 +13,8 @@
 #include <string>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/http/server.h>
 #include <x/http/ws.h>
-}
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Shared callback state

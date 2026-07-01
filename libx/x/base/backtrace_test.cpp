@@ -10,10 +10,7 @@
 #include <string>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/backtrace.h>
-}
 
 /* ── Helpers ── */
 

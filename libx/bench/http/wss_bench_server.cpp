@@ -23,12 +23,10 @@
 #include <cstdio>
 #include <cstdlib>
 
-extern "C" {
 #include <x/base/event.h>
 #include <x/http/server.h>
 #include <x/http/ws.h>
 #include <x/net/tls.h>
-}
 
 static xEventLoop            g_loop = nullptr;
 static std::atomic<uint64_t> g_connections{0};

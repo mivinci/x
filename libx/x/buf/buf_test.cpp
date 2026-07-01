@@ -6,15 +6,12 @@
  * buffer_test.cpp - Tests for xBuffer (linear auto-growing buffer)
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
-#include <x/buf/buf.h>
-}
-
 #include <unistd.h>
 
 #include <cstring>
+
+#include <gtest/gtest.h>
+#include <x/buf/buf.h>
 
 /* ───────────────────── Lifecycle ───────────────────── */
 

@@ -15,10 +15,7 @@
 #include <vector>
 
 #include <benchmark/benchmark.h>
-
-extern "C" {
 #include <x/base/slab.h>
-}
 
 namespace {
 struct Obj64 {

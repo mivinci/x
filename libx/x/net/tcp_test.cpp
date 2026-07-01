@@ -6,24 +6,20 @@
  * tcp_test.cpp - Unit tests for xTcpConn, xTcpConnect, xTcpListener
  */
 
+#include <unistd.h>
+
 #include <atomic>
 #include <chrono>
 #include <cstring>
 #include <thread>
 
+#include <arpa/inet.h>
 #include <gtest/gtest.h>
-
-extern "C" {
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <x/base/io.h>
 #include <x/net/tcp.h>
 #include <x/net/transport.h>
-}
-
-#include <unistd.h>
-
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
 
 /**
  * Helper: get a free port by binding to port 0 and reading back the port.

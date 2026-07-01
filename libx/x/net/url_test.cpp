@@ -6,11 +6,9 @@
  * url_test.cpp - Unit tests for xUrlParse / xUrlPort
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
 #include "url.h"
-}
+
+#include <gtest/gtest.h>
 
 /* ───────────────── helpers ───────────────── */
 

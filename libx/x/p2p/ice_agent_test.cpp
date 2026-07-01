@@ -6,11 +6,7 @@
  * ice_agent_test.cpp - Integration tests for xIceAgent
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
 #include "ice_agent.h"
-}
 
 #include <atomic>
 #include <chrono>
@@ -18,6 +14,7 @@ extern "C" {
 #include <string>
 
 #include <arpa/inet.h>
+#include <gtest/gtest.h>
 #include <x/base/test_helper.h>
 
 using ms = std::chrono::milliseconds;

@@ -12,10 +12,7 @@
 #include <thread>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/log.h>
-}
 
 /* ── Helpers ── */
 

@@ -12,10 +12,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/memory.h>
-}
 
 /* ── Test object ── */
 

@@ -22,10 +22,7 @@
 #include <vector>
 
 #include <benchmark/benchmark.h>
-
-extern "C" {
 #include <x/base/event.h>
-}
 
 #ifdef X_HAS_LIBUV
 #include <uv.h>

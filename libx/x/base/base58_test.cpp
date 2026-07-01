@@ -6,15 +6,12 @@
  * base58_test.cpp - Tests for Base58 encoding/decoding
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
-#include <x/base/base58.h>
-}
-
 #include <cstring>
 #include <string>
 #include <vector>
+
+#include <gtest/gtest.h>
+#include <x/base/base58.h>
 
 struct Base58TestCase {
   std::vector<uint8_t> raw;

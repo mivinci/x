@@ -17,11 +17,9 @@
 #include <cstdlib>
 #include <cstring>
 
-extern "C" {
 #include <x/base/event.h>
 #include <x/base/socket.h>
 #include <x/net/tcp.h>
-}
 
 static xEventLoop g_loop = nullptr;
 

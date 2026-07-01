@@ -10,10 +10,7 @@
 #include <vector>
 
 #include <benchmark/benchmark.h>
-
-extern "C" {
 #include <x/base/heap.h>
-}
 
 namespace {
 

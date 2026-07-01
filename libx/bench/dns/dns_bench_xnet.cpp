@@ -12,10 +12,8 @@
 #include <cstdlib>
 #include <cstring>
 
-extern "C" {
 #include <x/base/event.h>
 #include <x/net/dns.h>
-}
 
 using Clock = std::chrono::steady_clock;
 using us    = std::chrono::microseconds;

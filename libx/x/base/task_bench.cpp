@@ -14,10 +14,7 @@
 #include <vector>
 
 #include <benchmark/benchmark.h>
-
-extern "C" {
 #include <x/base/task.h>
-}
 
 #ifdef X_HAS_LIBUV
 #include <uv.h>

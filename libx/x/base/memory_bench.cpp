@@ -9,10 +9,7 @@
 #include <cstdlib>
 
 #include <benchmark/benchmark.h>
-
-extern "C" {
 #include <x/base/memory.h>
-}
 
 namespace {
 

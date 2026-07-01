@@ -12,10 +12,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/mpsc.h>
-}
 
 /* 测试用节点：内嵌 xMpsc 链表节点 + 一个标识值 */
 struct TestNode {

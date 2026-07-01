@@ -6,6 +6,8 @@
  * sse_test.cpp - Unit tests for SSE (Server-Sent Events) support
  */
 
+#include "server_test_helper.h"
+
 #include <unistd.h>
 
 #include <atomic>
@@ -19,12 +21,7 @@
 #include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-
-extern "C" {
 #include <x/http/client.h>
-}
-
-#include "server_test_helper.h"
 
 /* ───────────────────── Helpers ───────────────────── */
 

@@ -9,10 +9,7 @@
 #include <cstring>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/bitmap.h>
-}
 
 /* ═══════════════════ Lifecycle ═══════════════════ */
 

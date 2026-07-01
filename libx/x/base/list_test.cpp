@@ -9,10 +9,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/list.h>
-}
 
 /* ── Test element ── */
 

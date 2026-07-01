@@ -27,12 +27,9 @@
 #define XFS_TMPDIR    "."
 #endif
 
-extern "C" {
+#include <gtest/gtest.h>
 #include <x/base/event.h>
 #include <x/fs/fs.h>
-}
-
-#include <gtest/gtest.h>
 
 class FsTest : public ::testing::Test {
 protected:

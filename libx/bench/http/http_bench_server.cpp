@@ -24,10 +24,8 @@
 #include <cstring>
 #include <vector>
 
-extern "C" {
 #include <x/base/event.h>
 #include <x/http/server.h>
-}
 
 static xEventLoop g_loop = nullptr;
 

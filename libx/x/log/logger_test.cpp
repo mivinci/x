@@ -17,14 +17,10 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/event.h>
 #include <x/base/log.h>
-#include <x/log/logger.h>
-}
-
 #include <x/base/test_helper.h>
+#include <x/log/logger.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 

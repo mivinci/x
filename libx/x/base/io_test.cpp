@@ -19,9 +19,7 @@ TEST(Io, SkipOnWindows) {
 #include <cstring>
 #include <vector>
 
-extern "C" {
 #include <x/base/io.h>
-}
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Mock helpers

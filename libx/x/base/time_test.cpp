@@ -10,10 +10,7 @@
 #include <thread>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/time.h>
-}
 
 /* ── xMonoMs: basic monotonicity ── */
 

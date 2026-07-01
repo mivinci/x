@@ -6,14 +6,11 @@
  * uuid_test.cpp - Tests for UUID generation, formatting, and parsing
  */
 
-#include <gtest/gtest.h>
+#include <cstring>
 
-extern "C" {
+#include <gtest/gtest.h>
 #include <x/base/random.h>
 #include <x/crypto/uuid.h>
-}
-
-#include <cstring>
 
 /* ───────────────────── xRandomBytes ───────────────────── */
 

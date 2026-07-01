@@ -9,14 +9,12 @@
  * and DataChannel manager lifecycle.
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
 #include "datachannel.h"
 #include "sdp.h"
-}
 
 #include <string.h>
+
+#include <gtest/gtest.h>
 
 /* ═══════════════════════════════════════════════════════════
  *  DCEP Encoding / Decoding Tests

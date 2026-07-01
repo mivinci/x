@@ -10,10 +10,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/heap.h>
-}
 
 /* ── Test element ── */
 

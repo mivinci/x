@@ -6,15 +6,12 @@
  * ringbuffer_test.cpp - Tests for xRingBuffer (fixed-size ring buffer)
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
-#include <x/buf/ring.h>
-}
-
 #include <unistd.h>
 
 #include <cstring>
+
+#include <gtest/gtest.h>
+#include <x/buf/ring.h>
 
 /* ───────────────────── Lifecycle ───────────────────── */
 

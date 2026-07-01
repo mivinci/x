@@ -11,10 +11,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/task.h>
-}
 
 /* ── Helpers ── */
 

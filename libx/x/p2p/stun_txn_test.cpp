@@ -6,14 +6,11 @@
  * stun_txn_test.cpp - Unit tests for STUN transaction management
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
 #include "stun_msg.h"
 #include "stun_txn.h"
-}
 
 #include <arpa/inet.h>
+#include <gtest/gtest.h>
 
 /* ───────────────────── Test Helpers ───────────────────── */
 

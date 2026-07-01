@@ -7,28 +7,23 @@
  */
 
 #include "server_test_helper.h"
+#include "ws_crypto.h"
+#include "ws_frame.h"
+
+#include <poll.h>
+#include <unistd.h>
 
 #include <cstring>
 #include <string>
 #include <vector>
 
+#include <arpa/inet.h>
 #include <gtest/gtest.h>
-
-extern "C" {
-#include "ws_crypto.h"
-#include "ws_frame.h"
-
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <x/buf/io.h>
 #include <x/http/server.h>
 #include <x/http/ws.h>
-}
-
-#include <poll.h>
-#include <unistd.h>
-
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Crypto backend tests

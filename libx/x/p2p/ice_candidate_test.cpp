@@ -6,14 +6,11 @@
  * ice_candidate_test.cpp - Unit tests for ICE candidate and pair
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
 #include "ice_candidate.h"
 #include "ice_pair.h"
-}
 
 #include <arpa/inet.h>
+#include <gtest/gtest.h>
 
 /* ───────────────────── Candidate Priority ───────────────────── */
 

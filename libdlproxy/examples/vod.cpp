@@ -5,14 +5,12 @@
  *
  * Each URL creates a task. .m3u8 → HLS (rid=test-hls), otherwise MP4 (rid=test-mp4).
  */
+#include <dlproxy.h>
+
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-
-extern "C" {
-#include <dlproxy.h>
-}
 
 static dlp_ctx_t g_ctx = nullptr;
 

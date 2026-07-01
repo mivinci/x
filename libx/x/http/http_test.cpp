@@ -9,19 +9,16 @@
  * exercising the full request/response path over HTTP/1.1 and HTTP/2.
  */
 
+#include "server_test_helper.h"
+
 #include <atomic>
 #include <cstring>
 #include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/http/client.h>
 #include <x/http/server.h>
-}
-
-#include "server_test_helper.h"
 
 /* ───────────────────── Response context ───────────────────── */
 

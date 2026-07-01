@@ -9,10 +9,7 @@
 #include <cstdlib>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/array.h>
-}
 
 /* ── Test element ── */
 

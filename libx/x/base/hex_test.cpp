@@ -6,15 +6,12 @@
  * hex_test.cpp - Tests for hex encoding/decoding
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
-#include <x/base/hex.h>
-}
-
 #include <cstring>
 #include <string>
 #include <vector>
+
+#include <gtest/gtest.h>
+#include <x/base/hex.h>
 
 /* ── Test vectors ───────────────────────────────────────────── */
 struct HexTestCase {

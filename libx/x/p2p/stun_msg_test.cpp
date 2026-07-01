@@ -6,11 +6,9 @@
  * stun_msg_test.cpp - Unit tests for STUN message encoding / decoding
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
 #include "stun_msg.h"
-}
+
+#include <gtest/gtest.h>
 
 class StunMsgTest : public ::testing::Test {
 protected:

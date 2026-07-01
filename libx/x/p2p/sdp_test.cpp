@@ -6,15 +6,12 @@
  * sdp_test.cpp - Unit tests for SDP encoding / decoding
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
 #include "sdp.h"
-}
 
 #include <string.h>
 
 #include <arpa/inet.h>
+#include <gtest/gtest.h>
 
 /* ───────────────────── Candidate Line ───────────────────── */
 

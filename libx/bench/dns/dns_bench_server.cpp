@@ -7,10 +7,8 @@
 #include <cstdio>
 #include <cstdlib>
 
-extern "C" {
 #include <x/base/event.h>
 #include <x/dns/dns.h>
-}
 
 int main(int argc, char **argv) {
   int port = 15353;

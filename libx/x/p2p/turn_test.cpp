@@ -6,16 +6,13 @@
  * turn_test.cpp - Unit tests for TURN client and ChannelData
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
 #include "stun_attr.h"
 #include "stun_msg.h"
 #include "turn_channel.h"
 #include "turn_client.h"
-}
 
 #include <arpa/inet.h>
+#include <gtest/gtest.h>
 
 /* ───────────────────── ChannelData Tests ───────────────────── */
 

@@ -6,16 +6,13 @@
  * iobuffer_test.cpp - Tests for xIOBuffer (block-chain I/O buffer)
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
-#include <x/buf/io.h>
-}
-
 #include <unistd.h>
 
 #include <cstring>
 #include <vector>
+
+#include <gtest/gtest.h>
+#include <x/buf/io.h>
 
 /* ───────────────────── Lifecycle ───────────────────── */
 

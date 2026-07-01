@@ -8,6 +8,10 @@
  * All tests use an in-process xHttpServer — no external network required.
  */
 
+#include "server_test_helper.h"
+
+#include <unistd.h>
+
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -16,20 +20,12 @@
 #include <thread>
 #include <vector>
 
-#include <gtest/gtest.h>
-
-extern "C" {
-#include <x/http/client.h>
-#include <x/http/server.h>
-}
-
-#include "server_test_helper.h"
-
-#include <unistd.h>
-
 #include <arpa/inet.h>
+#include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <x/http/client.h>
+#include <x/http/server.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 

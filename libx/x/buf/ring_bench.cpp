@@ -9,10 +9,7 @@
 #include <vector>
 
 #include <benchmark/benchmark.h>
-
-extern "C" {
 #include <x/buf/ring.h>
-}
 
 // BM_Ring_WriteRead: Measure write + read throughput
 static void BM_Ring_WriteRead(benchmark::State &state) {

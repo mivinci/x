@@ -11,12 +11,8 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/event.h>
 #include <x/base/task.h>
-}
-
 #include <x/base/test_helper.h>
 
 /* ───────────────────── Fixture ───────────────────── */

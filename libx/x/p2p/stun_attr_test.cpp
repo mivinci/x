@@ -6,14 +6,11 @@
  * stun_attr_test.cpp - Unit tests for STUN attribute encoding / decoding
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
 #include "stun_attr.h"
 #include "stun_msg.h"
-}
 
 #include <arpa/inet.h>
+#include <gtest/gtest.h>
 
 class StunAttrTest : public ::testing::Test {
 protected:

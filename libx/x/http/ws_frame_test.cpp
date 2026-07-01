@@ -6,17 +6,14 @@
  * ws_frame_test.cpp - WebSocket frame masking unit tests
  */
 
+#include "ws_frame.h"
+
 #include <cstring>
 #include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
-
-extern "C" {
-#include "ws_frame.h"
-
 #include <x/buf/io.h>
-}
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Helper: encode a frame, then parse it back

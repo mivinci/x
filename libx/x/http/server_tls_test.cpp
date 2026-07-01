@@ -11,9 +11,7 @@
 #include <atomic>
 #include <thread>
 
-extern "C" {
 #include <x/base/error.h>
-}
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Tests that work regardless of TLS backend availability

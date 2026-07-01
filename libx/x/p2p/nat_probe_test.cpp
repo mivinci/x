@@ -6,13 +6,9 @@
  * nat_probe_test.cpp - Unit tests for NAT type detection
  */
 
-#include <gtest/gtest.h>
-
-extern "C" {
 #include "nat_probe.h"
 #include "stun_attr.h"
 #include "stun_msg.h"
-}
 
 #include <poll.h>
 #include <unistd.h>
@@ -23,6 +19,7 @@ extern "C" {
 #include <thread>
 
 #include <arpa/inet.h>
+#include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <x/base/test_helper.h>

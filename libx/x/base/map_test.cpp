@@ -11,10 +11,7 @@
 #include <unordered_set>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/map.h>
-}
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Parameterised test fixture — runs every test for both backends

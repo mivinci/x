@@ -11,10 +11,7 @@
 #include <thread>
 
 #include <gtest/gtest.h>
-
-extern "C" {
 #include <x/base/speed_tracker.h>
-}
 
 /* ── Initialization ── */
 

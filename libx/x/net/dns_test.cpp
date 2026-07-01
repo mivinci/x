@@ -13,12 +13,8 @@
 #include <thread>
 
 #include <gtest/gtest.h>
-
-extern "C" {
-#include <x/net/dns.h>
-}
-
 #include <x/base/test_helper.h>
+#include <x/net/dns.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 

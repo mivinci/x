@@ -1,11 +1,9 @@
 /*
  * m3u8_test.cpp - Unit tests for HLS m3u8 parser
  */
-#include <gtest/gtest.h>
-
-extern "C" {
 #include "m3u8.h"
-}
+
+#include <gtest/gtest.h>
 
 /* ── Fixtures ──────────────────────────────────────────────────────── */
 
