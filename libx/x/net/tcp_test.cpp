@@ -6,6 +6,9 @@
  * tcp_test.cpp - Unit tests for xTcpConn, xTcpConnect, xTcpListener
  */
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -13,10 +16,7 @@
 #include <cstring>
 #include <thread>
 
-#include <arpa/inet.h>
 #include <gtest/gtest.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
 
 #include <x/base/io.h>
 #include <x/net/tcp.h>

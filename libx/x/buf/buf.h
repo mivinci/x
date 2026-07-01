@@ -24,7 +24,6 @@
 #define XBUF_BUF_H
 
 #include <stddef.h>
-
 #include <sys/types.h>
 #include <sys/uio.h>
 

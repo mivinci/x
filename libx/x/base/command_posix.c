@@ -19,10 +19,9 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include <x/base/command.h>
 #include <x/base/string.h>

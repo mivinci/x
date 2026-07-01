@@ -10,7 +10,6 @@
 #define XNET_DNS_H
 
 #include <netdb.h>
-
 #include <sys/socket.h>
 
 #include <x/base/base.h>

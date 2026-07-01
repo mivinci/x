@@ -8,10 +8,9 @@
 
 #include "ice_candidate.h"
 
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <string.h>
-
-#include <arpa/inet.h>
 
 #include <x/crypto/crc32.h>
 

@@ -12,9 +12,8 @@
 #include "ice_private.h"
 #include "stun_msg.h"
 
-#include <stdint.h>
-
 #include <netinet/in.h>
+#include <stdint.h>
 
 #include <x/base/base.h>
 

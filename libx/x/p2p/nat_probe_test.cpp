@@ -10,7 +10,10 @@
 #include "stun_attr.h"
 #include "stun_msg.h"
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <poll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -18,10 +21,7 @@
 #include <cstring>
 #include <thread>
 
-#include <arpa/inet.h>
 #include <gtest/gtest.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
 
 #include <x/base/test_helper.h>
 

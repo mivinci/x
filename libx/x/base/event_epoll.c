@@ -31,7 +31,6 @@
 
 #include <errno.h>
 #include <fcntl.h>
-
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 

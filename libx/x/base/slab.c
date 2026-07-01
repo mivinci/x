@@ -37,9 +37,8 @@
 #define XSLAB_USE_VIRTUALALLOC 1
 #elif defined(__linux__) || defined(__APPLE__) || defined(__unix__) || defined(__FreeBSD__) || \
   defined(__NetBSD__) || defined(__OpenBSD__)
-#include <unistd.h>
-
 #include <sys/mman.h>
+#include <unistd.h>
 #define XSLAB_USE_MMAP 1
 #endif
 

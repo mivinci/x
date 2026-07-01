@@ -10,17 +10,17 @@
 #include "ws_crypto.h"
 #include "ws_frame.h"
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <poll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <cstring>
 #include <string>
 #include <vector>
 
-#include <arpa/inet.h>
 #include <gtest/gtest.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
 
 #include <x/buf/io.h>
 #include <x/http/server.h>

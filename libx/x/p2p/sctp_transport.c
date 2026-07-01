@@ -10,13 +10,12 @@
 
 #include "dtls_transport.h"
 
+#include <arpa/inet.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <usrsctp.h>
-
-#include <arpa/inet.h>
 
 #include <x/base/log.h>
 

@@ -17,17 +17,16 @@
 #include "stun_txn.h"
 #include "turn_client.h"
 
+#include <arpa/inet.h>
 #include <errno.h>
 #include <ifaddrs.h>
 #include <inttypes.h>
+#include <net/if.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-
-#include <arpa/inet.h>
-#include <net/if.h>
 #include <sys/socket.h>
+#include <time.h>
 
 #include <x/base/log.h>
 #include <x/net/dns.h>

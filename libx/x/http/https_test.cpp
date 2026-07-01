@@ -18,6 +18,9 @@
 
 #include "server_test_helper.h"
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -28,10 +31,7 @@
 #include <thread>
 #include <vector>
 
-#include <arpa/inet.h>
 #include <gtest/gtest.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
 
 #include <x/http/client.h>
 #include <x/http/server.h>

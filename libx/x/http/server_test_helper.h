@@ -9,16 +9,16 @@
 #ifndef XHTTP_SERVER_TEST_HELPER_H_
 #define XHTTP_SERVER_TEST_HELPER_H_
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <cstring>
 #include <string>
 
-#include <arpa/inet.h>
 #include <gtest/gtest.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
 
 #include <x/base/test_helper.h>
 #include <x/http/server.h>

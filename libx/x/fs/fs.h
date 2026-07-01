@@ -9,7 +9,6 @@
 #define XFS_FS_H
 
 #include <stdint.h>
-
 #include <sys/stat.h>
 #include <sys/types.h>
 

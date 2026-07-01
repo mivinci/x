@@ -8,12 +8,13 @@
 
 #include "ice_agent.h"
 
+#include <arpa/inet.h>
+
 #include <atomic>
 #include <chrono>
 #include <cstring>
 #include <string>
 
-#include <arpa/inet.h>
 #include <gtest/gtest.h>
 
 #include <x/base/test_helper.h>

@@ -8,9 +8,9 @@
 
 #include "sdp.h"
 
+#include <arpa/inet.h>
 #include <string.h>
 
-#include <arpa/inet.h>
 #include <gtest/gtest.h>
 
 /* ───────────────────── Candidate Line ───────────────────── */

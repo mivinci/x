@@ -10,9 +10,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <x/base/map.h>
 #include <x/fs/fs.h>

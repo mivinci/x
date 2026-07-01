@@ -14,7 +14,6 @@
 #define XNET_TCP_H
 
 #include <stdint.h>
-
 #include <sys/socket.h>
 #include <sys/uio.h>
 

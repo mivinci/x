@@ -10,6 +10,7 @@
 #include "stun_msg.h"
 
 #include <arpa/inet.h>
+
 #include <gtest/gtest.h>
 
 class StunAttrTest : public ::testing::Test {

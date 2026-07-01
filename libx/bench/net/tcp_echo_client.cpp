@@ -13,7 +13,10 @@
  * messages of `msg_size` bytes each, and reports throughput and latency.
  */
 
+#include <arpa/inet.h>
 #include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -22,10 +25,6 @@
 #include <cstring>
 #include <thread>
 #include <vector>
-
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <sys/time.h>
 
 #include <x/base/time.h>
 

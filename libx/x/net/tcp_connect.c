@@ -13,13 +13,12 @@
 #include "transport_private.h"
 
 #include <errno.h>
+#include <netinet/tcp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-
-#include <netinet/tcp.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 #include <x/base/log.h>
 #include <x/net/dns.h>

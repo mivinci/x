@@ -25,9 +25,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <windows.h>
-
 #include <sys/stat.h>
+#include <windows.h>
 
 #include <x/base/event.h>
 

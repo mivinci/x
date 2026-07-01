@@ -57,9 +57,12 @@ IncludeCategories:
   - Regex: '^"[^/]+\.h"$'
     Priority: 1
 
-  # 2. C system headers — angle brackets, no slash, with .h
-  #    (<stdio.h>, <unistd.h>).
+  # 2. C system headers — single-word <stdio.h>, <unistd.h>, and
+  #    POSIX subdirectory headers <arpa/inet.h>, <netinet/in.h>,
+  #    <sys/socket.h>, etc.
   - Regex: '^<[a-z_]+\.h>$'
+    Priority: 2
+  - Regex: '^<(arpa|net|netinet|sys|linux|netpacket)/[a-z_]+\.h>$'
     Priority: 2
 
   # 3. C++ system headers — angle brackets, no slash, no .h

@@ -15,10 +15,9 @@
 #endif
 #include "transport_private.h"
 
-#include <unistd.h>
-
 #include <sys/socket.h>
 #include <sys/uio.h>
+#include <unistd.h>
 
 #include <x/net/transport.h>
 

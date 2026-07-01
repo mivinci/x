@@ -9,9 +9,8 @@
 
 #if !defined(_WIN32)
 #include <fcntl.h>
-#include <unistd.h>
-
 #include <sys/stat.h>
+#include <unistd.h>
 #define XFS_CLOSE(fd) close(fd)
 #define XFS_UNLINK(p) unlink(p)
 #define XFS_RMDIR(p)  rmdir(p)
@@ -19,7 +18,6 @@
 #else
 #include <fcntl.h>
 #include <io.h>
-
 #include <sys/stat.h>
 #define XFS_CLOSE(fd) _close(fd)
 #define XFS_UNLINK(p) _unlink(p)

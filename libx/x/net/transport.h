@@ -13,7 +13,6 @@
 #define XNET_TRANSPORT_H
 
 #include <stddef.h>
-
 #include <sys/types.h>
 #include <sys/uio.h>
 

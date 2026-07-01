@@ -26,7 +26,6 @@
 #define XBUF_RING_H
 
 #include <stddef.h>
-
 #include <sys/types.h>
 #include <sys/uio.h>
 

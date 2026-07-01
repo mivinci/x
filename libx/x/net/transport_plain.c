@@ -13,9 +13,8 @@
 
 #include <errno.h>
 #include <stdlib.h>
-#include <unistd.h>
-
 #include <sys/uio.h>
+#include <unistd.h>
 
 /* ───────────────────── Plain TCP context ───────────────────── */
 

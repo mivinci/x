@@ -27,10 +27,9 @@
 
 #if defined(__linux__)
 #include <limits.h>
-#include <unistd.h>
-
 #include <linux/futex.h>
 #include <sys/syscall.h>
+#include <unistd.h>
 #elif defined(__APPLE__)
 #include <unistd.h>
 

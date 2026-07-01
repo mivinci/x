@@ -794,9 +794,9 @@ TEST(EventReadWrite, BothReadAndWrite) {
 /* ───────────────────── Signal watch (POSIX only) ───────────────────── */
 
 #ifndef _WIN32
-#include <csignal>
-
 #include <sys/types.h>
+
+#include <csignal>
 
 TEST(EventSignal, BasicRegisterAndTrigger) {
   xEventLoop loop = xEventLoopCreate();

@@ -7,14 +7,13 @@
  * ares_process_fd) rather than xbase's event loop.
  */
 #include <ares.h>
+#include <sys/select.h>
 
 #include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-
-#include <sys/select.h>
 
 using Clock = std::chrono::steady_clock;
 using us    = std::chrono::microseconds;
