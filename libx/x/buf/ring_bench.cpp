@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <benchmark/benchmark.h>
+
 #include <x/buf/ring.h>
 
 // BM_Ring_WriteRead: Measure write + read throughput

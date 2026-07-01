@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+
 #include <x/base/event.h>
 #include <x/base/test_helper.h>
 

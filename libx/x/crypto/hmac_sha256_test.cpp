@@ -10,6 +10,7 @@
 #include <string>
 
 #include <gtest/gtest.h>
+
 #include <x/crypto/hmac.h>
 #include <x/crypto/hmac_sha256.h>
 #include <x/crypto/sha256.h>

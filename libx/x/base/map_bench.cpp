@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <benchmark/benchmark.h>
+
 #include <x/base/map.h>
 
 namespace {

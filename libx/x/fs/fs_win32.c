@@ -28,6 +28,7 @@
 #include <windows.h>
 
 #include <sys/stat.h>
+
 #include <x/base/event.h>
 
 /* ────── Win32 helpers ──────────────────────────────────────────── */

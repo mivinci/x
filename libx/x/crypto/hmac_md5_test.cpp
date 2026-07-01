@@ -10,6 +10,7 @@
 #include <string>
 
 #include <gtest/gtest.h>
+
 #include <x/crypto/hmac.h>
 #include <x/crypto/hmac_md5.h>
 #include <x/crypto/md5.h>

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <benchmark/benchmark.h>
+
 #include <x/base/mpsc.h>
 
 namespace {

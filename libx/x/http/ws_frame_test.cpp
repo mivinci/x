@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+
 #include <x/buf/io.h>
 
 /* ═══════════════════════════════════════════════════════════════════

@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include <gtest/gtest.h>
+
 #include <x/base/command.h>
 #include <x/base/event.h>
 

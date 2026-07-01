@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include <gtest/gtest.h>
+
 #include <x/base/error.h>
 
 /* ── Valid error codes return correct strings ── */

@@ -21,6 +21,7 @@ TEST(Socket, SkipOnWindows) {
 #include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+
 #include <x/base/socket.h>
 
 /* ───────────────────── Helpers ───────────────────── */

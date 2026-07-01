@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include <arpa/inet.h>
+
 #include <x/crypto/crc32.h>
 
 int xIceCandidateTypePref(xIceCandidateType type) {

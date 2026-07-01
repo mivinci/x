@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include <sys/uio.h>
+
 #include <x/base/log.h>
 
 /* Maximum iovec entries for writev */

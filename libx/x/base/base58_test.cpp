@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+
 #include <x/base/base58.h>
 
 struct Base58TestCase {

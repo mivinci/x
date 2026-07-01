@@ -10,6 +10,7 @@
 #include <string>
 
 #include <gtest/gtest.h>
+
 #include <x/crypto/sha256.h>
 
 /* ── Helper: hex-encode a digest ───────────────────────── */

@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include <gtest/gtest.h>
+
 #include <x/buf/buf.h>
 
 /* ───────────────────── Lifecycle ───────────────────── */

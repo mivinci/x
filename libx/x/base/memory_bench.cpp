@@ -9,6 +9,7 @@
 #include <cstdlib>
 
 #include <benchmark/benchmark.h>
+
 #include <x/base/memory.h>
 
 namespace {

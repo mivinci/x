@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include <gtest/gtest.h>
+
 #include <x/base/random.h>
 #include <x/crypto/uuid.h>
 

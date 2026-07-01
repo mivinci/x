@@ -67,17 +67,18 @@ IncludeCategories:
   - Regex: '^<[^/.]+>$'
     Priority: 3
 
-  # 4. Other library headers — <openssl/...>, <gtest/...>,
-  #    <llhttp.h> (single-file libs without slash also land here
-  #    because they don't match rule 2's [a-z_]+ regex — llhttp
-  #    has digits).
-  - Regex: '^<.+'
-    Priority: 4
-
-  # 5. Project headers — <x/...> public API and "foo/bar.h"
-  #    private includes. Goes last per strict Google convention.
+  # 4. Project headers — <x/...> public API. MUST come before the
+  #    catch-all below, otherwise <x/base/log.h> gets swallowed by
+  #    the "other library" rule. Goes late per strict Google
+  #    convention (project headers after external libraries).
   - Regex: '^<x/'
     Priority: 5
+
+  # 5. Other library headers — <openssl/...>, <gtest/...>,
+  #    <llhttp.h> (catch-all for angle-bracket includes not matched
+  #    by rules 2-4).
+  - Regex: '^<.+'
+    Priority: 4
 
   # 6. Project-internal quoted headers with paths ("foo/bar.h") —
   #    catch-all for any remaining quoted includes.

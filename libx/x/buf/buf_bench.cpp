@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <benchmark/benchmark.h>
+
 #include <x/buf/buf.h>
 
 // BM_Buffer_Append: Measure append throughput at different chunk sizes

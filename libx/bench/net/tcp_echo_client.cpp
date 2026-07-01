@@ -26,6 +26,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+
 #include <x/base/time.h>
 
 static double run_client(const char *host, uint16_t port, size_t msg_size, int64_t num_messages) {

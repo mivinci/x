@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+
 #include <x/base/hex.h>
 
 /* ── Test vectors ───────────────────────────────────────────── */

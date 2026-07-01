@@ -12,6 +12,7 @@
 #include <thread>
 
 #include <gtest/gtest.h>
+
 #include <x/base/log.h>
 
 /* ── Helpers ── */

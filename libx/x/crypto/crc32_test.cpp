@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include <gtest/gtest.h>
+
 #include <x/crypto/crc32.h>
 
 TEST(Crc32, Empty) {

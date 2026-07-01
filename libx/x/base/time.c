@@ -50,6 +50,7 @@ uint64_t xWallMs(void) {
 
 #ifdef __APPLE__
 #include <mach/mach_time.h>
+
 #include <x/base/thread.h>
 
 static xOnce                     tb_init = X_ONCE_INIT;

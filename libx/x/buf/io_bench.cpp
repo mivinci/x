@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <benchmark/benchmark.h>
+
 #include <x/buf/io.h>
 
 // BM_IOBuffer_Append: Measure append throughput (block-chain allocation)

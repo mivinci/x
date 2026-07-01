@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include <arpa/inet.h>
+
 #include <x/base/atomic.h>
 #include <x/net/dns.h>
 

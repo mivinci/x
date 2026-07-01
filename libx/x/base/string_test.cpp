@@ -7,6 +7,7 @@
 #include <string>
 
 #include <gtest/gtest.h>
+
 #include <x/base/string.h>
 
 /* ───────────────────── Lifecycle ───────────────────── */

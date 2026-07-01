@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+
 #include <x/base/base64.h>
 
 /* ---- Encode tests ---- */
