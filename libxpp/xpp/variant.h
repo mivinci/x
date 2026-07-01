@@ -34,6 +34,8 @@ template <size_t N> struct InPlaceIndex {
   static constexpr size_t k_value = N;
 };
 
+} // namespace xpp
+
 namespace xpp {
 namespace _ {
 
