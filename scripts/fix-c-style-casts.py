@@ -24,23 +24,93 @@ CAST_TYPES = r'(?:const\s+)?(?:struct\s+)?(?:uint\d+_t|int\d+_t|size_t|ssize_t|i
 def strip_comments(text):
     """Replace comment contents with spaces (preserving newlines) so
     that C-style casts inside comments are not mistaken for real casts.
-    Handles // line comments and /* */ block comments."""
+
+    Skips over string/char literals (including C++ raw strings) so that
+    comment markers inside strings (e.g. "http://x", "a /* b */ c") are
+    not mistaken for real comment starts.
+
+    The output is always the same length as the input — every character
+    is either kept or replaced with a single space, never deleted — so
+    index offsets returned by find_casts remain valid against the
+    original text."""
     result = list(text)
+    n = len(result)
     i = 0
-    while i < len(result):
-        # Line comment: // ... \n
-        if i + 1 < len(result) and result[i] == '/' and result[i + 1] == '/':
-            while i < len(result) and result[i] != '\n':
+    RAW_PREFIXES = ('R', 'LR', 'uR', 'UR', 'u8R')
+
+    def collect_ident_prefix(idx):
+        """Return the run of [A-Za-z0-9_] ending immediately before idx."""
+        j = idx
+        while j > 0 and (text[j - 1].isalnum() or text[j - 1] == '_'):
+            j -= 1
+        return text[j:idx]
+
+    while i < n:
+        c = result[i]
+
+        # ── String literal ─────────────────────────────────────────
+        if c == '"':
+            prefix = collect_ident_prefix(i)
+            if prefix in RAW_PREFIXES:
+                # Raw string: R"delim(...)delim"
+                delim_start = i + 1
+                j = delim_start
+                while j < n and text[j] != '(' and text[j] != '"':
+                    j += 1
+                if j >= n or text[j] != '(':
+                    # Malformed (no '(' before next '"' or EOF) — fall
+                    # back to normal-string handling so we at least skip
+                    # the opening quote.
+                    i = _skip_normal_string(text, i, n)
+                    continue
+                delim = text[delim_start:j]
+                needle = ')' + delim + '"'
+                end = text.find(needle, j + 1)
+                if end == -1:
+                    i = n  # unterminated; skip to EOF
+                else:
+                    i = end + len(needle)
+                continue
+            # Normal string (possibly L/u/U/u8 prefixed)
+            i = _skip_normal_string(text, i, n)
+            continue
+
+        # ── Char literal — but skip C++14 digit separators (1'000) ──
+        # A `'` preceded by a digit is treated as a separator and not
+        # as the start of a char literal. This is a heuristic; it can
+        # misclassify e.g. u8'a' (prev='8'), but the only consequence
+        # is that we scan the char's contents as code — which is
+        # harmless as long as those contents do not contain // or /*.
+        if c == "'" and not (i > 0 and text[i - 1].isdigit()):
+            j = i + 1
+            while j < n:
+                if text[j] == '\\' and j + 1 < n:
+                    j += 2  # skip escape (incl. backslash-newline)
+                    continue
+                if text[j] == "'":
+                    j += 1
+                    break
+                if text[j] == '\n':
+                    j += 1  # unterminated; bail at newline
+                    break
+                j += 1
+            i = j
+            continue
+
+        # ── Line comment: // ... \n ────────────────────────────────
+        if c == '/' and i + 1 < n and result[i + 1] == '/':
+            while i < n and result[i] != '\n':
                 result[i] = ' '
                 i += 1
             continue
-        # Block comment: /* ... */
-        if i + 1 < len(result) and result[i] == '/' and result[i + 1] == '*':
+
+        # ── Block comment: /* ... */ ────────────────────────────────
+        if c == '/' and i + 1 < n and result[i + 1] == '*':
             result[i] = ' '
             result[i + 1] = ' '
             i += 2
-            while i < len(result):
-                if i + 1 < len(result) and result[i] == '*' and result[i + 1] == '/':
+            while i < n:
+                if result[i] == '*' and i + 1 < n and result[i + 1] == '/':
                     result[i] = ' '
                     result[i + 1] = ' '
                     i += 2
@@ -49,8 +119,28 @@ def strip_comments(text):
                     result[i] = ' '
                 i += 1
             continue
+
         i += 1
+
     return ''.join(result)
+
+
+def _skip_normal_string(text, i, n):
+    """Skip a normal (non-raw) string starting at text[i] == '"'.
+    Handles \\" escapes and backslash-newline line continuations.
+    Returns the index past the closing quote (or past the newline that
+    ends an unterminated string, or past EOF)."""
+    j = i + 1
+    while j < n:
+        if text[j] == '\\' and j + 1 < n:
+            j += 2  # skip escape sequence (incl. backslash-newline)
+            continue
+        if text[j] == '"':
+            return j + 1
+        if text[j] == '\n':
+            return j + 1  # unterminated; bail at newline
+        j += 1
+    return j
 
 def find_casts(text):
     """Find all C-style casts in text. Returns list of (start, end, type, expr).
