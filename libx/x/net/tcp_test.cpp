@@ -69,7 +69,11 @@ protected:
   }
 
   void RunUntilDone(std::atomic<bool> &done, int timeout_ms = 10000) {
-    std::thread runner([&]() { xEventLoopRun(loop, X_RUN_DEFAULT); });
+    std::thread runner([&]() {
+      xEventLoopEnter(loop);
+      xEventLoopRun(loop, X_RUN_DEFAULT);
+      xEventLoopLeave();
+    });
 
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (!done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
@@ -151,7 +155,11 @@ TEST_F(TcpTest, LoopbackPlainTcp) {
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Run event loop until both sides are done */
-  std::thread runner([&]() { xEventLoopRun(loop, X_RUN_DEFAULT); });
+  std::thread runner([&]() {
+    xEventLoopEnter(loop);
+    xEventLoopRun(loop, X_RUN_DEFAULT);
+    xEventLoopLeave();
+  });
 
   auto deadline = std::chrono::steady_clock::now() + ms(10000);
   while (std::chrono::steady_clock::now() < deadline) {
@@ -336,7 +344,11 @@ TEST_F(TcpTest, TakeSocketAndTransport) {
   xErrno err = xTcpConnect("127.0.0.1", port, nullptr, transfer_connect_cb, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  std::thread runner([&]() { xEventLoopRun(loop, X_RUN_DEFAULT); });
+  std::thread runner([&]() {
+    xEventLoopEnter(loop);
+    xEventLoopRun(loop, X_RUN_DEFAULT);
+    xEventLoopLeave();
+  });
 
   auto deadline = std::chrono::steady_clock::now() + ms(10000);
   while (std::chrono::steady_clock::now() < deadline) {
@@ -467,7 +479,11 @@ TEST_F(TcpTest, ReaderWriterAdapterLoopback) {
   xErrno err = xTcpConnect("127.0.0.1", port, nullptr, adapter_connect_cb, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  std::thread runner([&]() { xEventLoopRun(loop, X_RUN_DEFAULT); });
+  std::thread runner([&]() {
+    xEventLoopEnter(loop);
+    xEventLoopRun(loop, X_RUN_DEFAULT);
+    xEventLoopLeave();
+  });
 
   auto deadline = std::chrono::steady_clock::now() + ms(10000);
   while (std::chrono::steady_clock::now() < deadline) {

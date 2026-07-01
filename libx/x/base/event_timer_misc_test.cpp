@@ -95,13 +95,14 @@ TEST(BuiltinTimerMixed, IOAndTimerTogether) {
 TEST(BuiltinTimerRun, RunAndStop) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xEventLoopEnter(loop);
 
   std::atomic<bool> running{false};
 
   std::thread runner([&]() {
+    xEventLoopEnter(loop);
     running = true;
     xEventLoopRun(loop, X_RUN_DEFAULT);
+    xEventLoopLeave();
   });
 
   while (!running)
@@ -111,7 +112,6 @@ TEST(BuiltinTimerRun, RunAndStop) {
   xEventLoopStop(loop);
   runner.join();
 
-  xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
 
@@ -123,13 +123,16 @@ TEST(BuiltinTimerRun, NullDoesNotCrash) {
 TEST(BuiltinTimerRun, TimerFiresDuringRun) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xEventLoopEnter(loop);
 
   std::atomic<int> fired{0};
 
-  xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 50, 0);
-
-  std::thread runner([&]() { xEventLoopRun(loop, X_RUN_DEFAULT); });
+  std::thread runner([&]() {
+    xEventLoopEnter(loop);
+    xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 50,
+                0);
+    xEventLoopRun(loop, X_RUN_DEFAULT);
+    xEventLoopLeave();
+  });
 
   for (int i = 0; i < 40 && fired.load() == 0; i++)
     sleep_ms(10);
@@ -139,7 +142,6 @@ TEST(BuiltinTimerRun, TimerFiresDuringRun) {
   xEventLoopStop(loop);
   runner.join();
 
-  xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
 
@@ -149,7 +151,6 @@ TEST(BuiltinTimerRun, TimerFiresDuringRun) {
 TEST(BuiltinTimerCrossThread, SubmitFromAnotherThread) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xEventLoopEnter(loop);
 
   std::atomic<int> fired{0};
 
@@ -169,7 +170,11 @@ TEST(BuiltinTimerCrossThread, SubmitFromAnotherThread) {
     },
     ctx);
 
-  std::thread runner([&]() { xEventLoopRun(loop, X_RUN_DEFAULT); });
+  std::thread runner([&]() {
+    xEventLoopEnter(loop);
+    xEventLoopRun(loop, X_RUN_DEFAULT);
+    xEventLoopLeave();
+  });
 
   for (int i = 0; i < 40 && fired.load() == 0; i++)
     sleep_ms(10);
@@ -179,7 +184,6 @@ TEST(BuiltinTimerCrossThread, SubmitFromAnotherThread) {
   xEventLoopStop(loop);
   runner.join();
 
-  xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
 
@@ -213,15 +217,18 @@ TEST(BuiltinTimerDestroy, DiscardsPendingTimers) {
 TEST(BuiltinTimerPrecision, DelayAccuracy) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xEventLoopEnter(loop);
 
   std::atomic<uint64_t> fire_time{0};
 
   uint64_t submit_time = xMonoMs();
-  xTimerStart([](void *arg) { static_cast<std::atomic<uint64_t> *>(arg)->store(xMonoMs()); },
-              &fire_time, 100, 0);
 
-  std::thread runner([&]() { xEventLoopRun(loop, X_RUN_DEFAULT); });
+  std::thread runner([&]() {
+    xEventLoopEnter(loop);
+    xTimerStart([](void *arg) { static_cast<std::atomic<uint64_t> *>(arg)->store(xMonoMs()); },
+                &fire_time, 100, 0);
+    xEventLoopRun(loop, X_RUN_DEFAULT);
+    xEventLoopLeave();
+  });
 
   for (int i = 0; i < 60 && fire_time.load() == 0; i++)
     sleep_ms(10);
@@ -236,7 +243,6 @@ TEST(BuiltinTimerPrecision, DelayAccuracy) {
   xEventLoopStop(loop);
   runner.join();
 
-  xEventLoopLeave();
   xEventLoopDestroy(loop);
 }
 

@@ -47,7 +47,11 @@ protected:
    * `done` flag becomes true (or after a timeout).
    */
   void RunUntilDone(std::atomic<bool> &done, int timeout_ms = 5000) {
-    std::thread runner([&]() { xEventLoopRun(loop, X_RUN_DEFAULT); });
+    std::thread runner([&]() {
+      xEventLoopEnter(loop);
+      xEventLoopRun(loop, X_RUN_DEFAULT);
+      xEventLoopLeave();
+    });
 
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (!done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {

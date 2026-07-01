@@ -204,8 +204,6 @@ int xEventLoopRun(xEventLoop loop_, int mode) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)loop_;
   if (!loop) return 0;
 
-  xEventLoopEnter(loop_);
-
   int alive = loop_alive(loop);
   if (!alive) {
     loop_update_time(loop);
@@ -235,7 +233,6 @@ int xEventLoopRun(xEventLoop loop_, int mode) {
     loop->stopped = 0;
   }
 
-  xEventLoopLeave();
   return alive;
 }
 

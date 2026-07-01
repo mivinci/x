@@ -467,11 +467,13 @@ protected:
   void SetUp() override {
     loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
+    xEventLoopEnter(loop);
   }
 
   void TearDown() override {
     if (active) xDtlsTransportDestroy(active);
     if (passive) xDtlsTransportDestroy(passive);
+    xEventLoopLeave();
     if (loop) xEventLoopDestroy(loop);
   }
 
