@@ -51,3 +51,5 @@
   - [xp2p — P2P Connectivity](libx/p2p/README.md)
     - [ICE Agent](libx/p2p/ice.md)
     - [Peer Connection](libx/p2p/pc.md)
+  - [libxpp — C++ Bindings](libxpp/../libxpp/promise.md)
+    - [Promise\<T\>](libxpp/promise.md)
