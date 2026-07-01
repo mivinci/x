@@ -15,7 +15,7 @@
 
 namespace {
 
-// Pre-generate integer keys as (void *) pointers
+// Pre-generate integer keys as reinterpret_cast<void *>(pointers)
 static std::vector<void *> make_keys(int64_t n) {
   std::vector<void *> keys(n);
   for (int64_t i = 0; i < n; i++) {

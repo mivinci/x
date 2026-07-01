@@ -39,7 +39,9 @@ TEST(HmacMd5, Rfc2202_1) {
   const char *data = "Hi There";
   uint8_t     digest[XCRYPTO_MD5_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacMd5(key, sizeof(key), (const uint8_t *)data, strlen(data), digest), xErrno_Ok);
+  ASSERT_EQ(
+    xHmacMd5(key, sizeof(key), reinterpret_cast<const uint8_t *>(data), strlen(data), digest),
+    xErrno_Ok);
   EXPECT_EQ(hex(digest, XCRYPTO_MD5_DIGEST_SIZE), "9294727a3638bb1c13f48ef8158bfc9d");
 }
 
@@ -49,9 +51,9 @@ TEST(HmacMd5, Rfc2202_2) {
   const char *data = "what do ya want for nothing?";
   uint8_t     digest[XCRYPTO_MD5_DIGEST_SIZE];
 
-  ASSERT_EQ(
-    xHmacMd5((const uint8_t *)key, strlen(key), (const uint8_t *)data, strlen(data), digest),
-    xErrno_Ok);
+  ASSERT_EQ(xHmacMd5(reinterpret_cast<const uint8_t *>(key), strlen(key),
+                     reinterpret_cast<const uint8_t *>(data), strlen(data), digest),
+            xErrno_Ok);
   EXPECT_EQ(hex(digest, XCRYPTO_MD5_DIGEST_SIZE), "750c783e6ab0b503eaa86e310a5db738");
 }
 
@@ -69,9 +71,13 @@ TEST(HmacMd5, Rfc2202_3) {
 
 TEST(HmacMd5, NullArgs) {
   uint8_t digest[XCRYPTO_MD5_DIGEST_SIZE];
-  EXPECT_EQ(xHmacMd5(NULL, 4, (const uint8_t *)"x", 1, digest), xErrno_InvalidArg);
-  EXPECT_EQ(xHmacMd5((const uint8_t *)"k", 1, NULL, 0, digest), xErrno_InvalidArg);
-  EXPECT_EQ(xHmacMd5((const uint8_t *)"k", 1, (const uint8_t *)"x", 1, NULL), xErrno_InvalidArg);
+  EXPECT_EQ(xHmacMd5(NULL, 4, reinterpret_cast<const uint8_t *>("x"), 1, digest),
+            xErrno_InvalidArg);
+  EXPECT_EQ(xHmacMd5(reinterpret_cast<const uint8_t *>("k"), 1, NULL, 0, digest),
+            xErrno_InvalidArg);
+  EXPECT_EQ(xHmacMd5(reinterpret_cast<const uint8_t *>("k"), 1,
+                     reinterpret_cast<const uint8_t *>("x"), 1, NULL),
+            xErrno_InvalidArg);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -85,10 +91,11 @@ TEST(HmacMd5, GenericMatchesWrapper) {
   uint8_t     d1[XCRYPTO_MD5_DIGEST_SIZE];
   uint8_t     d2[XCRYPTO_MD5_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacMd5((const uint8_t *)key, strlen(key), (const uint8_t *)data, strlen(data), d1),
+  ASSERT_EQ(xHmacMd5(reinterpret_cast<const uint8_t *>(key), strlen(key),
+                     reinterpret_cast<const uint8_t *>(data), strlen(data), d1),
             xErrno_Ok);
-  ASSERT_EQ(xHmac(&xHashVtableMd5, (const uint8_t *)key, strlen(key), (const uint8_t *)data,
-                  strlen(data), d2),
+  ASSERT_EQ(xHmac(&xHashVtableMd5, reinterpret_cast<const uint8_t *>(key), strlen(key),
+                  reinterpret_cast<const uint8_t *>(data), strlen(data), d2),
             xErrno_Ok);
   EXPECT_EQ(memcmp(d1, d2, XCRYPTO_MD5_DIGEST_SIZE), 0);
 }
@@ -104,13 +111,14 @@ TEST(HmacMd5Streaming, MatchesOneShot) {
   uint8_t     d_oneshot[XCRYPTO_MD5_DIGEST_SIZE];
   uint8_t     d_stream[XCRYPTO_MD5_DIGEST_SIZE];
 
-  ASSERT_EQ(
-    xHmacMd5((const uint8_t *)key, strlen(key), (const uint8_t *)data, strlen(data), d_oneshot),
-    xErrno_Ok);
+  ASSERT_EQ(xHmacMd5(reinterpret_cast<const uint8_t *>(key), strlen(key),
+                     reinterpret_cast<const uint8_t *>(data), strlen(data), d_oneshot),
+            xErrno_Ok);
 
   xHmacCtx ctx;
-  ASSERT_EQ(xHmacInit(&ctx, &xHashVtableMd5, (const uint8_t *)key, strlen(key)), xErrno_Ok);
-  ASSERT_EQ(xHmacUpdate(&ctx, (const uint8_t *)data, strlen(data)), xErrno_Ok);
+  ASSERT_EQ(xHmacInit(&ctx, &xHashVtableMd5, reinterpret_cast<const uint8_t *>(key), strlen(key)),
+            xErrno_Ok);
+  ASSERT_EQ(xHmacUpdate(&ctx, reinterpret_cast<const uint8_t *>(data), strlen(data)), xErrno_Ok);
   ASSERT_EQ(xHmacFinal(&ctx, d_stream), xErrno_Ok);
 
   EXPECT_EQ(memcmp(d_oneshot, d_stream, XCRYPTO_MD5_DIGEST_SIZE), 0);

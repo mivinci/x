@@ -227,7 +227,7 @@ TEST(BuiltinTimerPrecision, DelayAccuracy) {
     sleep_ms(10);
 
   uint64_t ft = fire_time.load();
-  ASSERT_NE(ft, (uint64_t)0);
+  ASSERT_NE(ft, static_cast<uint64_t>(0));
 
   int64_t delay = static_cast<int64_t>(ft - submit_time) - 100;
   EXPECT_GE(delay, -5);

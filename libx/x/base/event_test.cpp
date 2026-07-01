@@ -93,8 +93,8 @@ static int make_pipe(int fds[2]) {
   ioctlsocket(acceptor, FIONBIO, &mode);
   ioctlsocket(conn, FIONBIO, &mode);
 
-  fds[0] = (int)acceptor;
-  fds[1] = (int)conn;
+  fds[0] = static_cast<int>(acceptor);
+  fds[1] = static_cast<int>(conn);
   return 0;
 #else
   if (pipe(fds) != 0) return -1;
@@ -126,7 +126,7 @@ static void drain_fd(int fd) {
 
 static void write_fd(int fd, const char *data, size_t len) {
 #ifdef _WIN32
-  send((SOCKET)fd, data, (int)len, 0);
+  send((SOCKET)fd, data, static_cast<int>(len), 0);
 #else
   write(fd, data, len);
 #endif
@@ -957,8 +957,9 @@ TEST(EventSignal, StopLoopFromCallback) {
   ASSERT_NE(loop, nullptr);
   xEventLoopEnter(loop);
 
-  EXPECT_EQ(
-    xSignal(SIGUSR1, [](int, void *arg) { xEventLoopStop((xEventLoop)arg); }, loop), xErrno_Ok);
+  EXPECT_EQ(xSignal(
+              SIGUSR1, [](int, void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop),
+            xErrno_Ok);
 
   std::thread sender([&]() {
     sleep_ms(50);

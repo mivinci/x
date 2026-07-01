@@ -13,13 +13,13 @@
 #include <x/crypto/crc32.h>
 
 TEST(Crc32, Empty) {
-  EXPECT_EQ(xCrc32((const uint8_t *)"", 0), 0x00000000u);
+  EXPECT_EQ(xCrc32(reinterpret_cast<const uint8_t *>(""), 0), 0x00000000u);
 }
 
 TEST(Crc32, CheckValue) {
   /* The CRC-32 "check value" for the string "123456789" is 0xCBF43926 */
   const char *input = "123456789";
-  EXPECT_EQ(xCrc32((const uint8_t *)input, strlen(input)), 0xCBF43926u);
+  EXPECT_EQ(xCrc32(reinterpret_cast<const uint8_t *>(input), strlen(input)), 0xCBF43926u);
 }
 
 TEST(Crc32, Deterministic) {
@@ -32,5 +32,6 @@ TEST(Crc32, Deterministic) {
 TEST(Crc32, DifferentInputs) {
   const char *a = "foo";
   const char *b = "bar";
-  EXPECT_NE(xCrc32((const uint8_t *)a, strlen(a)), xCrc32((const uint8_t *)b, strlen(b)));
+  EXPECT_NE(xCrc32(reinterpret_cast<const uint8_t *>(a), strlen(a)),
+            xCrc32(reinterpret_cast<const uint8_t *>(b), strlen(b)));
 }

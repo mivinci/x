@@ -59,7 +59,7 @@ TEST(BuiltinTimerPrecision, UnderFdFlood) {
 
   const char *msg = "x";
   for (int i = 0; i < 2000; i++)
-    (void)write(fds[1], msg, 1);
+    write(fds[1], msg, 1);
 
   std::atomic<uint64_t> fire_time{0};
   xTimerStart([](void *arg) { static_cast<std::atomic<uint64_t> *>(arg)->store(xMonoNs()); },
@@ -142,7 +142,7 @@ TEST(BuiltinTimerPrecision, UnderHeavyFdCallbacks) {
     [](int fd, xEventMask, void *arg) {
       auto *c = static_cast<std::atomic<int> *>(arg);
       char  buf[1];
-      (void)read(fd, buf, 1);
+      read(fd, buf, 1);
       c->fetch_add(1);
       usleep(2000);
     },
@@ -151,7 +151,7 @@ TEST(BuiltinTimerPrecision, UnderHeavyFdCallbacks) {
   /* Pre-fill the pipe with 100 bytes.  Each byte triggers one callback. */
   const char c = 'x';
   for (int i = 0; i < 100; i++)
-    (void)write(fds[1], &c, 1);
+    write(fds[1], &c, 1);
 
   std::atomic<uint64_t> fire_time{0};
   xTimerStart([](void *arg) { static_cast<std::atomic<uint64_t> *>(arg)->store(xMonoNs()); },

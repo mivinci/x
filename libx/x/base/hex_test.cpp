@@ -160,11 +160,11 @@ TEST(Hex, NullInputs) {
 
   /* xHexEncode: dst is NULL */
   len = 64;
-  EXPECT_EQ(xHexEncode((const uint8_t *)"ab", 2, NULL, &len), -1);
+  EXPECT_EQ(xHexEncode(reinterpret_cast<const uint8_t *>("ab"), 2, NULL, &len), -1);
 
   /* xHexEncode: dst_len is NULL */
   char buf[8];
-  EXPECT_EQ(xHexEncode((const uint8_t *)"ab", 2, buf, NULL), -1);
+  EXPECT_EQ(xHexEncode(reinterpret_cast<const uint8_t *>("ab"), 2, buf, NULL), -1);
 
   /* xHexEncode: src is NULL with src_len > 0 */
   EXPECT_EQ(xHexEncode(NULL, 1, buf, &len), -1);

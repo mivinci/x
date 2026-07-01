@@ -183,7 +183,7 @@ TEST_F(HeapTest, LargeScaleSorted) {
     xHeapPush(h, &elems[i]);
   }
 
-  EXPECT_EQ(xHeapSize(h), (size_t)N);
+  EXPECT_EQ(xHeapSize(h), static_cast<size_t>(N));
 
   /* Pop all — should be sorted */
   int prev = -1;

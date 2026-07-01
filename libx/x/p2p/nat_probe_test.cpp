@@ -278,7 +278,7 @@ public:
         if (pfds[1].revents & (POLLIN | POLLHUP | POLLERR)) break;
         if (pfds[0].revents & POLLIN) {
           /* Drain the datagram so the socket buffer does not fill up. */
-          (void)recvfrom(fd_, buf, sizeof(buf), 0, nullptr, nullptr);
+          recvfrom(fd_, buf, sizeof(buf), 0, nullptr, nullptr);
         }
       }
     });
@@ -349,7 +349,7 @@ TEST(NatProbeTypeStr, AllKnownTypes) {
 }
 
 TEST(NatProbeTypeStr, InvalidType) {
-  EXPECT_STREQ(xNatTypeStr((xNatType)99), "Unknown");
+  EXPECT_STREQ(xNatTypeStr(static_cast<xNatType>(99)), "Unknown");
   EXPECT_STREQ(xNatTypeStr((xNatType)-1), "Unknown");
 }
 

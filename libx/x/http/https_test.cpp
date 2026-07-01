@@ -5,7 +5,7 @@
  *
  * https_test.cpp - HTTPS integration tests (xhttp client + server TLS)
  *
- * Tests the xHttpClient TLS configuration (xTlsConf) against
+ * Tests the xHttpClient TLS configuration static_cast<xTlsConf>(against)
  * the xHttpServer TLS listener, covering:
  *   - Client TLS config API (parameter validation)
  *   - HTTPS GET / POST / Do / SSE

@@ -675,7 +675,8 @@ TEST(Command, PtyCaptureStdout) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -715,7 +716,8 @@ TEST(Command, PtyStreamStdout) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -755,7 +757,8 @@ TEST(Command, PtyMergesStderr) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -803,7 +806,8 @@ TEST(Command, PtyFdQuery) {
   EXPECT_GE(pty_fd, 0);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -840,7 +844,8 @@ TEST(Command, PtyStdinFdMatchesPtyFd) {
   EXPECT_GE(xCommandExecutorStdinFd(exec), 0);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -873,7 +878,8 @@ TEST(Command, PtyNonZeroExitCode) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -910,7 +916,8 @@ TEST(Command, PtyTimeout) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -952,7 +959,8 @@ TEST(Command, PtyCancel) {
   EXPECT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -988,7 +996,8 @@ TEST(Command, PtyDiscardMode) {
   ASSERT_EQ(err, xErrno_Ok);
 
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1383,7 +1392,8 @@ TEST(Command, PipeStdinFdWhileRunning_Windows) {
   /* Cancel to clean up */
   xCommandExecutorCancel(exec);
   {
-    xTimer t = xTimerStart([](void *arg) { xEventLoopStop((xEventLoop)arg); }, loop, 10000, 0);
+    xTimer t =
+      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1469,7 +1479,7 @@ TEST(Command, PipeWriteStdin) {
   /* Write data to child's stdin */
   const char *msg     = "hello from stdin\n";
   ssize_t     written = write(stdin_fd, msg, strlen(msg));
-  EXPECT_EQ(written, (ssize_t)strlen(msg));
+  EXPECT_EQ(written, static_cast<ssize_t>(strlen(msg)));
 
   {
     xTimer t =
@@ -1544,7 +1554,7 @@ TEST(Command, PipeStdinIsBlocking) {
    * child is waiting for us. */
   const char *msg     = "hello blocking\n";
   ssize_t     written = write(stdin_fd, msg, strlen(msg));
-  EXPECT_EQ(written, (ssize_t)strlen(msg));
+  EXPECT_EQ(written, static_cast<ssize_t>(strlen(msg)));
 
   {
     xTimer t =

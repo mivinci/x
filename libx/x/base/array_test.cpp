@@ -249,8 +249,8 @@ TEST_F(ArrayTest, ResizeShrink) {
   /* Release should have been called for 3 removed elements */
   EXPECT_EQ(g_release_count, 3);
 
-  EXPECT_EQ(((Pod *)xArrayAt(arr, 0))->x, 0);
-  EXPECT_EQ(((Pod *)xArrayAt(arr, 1))->x, 1);
+  EXPECT_EQ(reinterpret_cast<Pod *>(xArrayAt(arr, 0))->x, 0);
+  EXPECT_EQ(reinterpret_cast<Pod *>(xArrayAt(arr, 1))->x, 1);
   EXPECT_EQ(xArrayAt(arr, 2), nullptr);
 }
 
@@ -342,7 +342,7 @@ TEST_F(ArrayTest, LargeScalePush) {
     slot->x = i;
     slot->y = i * 2;
   }
-  EXPECT_EQ(xArrayLen(arr), (size_t)N);
+  EXPECT_EQ(xArrayLen(arr), static_cast<size_t>(N));
   EXPECT_EQ(g_retain_count, N);
 
   for (int i = 0; i < N; i++) {

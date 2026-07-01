@@ -221,8 +221,8 @@ TEST_F(ListTest, DelPoisonsPointers) {
   xListAddTail(&head, &a.node);
   xListDel(&a.node);
 
-  EXPECT_EQ(a.node.next, (xList *)0xDEAD);
-  EXPECT_EQ(a.node.prev, (xList *)0xBEEF);
+  EXPECT_EQ(a.node.next, reinterpret_cast<xList *>(0xDEAD));
+  EXPECT_EQ(a.node.prev, reinterpret_cast<xList *>(0xBEEF));
 }
 
 /* ========== ForEachSafe (delete during iteration) ========== */

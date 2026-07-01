@@ -33,7 +33,7 @@ TEST(BacktraceTest, BasicCapture) {
   int  n = xBacktrace(buf, sizeof(buf));
 
   EXPECT_GT(n, 0);
-  EXPECT_EQ(n, (int)strlen(buf));
+  EXPECT_EQ(n, static_cast<int>(strlen(buf)));
 
   /* Should contain at least one frame */
   EXPECT_NE(strstr(buf, "#0"), nullptr);
@@ -79,7 +79,7 @@ TEST(BacktraceTest, SmallBufferTruncation) {
   EXPECT_EQ(buf[n], '\0');
 
   /* Verify no buffer overrun */
-  EXPECT_LE((size_t)n, sizeof(buf) - 1);
+  EXPECT_LE(static_cast<size_t>(n), sizeof(buf) - 1);
 }
 
 TEST(BacktraceTest, ExactOneByteBuf) {
@@ -97,8 +97,8 @@ TEST(BacktraceTest, SkipReducesFrames) {
   char buf0[4096], buf2[4096], buf5[4096];
 
   int n0 = xBacktraceSkip(0, buf0, sizeof(buf0));
-  (void)xBacktraceSkip(2, buf2, sizeof(buf2));
-  (void)xBacktraceSkip(5, buf5, sizeof(buf5));
+  xBacktraceSkip(2, buf2, sizeof(buf2));
+  xBacktraceSkip(5, buf5, sizeof(buf5));
 
   int frames0 = countFrames(buf0);
   int frames2 = countFrames(buf2);

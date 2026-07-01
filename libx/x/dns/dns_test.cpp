@@ -117,7 +117,7 @@ TEST(DnsPacket, BuildQueryRoundTrip) {
     dns_header_t   hdr;
     dns_question_t q;
     xDnsRecord    *answers = nullptr;
-    ASSERT_EQ(dns_parse(buf, (size_t)n, &hdr, &q, &answers), xErrno_Ok);
+    ASSERT_EQ(dns_parse(buf, static_cast<size_t>(n), &hdr, &q, &answers), xErrno_Ok);
     EXPECT_EQ(hdr.id, 0x4242);
     EXPECT_EQ(hdr.qdcount, 1u);
     EXPECT_EQ(hdr.arcount, 1u); /* EDNS0 OPT */
@@ -146,7 +146,7 @@ TEST(DnsPacket, ParseResponseA) {
   dns_header_t   hdr;
   dns_question_t q;
   xDnsRecord    *answers = nullptr;
-  ASSERT_EQ(dns_parse(buf, (size_t)n, &hdr, &q, &answers), xErrno_Ok);
+  ASSERT_EQ(dns_parse(buf, static_cast<size_t>(n), &hdr, &q, &answers), xErrno_Ok);
   EXPECT_EQ(hdr.id, 0x7777);
   EXPECT_TRUE(hdr.flags & DNS_FLAG_QR);
   EXPECT_EQ(hdr.ancount, 1u);
@@ -175,7 +175,7 @@ TEST(DnsPacket, ParseResponseAAAA) {
   dns_header_t   hdr;
   dns_question_t q;
   xDnsRecord    *answers = nullptr;
-  ASSERT_EQ(dns_parse(buf, (size_t)n, &hdr, &q, &answers), xErrno_Ok);
+  ASSERT_EQ(dns_parse(buf, static_cast<size_t>(n), &hdr, &q, &answers), xErrno_Ok);
   ASSERT_NE(answers, nullptr);
   EXPECT_EQ(answers->qtype, DNS_QTYPE_AAAA);
   EXPECT_EQ(answers->rdlength, 16u);
@@ -198,11 +198,11 @@ TEST(DnsPacket, ParseResponseCNAME) {
   dns_header_t   hdr;
   dns_question_t q;
   xDnsRecord    *answers = nullptr;
-  ASSERT_EQ(dns_parse(buf, (size_t)n, &hdr, &q, &answers), xErrno_Ok);
+  ASSERT_EQ(dns_parse(buf, static_cast<size_t>(n), &hdr, &q, &answers), xErrno_Ok);
   ASSERT_NE(answers, nullptr);
   EXPECT_EQ(answers->qtype, DNS_QTYPE_CNAME);
   /* CNAME RDATA is decoded as a domain name string */
-  EXPECT_STREQ((const char *)answers->rdata, "example.com");
+  EXPECT_STREQ(reinterpret_cast<const char *>(answers->rdata), "example.com");
   dns_records_free(answers);
 }
 
@@ -269,8 +269,8 @@ TEST(DnsPacket, CompressionPointer) {
   EXPECT_EQ(std::string(answers->name), "example.com"); /* resolved via pointer */
   EXPECT_EQ(answers->ttl, 60u);
   ASSERT_EQ(answers->rdlength, 4u);
-  EXPECT_EQ(((const uint8_t *)answers->rdata)[0], 1);
-  EXPECT_EQ(((const uint8_t *)answers->rdata)[3], 4);
+  EXPECT_EQ((reinterpret_cast<const uint8_t *>(answers->rdata))[0], 1);
+  EXPECT_EQ((reinterpret_cast<const uint8_t *>(answers->rdata))[3], 4);
   dns_records_free(answers);
 }
 
@@ -293,7 +293,7 @@ TEST(DnsPacket, NxDomainResponse) {
   dns_header_t   hdr;
   dns_question_t q;
   xDnsRecord    *answers = nullptr;
-  ASSERT_EQ(dns_parse(buf, (size_t)n, &hdr, &q, &answers), xErrno_Ok);
+  ASSERT_EQ(dns_parse(buf, static_cast<size_t>(n), &hdr, &q, &answers), xErrno_Ok);
   EXPECT_EQ(hdr.flags & DNS_RCODE_MASK, DNS_RCODE_NXDOMAIN);
   EXPECT_EQ(hdr.ancount, 0u);
   EXPECT_EQ(answers, nullptr);

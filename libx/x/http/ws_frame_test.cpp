@@ -37,7 +37,7 @@ static void encode_then_parse(const char *payload, size_t len, int masked, int e
   EXPECT_EQ(parser.frame.fin, 1);
   EXPECT_EQ(parser.frame.opcode, XWS_OPCODE_TEXT);
   EXPECT_EQ(parser.frame.masked, masked ? 1 : 0);
-  EXPECT_EQ(parser.frame.payload_len, (uint64_t)len);
+  EXPECT_EQ(parser.frame.payload_len, static_cast<uint64_t>(len));
 
   if (len > 0) {
     ASSERT_NE(parser.frame.payload, nullptr);

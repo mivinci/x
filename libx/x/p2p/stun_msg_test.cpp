@@ -52,7 +52,7 @@ TEST_F(StunMsgTest, EncodeDecodeWithPayload) {
   msg.attrs_len   = sizeof(attrs);
 
   int encoded = xStunMsgEncode(&msg, buf, sizeof(buf));
-  ASSERT_EQ(encoded, XSTUN_HEADER_SIZE + (int)sizeof(attrs));
+  ASSERT_EQ(encoded, XSTUN_HEADER_SIZE + static_cast<int>(sizeof(attrs)));
 
   xStunMsg decoded;
   xErrno   err = xStunMsgDecode(&decoded, buf, encoded);

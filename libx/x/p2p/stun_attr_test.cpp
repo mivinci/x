@@ -249,7 +249,8 @@ TEST_F(StunAttrTest, MessageIntegrityWriteAndVerify) {
 
   /* Verify with wrong key should fail */
   const char *wrong_key = "wrong_password";
-  EXPECT_NE(xStunAttrVerifyMessageIntegrity(msg_buf, total, &attr, (const uint8_t *)wrong_key,
+  EXPECT_NE(xStunAttrVerifyMessageIntegrity(msg_buf, total, &attr,
+                                            reinterpret_cast<const uint8_t *>(wrong_key),
                                             strlen(wrong_key)),
             xErrno_Ok);
 }

@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
   const char *cache_dir = "./.cache";
   uint16_t    port      = 19080;
 
-  if (argc > 1) port = (uint16_t)atoi(argv[1]);
+  if (argc > 1) port = static_cast<uint16_t>(atoi(argv[1]));
   if (argc > 2) cache_dir = argv[2];
 
   dlp_conf_t conf = {0};

@@ -37,7 +37,7 @@ static uint16_t get_free_port() {
     return 0;
   }
   socklen_t len = sizeof(addr);
-  (void)getsockname(fd, reinterpret_cast<struct sockaddr *>(&addr), &len);
+  getsockname(fd, reinterpret_cast<struct sockaddr *>(&addr), &len);
   uint16_t port = ntohs(addr.sin_port);
   close(fd);
   return port;
@@ -233,7 +233,7 @@ TEST_F(TcpTest, ConnectTimeout) {
   ASSERT_EQ(bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)), 0);
 
   socklen_t alen = sizeof(addr);
-  (void)getsockname(listen_fd, reinterpret_cast<struct sockaddr *>(&addr), &alen);
+  getsockname(listen_fd, reinterpret_cast<struct sockaddr *>(&addr), &alen);
   uint16_t port = ntohs(addr.sin_port);
 
   /* Listen with backlog=1 */

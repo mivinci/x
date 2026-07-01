@@ -93,7 +93,7 @@ TEST(SlabTest, AllocAcrossChunks) {
     std::memset(p, i & 0xFF, sizeof(Large));
     ptrs.push_back(p);
   }
-  EXPECT_EQ(xSlabInUse(s), (size_t)N);
+  EXPECT_EQ(xSlabInUse(s), static_cast<size_t>(N));
 
   for (void *p : ptrs)
     xSlabFree(s, p);

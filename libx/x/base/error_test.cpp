@@ -89,7 +89,7 @@ TEST(ErrorTest, NegativeCodeReturnsUnknown) {
 }
 
 TEST(ErrorTest, LargeCodeReturnsUnknown) {
-  EXPECT_STREQ(xstrerror((xErrno)9999), "unknown error");
+  EXPECT_STREQ(xstrerror(static_cast<xErrno>(9999)), "unknown error");
 }
 
 /* ── Return value is never NULL ── */

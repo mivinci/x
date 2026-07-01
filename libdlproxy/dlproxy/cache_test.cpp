@@ -90,9 +90,13 @@ TEST_F(CacheTest, OpenClipRequiresResource) {
 TEST_F(CacheTest, InvalidArgs) {
   ASSERT_EQ(dlp_cache_open_resource(nullptr, "x"), xErrno_InvalidArg);
   ASSERT_EQ(dlp_cache_open_resource(cache, nullptr), xErrno_InvalidArg);
-  ASSERT_EQ(dlp_cache_write(nullptr, "r", "0", 0, (uint8_t *)"x", 1, nullptr, nullptr),
+  ASSERT_EQ(dlp_cache_write(nullptr, "r", "0", 0,
+                            reinterpret_cast<uint8_t *>(const_cast<char *>("x")), 1, nullptr,
+                            nullptr),
             xErrno_InvalidArg);
-  ASSERT_EQ(dlp_cache_write(cache, nullptr, "0", 0, (uint8_t *)"x", 1, nullptr, nullptr),
+  ASSERT_EQ(dlp_cache_write(cache, nullptr, "0", 0,
+                            reinterpret_cast<uint8_t *>(const_cast<char *>("x")), 1, nullptr,
+                            nullptr),
             xErrno_InvalidArg);
   ASSERT_EQ(dlp_cache_is_ready(nullptr, "r", "0", 0, 1), 0);
   ASSERT_EQ(dlp_cache_is_ready(cache, nullptr, "0", 0, 1), 0);

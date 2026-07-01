@@ -125,7 +125,7 @@ TEST_P(MapTest, IterateEarlyExit) {
 /* ── Rehash / scale ────────────────────────────────────── */
 
 TEST_P(MapTest, ManyInserts) {
-  /* Use integer keys cast to (void *) for this test */
+  /* Use integer keys cast to reinterpret_cast<void *>(for) this test */
   xMap im = xMapCreate(GetParam(), 4, xMapIntHash, xMapIntEq);
   ASSERT_NE(im, nullptr);
 
@@ -135,7 +135,7 @@ TEST_P(MapTest, ManyInserts) {
     void *val = reinterpret_cast<void *>(static_cast<uintptr_t>(i * 10));
     EXPECT_EQ(xMapSet(im, key, val), xErrno_Ok);
   }
-  EXPECT_EQ(xMapLen(im), (size_t)N);
+  EXPECT_EQ(xMapLen(im), static_cast<size_t>(N));
 
   /* Verify all entries are retrievable */
   for (int i = 1; i <= N; i++) {
@@ -228,7 +228,7 @@ TEST(MapCreateTest, TreeCreatesSuccessfully) {
 }
 
 TEST(MapCreateTest, InvalidTypeReturnsNull) {
-  EXPECT_EQ(xMapCreate((xMapType)999, 0, xMapStrHash, xMapStrEq), nullptr);
+  EXPECT_EQ(xMapCreate(static_cast<xMapType>(999), 0, xMapStrHash, xMapStrEq), nullptr);
 }
 
 /* ── Built-in hash / eq helpers ────────────────────────── */
@@ -249,14 +249,14 @@ TEST(MapHelpersTest, StrEq) {
 }
 
 TEST(MapHelpersTest, IntHash) {
-  EXPECT_EQ(xMapIntHash((void *)42), xMapIntHash((void *)42));
-  EXPECT_NE(xMapIntHash((void *)1), xMapIntHash((void *)2));
+  EXPECT_EQ(xMapIntHash(reinterpret_cast<void *>(42)), xMapIntHash(reinterpret_cast<void *>(42)));
+  EXPECT_NE(xMapIntHash(reinterpret_cast<void *>(1)), xMapIntHash(reinterpret_cast<void *>(2)));
   /* 0 is a valid key */
   uint64_t h = xMapIntHash(reinterpret_cast<void *>(0));
   (void)h;
 }
 
 TEST(MapHelpersTest, IntEq) {
-  EXPECT_TRUE(xMapIntEq((void *)1, (void *)1));
-  EXPECT_FALSE(xMapIntEq((void *)1, (void *)2));
+  EXPECT_TRUE(xMapIntEq(reinterpret_cast<void *>(1), reinterpret_cast<void *>(1)));
+  EXPECT_FALSE(xMapIntEq(reinterpret_cast<void *>(1), reinterpret_cast<void *>(2)));
 }

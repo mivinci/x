@@ -148,7 +148,7 @@ TEST(IceCandidateTest, SockaddrIPv4String) {
 TEST(IcePairTest, PairPriorityFormula) {
   /* G=100, D=50 → 2^32 * 50 + 2 * 100 + 1 = 214748364901 */
   uint64_t prio = xIcePairPriority(100, 50);
-  EXPECT_EQ(prio, (uint64_t)50 * ((uint64_t)1 << 32) + 200 + 1);
+  EXPECT_EQ(prio, static_cast<uint64_t>(50) * (static_cast<uint64_t>(1) << 32) + 200 + 1);
 }
 
 TEST(IcePairTest, PairPrioritySymmetry) {
@@ -161,7 +161,7 @@ TEST(IcePairTest, PairPrioritySymmetry) {
 TEST(IcePairTest, PairPriorityEqual) {
   /* When G == D, (G>D ? 1 : 0) = 0 */
   uint64_t prio = xIcePairPriority(100, 100);
-  EXPECT_EQ(prio, (uint64_t)100 * ((uint64_t)1 << 32) + 200 + 0);
+  EXPECT_EQ(prio, static_cast<uint64_t>(100) * (static_cast<uint64_t>(1) << 32) + 200 + 0);
 }
 
 /* ───────────────────── Pair Sorting ───────────────────── */
