@@ -99,7 +99,7 @@ sequenceDiagram
     participant Node as AdapterPromiseNode
     participant Waker as PromiseAtomicWaker
     participant Loop as xEventLoop
-    participant Resolver as PromiseResolver (other thread)
+    participant R as PromiseResolver (other thread)
 
     User->>Promise: wait()
     Promise->>Node: poll(waker)
@@ -110,7 +110,7 @@ sequenceDiagram
 
     Note over Loop: drain done → poll I/O → timers → ...
 
-    Resolver->>Node: resolve(value)
+    R->>Node: resolve(value)
     Node->>Node: m_val = Some(value)
     Node->>Node: m_resolved.store(true, release)
     Node->>Waker: wake()
