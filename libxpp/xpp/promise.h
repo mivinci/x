@@ -126,6 +126,25 @@ public:
       .then(std::forward<Func>(func));
   }
 
+  /**
+   * @brief Return a Promise that resolves after `ms` milliseconds.
+   *
+   * Schedules a one-shot timer on the current event loop via
+   * xTimerStart. When the timer fires, the promise resolves.
+   *
+   * Must be called from within a WaitScope.
+   *
+   * @param ms  Delay in milliseconds. 0 = "next iteration".
+   * @return    Promise<void> that resolves after the delay.
+   *
+   * @code
+   *   Promise<void>::after(100).then([]() { ... }).wait();
+   * @endcode
+   */
+  template <class V = ValueType,
+            class = typename std::enable_if<std::is_same<V, Void>::value>::type, class = void>
+  static Promise<void> after(uint64_t ms);
+
   /// True if the promise holds a node (not empty).
   explicit operator bool() const {
     return m_node != nullptr;
@@ -367,6 +386,23 @@ auto Promise<T>::then(Func &&func)
   auto                      node =
     _::_chain::chain<ReducedT, OutT, void, Func>(std::move(dep), std::forward<Func>(func));
   return Promise<ReducedT>(std::move(node));
+}
+
+/* ── Promise<T>::after ──────────────────────────────────────── */
+
+template <class T>
+template <class V, class, class>
+inline Promise<void> Promise<T>::after(uint64_t ms) {
+  auto *resolver = new PromiseResolver<void>(PromiseResolver<void>::create());
+  auto  promise  = resolver->promise();
+  xTimerStart(
+    [](void *arg) {
+      auto *r = static_cast<PromiseResolver<void> *>(arg);
+      r->resolve();
+      delete r;
+    },
+    resolver, ms, 0);
+  return promise;
 }
 
 }  // namespace xpp
