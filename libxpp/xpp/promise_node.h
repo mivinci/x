@@ -290,6 +290,81 @@ public:
   }
 };
 
+/**
+ * @brief Promise node backed by a libx builtin timer.
+ *
+ * Owns an `xTimer` handle returned by `xTimerStart`. When the timer
+ * fires, `fire_cb` sets `m_fired=true` and wakes the registered waker;
+ * the next `poll()` returns `Some(Void)`.
+ *
+ * @par Destruction contract
+ * `~TimerPromiseNode` MUST run on the WaitScope thread (the same
+ * thread that entered the event loop). This matches the existing
+ * `Promise::wait()` contract. The destructor calls `xTimerStop` if
+ * the timer has not yet fired; if it has fired, `m_handle` is
+ * dangling (libx has recycled the timer struct via its freelist) and
+ * the destructor skips `xTimerStop`.
+ *
+ * @par Loop-destroy cleanup
+ * `on_cancel_cb` is invoked by libx during `xEventLoopDestroy` for
+ * pending timers. It nulls `m_handle` and sets `m_fired=true`,
+ * preventing the destructor from calling `xTimerStop` on a handle
+ * that libx has already reclaimed. This is the first in-tree
+ * consumer of `xTimerStart`'s `on_cancel` parameter.
+ */
+class TimerPromiseNode final : public PromiseNode<void> {
+public:
+  explicit TimerPromiseNode(uint64_t ms)
+      : m_handle(
+          xTimerStart(&TimerPromiseNode::fire, this, &TimerPromiseNode::cancel, ms, 0)),
+        m_fired(false) {}
+
+  ~TimerPromiseNode() override {
+    // Only stop if the timer has not yet fired. After fire, libx has
+    // recycled the timer struct (m_handle is dangling). After
+    // on_cancel, m_handle is already nullptr.
+    if (!m_fired.load(std::memory_order_acquire)) {
+      xTimerStop(m_handle);
+    }
+  }
+
+  TimerPromiseNode(const TimerPromiseNode &)            = delete;
+  TimerPromiseNode &operator=(const TimerPromiseNode &) = delete;
+  TimerPromiseNode(TimerPromiseNode &&)                 = delete;
+  TimerPromiseNode &operator=(TimerPromiseNode &&)      = delete;
+
+  Option<Void> poll(const PromiseWaker &waker) override {
+    if (m_fired.load(std::memory_order_acquire)) {
+      return Option<Void>(Void{});
+    }
+    m_waker.register_waker(waker);
+    if (m_fired.load(std::memory_order_acquire)) {
+      m_waker.wake();
+      return Option<Void>(Void{});
+    }
+    return none;
+  }
+
+private:
+  static void fire(void *arg) {
+    auto *self = static_cast<TimerPromiseNode *>(arg);
+    self->m_fired.store(true, std::memory_order_release);
+    self->m_waker.wake();
+  }
+
+  static void cancel(void *arg) {
+    auto *self = static_cast<TimerPromiseNode *>(arg);
+    // libx has recycled the timer struct; m_handle is now dangling.
+    self->m_handle = nullptr;
+    self->m_fired.store(true, std::memory_order_release);
+    self->m_waker.wake();
+  }
+
+  xTimer             m_handle;
+  std::atomic<bool>  m_fired;
+  PromiseAtomicWaker m_waker;
+};
+
 } // namespace _
 } // namespace xpp
 
