@@ -167,10 +167,10 @@
  *   #endif
  */
 #if (defined(__cpp_coroutines) && __cpp_coroutines >= 201902L) || \
-    (defined(__cpp_impl_coroutine) && __cpp_impl_coroutine >= 201902L)
-  #define XPP_HAS_COROUTINES 1
+  (defined(__cpp_impl_coroutine) && __cpp_impl_coroutine >= 201902L)
+#define XPP_HAS_COROUTINES 1
 #else
-  #define XPP_HAS_COROUTINES 0
+#define XPP_HAS_COROUTINES 0
 #endif
 
 #endif // XPP_COMPILER_H

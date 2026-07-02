@@ -158,7 +158,7 @@ void xWsConnClose(struct xWsConn_ *conn, uint16_t code, const char *reason, size
   if (conn->idle_timer) {
     xTimerStop(conn->idle_timer);
   }
-  conn->idle_timer = xTimerStart(ws_idle_timeout, conn, 5000, 0);
+  conn->idle_timer = xTimerStart(ws_idle_timeout, conn, NULL, 5000, 0);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -305,7 +305,7 @@ static void ws_reset_idle_timer(struct xWsConn_ *conn) {
   if (conn->idle_timer) {
     xTimerStop(conn->idle_timer);
   }
-  conn->idle_timer = xTimerStart(ws_idle_timeout, conn, (uint64_t)conn->idle_timeout_ms, 0);
+  conn->idle_timer = xTimerStart(ws_idle_timeout, conn, NULL, (uint64_t)conn->idle_timeout_ms, 0);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

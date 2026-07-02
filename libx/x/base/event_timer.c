@@ -10,7 +10,8 @@
 
 #include <stdlib.h>
 
-static xTimer submit_timer(xTimerFunc fn, void *arg, uint64_t abs_ms, uint64_t repeat_ms) {
+static xTimer submit_timer(xTimerFunc fn, void *arg, xTimerFunc on_cancel, uint64_t abs_ms,
+                           uint64_t repeat_ms) {
   xEventLoop          loop_ = xEventLoopCurrent();
   struct xEventLoop_ *loop  = (struct xEventLoop_ *)loop_;
   if (!loop || !fn) return NULL;
@@ -19,6 +20,7 @@ static xTimer submit_timer(xTimerFunc fn, void *arg, uint64_t abs_ms, uint64_t r
   t->deadline  = abs_ms;
   t->fn        = fn;
   t->arg       = arg;
+  t->on_cancel = on_cancel;
   t->heap_idx  = TIMER_INVALID_IDX;
   t->fired     = 0;
   t->loop      = loop_;
@@ -33,8 +35,9 @@ static xTimer submit_timer(xTimerFunc fn, void *arg, uint64_t abs_ms, uint64_t r
   return (xTimer)t;
 }
 
-xTimer xTimerStart(xTimerFunc fn, void *arg, uint64_t timeout_ms, uint64_t repeat_ms) {
-  return submit_timer(fn, arg, xMonoMs() + timeout_ms, repeat_ms);
+xTimer xTimerStart(xTimerFunc fn, void *arg, xTimerFunc on_cancel, uint64_t timeout_ms,
+                   uint64_t repeat_ms) {
+  return submit_timer(fn, arg, on_cancel, xMonoMs() + timeout_ms, repeat_ms);
 }
 
 /* ── Stop ── */

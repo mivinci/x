@@ -20,12 +20,11 @@
  *   - copy-construction is deleted (compile-time)
  */
 
-#include <gtest/gtest.h>
-
 #include <string>
 #include <type_traits>
 #include <utility>
 
+#include <gtest/gtest.h>
 #include <xpp/box.h>
 
 /* ── Compile-time guarantees ─────────────────────────────────────────── */

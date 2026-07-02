@@ -25,13 +25,13 @@
 #ifndef XPP_BOX_H
 #define XPP_BOX_H
 
-#include <xpp/nonnull.h>
-#include <xpp/option.h>
-#include <xpp/panic.h>
-
 #include <memory>
 #include <type_traits>
 #include <utility>
+
+#include <xpp/nonnull.h>
+#include <xpp/option.h>
+#include <xpp/panic.h>
 
 namespace xpp {
 namespace _ {

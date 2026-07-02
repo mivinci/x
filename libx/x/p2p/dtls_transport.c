@@ -261,7 +261,7 @@ xErrno xDtlsTransportStart(xDtlsTransport transport) {
   set_state(t, xDtlsState_Connecting);
 
   /* Start handshake timeout */
-  t->handshake_timer = xTimerStart(handshake_timeout_cb, t, t->conf.handshake_timeout_ms, 0);
+  t->handshake_timer = xTimerStart(handshake_timeout_cb, t, NULL, t->conf.handshake_timeout_ms, 0);
 
   /* Drive the handshake (for active role, this sends ClientHello) */
   drive_handshake(t);

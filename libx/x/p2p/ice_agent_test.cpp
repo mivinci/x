@@ -44,10 +44,10 @@ template <class Pred> static bool pump_until(xEventLoop loop, Pred pred, int tot
       auto *c = static_cast<PredCtx *>(arg);
       if ((*c->pred)()) xEventLoopStop(c->loop);
     },
-    &ctx, 5, 5);
+    &ctx, NULL, 5, 5);
 
   xTimer watchdog = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
-                                loop, static_cast<uint64_t>(total_ms), 0);
+                                loop, NULL, static_cast<uint64_t>(total_ms), 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
 

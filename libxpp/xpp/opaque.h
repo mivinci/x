@@ -43,8 +43,7 @@ namespace xpp {
  *            Typically a small struct that casts to the correct handle
  *            type and calls the corresponding xXxxDestroy function.
  */
-template <class D>
-using OwnedOpaquePointer = Own<void, D>;
+template <class D> using OwnedOpaquePointer = Own<void, D>;
 
 } // namespace xpp
 

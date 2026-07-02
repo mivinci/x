@@ -34,7 +34,7 @@ static xTimer schedule_resolve(xpp::PromiseResolver<int> &r, int value, uint64_t
       c->r->resolve(c->value);
       delete c;
     },
-    ctx, delay_ms, 0);
+    ctx, NULL, delay_ms, 0);
 }
 
 static xTimer schedule_resolve_void(xpp::PromiseResolver<void> &r, uint64_t delay_ms) {
@@ -48,7 +48,7 @@ static xTimer schedule_resolve_void(xpp::PromiseResolver<void> &r, uint64_t dela
       c->r->resolve();
       delete c;
     },
-    ctx, delay_ms, 0);
+    ctx, NULL, delay_ms, 0);
 }
 
 /* ───────────────────── Immediate resolve ───────────────────── */
@@ -329,7 +329,7 @@ TEST(PromiseTest, NestedWaitDeferred) {
       c->r->resolve(c->value);
       delete c;
     },
-    oc, 30, 0);
+    oc, NULL, 30, 0);
 
   /* Schedule inner resolve at 60ms — fires while inner wait()'s
    * xEventLoopRun is running. */
@@ -344,7 +344,7 @@ TEST(PromiseTest, NestedWaitDeferred) {
       c->r->resolve(c->value);
       delete c;
     },
-    ic, 60, 0);
+    ic, NULL, 60, 0);
 
   /* then() callback calls inner wait() — this nests xEventLoopRun. */
   int result = outer_p
@@ -384,7 +384,7 @@ TEST(PromiseTest, TripleNestedWait) {
       ctx->r->resolve(ctx->value);
       delete ctx;
     },
-    c, 30, 0);
+    c, NULL, 30, 0);
 
   int result = xpp::Promise<int>::resolve(1)
                  .then([&p3](int a) {
@@ -519,9 +519,9 @@ TEST(PromiseTest, AfterApproximateDelay) {
 
   auto t0 = std::chrono::steady_clock::now();
   xpp::Promise<void>::after(30).wait();
-  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::steady_clock::now() - t0)
-              .count();
+  auto ms =
+    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
+      .count();
 
   EXPECT_GE(ms, 25) << "should wait at least ~25ms, got " << ms;
   EXPECT_LE(ms, 500) << "should not take too long, got " << ms;
@@ -532,10 +532,7 @@ TEST(PromiseTest, AfterThenVoidChain) {
   xpp::WaitScope scope(loop);
 
   int step = 0;
-  xpp::Promise<void>::after(10)
-    .then([&]() { step = 1; })
-    .then([&]() { step = 2; })
-    .wait();
+  xpp::Promise<void>::after(10).then([&]() { step = 1; }).then([&]() { step = 2; }).wait();
 
   EXPECT_EQ(step, 2);
 }
@@ -553,9 +550,9 @@ TEST(PromiseTest, AfterComposeWithImmediatePromise) {
   xpp::WaitScope scope(loop);
 
   int result = xpp::Promise<void>::after(10)
-    .then([]() { return xpp::Promise<int>::resolve(7); })
-    .then([](int x) { return x * 6; })
-    .wait();
+                 .then([]() { return xpp::Promise<int>::resolve(7); })
+                 .then([](int x) { return x * 6; })
+                 .wait();
 
   EXPECT_EQ(result, 42);
 }
@@ -583,9 +580,9 @@ TEST(PromiseTest, AfterNestedAfter) {
   auto t0 = std::chrono::steady_clock::now();
   xpp::Promise<void>::after(10).then([]() { return xpp::Promise<void>::after(20); }).wait();
 
-  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::steady_clock::now() - t0)
-              .count();
+  auto ms =
+    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
+      .count();
   EXPECT_GE(ms, 25) << "nested 10+20ms should take at least ~25ms, got " << ms;
 }
 
@@ -593,7 +590,7 @@ TEST(PromiseTest, AfterIndependentTimersAllFire) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int a = 0, b = 0;
+  int  a = 0, b = 0;
   auto pa = xpp::Promise<void>::after(10).then([&]() { a = 42; });
   auto pb = xpp::Promise<void>::after(20).then([&]() { b = 99; });
 

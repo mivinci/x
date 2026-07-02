@@ -15,11 +15,10 @@
  *   - SFINAE: Own<void> has no operator* or operator->
  */
 
-#include <gtest/gtest.h>
-
 #include <type_traits>
 #include <utility>
 
+#include <gtest/gtest.h>
 #include <xpp/own.h>
 
 /* ── Compile-time guarantees ─────────────────────────────────────────── */
@@ -146,7 +145,7 @@ TEST_F(OwnTrackerTest, FromOptionBoxSome) {
 
 TEST(OwnTest, FromOptionBoxNoneIsEmpty) {
   xpp::Option<xpp::Box<int>> opt;
-  xpp::Own<int>                     o(std::move(opt));
+  xpp::Own<int>              o(std::move(opt));
   EXPECT_FALSE(static_cast<bool>(o));
 }
 
@@ -289,7 +288,7 @@ TEST(OwnDeathTest, DerefArrowOnEmpty) {
 
 TEST_F(OwnTrackerTest, IntoNonNullSomeWhenNonEmpty) {
   {
-    xpp::Own<Tracker>                     o(new Tracker(11));
+    xpp::Own<Tracker>              o(new Tracker(11));
     xpp::Option<xpp::Box<Tracker>> opt = std::move(o).into_nonnull();
     EXPECT_TRUE(opt.is_some());
     EXPECT_EQ(opt.unwrap()->value, 11);
@@ -299,7 +298,7 @@ TEST_F(OwnTrackerTest, IntoNonNullSomeWhenNonEmpty) {
 }
 
 TEST(OwnTest, IntoNonNullNoneWhenEmpty) {
-  xpp::Own<int>                     o;
+  xpp::Own<int>              o;
   xpp::Option<xpp::Box<int>> opt = std::move(o).into_nonnull();
   EXPECT_TRUE(opt.is_none());
 }
@@ -386,7 +385,7 @@ protected:
 
 TEST_F(CovarianceTest, BoxDerivedToBase) {
   {
-    auto                  d = xpp::Box<Derived>::from_raw(new Derived(1, 2));
+    auto           d = xpp::Box<Derived>::from_raw(new Derived(1, 2));
     xpp::Box<Base> b(std::move(d));
     EXPECT_EQ(b->kind(), 2); // virtual dispatch → Derived
     EXPECT_EQ(b->base_value, 1);
@@ -397,7 +396,7 @@ TEST_F(CovarianceTest, BoxDerivedToBase) {
 
 TEST_F(CovarianceTest, OptionBoxDerivedToBase) {
   {
-    auto                               d_opt = xpp::Box<Derived>::try_from_raw(new Derived(3, 4));
+    auto                        d_opt = xpp::Box<Derived>::try_from_raw(new Derived(3, 4));
     xpp::Option<xpp::Box<Base>> b_opt(std::move(d_opt));
     ASSERT_TRUE(b_opt.is_some());
     EXPECT_EQ(b_opt.unwrap()->kind(), 2);
@@ -409,7 +408,7 @@ TEST_F(CovarianceTest, OptionBoxDerivedToBase) {
 TEST_F(CovarianceTest, OptionBoxFromDerivedNonNull) {
   // Construct Option<Box<Base>> directly from Box<Derived>.
   {
-    auto d = xpp::Box<Derived>::from_raw(new Derived(5, 6));
+    auto                        d = xpp::Box<Derived>::from_raw(new Derived(5, 6));
     xpp::Option<xpp::Box<Base>> b_opt(std::move(d));
     ASSERT_TRUE(b_opt.is_some());
     EXPECT_EQ(b_opt.unwrap()->kind(), 2);

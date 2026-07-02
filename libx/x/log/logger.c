@@ -130,7 +130,7 @@ xLogger xLoggerCreate(xLoggerConf conf) {
 
   /* Timer mode: register periodic timer */
   if (lg->mode == xLogMode_Timer || lg->mode == xLogMode_Mixed) {
-    lg->timer = xTimerStart(logger_timer_cb, lg, lg->flush_interval_ms, 0);
+    lg->timer = xTimerStart(logger_timer_cb, lg, NULL, lg->flush_interval_ms, 0);
     if (!lg->timer) goto fail;
   }
 
@@ -231,7 +231,7 @@ static void logger_timer_cb(void *arg) {
   }
 
   /* Re-arm timer */
-  lg->timer = xTimerStart(logger_timer_cb, lg, lg->flush_interval_ms, 0);
+  lg->timer = xTimerStart(logger_timer_cb, lg, NULL, lg->flush_interval_ms, 0);
 }
 
 /* ═══════════════════════════════════════════════════════════════════

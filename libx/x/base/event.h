@@ -190,12 +190,44 @@ XCAPI(xErrno) xEventLoopWake(xEventLoop loop);
  * Must be called from the event loop thread.
  *
  * @param fn         Callback to invoke on expiry (must not be NULL).
- * @param arg        Argument forwarded to @p fn.
+ * @param arg        Argument forwarded to both @p fn and @p on_cancel.
+ * @param on_cancel  Cleanup callback invoked when the host event loop is
+ *                   destroyed with this timer still pending, or NULL for
+ *                   no cleanup. NOT invoked on xTimerStop() or on the
+ *                   fire path (see notes below).
  * @param timeout_ms Delay in milliseconds before the first fire.
  * @param repeat_ms  Interval for subsequent fires (0 = one-shot).
  * @return           A timer handle, or NULL on failure.
+ *
+ * @par on_cancel semantics
+ * - @b Loop destroy: @p on_cancel is invoked exactly once per pending
+ *   timer, from the event loop thread, before the timer struct is
+ *   recycled. This is the only path that triggers @p on_cancel.
+ * - @b xTimerStop(): @p on_cancel is NOT invoked. Stop is
+ *   user-initiated; ownership of @p arg returns to the caller, who may
+ *   free it, reuse it, or pass it to a new xTimerStart().
+ * - @b Fire: @p on_cancel is NOT invoked. @p fn is the only callback
+ *   on the fire path.
+ *
+ * @p fn and @p on_cancel are mutually exclusive: for any single timer
+ * lifetime, exactly one of them is invoked (assuming the timer is
+ * reclaimed via fire or loop destroy).
+ *
+ * @warning @p on_cancel runs during loop destruction. The loop's
+ * internal structures (heap, freelist, backend fd) are being torn down.
+ * Calling any loop APIs (xTimerStart, xEventLoopPost, xTimerStop,
+ * xEventLoopRun, etc.) from within @p on_cancel results in undefined
+ * behavior.
+ *
+ * @par Divergence from xWorkSubmit
+ * Unlike xWorkSubmit's @c on_cancel, which fires on user-initiated
+ * xWorkCancel, xTimer's @p on_cancel does NOT fire on user-initiated
+ * xTimerStop. This divergence supports the common timer pattern of
+ * "stop, mutate arg state, restart with the same arg pointer" —
+ * something work items do not need.
  */
-XCAPI(xTimer) xTimerStart(xTimerFunc fn, void *arg, uint64_t timeout_ms, uint64_t repeat_ms);
+XCAPI(xTimer) xTimerStart(xTimerFunc fn, void *arg, xTimerFunc on_cancel, uint64_t timeout_ms,
+                          uint64_t repeat_ms);
 
 /**
  * @brief Stop a pending timer.

@@ -90,7 +90,7 @@ static void BM_EventLoop_TimerSingle(benchmark::State &state) {
       [](void *arg) {
         static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
       },
-      &fired, 0, 0);
+      &fired, NULL, 0, 0);
     xEventLoopRun(loop, X_RUN_NOWAIT);
     while (!fired.load(std::memory_order_acquire))
       ;
@@ -115,7 +115,7 @@ static void BM_EventLoop_TimerBatch(benchmark::State &state) {
 
   for (auto _ : state) {
     for (int64_t i = 0; i < batch; i++) {
-      xTimerStart(noop_timer, nullptr, 0, 0);
+      xTimerStart(noop_timer, nullptr, NULL, 0, 0);
     }
     xEventLoopRun(loop, X_RUN_NOWAIT);
   }

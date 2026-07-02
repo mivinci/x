@@ -18,7 +18,7 @@ TEST(BuiltinTimerPrecision, UnderDoneQueueFlood) {
 
   std::atomic<uint64_t> fire_time{0};
   xTimerStart([](void *arg) { static_cast<std::atomic<uint64_t> *>(arg)->store(xMonoNs()); },
-              &fire_time, 100, 0);
+              &fire_time, NULL, 100, 0);
 
   uint64_t start_ns = xMonoNs();
   for (int i = 0; i < 300 && fire_time.load() == 0; i++)
@@ -63,12 +63,12 @@ TEST(BuiltinTimerPrecision, UnderFdFlood) {
 
   std::atomic<uint64_t> fire_time{0};
   xTimerStart([](void *arg) { static_cast<std::atomic<uint64_t> *>(arg)->store(xMonoNs()); },
-              &fire_time, 100, 0);
+              &fire_time, NULL, 100, 0);
 
   uint64_t start_ns = xMonoNs();
   {
-    xTimer stop =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 200, 0);
+    xTimer stop = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                              NULL, 200, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (stop) xTimerStop(stop);
   }
@@ -102,7 +102,7 @@ TEST(BuiltinTimerPrecision, UnderHeavyCallbacks) {
 
   std::atomic<uint64_t> fire_time{0};
   xTimerStart([](void *arg) { static_cast<std::atomic<uint64_t> *>(arg)->store(xMonoNs()); },
-              &fire_time, 100, 0);
+              &fire_time, NULL, 100, 0);
 
   /* Pump until the timer fires.  X_RUN_ONCE processes at most
    * 2*EVENT_DONE_BATCH_MAX done-callbacks per iteration, so with 200
@@ -155,7 +155,7 @@ TEST(BuiltinTimerPrecision, UnderHeavyFdCallbacks) {
 
   std::atomic<uint64_t> fire_time{0};
   xTimerStart([](void *arg) { static_cast<std::atomic<uint64_t> *>(arg)->store(xMonoNs()); },
-              &fire_time, 100, 0);
+              &fire_time, NULL, 100, 0);
 
   uint64_t start_ns = xMonoNs();
   for (int i = 0; i < 500 && fire_time.load() == 0; i++)
@@ -189,8 +189,8 @@ TEST(BuiltinTimerPrecision, JitterAnalysis) {
   const uint64_t        expected_ns = xMonoNs() + 100u * 1000000u;
 
   for (int i = 0; i < N; i++)
-    xTimerStart([](void *arg) { *static_cast<uint64_t *>(arg) = xMonoNs(); }, &fire_times[i], 100,
-                0);
+    xTimerStart([](void *arg) { *static_cast<uint64_t *>(arg) = xMonoNs(); }, &fire_times[i], NULL,
+                100, 0);
 
   for (int i = 0; i < 200; i++) {
     xEventLoopRun(loop, X_RUN_ONCE);

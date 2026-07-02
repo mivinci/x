@@ -150,7 +150,7 @@ xErrno dlp_task_start(dlp_task_t task) {
   xEventLoopEnter(t->ctx->loop);
 
   /* Start 1-second scheduling timer */
-  t->tick_timer = xTimerStart(on_tick, t, DL_TICK_MS, DL_TICK_MS);
+  t->tick_timer = xTimerStart(on_tick, t, NULL, DL_TICK_MS, DL_TICK_MS);
 
   xEventLoopLeave();
 

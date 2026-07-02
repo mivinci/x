@@ -13,12 +13,12 @@
 #ifndef XPP_RESULT_H
 #define XPP_RESULT_H
 
+#include <type_traits>
+#include <utility>
+
 #include <xpp/option.h>
 #include <xpp/panic.h>
 #include <xpp/variant.h>
-
-#include <type_traits>
-#include <utility>
 
 namespace xpp {
 namespace _ {
@@ -267,13 +267,13 @@ public:
   auto map(Func &&fn) const & -> Result<decltype(fn(std::declval<const T &>())), E> {
     using U = decltype(fn(std::declval<const T &>()));
     return is_ok() ? Result<U, E>(xpp::ok, fn(unwrap_unchecked()))
-                  : Result<U, E>(xpp::err, unwrap_err_unchecked());
+                   : Result<U, E>(xpp::err, unwrap_err_unchecked());
   }
 
   template <class Func> auto map(Func &&fn) && -> Result<decltype(fn(std::declval<T &&>())), E> {
     using U = decltype(fn(std::declval<T &&>()));
     return is_ok() ? Result<U, E>(xpp::ok, fn(std::move(unwrap_unchecked())))
-                  : Result<U, E>(xpp::err, std::move(unwrap_err_unchecked()));
+                   : Result<U, E>(xpp::err, std::move(unwrap_err_unchecked()));
   }
 
   /**
@@ -346,13 +346,13 @@ public:
   auto map_err(Func &&fn) const & -> Result<T, decltype(fn(std::declval<const E &>()))> {
     using F = decltype(fn(std::declval<const E &>()));
     return is_ok() ? Result<T, F>(xpp::ok, unwrap_unchecked())
-                  : Result<T, F>(xpp::err, fn(unwrap_err_unchecked()));
+                   : Result<T, F>(xpp::err, fn(unwrap_err_unchecked()));
   }
   template <class Func>
   auto map_err(Func &&fn) && -> Result<T, decltype(fn(std::declval<E &&>()))> {
     using F = decltype(fn(std::declval<E &&>()));
     return is_ok() ? Result<T, F>(xpp::ok, std::move(unwrap_unchecked()))
-                  : Result<T, F>(xpp::err, fn(std::move(unwrap_err_unchecked())));
+                   : Result<T, F>(xpp::err, fn(std::move(unwrap_err_unchecked())));
   }
 
   /**
@@ -367,7 +367,8 @@ public:
   }
   template <class Func> auto and_then(Func &&fn) && -> decltype(fn(std::declval<T &&>())) {
     using R = decltype(fn(std::declval<T &&>()));
-    return is_ok() ? fn(std::move(unwrap_unchecked())) : R(xpp::err, std::move(unwrap_err_unchecked()));
+    return is_ok() ? fn(std::move(unwrap_unchecked()))
+                   : R(xpp::err, std::move(unwrap_err_unchecked()));
   }
 
   /**
@@ -375,14 +376,14 @@ public:
    *
    * Mirrors Rust's Result::or_else.
    */
-  template <class Func>
-  auto or_else(Func &&fn) const & -> decltype(fn(std::declval<const E &>())) {
+  template <class Func> auto or_else(Func &&fn) const & -> decltype(fn(std::declval<const E &>())) {
     using R = decltype(fn(std::declval<const E &>()));
     return is_ok() ? R(xpp::ok, unwrap_unchecked()) : fn(unwrap_err_unchecked());
   }
   template <class Func> auto or_else(Func &&fn) && -> decltype(fn(std::declval<E &&>())) {
     using R = decltype(fn(std::declval<E &&>()));
-    return is_ok() ? R(xpp::ok, std::move(unwrap_unchecked())) : fn(std::move(unwrap_err_unchecked()));
+    return is_ok() ? R(xpp::ok, std::move(unwrap_unchecked()))
+                   : fn(std::move(unwrap_err_unchecked()));
   }
 
   /**
@@ -533,13 +534,14 @@ public:
   template <class Func>
   auto map_err(Func &&fn) const & -> Result<void, decltype(fn(std::declval<const E &>()))> {
     using F = decltype(fn(std::declval<const E &>()));
-    return is_ok() ? Result<void, F>(xpp::ok) : Result<void, F>(xpp::err, fn(unwrap_err_unchecked()));
+    return is_ok() ? Result<void, F>(xpp::ok)
+                   : Result<void, F>(xpp::err, fn(unwrap_err_unchecked()));
   }
   template <class Func>
   auto map_err(Func &&fn) && -> Result<void, decltype(fn(std::declval<E &&>()))> {
     using F = decltype(fn(std::declval<E &&>()));
     return is_ok() ? Result<void, F>(xpp::ok)
-                  : Result<void, F>(xpp::err, fn(std::move(unwrap_err_unchecked())));
+                   : Result<void, F>(xpp::err, fn(std::move(unwrap_err_unchecked())));
   }
 
   /** Monadic bind: fn takes no args and returns Result<U, E>. */
@@ -553,8 +555,7 @@ public:
   }
 
   /** If Err, recover via fn(err) -> Result<void, F>. */
-  template <class Func>
-  auto or_else(Func &&fn) const & -> decltype(fn(std::declval<const E &>())) {
+  template <class Func> auto or_else(Func &&fn) const & -> decltype(fn(std::declval<const E &>())) {
     using R = decltype(fn(std::declval<const E &>()));
     return is_ok() ? R(xpp::ok) : fn(unwrap_err_unchecked());
   }
@@ -585,7 +586,7 @@ private:
 
 template <class T> template <class E> Result<T, E> Option<T>::ok_or(E e) && {
   return m_has_value ? Result<T, E>(xpp::ok, std::move(unwrap_unchecked()))
-                    : Result<T, E>(xpp::err, std::move(e));
+                     : Result<T, E>(xpp::err, std::move(e));
 }
 
 template <class T>
@@ -593,7 +594,7 @@ template <class Func>
 auto Option<T>::ok_or_else(Func &&fn) && -> Result<T, decltype(fn())> {
   using E = decltype(fn());
   return m_has_value ? Result<T, E>(xpp::ok, std::move(unwrap_unchecked()))
-                    : Result<T, E>(xpp::err, fn());
+                     : Result<T, E>(xpp::err, fn());
 }
 
 } // namespace xpp

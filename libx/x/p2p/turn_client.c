@@ -174,7 +174,7 @@ static void schedule_refresh(xTurnClient *tc) {
   uint32_t refresh_ms = (tc->lifetime * XTURN_REFRESH_RATIO / 100) * 1000;
   if (refresh_ms == 0) refresh_ms = 1000;
 
-  tc->refresh_timer = xTimerStart(refresh_timer_cb, tc, refresh_ms, 0);
+  tc->refresh_timer = xTimerStart(refresh_timer_cb, tc, NULL, refresh_ms, 0);
 }
 
 /* ───────────────────── Allocate ───────────────────── */

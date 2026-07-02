@@ -20,6 +20,8 @@
 #ifndef XPP_PROMISE_H
 #define XPP_PROMISE_H
 
+#include <utility>
+
 #include <xpp/compiler.h>
 #include <xpp/event.h>
 #include <xpp/option.h>
@@ -27,8 +29,6 @@
 #include <xpp/panic.h>
 #include <xpp/promise_node.h>
 #include <xpp/void.h>
-
-#include <utility>
 
 namespace xpp {
 
@@ -38,8 +38,7 @@ template <class T> class PromiseResolver;
 
 /* ── ReturnType helper ──────────────────────────────────────────── */
 
-template <class Func, class T>
-using ReturnType = decltype(std::declval<Func>()(std::declval<T>()));
+template <class Func, class T> using ReturnType = decltype(std::declval<Func>()(std::declval<T>()));
 
 template <class Func> using ReturnTypeVoid = decltype(std::declval<Func>()());
 
@@ -171,7 +170,7 @@ public:
   ValueType wait() {
     XPP_ASSERT(m_node != nullptr, "wait() on empty promise");
 
-    bool         done = false;
+    bool         done  = false;
     PromiseWaker waker = PromiseWaker::sync_wait(&done);
 
     while (true) {
@@ -183,7 +182,7 @@ public:
       while (!done) {
         xEventLoopRun(EventLoop::current(), X_RUN_DEFAULT);
       }
-      done = false;  // reset for next poll iteration
+      done = false; // reset for next poll iteration
     }
   }
 
@@ -355,9 +354,9 @@ chain(Own<PromiseNode<T>> dep, Func &&func) {
       std::move(dep), std::forward<Func>(func)))));
 }
 
-}  // namespace _chain
+} // namespace _chain
 
-}  // namespace _
+} // namespace _
 
 /* ── Promise<T>::then implementations ──────────────────────────── */
 
@@ -401,10 +400,10 @@ inline Promise<void> Promise<T>::after(uint64_t ms) {
       r->resolve();
       delete r;
     },
-    resolver, ms, 0);
+    resolver, NULL, ms, 0);
   return promise;
 }
 
-}  // namespace xpp
+} // namespace xpp
 
-#endif  // XPP_PROMISE_H
+#endif // XPP_PROMISE_H

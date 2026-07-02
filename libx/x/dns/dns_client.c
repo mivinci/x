@@ -572,7 +572,7 @@ static void on_query_timeout(void *arg) {
     if (send_query(c, q) == xErrno_Ok) {
       /* Exponential backoff: 2x timeout for subsequent retries */
       int to   = c->retries - q->retries_left > 1 ? c->timeout_ms * 2 : c->timeout_ms;
-      q->timer = xTimerStart(on_query_timeout, q, (uint64_t)to, 0);
+      q->timer = xTimerStart(on_query_timeout, q, NULL, (uint64_t)to, 0);
       return;
     }
     /* fall through to failure */
@@ -730,7 +730,7 @@ xErrno xDnsClientDo(xDnsClient client, const char *name, xDnsType type, xDnsCall
       continue;
     }
 
-    q->timer = xTimerStart(on_query_timeout, q, (uint64_t)c->timeout_ms, 0);
+    q->timer = xTimerStart(on_query_timeout, q, NULL, (uint64_t)c->timeout_ms, 0);
     *qtail   = q;
     qtail    = &q->next;
     ++req->pending;

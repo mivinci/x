@@ -26,8 +26,12 @@ namespace xpp {
  */
 struct Void {};
 
-template <class T> struct FixVoid { using Type = T; };
-template <> struct FixVoid<void> { using Type = Void; };
+template <class T> struct FixVoid {
+  using Type = T;
+};
+template <> struct FixVoid<void> {
+  using Type = Void;
+};
 
 namespace _voidwrap {
 
@@ -61,8 +65,8 @@ call1(Func &fn, T &&arg) {
   return Void{};
 }
 
-}  // namespace _voidwrap
+} // namespace _voidwrap
 
-}  // namespace xpp
+} // namespace xpp
 
-#endif  // XPP_VOID_H
+#endif // XPP_VOID_H

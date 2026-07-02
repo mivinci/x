@@ -581,7 +581,7 @@ xErrno xWsConnect(const xWsConnectConf *conf, const xWsCallbacks *callbacks, voi
 
   /* Set timeout */
   c->timeout_ms = conf->timeout_ms > 0 ? conf->timeout_ms : XWS_DEFAULT_TIMEOUT_MS;
-  c->timer      = xTimerStart(connector_timeout_cb, c, (uint64_t)c->timeout_ms, 0);
+  c->timer      = xTimerStart(connector_timeout_cb, c, NULL, (uint64_t)c->timeout_ms, 0);
 
   /* Extract hostname for DNS */
   char   hostname[256];

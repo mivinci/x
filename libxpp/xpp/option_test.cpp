@@ -10,11 +10,10 @@
  * ensure no leaks or double-frees slip past the tests.
  */
 
-#include <gtest/gtest.h>
-
 #include <string>
 #include <utility>
 
+#include <gtest/gtest.h>
 #include <xpp/option.h>
 #include <xpp/result.h>
 
@@ -515,7 +514,7 @@ TEST(OptionTest, AndThenPassesThroughNone) {
 
 TEST(OptionTest, AndThenChangesType) {
   xpp::Option<int> o(3);
-  auto             r = o.and_then([](int x) { return xpp::Option<std::string>(std::to_string(x)); });
+  auto r = o.and_then([](int x) { return xpp::Option<std::string>(std::to_string(x)); });
   static_assert(std::is_same<decltype(r), xpp::Option<std::string>>::value, "");
   EXPECT_EQ(r.unwrap(), "3");
 }
@@ -655,14 +654,14 @@ TEST(OptionRefTest, DefaultIsNone) {
 }
 
 TEST(OptionRefTest, ConstructFromRef) {
-  int x = 42;
+  int                x = 42;
   xpp::Option<int &> o(x);
   EXPECT_TRUE(o.is_some());
   EXPECT_EQ(o.unwrap(), 42);
 }
 
 TEST(OptionRefTest, MutatesThroughRef) {
-  int x = 1;
+  int                x = 1;
   xpp::Option<int &> o(x);
   o.unwrap() = 99;
   EXPECT_EQ(x, 99);
@@ -674,57 +673,57 @@ TEST(OptionRefTest, ConstructFromNone) {
 }
 
 TEST(OptionRefTest, AssignNone) {
-  int x = 10;
+  int                x = 10;
   xpp::Option<int &> o(x);
   o = xpp::none;
   EXPECT_TRUE(o.is_none());
 }
 
 TEST(OptionRefTest, Rebind) {
-  int a = 1, b = 2;
+  int                a = 1, b = 2;
   xpp::Option<int &> o(a);
   xpp::Option<int &> p(b);
-  o = p;
+  o          = p;
   o.unwrap() = 99;
   EXPECT_EQ(b, 99);
   EXPECT_EQ(a, 1);
 }
 
 TEST(OptionRefTest, UnwrapOr) {
-  int fallback = -1;
+  int                fallback = -1;
   xpp::Option<int &> o;
   EXPECT_EQ(&o.unwrap_or(fallback), &fallback);
 
-  int x = 42;
+  int                x = 42;
   xpp::Option<int &> p(x);
   EXPECT_EQ(&p.unwrap_or(fallback), &x);
 }
 
 TEST(OptionRefTest, Take) {
-  int x = 10;
+  int                x = 10;
   xpp::Option<int &> o(x);
-  auto taken = o.take();
+  auto               taken = o.take();
   EXPECT_TRUE(o.is_none());
   EXPECT_TRUE(taken.is_some());
   EXPECT_EQ(&taken.unwrap(), &x);
 }
 
 TEST(OptionRefTest, Map) {
-  int x = 5;
+  int                x = 5;
   xpp::Option<int &> o(x);
-  auto doubled = o.map([](int &v) { return v * 2; });
+  auto               doubled = o.map([](int &v) { return v * 2; });
   EXPECT_TRUE(doubled.is_some());
   EXPECT_EQ(doubled.unwrap(), 10);
 
   xpp::Option<int &> empty;
-  auto mapped = empty.map([](int &v) { return v * 2; });
+  auto               mapped = empty.map([](int &v) { return v * 2; });
   EXPECT_TRUE(mapped.is_none());
 }
 
 TEST(OptionRefTest, AndThen) {
-  int x = 42;
+  int                x = 42;
   xpp::Option<int &> o(x);
-  auto result = o.and_then([](int &v) -> xpp::Option<int> {
+  auto               result = o.and_then([](int &v) -> xpp::Option<int> {
     return v > 0 ? xpp::Option<int>(v) : xpp::Option<int>(xpp::none);
   });
   EXPECT_TRUE(result.is_some());
@@ -732,9 +731,9 @@ TEST(OptionRefTest, AndThen) {
 }
 
 TEST(OptionRefTest, Filter) {
-  int x = 10;
+  int                x = 10;
   xpp::Option<int &> o(x);
-  auto pass = o.filter([](int &v) { return v > 5; });
+  auto               pass = o.filter([](int &v) { return v > 5; });
   EXPECT_TRUE(pass.is_some());
 
   auto fail = o.filter([](int &v) { return v > 20; });
@@ -742,19 +741,19 @@ TEST(OptionRefTest, Filter) {
 }
 
 TEST(OptionRefTest, Inspect) {
-  int x = 7;
-  int seen = 0;
+  int                x    = 7;
+  int                seen = 0;
   xpp::Option<int &> o(x);
   o.inspect([&](int &v) { seen = v; });
   EXPECT_EQ(seen, 7);
 
   xpp::Option<int &> empty;
   empty.inspect([&](int &) { seen = -1; });
-  EXPECT_EQ(seen, 7);  // not called
+  EXPECT_EQ(seen, 7); // not called
 }
 
 TEST(OptionRefTest, ConstRef) {
-  const int x = 100;
+  const int                x = 100;
   xpp::Option<const int &> o(x);
   EXPECT_EQ(o.unwrap(), 100);
 }

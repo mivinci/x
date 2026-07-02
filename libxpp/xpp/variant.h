@@ -11,12 +11,12 @@
 #ifndef XPP_VARIANT_H
 #define XPP_VARIANT_H
 
-#include <xpp/panic.h>
-
 #include <cstddef>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
+#include <xpp/panic.h>
 
 namespace xpp {
 
