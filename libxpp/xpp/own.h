@@ -28,13 +28,13 @@
 #ifndef XPP_OWN_H
 #define XPP_OWN_H
 
-#include <xpp/box.h>
-#include <xpp/option.h>
-#include <xpp/panic.h>
-
 #include <memory>
 #include <type_traits>
 #include <utility>
+
+#include <xpp/box.h>
+#include <xpp/option.h>
+#include <xpp/panic.h>
 
 namespace xpp {
 

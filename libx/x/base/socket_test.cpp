@@ -43,7 +43,7 @@ static void drain_fd(int fd) {
  */
 static void pump_loop(xEventLoop loop, int total_ms) {
   xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
-                         static_cast<uint64_t>(total_ms), 0);
+                         NULL, static_cast<uint64_t>(total_ms), 0);
   xEventLoopRun(loop, X_RUN_DEFAULT);
   if (t) xTimerStop(t);
 }

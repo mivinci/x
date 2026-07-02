@@ -704,7 +704,7 @@ XCAPI(xNatProbe) xNatProbeStart(const char *stun_host1, uint16_t stun_port1, con
 
   /* Schedule overall timeout — covers DNS + Phase1 + Phase2. */
   int total_timeout = timeout_ms * 2 + 2000; /* generous for two phases */
-  p->timeout_timer  = xTimerStart(nat_probe_on_timeout, p, (uint64_t)total_timeout, 0);
+  p->timeout_timer  = xTimerStart(nat_probe_on_timeout, p, NULL, (uint64_t)total_timeout, 0);
 
   /* Resolve STUN server 1 first. */
   p->phase = xNatProbePhase_DNS1;

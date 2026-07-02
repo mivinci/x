@@ -14,7 +14,7 @@ TEST(BuiltinTimerConcurrent, CrossThreadStopStress) {
 
   for (int i = 0; i < N; i++)
     timers[i] = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-                            &fired, 2000, 0);
+                            &fired, NULL, 2000, 0);
 
   std::thread threads[M];
   for (int t = 0; t < M; t++)
@@ -51,16 +51,16 @@ TEST(BuiltinTimerConcurrent, CreateFromMultiplePosts) {
       [](void *arg) {
         auto *p = static_cast<std::pair<std::atomic<int> *, int *> *>(arg);
         p->second++;
-        xTimerStart([](void *a) { static_cast<std::atomic<int> *>(a)->fetch_add(1); }, p->first, 0,
-                    0);
+        xTimerStart([](void *a) { static_cast<std::atomic<int> *>(a)->fetch_add(1); }, p->first,
+                    NULL, 0, 0);
         delete p;
       },
       ctx);
   }
 
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -78,11 +78,11 @@ TEST(BuiltinTimerConcurrent, RepeatTimerUnderCrossThreadStop) {
 
   std::atomic<int> count{0};
   xTimer t = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-                         &count, 20, 20);
+                         &count, NULL, 20, 20);
 
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 200, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 200, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -91,15 +91,15 @@ TEST(BuiltinTimerConcurrent, RepeatTimerUnderCrossThreadStop) {
   std::thread stopper([t]() { xTimerStop(t); });
   stopper.join();
   {
-    xTimer stop =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 200, 0);
+    xTimer stop = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                              NULL, 200, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (stop) xTimerStop(stop);
   }
   int after = count.load();
   {
-    xTimer stop =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 200, 0);
+    xTimer stop = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                              NULL, 200, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (stop) xTimerStop(stop);
   }
@@ -124,14 +124,14 @@ TEST(BuiltinTimerHybrid, StartTimerFromCallback) {
       auto *ctx = static_cast<std::pair<std::atomic<int> *, std::atomic<int> *> *>(arg);
       ctx->first->fetch_add(1);
       xTimerStart([](void *a) { static_cast<std::atomic<int> *>(a)->fetch_add(1); }, ctx->second,
-                  10, 0);
+                  NULL, 10, 0);
       delete ctx;
     },
-    pair, 50, 0);
+    pair, NULL, 50, 0);
 
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 200, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 200, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -159,15 +159,15 @@ TEST(BuiltinTimerHybrid, CancelFromAnotherCallback) {
       c->a_count.fetch_add(1);
       xTimerStop(c->b_timer);
     },
-    &ctx, 30, 0);
+    &ctx, NULL, 30, 0);
 
-  ctx.b_timer =
-    xTimerStart([](void *arg) { static_cast<Ctx *>(arg)->b_count.fetch_add(1); }, &ctx, 100, 0);
+  ctx.b_timer = xTimerStart([](void *arg) { static_cast<Ctx *>(arg)->b_count.fetch_add(1); }, &ctx,
+                            NULL, 100, 0);
   ASSERT_NE(ctx.b_timer, nullptr);
 
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 200, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 200, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -184,13 +184,14 @@ TEST(BuiltinTimerHybrid, InterleavedRepeatTimers) {
   xEventLoopEnter(loop);
 
   std::atomic<int> fast{0}, slow{0};
-  xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fast, 20, 20);
+  xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fast, NULL,
+              20, 20);
   xTimer slow_t = xTimerStart([](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-                              &slow, 30, 60);
+                              &slow, NULL, 30, 60);
 
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 200, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 200, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -203,8 +204,8 @@ TEST(BuiltinTimerHybrid, InterleavedRepeatTimers) {
 
   int after = slow.load();
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 200, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 200, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }

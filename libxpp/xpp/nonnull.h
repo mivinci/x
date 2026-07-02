@@ -21,11 +21,11 @@
 #ifndef XPP_NONNULL_H
 #define XPP_NONNULL_H
 
-#include <xpp/option.h>
-#include <xpp/panic.h>
-
 #include <type_traits>
 #include <utility>
+
+#include <xpp/option.h>
+#include <xpp/panic.h>
 
 namespace xpp {
 
@@ -64,9 +64,8 @@ public:
    *      same situation. Pinning U = T resolves the ambiguity in
    *      GCC's favour, no behavioural change anywhere else.
    */
-  template <
-    class U = T,
-    class   = typename std::enable_if<!std::is_void<U>::value && std::is_same<U, T>::value>::type>
+  template <class U = T, class = typename std::enable_if<!std::is_void<U>::value &&
+                                                         std::is_same<U, T>::value>::type>
   explicit NonNull(U &ref) noexcept : m_ptr(&ref) {}
 
   NonNull(const NonNull &)            = default;

@@ -80,11 +80,11 @@ void do_panic(const char *fmt, ...);
  *   XPP_ASSERT(idx < size, "index out of range");
  *   XPP_ASSERT(idx < size, "idx=%zu size=%zu", idx, size);
  */
-#define XPP_ASSERT(cond, fmt, ...)                                                           \
-  do {                                                                                       \
-    if (XPP_UNLIKELY(!(cond)))                                                               \
+#define XPP_ASSERT(cond, fmt, ...)                                                            \
+  do {                                                                                        \
+    if (XPP_UNLIKELY(!(cond)))                                                                \
       ::xpp::_::do_panic("panic at %s:%d: assertion failed: " #cond " \u2014 " fmt, __FILE__, \
-                        __LINE__, ##__VA_ARGS__);                                            \
+                         __LINE__, ##__VA_ARGS__);                                            \
   } while (0)
 
 /**

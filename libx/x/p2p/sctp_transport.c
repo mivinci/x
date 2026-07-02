@@ -283,7 +283,7 @@ xErrno xSctpTransportStart(xSctpTransport transport) {
   }
 
   /* Start association timeout */
-  t->assoc_timer = xTimerStart(assoc_timeout_cb, t, t->conf.assoc_timeout_ms, 0);
+  t->assoc_timer = xTimerStart(assoc_timeout_cb, t, NULL, t->conf.assoc_timeout_ms, 0);
 
   return xErrno_Ok;
 }

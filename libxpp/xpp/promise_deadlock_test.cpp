@@ -8,9 +8,8 @@
  * and the inner wait() consumes all active sources.
  */
 
-#include <xpp/promise.h>
-
 #include <gtest/gtest.h>
+#include <xpp/promise.h>
 
 #include <x/base/event.h>
 
@@ -36,48 +35,52 @@
 
 TEST(PromiseDeadlockTest, NestedWaitDeferredOuter) {
   xpp::EventLoop loop;
-  xpp::WaitScope  scope(loop);
+  xpp::WaitScope scope(loop);
 
-  auto outer_r = xpp::PromiseResolver<int>::create(); auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<int>::create(); auto inner_p = inner_r.promise();
+  auto outer_r = xpp::PromiseResolver<int>::create();
+  auto outer_p = outer_r.promise();
+  auto inner_r = xpp::PromiseResolver<int>::create();
+  auto inner_p = inner_r.promise();
 
   /* Inner resolves at 30ms via timer */
   struct InnerCtx {
     xpp::PromiseResolver<int> *r;
-    int                 value;
+    int                        value;
   };
-  auto *ic = new InnerCtx{&inner_r, 100};
+  auto  *ic          = new InnerCtx{&inner_r, 100};
   xTimer inner_timer = xTimerStart(
-      [](void *arg) {
-        auto *c = static_cast<InnerCtx *>(arg);
-        c->r->resolve(c->value);
-        delete c;
-      },
-      ic, 30, 0);
+    [](void *arg) {
+      auto *c = static_cast<InnerCtx *>(arg);
+      c->r->resolve(c->value);
+      delete c;
+    },
+    ic, NULL, 30, 0);
 
   /* Outer resolves at 60ms via timer */
   struct OuterCtx {
     xpp::PromiseResolver<int> *r;
-    int                 value;
+    int                        value;
   };
-  auto *oc = new OuterCtx{&outer_r, 7};
+  auto  *oc          = new OuterCtx{&outer_r, 7};
   xTimer outer_timer = xTimerStart(
-      [](void *arg) {
-        auto *c = static_cast<OuterCtx *>(arg);
-        c->r->resolve(c->value);
-        delete c;
-      },
-      oc, 60, 0);
+    [](void *arg) {
+      auto *c = static_cast<OuterCtx *>(arg);
+      c->r->resolve(c->value);
+      delete c;
+    },
+    oc, NULL, 60, 0);
 
   /* then() callback calls inner wait() — nests Run */
-  int result = outer_p.then([&inner_p](int outer_val) {
-    /* Outer has resolved (60ms timer fired). Now wait for inner.
-     * But inner already resolved at 30ms — this should be immediate. */
-    int inner_val = inner_p.wait();
-    return outer_val + inner_val;
-  }).wait();
+  int result = outer_p
+                 .then([&inner_p](int outer_val) {
+                   /* Outer has resolved (60ms timer fired). Now wait for inner.
+                    * But inner already resolved at 30ms — this should be immediate. */
+                   int inner_val = inner_p.wait();
+                   return outer_val + inner_val;
+                 })
+                 .wait();
 
-  EXPECT_EQ(result, 107);  /* 7 + 100 */
+  EXPECT_EQ(result, 107); /* 7 + 100 */
 
   if (inner_timer) xTimerStop(inner_timer);
   if (outer_timer) xTimerStop(outer_timer);
@@ -110,25 +113,27 @@ TEST(PromiseDeadlockTest, NestedWaitDeferredOuter) {
 
 TEST(PromiseDeadlockTest, OuterResolvedInsideNestedWait) {
   xpp::EventLoop loop;
-  xpp::WaitScope  scope(loop);
+  xpp::WaitScope scope(loop);
 
-  auto outer_r = xpp::PromiseResolver<int>::create(); auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<int>::create(); auto inner_p = inner_r.promise();
+  auto outer_r = xpp::PromiseResolver<int>::create();
+  auto outer_p = outer_r.promise();
+  auto inner_r = xpp::PromiseResolver<int>::create();
+  auto inner_p = inner_r.promise();
 
   /* Inner resolves at 30ms, AND resolves outer too */
   struct Ctx {
     xpp::PromiseResolver<int> *inner_r;
     xpp::PromiseResolver<int> *outer_r;
   };
-  auto *ctx = new Ctx{&inner_r, &outer_r};
+  auto  *ctx   = new Ctx{&inner_r, &outer_r};
   xTimer timer = xTimerStart(
-      [](void *arg) {
-        auto *c = static_cast<Ctx *>(arg);
-        c->inner_r->resolve(42);
-        c->outer_r->resolve(7);
-        delete c;
-      },
-      ctx, 30, 0);
+    [](void *arg) {
+      auto *c = static_cast<Ctx *>(arg);
+      c->inner_r->resolve(42);
+      c->outer_r->resolve(7);
+      delete c;
+    },
+    ctx, NULL, 30, 0);
 
   /* then() calls inner wait. When inner resolves (30ms),
    * the same timer callback also resolves outer.
@@ -146,12 +151,14 @@ TEST(PromiseDeadlockTest, OuterResolvedInsideNestedWait) {
    *
    * This should work! Let's verify.
    */
-  int result = outer_p.then([&inner_p](int outer_val) {
-    int inner_val = inner_p.wait();
-    return outer_val + inner_val;
-  }).wait();
+  int result = outer_p
+                 .then([&inner_p](int outer_val) {
+                   int inner_val = inner_p.wait();
+                   return outer_val + inner_val;
+                 })
+                 .wait();
 
-  EXPECT_EQ(result, 49);  /* 7 + 42 */
+  EXPECT_EQ(result, 49); /* 7 + 42 */
 
   if (timer) xTimerStop(timer);
 }
@@ -192,40 +199,44 @@ TEST(PromiseDeadlockTest, OuterResolvedInsideNestedWait) {
 
 TEST(PromiseDeadlockTest, PureAdapterNoTimerNestedWait) {
   xpp::EventLoop loop;
-  xpp::WaitScope  scope(loop);
+  xpp::WaitScope scope(loop);
 
-  auto outer_r = xpp::PromiseResolver<int>::create(); auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<int>::create(); auto inner_p = inner_r.promise();
+  auto outer_r = xpp::PromiseResolver<int>::create();
+  auto outer_p = outer_r.promise();
+  auto inner_r = xpp::PromiseResolver<int>::create();
+  auto inner_p = inner_r.promise();
 
   /* Timer at 30ms resolves BOTH promises simultaneously */
   struct Ctx {
     xpp::PromiseResolver<int> *inner_r;
     xpp::PromiseResolver<int> *outer_r;
   };
-  auto *ctx = new Ctx{&inner_r, &outer_r};
+  auto  *ctx   = new Ctx{&inner_r, &outer_r};
   xTimer timer = xTimerStart(
-      [](void *arg) {
-        auto *c = static_cast<Ctx *>(arg);
-        c->inner_r->resolve(42);
-        c->outer_r->resolve(7);
-        delete c;
-      },
-      ctx, 30, 0);
+    [](void *arg) {
+      auto *c = static_cast<Ctx *>(arg);
+      c->inner_r->resolve(42);
+      c->outer_r->resolve(7);
+      delete c;
+    },
+    ctx, NULL, 30, 0);
 
   /* then() waits for inner. Both resolve at the same timer fire.
    * Inner wait runs xEventLoopRun which drains the timer.
    * After inner wait returns, outer should already be resolved
    * (same timer callback). But outer's done flag was posted
    * inside the inner Run's drain — does outer Run see it? */
-  int result = outer_p.then([&inner_p](int outer_val) {
-    /* By the time this runs, outer already resolved (same timer).
-     * But we need to wait for inner which also resolved.
-     * Inner wait's Run will drain the timer, resolve both,
-     * post both done flags. Inner wait picks up its flag.
-     * Then outer wait needs to pick up its flag. */
-    int inner_val = inner_p.wait();
-    return outer_val + inner_val;
-  }).wait();
+  int result = outer_p
+                 .then([&inner_p](int outer_val) {
+                   /* By the time this runs, outer already resolved (same timer).
+                    * But we need to wait for inner which also resolved.
+                    * Inner wait's Run will drain the timer, resolve both,
+                    * post both done flags. Inner wait picks up its flag.
+                    * Then outer wait needs to pick up its flag. */
+                   int inner_val = inner_p.wait();
+                   return outer_val + inner_val;
+                 })
+                 .wait();
 
   EXPECT_EQ(result, 49);
 
@@ -259,25 +270,27 @@ TEST(PromiseDeadlockTest, PureAdapterNoTimerNestedWait) {
 
 TEST(PromiseDeadlockTest, OuterResolvedByInnerThenCallback) {
   xpp::EventLoop loop;
-  xpp::WaitScope  scope(loop);
+  xpp::WaitScope scope(loop);
 
   /* Inner promise resolved by timer at 30ms.
    * Inner's then() callback resolves outer.
    * Outer's wait() drives the loop. */
-  auto outer_r = xpp::PromiseResolver<int>::create(); auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<void>::create(); auto inner_p = inner_r.promise();
+  auto outer_r = xpp::PromiseResolver<int>::create();
+  auto outer_p = outer_r.promise();
+  auto inner_r = xpp::PromiseResolver<void>::create();
+  auto inner_p = inner_r.promise();
 
   struct Ctx {
     xpp::PromiseResolver<void> *inner_r;
   };
-  auto *ctx = new Ctx{&inner_r};
+  auto  *ctx   = new Ctx{&inner_r};
   xTimer timer = xTimerStart(
-      [](void *arg) {
-        auto *c = static_cast<Ctx *>(arg);
-        c->inner_r->resolve();
-        delete c;
-      },
-      ctx, 30, 0);
+    [](void *arg) {
+      auto *c = static_cast<Ctx *>(arg);
+      c->inner_r->resolve();
+      delete c;
+    },
+    ctx, NULL, 30, 0);
 
   /* Chain: inner resolves → then() resolves outer with 42.
    * Use discard() to ignore the void result, then wait for

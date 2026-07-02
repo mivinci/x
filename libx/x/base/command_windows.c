@@ -435,7 +435,7 @@ static void on_timeout(void *arg) {
   if (exec->hProcess) TerminateProcess(exec->hProcess, 1);
 
   /* Grace timer: retry TerminateProcess if the first one didn't work */
-  exec->cancel_timer = xTimerStart(on_cancel_grace, exec, CMD_CANCEL_GRACE_MS, 0);
+  exec->cancel_timer = xTimerStart(on_cancel_grace, exec, NULL, CMD_CANCEL_GRACE_MS, 0);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -829,7 +829,7 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
 
   /* ── Start timeout timer ── */
   if (conf->timeout_ms > 0) {
-    exec->timeout_timer = xTimerStart(on_timeout, exec, conf->timeout_ms, 0);
+    exec->timeout_timer = xTimerStart(on_timeout, exec, NULL, conf->timeout_ms, 0);
   }
 
   /* ── Probe: child may have already exited ── */
@@ -1118,7 +1118,7 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec, const xC
 
   /* ── Start timeout timer ── */
   if (conf->timeout_ms > 0) {
-    exec->timeout_timer = xTimerStart(on_timeout, exec, conf->timeout_ms, 0);
+    exec->timeout_timer = xTimerStart(on_timeout, exec, NULL, conf->timeout_ms, 0);
   }
 
   /* ── Probe: child may have already exited ── */
@@ -1218,7 +1218,7 @@ xErrno xCommandExecutorCancel(xCommandExecutor exec_) {
   if (exec->hProcess) TerminateProcess(exec->hProcess, 1);
 
   /* Grace timer: retry if the first TerminateProcess didn't take effect */
-  exec->cancel_timer = xTimerStart(on_cancel_grace, exec, CMD_CANCEL_GRACE_MS, 0);
+  exec->cancel_timer = xTimerStart(on_cancel_grace, exec, NULL, CMD_CANCEL_GRACE_MS, 0);
   return xErrno_Ok;
 }
 

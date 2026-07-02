@@ -516,7 +516,7 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
 
   /* Start timeout timer */
   if (conf->timeout_ms > 0) {
-    exec->timeout_timer = xTimerStart(on_timeout, exec, conf->timeout_ms, 0);
+    exec->timeout_timer = xTimerStart(on_timeout, exec, NULL, conf->timeout_ms, 0);
   }
 
   exec->state = xCommandExecutorState_Running;
@@ -711,7 +711,7 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec, const xC
 
   /* Start timeout timer */
   if (conf->timeout_ms > 0) {
-    exec->timeout_timer = xTimerStart(on_timeout, exec, conf->timeout_ms, 0);
+    exec->timeout_timer = xTimerStart(on_timeout, exec, NULL, conf->timeout_ms, 0);
   }
 
   exec->state = xCommandExecutorState_Running;
@@ -748,7 +748,7 @@ xErrno xCommandExecutorCancel(xCommandExecutor exec_) {
   exec->state            = xCommandExecutorState_Cancelling;
 
   /* Start grace timer for SIGKILL */
-  exec->cancel_timer = xTimerStart(on_cancel_grace, exec, CMD_CANCEL_GRACE_MS, 0);
+  exec->cancel_timer = xTimerStart(on_cancel_grace, exec, NULL, CMD_CANCEL_GRACE_MS, 0);
   return xErrno_Ok;
 }
 
@@ -918,7 +918,7 @@ static void on_timeout(void *arg) {
   cmd_kill_pg(exec, SIGTERM);
   exec->result.timed_out = 1;
   exec->state            = xCommandExecutorState_Cancelling;
-  exec->cancel_timer     = xTimerStart(on_cancel_grace, exec, CMD_CANCEL_GRACE_MS, 0);
+  exec->cancel_timer     = xTimerStart(on_cancel_grace, exec, NULL, CMD_CANCEL_GRACE_MS, 0);
 }
 
 /* ───────────────────── Cancel grace period ───────────────────── */

@@ -15,10 +15,10 @@
  * routing here without touching any other TU.
  */
 
-#include <xpp/panic.h>
-
 #include <cstdarg>
 #include <cstdlib>
+
+#include <xpp/panic.h>
 
 #include <x/base/log.h>
 

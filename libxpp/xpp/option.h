@@ -11,10 +11,10 @@
 #ifndef XPP_OPTION_H
 #define XPP_OPTION_H
 
-#include <xpp/panic.h>
-
-#include <new>  // IWYU pragma: keep  (placement new: `new (ptr) T(...)`)
+#include <new> // IWYU pragma: keep  (placement new: `new (ptr) T(...)`)
 #include <utility>
+
+#include <xpp/panic.h>
 
 namespace xpp {
 
@@ -362,7 +362,7 @@ public:
   Option(T &ref) noexcept : m_ptr(&ref) {}
 
   /* Rebindable (unlike actual C++ references). */
-  Option(const Option &) noexcept = default;
+  Option(const Option &) noexcept            = default;
   Option &operator=(const Option &) noexcept = default;
 
   Option &operator=(None) noexcept {
@@ -370,9 +370,15 @@ public:
     return *this;
   }
 
-  bool is_some() const noexcept { return m_ptr != nullptr; }
-  bool is_none() const noexcept { return m_ptr == nullptr; }
-  explicit operator bool() const noexcept { return m_ptr != nullptr; }
+  bool is_some() const noexcept {
+    return m_ptr != nullptr;
+  }
+  bool is_none() const noexcept {
+    return m_ptr == nullptr;
+  }
+  explicit operator bool() const noexcept {
+    return m_ptr != nullptr;
+  }
 
   T &unwrap() const {
     XPP_ASSERT(m_ptr != nullptr, "unwrap() on None Option<T&>");
@@ -402,14 +408,12 @@ public:
     return r;
   }
 
-  template <class Func>
-  auto map(Func &&fn) const -> Option<decltype(fn(std::declval<T &>()))> {
+  template <class Func> auto map(Func &&fn) const -> Option<decltype(fn(std::declval<T &>()))> {
     using U = decltype(fn(std::declval<T &>()));
     return m_ptr ? Option<U>(fn(*m_ptr)) : Option<U>(none);
   }
 
-  template <class Func>
-  auto and_then(Func &&fn) const -> decltype(fn(std::declval<T &>())) {
+  template <class Func> auto and_then(Func &&fn) const -> decltype(fn(std::declval<T &>())) {
     using R = decltype(fn(std::declval<T &>()));
     return m_ptr ? fn(*m_ptr) : R(none);
   }

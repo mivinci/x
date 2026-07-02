@@ -531,10 +531,10 @@ protected:
           xEventLoopStop(self->loop);
         }
       },
-      this, 5, 5);
+      this, NULL, 5, 5);
 
     xTimer watchdog = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
-                                  loop, static_cast<uint64_t>(timeout_ms), 0);
+                                  loop, NULL, static_cast<uint64_t>(timeout_ms), 0);
 
     xEventLoopRun(loop, X_RUN_DEFAULT);
 
@@ -763,10 +763,10 @@ TEST_F(DtlsWrongFingerprintTest, WrongFingerprintCausesFailure) {
       auto *c = static_cast<CheckerCtx *>(arg);
       if (*c->active_state == xDtlsState_Failed) xEventLoopStop(c->loop);
     },
-    &ctx, 5, 5);
+    &ctx, NULL, 5, 5);
 
-  xTimer watchdog =
-    xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 5000, 0);
+  xTimer watchdog = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
+                                loop, NULL, 5000, 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
 

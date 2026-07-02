@@ -41,7 +41,7 @@ static void generate_txn_id(uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
 static void txn_retransmit(void *arg);
 
 static void txn_schedule_retransmit(xStunTxn *txn) {
-  txn->timer = xTimerStart(txn_retransmit, txn, txn->rto_ms, 0);
+  txn->timer = xTimerStart(txn_retransmit, txn, NULL, txn->rto_ms, 0);
 }
 
 static void txn_retransmit(void *arg) {

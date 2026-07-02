@@ -70,7 +70,7 @@ int main() {
         xTimerStart([](void* arg) {
             auto* lp = static_cast<xpp::EventLoop*>(arg);
             lp->stop();
-        }, &loop, 100, 0);
+        }, &loop, NULL, 100, 0);
 
         loop.run();  // Blocks ~100ms, then timer fires → stop
     }
@@ -89,7 +89,7 @@ xpp::EventLoop loop;
 
     xTimerStart([](void* arg) {
         static_cast<decltype(r)*>(arg)->resolve(42);
-    }, &r, 50, 0);
+    }, &r, NULL, 50, 0);
 
     int result = r.promise().wait();  // EventLoop::current() succeeds
 }

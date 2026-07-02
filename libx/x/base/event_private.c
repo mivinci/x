@@ -85,7 +85,9 @@ int loop_run_timers(struct xEventLoop_ *loop) {
   struct xTimer_ *t, *tmp;
   xListForEachEntrySafe(t, tmp, &ready, ready_node) {
     xListDel(&t->ready_node);
-    /* Re-arm or recycle BEFORE firing the callback. */
+    /* Re-arm or recycle BEFORE firing the callback.
+     * NOTE: on_cancel is NOT invoked on the fire path — only fn runs.
+     * on_cancel is destroy-only (see timer_heap_destroy in event_private.h). */
     if (t->repeat_ms > 0 && t->heap_idx == TIMER_INVALID_IDX) {
       t->deadline += t->repeat_ms;
       t->fired = 0;

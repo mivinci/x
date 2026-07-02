@@ -858,9 +858,9 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
       if (b->a->load(std::memory_order_acquire) && b->b->load(std::memory_order_acquire))
         xEventLoopStop(xEventLoopCurrent());
     },
-    &both, 5, 5);
-  xTimer watchdog =
-    xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 5000, 0);
+    &both, NULL, 5, 5);
+  xTimer watchdog = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
+                                loop, NULL, 5000, 0);
 
   xEventLoopRun(loop, X_RUN_DEFAULT);
   if (checker) xTimerStop(checker);

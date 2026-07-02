@@ -26,7 +26,7 @@
 graph TD
     subgraph "Public API"
         ADD["xEventAdd(fd, mask, fn, arg)"]
-        TIMER["xTimerStart(fn, arg, timeout, repeat)"]
+        TIMER["xTimerStart(fn, arg, on_cancel, timeout, repeat)"]
         WORK["xWorkSubmit(group, work_fn, done_fn, arg)"]
         POST["xEventLoopPost(loop, fn, arg)"]
         SIGNAL["xSignal(signo, fn, arg)"]
@@ -105,7 +105,7 @@ sequenceDiagram
 
     App->>EL: xEventLoopCreate()
     App->>EL: xEventAdd(fd, mask, callback)
-    App->>EL: xTimerStart(on_timer, arg, 1000, 0)
+    App->>EL: xTimerStart(on_timer, arg, NULL, 1000, 0)
     App->>EL: xWorkSubmit(group, work, done, arg)
     Pool-->>DoneQ: push result (async)
     App->>EL: xEventLoopRun(X_RUN_DEFAULT)
@@ -175,7 +175,7 @@ sequenceDiagram
 
 | Function | Signature | Thread Safety |
 | --- | --- | --- |
-| `xTimerStart` | `xTimer xTimerStart(xTimerFunc fn, void *arg, uint64_t timeout_ms, uint64_t repeat_ms)` | Not thread-safe |
+| `xTimerStart` | `xTimer xTimerStart(xTimerFunc fn, void *arg, xTimerFunc on_cancel, uint64_t timeout_ms, uint64_t repeat_ms)` | Not thread-safe |
 | `xTimerStop` | `xErrno xTimerStop(xTimer timer)` | **Thread-safe** |
 
 #### Cross-Thread
@@ -219,7 +219,7 @@ int main(void) {
     if (!loop) return 1;
 
     // Fire after 500ms, one-shot (repeat_ms = 0)
-    xTimerStart(on_timer, loop, 500, 0);
+    xTimerStart(on_timer, loop, NULL, 500, 0);
 
     xEventLoopRun(loop, X_RUN_DEFAULT);
     xEventLoopDestroy(loop);
@@ -252,7 +252,7 @@ int main(void) {
     xEventAdd(STDIN_FILENO, xEvent_Read, on_readable, NULL);
 
     // Run for up to 10 seconds, then stop
-    xTimerStart((xTimerFunc)xEventLoopStop, loop, 10000, 0);
+    xTimerStart((xTimerFunc)xEventLoopStop, loop, NULL, 10000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
 
     xEventLoopDestroy(loop);
@@ -274,7 +274,7 @@ static void on_timer(void *arg) {
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
 
-    xTimerStart(on_timer, loop, 500, 0);
+    xTimerStart(on_timer, loop, NULL, 500, 0);
 
     // Run loop with timer-driven stop after 500ms
     xEventLoopRun(loop, X_RUN_DEFAULT);
@@ -345,7 +345,7 @@ int main(void) {
     xWorkSubmit(NULL, heavy_work, on_done, &value);
 
     // Run briefly to process the completion
-    xTimerStart((xTimerFunc)xEventLoopStop, loop, 1000, 0);
+    xTimerStart((xTimerFunc)xEventLoopStop, loop, NULL, 1000, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
 
     xEventLoopDestroy(loop);
@@ -436,7 +436,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
 
     // Fire every 200ms (repeat_ms > 0 for repeating)
-    xTimerStart(on_tick, loop, 200, 200);
+    xTimerStart(on_tick, loop, NULL, 200, 200);
 
     xEventLoopRun(loop, X_RUN_DEFAULT);
     xEventLoopDestroy(loop);
@@ -460,7 +460,7 @@ static void on_timer(void *arg) {
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
 
-    xTimerStart(on_timer, loop, 100, 0);
+    xTimerStart(on_timer, loop, NULL, 100, 0);
 
     // Pump one iteration at a time (blocks until event or timer fires)
     for (int elapsed = 0; elapsed < 500 && callback_count == 0; elapsed += 10) {
@@ -484,7 +484,7 @@ int main(void) {
     if (!loop) return 1;
 
     // Register a repeating timer
-    xTimerStart((xTimerFunc)(void (*)(void *))puts, "tick", 0, 500);
+    xTimerStart((xTimerFunc)(void (*)(void *))puts, "tick", NULL, 0, 500);
 
     // Get the backend fd for embedding (kqueue fd, epoll fd, etc.)
     int fd = xEventLoopFd(loop);
@@ -614,7 +614,7 @@ Each backend uses the lightest available mechanism for cross-thread wakeup:
 
 Builtin timers are stored in a min-heap inside the event loop. Before each polling call, the effective timeout is clamped to the earliest timer deadline. After I/O dispatch, expired timers are popped and fired. Timer operations (`xTimerStart`, `xTimerStop`) are thread-safe, protected by `timer_mu`.
 
-`xTimerStart(fn, arg, timeout_ms, repeat_ms)` combines the old `xEventLoopTimerAfter` (one-shot) and `xEventLoopTimerAt` (absolute time) into a single function. Pass `repeat_ms = 0` for one-shot behavior, or a positive value for repeating timers.
+`xTimerStart(fn, arg, NULL, timeout_ms, repeat_ms)` combines the old `xEventLoopTimerAfter` (one-shot) and `xEventLoopTimerAt` (absolute time) into a single function. Pass `repeat_ms = 0` for one-shot behavior, or a positive value for repeating timers.
 
 ### Signal Handling
 

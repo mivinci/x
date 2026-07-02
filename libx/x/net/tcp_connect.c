@@ -418,7 +418,7 @@ xErrno xTcpConnect(const char *host, uint16_t port, const xTcpConnectConf *conf,
 
   /* Set timeout */
   int timeout_ms = c->conf.timeout_ms > 0 ? c->conf.timeout_ms : XTCP_DEFAULT_TIMEOUT_MS;
-  c->timer       = xTimerStart(connector_timeout_cb, c, (uint64_t)timeout_ms, 0);
+  c->timer       = xTimerStart(connector_timeout_cb, c, NULL, (uint64_t)timeout_ms, 0);
 
   /* Start DNS resolution */
   char port_str[8];

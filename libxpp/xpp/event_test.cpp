@@ -97,7 +97,7 @@ TEST(EventLoopTest, StopReturnsFromRun) {
       auto *l = static_cast<xpp::EventLoop *>(arg);
       l->stop();
     },
-    &loop, 50, 0);
+    &loop, NULL, 50, 0);
 
   loop.run();
   if (t) xTimerStop(t);
@@ -110,7 +110,7 @@ TEST(EventLoopTest, RunWithRunModeDefault) {
   xpp::WaitScope scope(loop);
 
   xTimer t =
-    xTimerStart([](void *arg) { static_cast<xpp::EventLoop *>(arg)->stop(); }, &loop, 30, 0);
+    xTimerStart([](void *arg) { static_cast<xpp::EventLoop *>(arg)->stop(); }, &loop, NULL, 30, 0);
 
   loop.run(xpp::RunMode::Default);
   if (t) xTimerStop(t);

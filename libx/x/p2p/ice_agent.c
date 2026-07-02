@@ -513,7 +513,7 @@ static void symmetric_keepalive_cb(void *arg);
 static void schedule_next_check(xIceAgent_ *a) {
   if (a->state != xIceAgentState_Checking) return;
 
-  a->check_timer = xTimerStart(check_pacing_cb, a, XICE_CHECK_PACING_MS, 0);
+  a->check_timer = xTimerStart(check_pacing_cb, a, NULL, XICE_CHECK_PACING_MS, 0);
 }
 
 static void check_pacing_cb(void *arg) {
@@ -797,7 +797,7 @@ static void start_checks(xIceAgent_ *a) {
   schedule_next_check(a);
 
   /* Start overall check timeout */
-  a->check_timeout = xTimerStart(check_timeout_cb, a, XICE_CHECK_TIMEOUT_MS, 0);
+  a->check_timeout = xTimerStart(check_timeout_cb, a, NULL, XICE_CHECK_TIMEOUT_MS, 0);
 }
 
 /* ───────────────────── Symmetric NAT Keepalive ───────────────────── */
@@ -826,7 +826,8 @@ static void symmetric_keepalive_cb(void *arg) {
   }
 
   /* Schedule next keepalive */
-  a->aggressive_timer = xTimerStart(symmetric_keepalive_cb, a, XICE_SYMMETRIC_KEEPALIVE_MS, 0);
+  a->aggressive_timer =
+    xTimerStart(symmetric_keepalive_cb, a, NULL, XICE_SYMMETRIC_KEEPALIVE_MS, 0);
 }
 
 /**
@@ -853,7 +854,7 @@ static void start_symmetric_keepalive(xIceAgent_ *a) {
     xTimerStop(a->check_timeout);
     a->check_timeout = NULL;
   }
-  a->check_timeout = xTimerStart(check_timeout_cb, a, XICE_CHECK_TIMEOUT_AGGRESSIVE_MS, 0);
+  a->check_timeout = xTimerStart(check_timeout_cb, a, NULL, XICE_CHECK_TIMEOUT_AGGRESSIVE_MS, 0);
 
   /* Start the first keepalive immediately */
   symmetric_keepalive_cb(a);
@@ -888,7 +889,8 @@ static void aggressive_pacing_cb(void *arg) {
 
   if (a->spray_index < a->pair_count) {
     /* More spray pairs to send */
-    a->aggressive_timer = xTimerStart(aggressive_pacing_cb, a, XICE_CHECK_PACING_AGGRESSIVE_MS, 0);
+    a->aggressive_timer =
+      xTimerStart(aggressive_pacing_cb, a, NULL, XICE_CHECK_PACING_AGGRESSIVE_MS, 0);
   } else {
     XDEBUGL1("[ice] spray: all %d spray pairs dispatched", a->pair_count - a->spray_pair_start);
   }
@@ -922,7 +924,7 @@ static void start_aggressive_spray(xIceAgent_ *a) {
     xTimerStop(a->check_timeout);
     a->check_timeout = NULL;
   }
-  a->check_timeout = xTimerStart(check_timeout_cb, a, XICE_CHECK_TIMEOUT_AGGRESSIVE_MS, 0);
+  a->check_timeout = xTimerStart(check_timeout_cb, a, NULL, XICE_CHECK_TIMEOUT_AGGRESSIVE_MS, 0);
 
   /* Record where spray pairs start */
   a->spray_pair_start = a->pair_count;
@@ -1024,8 +1026,9 @@ static void start_aggressive_spray(xIceAgent_ *a) {
   }
 
   /* Start fast pacing for spray pairs */
-  a->spray_index      = a->spray_pair_start;
-  a->aggressive_timer = xTimerStart(aggressive_pacing_cb, a, XICE_CHECK_PACING_AGGRESSIVE_MS, 0);
+  a->spray_index = a->spray_pair_start;
+  a->aggressive_timer =
+    xTimerStart(aggressive_pacing_cb, a, NULL, XICE_CHECK_PACING_AGGRESSIVE_MS, 0);
 }
 
 /* ───────────────────── Consent Freshness ───────────────────── */
@@ -1073,11 +1076,11 @@ static void consent_cb(void *arg) {
   }
 
   /* Schedule next consent check */
-  a->consent_timer = xTimerStart(consent_cb, a, XICE_CONSENT_INTERVAL_MS, 0);
+  a->consent_timer = xTimerStart(consent_cb, a, NULL, XICE_CONSENT_INTERVAL_MS, 0);
 }
 
 static void start_consent(xIceAgent_ *a) {
-  a->consent_timer = xTimerStart(consent_cb, a, XICE_CONSENT_INTERVAL_MS, 0);
+  a->consent_timer = xTimerStart(consent_cb, a, NULL, XICE_CONSENT_INTERVAL_MS, 0);
 }
 
 /* ───────────────────── Gathering ───────────────────── */
@@ -2204,7 +2207,7 @@ xErrno xIceAgentGather(xIceAgent agent) {
   }
 
   /* Start gathering timeout (fallback for slow servers) */
-  a->gather_timer = xTimerStart(gather_timeout_cb, a, XICE_GATHER_TIMEOUT_MS, 0);
+  a->gather_timer = xTimerStart(gather_timeout_cb, a, NULL, XICE_GATHER_TIMEOUT_MS, 0);
 
   return xErrno_Ok;
 }

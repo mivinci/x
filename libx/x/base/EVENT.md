@@ -157,15 +157,15 @@ void on_stdin(int fd, xEventMask mask, void *arg) {
 
 | API | 说明 |
 |---|---|
-| `xTimerStart(fn, arg, timeout_ms, repeat_ms)` | 创建定时器；repeat_ms=0 表示单次触发，>0 表示重复触发 |
+| `xTimerStart(fn, arg, NULL, timeout_ms, repeat_ms)` | 创建定时器；repeat_ms=0 表示单次触发，>0 表示重复触发 |
 | `xTimerStop(timer)` | 停止定时器，线程安全（从其他线程调用时内部通过 xEventLoopPost 投递）|
 
 ```c
 // 100ms 后一次性超时
-xTimerStart(on_timeout, ctx, 100, 0);
+xTimerStart(on_timeout, ctx, NULL, 100, 0);
 
 // 每 50ms 重复触发
-xTimer t = xTimerStart(on_tick, ctx, 50, 50);
+xTimer t = xTimerStart(on_tick, ctx, NULL, 50, 50);
 
 // 从其他线程停止
 xTimerStop(t);

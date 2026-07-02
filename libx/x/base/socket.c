@@ -95,13 +95,13 @@ static void cancel_write_timer(struct xSocket_ *s) {
 static void reset_read_timer(struct xSocket_ *s) {
   if (s->read_timeout_ms <= 0) return;
   cancel_read_timer(s);
-  s->read_timer = xTimerStart(read_timeout_cb, s, (uint64_t)s->read_timeout_ms, 0);
+  s->read_timer = xTimerStart(read_timeout_cb, s, NULL, (uint64_t)s->read_timeout_ms, 0);
 }
 
 static void reset_write_timer(struct xSocket_ *s) {
   if (s->write_timeout_ms <= 0) return;
   cancel_write_timer(s);
-  s->write_timer = xTimerStart(write_timeout_cb, s, (uint64_t)s->write_timeout_ms, 0);
+  s->write_timer = xTimerStart(write_timeout_cb, s, NULL, (uint64_t)s->write_timeout_ms, 0);
 }
 
 /* ───────────────────── Lifecycle ───────────────────── */
@@ -261,7 +261,7 @@ xErrno xSocketSetTimeout(xSocket sock, int read_timeout_ms, int write_timeout_ms
   s->read_timeout_ms = read_timeout_ms;
   if (read_timeout_ms > 0) {
     cancel_read_timer(s);
-    s->read_timer = xTimerStart(read_timeout_cb, s, (uint64_t)read_timeout_ms, 0);
+    s->read_timer = xTimerStart(read_timeout_cb, s, NULL, (uint64_t)read_timeout_ms, 0);
   } else {
     cancel_read_timer(s);
   }
@@ -270,7 +270,7 @@ xErrno xSocketSetTimeout(xSocket sock, int read_timeout_ms, int write_timeout_ms
   s->write_timeout_ms = write_timeout_ms;
   if (write_timeout_ms > 0) {
     cancel_write_timer(s);
-    s->write_timer = xTimerStart(write_timeout_cb, s, (uint64_t)write_timeout_ms, 0);
+    s->write_timer = xTimerStart(write_timeout_cb, s, NULL, (uint64_t)write_timeout_ms, 0);
   } else {
     cancel_write_timer(s);
   }

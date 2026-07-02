@@ -15,6 +15,8 @@
 #ifndef XPP_PROMISE_NODE_H
 #define XPP_PROMISE_NODE_H
 
+#include <utility>
+
 #include <xpp/compiler.h>
 #include <xpp/event.h>
 #include <xpp/option.h>
@@ -22,8 +24,6 @@
 #include <xpp/panic.h>
 #include <xpp/promise_waker.h>
 #include <xpp/void.h>
-
-#include <utility>
 
 namespace xpp {
 
@@ -132,13 +132,13 @@ public:
   Option<OutputType> poll(const PromiseWaker &waker) override {
     auto r = m_dep->poll(waker);
     if (r.is_none()) return none;
-    r.unwrap();  // consume the Void
+    r.unwrap(); // consume the Void
     return Option<OutputType>(::xpp::_voidwrap::call<U>(m_fn));
   }
 
 private:
   Own<PromiseNode<void>> m_dep;
-  Func                    m_fn;
+  Func                   m_fn;
 };
 
 template <class T, class Func>
@@ -194,8 +194,7 @@ template <class T> class ChainPromiseNode final : public PromiseNode<T> {
 public:
   using ValueType = typename PromiseNode<T>::ValueType;
 
-  explicit ChainPromiseNode(Own<PromiseNode<Promise<T>>> outer)
-      : m_outer(std::move(outer)) {}
+  explicit ChainPromiseNode(Own<PromiseNode<Promise<T>>> outer) : m_outer(std::move(outer)) {}
 
   Option<ValueType> poll(const PromiseWaker &waker) override {
     if (m_inner) {
@@ -242,17 +241,16 @@ public:
   }
 
   void resolve(T &&value) {
-    XPP_ASSERT(!m_resolved.load(std::memory_order_relaxed),
-               "AdapterPromiseNode resolved twice");
+    XPP_ASSERT(!m_resolved.load(std::memory_order_relaxed), "AdapterPromiseNode resolved twice");
     m_val = Option<ValueType>(std::move(value));
     m_resolved.store(true, std::memory_order_release);
     m_waker.wake();
   }
 
 private:
-  Option<ValueType>   m_val;
-  PromiseAtomicWaker          m_waker;
-  std::atomic<bool>    m_resolved{false};
+  Option<ValueType>  m_val;
+  PromiseAtomicWaker m_waker;
+  std::atomic<bool>  m_resolved{false};
 };
 
 /// AdapterPromiseNode<Void> — same protocol, no value storage.
@@ -273,15 +271,14 @@ public:
   }
 
   void resolve() {
-    XPP_ASSERT(!m_resolved.load(std::memory_order_relaxed),
-               "AdapterPromiseNode resolved twice");
+    XPP_ASSERT(!m_resolved.load(std::memory_order_relaxed), "AdapterPromiseNode resolved twice");
     m_resolved.store(true, std::memory_order_release);
     m_waker.wake();
   }
 
 private:
-  PromiseAtomicWaker       m_waker;
-  std::atomic<bool> m_resolved{false};
+  PromiseAtomicWaker m_waker;
+  std::atomic<bool>  m_resolved{false};
 };
 
 /* ── YieldPromiseNode ────────────────────────────────────────────── */
@@ -293,7 +290,7 @@ public:
   }
 };
 
-}  // namespace _
-}  // namespace xpp
+} // namespace _
+} // namespace xpp
 
-#endif  // XPP_PROMISE_NODE_H
+#endif // XPP_PROMISE_NODE_H

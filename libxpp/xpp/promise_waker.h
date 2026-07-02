@@ -22,9 +22,9 @@
 #ifndef XPP_PROMISE_WAKER_H
 #define XPP_PROMISE_WAKER_H
 
-#include <xpp/event.h>
-
 #include <atomic>
+
+#include <xpp/event.h>
 
 namespace xpp {
 
@@ -51,9 +51,7 @@ public:
       *m_done = true;
     } else {
       // Cross-thread — post to the loop's done queue.
-      xEventLoopPost(m_loop,
-        [](void *a) { *static_cast<bool *>(a) = true; },
-        m_done);
+      xEventLoopPost(m_loop, [](void *a) { *static_cast<bool *>(a) = true; }, m_done);
     }
   }
 
@@ -106,7 +104,7 @@ public:
     uint8_t expected = WAITING;
     if (m_state.compare_exchange_strong(expected, REGISTERING, std::memory_order_acquire,
                                         std::memory_order_relaxed)) {
-      m_waker = std::move(waker);
+      m_waker      = std::move(waker);
       uint8_t prev = m_state.exchange(WAITING, std::memory_order_acq_rel);
       if (prev == (REGISTERING | WAKING)) {
         m_waker.wake();
@@ -139,6 +137,6 @@ private:
   PromiseWaker         m_waker;
 };
 
-}  // namespace xpp
+} // namespace xpp
 
-#endif  // XPP_PROMISE_WAKER_H
+#endif // XPP_PROMISE_WAKER_H

@@ -140,11 +140,8 @@ fail:
 static void poll_destroy(struct xEventLoop_ *loop) {
   struct xEventLoopPoll_ *pl = (struct xEventLoopPoll_ *)loop;
 
-  /* Discard all pending timers without firing */
-  while (xHeapSize(loop->timer_heap) > 0) {
-    struct xTimer_ *t = (struct xTimer_ *)xHeapPop(loop->timer_heap);
-    timer_free(loop, t);
-  }
+  /* Discard all pending timers, invoking on_cancel for each, then free. */
+  timer_heap_destroy(loop);
   timer_pool_destroy(loop);
   xHeapDestroy(loop->timer_heap);
 

@@ -373,8 +373,8 @@ TEST(EventMod, SwitchReadToWrite) {
 
   /* No data to read — wait briefly, no read event expected */
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 50, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 50, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -383,8 +383,8 @@ TEST(EventMod, SwitchReadToWrite) {
   EXPECT_EQ(xEventMod(src, xEvent_Write), xErrno_Ok);
 
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 50, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 50, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -426,7 +426,7 @@ TEST(EventTimeout, TimesOutWhenNoEvents) {
 
   auto   start = std::chrono::steady_clock::now();
   xTimer t =
-    xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 80, 0);
+    xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, NULL, 80, 0);
   xEventLoopRun(loop, X_RUN_DEFAULT);
   if (t) xTimerStop(t);
   auto elapsed = std::chrono::duration_cast<ms>(std::chrono::steady_clock::now() - start).count();
@@ -587,8 +587,8 @@ TEST(EventConcurrent, WakeWhileWaiting) {
   });
 
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -639,8 +639,8 @@ TEST(EventStress, ManySourcesManyEvents) {
       write_fd(pipes[i][1], "x", 1);
 
     {
-      xTimer t =
-        xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+      xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                             NULL, 500, 0);
       xEventLoopRun(loop, X_RUN_DEFAULT);
       if (t) xTimerStop(t);
     }
@@ -821,8 +821,8 @@ TEST(EventSignal, BasicRegisterAndTrigger) {
   kill(getpid(), SIGUSR1);
 
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -848,8 +848,8 @@ TEST(EventSignal, CancelStopsCallback) {
 
   kill(getpid(), SIGUSR1);
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -861,8 +861,8 @@ TEST(EventSignal, CancelStopsCallback) {
   int saved = count;
   kill(getpid(), SIGUSR1);
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -890,8 +890,8 @@ TEST(EventSignal, ReplaceCallback) {
   kill(getpid(), SIGUSR1);
 
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -937,8 +937,8 @@ TEST(EventSignal, MultipleSignals) {
   kill(getpid(), SIGUSR2);
 
   {
-    xTimer t =
-      xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 500, 0);
+    xTimer t = xTimerStart([](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
+                           NULL, 500, 0);
     xEventLoopRun(loop, X_RUN_DEFAULT);
     if (t) xTimerStop(t);
   }
@@ -1006,7 +1006,7 @@ TEST(EventLoopNextTimeout, ReturnsMillisUntilNextTimer) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
   xEventLoopEnter(loop);
-  xTimer t = xTimerStart([](void *) {}, nullptr, 500, 0);
+  xTimer t = xTimerStart([](void *) {}, nullptr, NULL, 500, 0);
   ASSERT_NE(t, nullptr);
   int timeout = xEventLoopNextTimeout(loop);
   EXPECT_GE(timeout, 0);
@@ -1020,7 +1020,7 @@ TEST(EventLoopNextTimeout, ReturnsZeroForExpiredTimer) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
   xEventLoopEnter(loop);
-  xTimer t = xTimerStart([](void *) {}, nullptr, 0, 0);
+  xTimer t = xTimerStart([](void *) {}, nullptr, NULL, 0, 0);
   ASSERT_NE(t, nullptr);
   int timeout = xEventLoopNextTimeout(loop);
   EXPECT_EQ(timeout, 0);

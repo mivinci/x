@@ -9,12 +9,11 @@
  * combinators, void-pointer SFINAE, and death-test contract checks.
  */
 
-#include <gtest/gtest.h>
-
 #include <string>
 #include <type_traits>
 #include <utility>
 
+#include <gtest/gtest.h>
 #include <xpp/nonnull.h>
 
 /* ── Compile-time guarantees ─────────────────────────────────────────── */

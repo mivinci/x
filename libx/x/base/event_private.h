@@ -92,6 +92,7 @@ struct xTimer_ {
   uint64_t        deadline;
   xTimerFunc      fn;
   void           *arg;
+  xTimerFunc      on_cancel; /* Invoked on loop destroy, NOT on stop or fire. */
   size_t          heap_idx;
   int             fired;
   struct xTimer_ *next_free;
@@ -276,6 +277,20 @@ static inline void timer_pool_destroy(struct xEventLoop_ *loop) {
   }
   loop->timer_free  = NULL;
   loop->timer_nfree = 0;
+}
+
+/* Destroy all pending timers on the heap, invoking on_cancel for each.
+ * Called from each backend's *_destroy path. Runs on the event loop
+ * thread. For each pending timer: if on_cancel is non-NULL, invoke it
+ * with the timer's arg; then recycle the timer struct via timer_free.
+ * Neither fn nor on_cancel may call back into the loop — the loop is
+ * being torn down. */
+static inline void timer_heap_destroy(struct xEventLoop_ *loop) {
+  while (xHeapSize(loop->timer_heap) > 0) {
+    struct xTimer_ *t = (struct xTimer_ *)xHeapPop(loop->timer_heap);
+    if (t->on_cancel) t->on_cancel(t->arg);
+    timer_free(loop, t);
+  }
 }
 
 /* ── Loop state helpers ── */

@@ -17,7 +17,7 @@
  *   }                       // WaitScope leaves the loop
  *
  *   // Interop with C API:
- *   xTimer t = xTimerStart(my_cb, loop.handle(), 100, 0);
+ *   xTimer t = xTimerStart(my_cb, loop.handle(), NULL, 100, 0);
  */
 
 #ifndef XPP_EVENT_H
@@ -152,6 +152,6 @@ private:
   xEventLoop m_loop;
 };
 
-}  // namespace xpp
+} // namespace xpp
 
-#endif  // XPP_EVENT_H
+#endif // XPP_EVENT_H

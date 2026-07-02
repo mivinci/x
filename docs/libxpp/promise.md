@@ -207,7 +207,7 @@ int main() {
             auto *rr = static_cast<decltype(r) *>(arg);
             rr->resolve(42);
         },
-        &r, 100, 0);
+        &r, NULL, 100, 0);
 
     int result = p.wait();  // blocks ~100ms
     // result == 42

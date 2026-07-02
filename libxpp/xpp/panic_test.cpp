@@ -9,10 +9,9 @@
  * "threadsafe" style (re-exec rather than fork, ASan-safe).
  */
 
-#include <gtest/gtest.h>
-
 #include <cstddef>
 
+#include <gtest/gtest.h>
 #include <xpp/panic.h>
 #include <xpp/variant.h>
 
@@ -87,12 +86,12 @@ namespace {
 struct CapturedPanic {
   std::string msg;
   bool        had_backtrace = false;
-  int         count        = 0;
+  int         count         = 0;
 };
 
 void capture_panic(const char *msg, const char *backtrace, void *ud) {
-  auto *cap         = static_cast<CapturedPanic *>(ud);
-  cap->msg          = msg ? msg : "";
+  auto *cap          = static_cast<CapturedPanic *>(ud);
+  cap->msg           = msg ? msg : "";
   cap->had_backtrace = (backtrace != nullptr);
   cap->count++;
   // Don't return — the contract says fatal callbacks must abort. Calling

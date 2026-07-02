@@ -296,7 +296,7 @@ static int timer_callback(CURLM *multi, long timeout_ms, void *userp) {
   if (timeout_ms > 200) timeout_ms = 200;
 
   /* Schedule a new timer */
-  c->timer = xTimerStart(on_timeout, c, (uint64_t)timeout_ms, 0);
+  c->timer = xTimerStart(on_timeout, c, NULL, (uint64_t)timeout_ms, 0);
   return 0;
 }
 
@@ -314,7 +314,7 @@ static void on_timeout(void *arg) {
    * new timer (e.g. during threaded DNS resolution, curl may report
    * timeout_ms=-1), set a short polling timer to ensure progress. */
   if (running > 0 && !c->timer) {
-    c->timer = xTimerStart(on_timeout, c, 100, 0);
+    c->timer = xTimerStart(on_timeout, c, NULL, 100, 0);
   }
 }
 
