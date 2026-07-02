@@ -55,6 +55,7 @@
 - [libxpp](libxpp/promise.md)
   - [EventLoop & WaitScope](libxpp/event.md)
   - [Promise\<T\>](libxpp/promise.md)
+  - [Timer](libxpp/timer.md)
   - [Result\<T, E\>](libxpp/result.md)
   - [Option\<T\>](libxpp/option.md)
   - [Own\<T\>](libxpp/own.md)
