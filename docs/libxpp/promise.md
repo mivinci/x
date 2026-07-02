@@ -253,6 +253,8 @@ xpp::Promise<void>::after(100)
 
 `after(ms)` schedules a one-shot timer on the current event loop. Available only on `Promise<void>`. Chain with `.then()` to start computation after the delay.
 
+The returned promise owns a `TimerPromiseNode` that manages the timer's lifecycle. The promise must be destroyed on the same WaitScope thread (its destructor stops the timer if it has not yet fired).
+
 ### Cross-Thread Resolve
 
 ```cpp
@@ -479,6 +481,6 @@ Both `xEventLoopRun` calls see the same thread-local loop handle because `WaitSc
 | --- | --- | --- |
 | `PromiseResolver::create()` | `AdapterPromiseNode` | Deferred cross-thread resolution |
 | `Promise::resolve(v)` | `ImmediatePromiseNode` | Immediate synchronous completion |
-| `Promise<void>::after(ms)` | `PromiseResolver<void>` + `xTimerStart` | Timer-based delayed resolution |
+| `Promise<void>::after(ms)` | `TimerPromiseNode` | Timer-based delayed resolution; owns `xTimer` handle, uses `on_cancel` for safe shutdown |
 | `.then(fn)` | `TransformPromiseNode` / `ChainPromiseNode` | Value transformation / auto-flatten |
 | `yield()` | `YieldPromiseNode` | Chain entry point for eval() |
