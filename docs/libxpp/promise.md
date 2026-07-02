@@ -95,31 +95,29 @@ graph TD
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant P as Promise&lt;T&gt;
-    participant N as AdapterPromiseNode
-    participant W as PromiseAtomicWaker
-    participant L as xEventLoop
-    participant R as PromiseResolver (other thread)
+    participant P as Promise
+    participant N as Node
+    participant W as Waker
+    participant L as Loop
+    participant R as Resolver
 
     U->>P: wait()
     P->>N: poll(waker)
-    N->>W: register_waker(waker)
-    W-->>N: registered
-    N-->>P: None (pending)
-    P->>L: xEventLoopRun(X_RUN_DEFAULT)
+    N->>W: register_waker
+    W-->>N: ok
+    N-->>P: None
+    P->>L: xEventLoopRun
 
-    Note over L: drain done → poll I/O → timers → ...
+    Note over L: drain done, poll I/O, timers
 
     R->>N: resolve(value)
-    N->>N: m_val = Some(value)
-    N->>N: m_resolved.store(true, release)
+    N->>N: store value
     N->>W: wake()
-    W->>L: xEventLoopPost(loop, set-done, &done)
-    L-->>L: drain done → *done = true
+    W->>L: post done flag
+    L-->>L: set done
     L-->>P: Run returns
 
     P->>N: poll(waker)
-    N->>N: m_resolved.load(acquire) == true
     N-->>P: Some(value)
     P-->>U: value
 ```
