@@ -130,7 +130,7 @@ sequenceDiagram
 
 | Type | Description |
 | --- | --- |
-| `Promise<T>` | Move-only deferred value. `then()`, `wait()`, `discard()`, `resolve()`. |
+| `Promise<T>` | Move-only deferred value. `then()`, `wait()`, `discard()`, `resolve()`, `after()` (void only). |
 | `PromiseResolver<T>` | Manual fulfillment handle. `promise()`, `resolve()`, `is_pending()`. |
 | `Void` | Unit type representing `void` as a storable value (`struct Void {}`). |
 | `FixVoid<T>` | Metafunction: `FixVoid<T>::Type` → `T`; `FixVoid<void>::Type` → `Void`. |
@@ -151,6 +151,7 @@ sequenceDiagram
 | `Promise<void> discard()` | Discard the value, return `Promise<void>`. |
 | `T wait()` | Block until resolved, driving the event loop. Consumes the promise. |
 | `static auto eval(Func fn)` | Wrap a synchronous function as a promise (void → then → fn). |
+| `static Promise<void> after(uint64_t ms)` | (Promise\<void\> only) Resolves after `ms` ms via one-shot timer. |
 | `operator bool()` | True if non-empty (holds a node). |
 
 ### PromiseResolver\<T\> Members
@@ -236,6 +237,21 @@ xpp::Promise<void>::resolve()
     .wait();
 // counter == 3
 ```
+
+### Timer Delay (after)
+
+```cpp
+#include <xpp/promise.h>
+
+xpp::EventLoop loop;
+xpp::WaitScope scope(loop);
+
+xpp::Promise<void>::after(100)
+    .then([]() { printf("100ms elapsed\n"); })
+    .wait();
+```
+
+`after(ms)` schedules a one-shot timer on the current event loop. Available only on `Promise<void>`. Chain with `.then()` to start computation after the delay.
 
 ### Cross-Thread Resolve
 
@@ -463,5 +479,6 @@ Both `xEventLoopRun` calls see the same thread-local loop handle because `WaitSc
 | --- | --- | --- |
 | `PromiseResolver::create()` | `AdapterPromiseNode` | Deferred cross-thread resolution |
 | `Promise::resolve(v)` | `ImmediatePromiseNode` | Immediate synchronous completion |
+| `Promise<void>::after(ms)` | `PromiseResolver<void>` + `xTimerStart` | Timer-based delayed resolution |
 | `.then(fn)` | `TransformPromiseNode` / `ChainPromiseNode` | Value transformation / auto-flatten |
 | `yield()` | `YieldPromiseNode` | Chain entry point for eval() |

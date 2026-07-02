@@ -27,37 +27,37 @@ At rest, `Own<T>` is `sizeof(T*)` when using the default deleter (empty-base opt
 
 ```mermaid
 classDiagram
-    class Own~T, Deleter~ {
-        -Option~Box~T, Deleter~~ m_inner
+    class Own {
+        -OptionBox m_inner
         +Own() = default
         +Own(T* p)
         +Own(T* p, Deleter d)
-        +Own(Box~T,D~&& nn)
-        +Own(Option~Box~T,D~~&& opt)
+        +Own(Box nn)
+        +Own(OptionBox opt)
         +reset(T* p)
         +take() T*
         +release() T*
         +get() T*
-        +operator*() T&
+        +operator*() T
         +operator->() T*
         +operator bool()
-        +into_nonnull() Option~Box~T,D~~
+        +into_nonnull() OptionBox
     }
-    class Box~T, Deleter~ {
-        <<non-null>>
+    class Box {
+        &lt;&lt;non-null&gt;&gt;
         +from_raw(T*)
         +try_from_raw(T*) Option
         +into_raw() T*
-        +operator*() T&
+        +operator*() T
     }
-    class Option~T~ {
+    class Option {
         +is_some() bool
         +is_none() bool
-        +unwrap() T&
+        +unwrap() T
         +take() Option
     }
-    Own~T,D~ *-- Box~T,D~ : via Option
-    Option~Box~T,D~~ ..> Box~T,D~
+    Own *-- Box : via Option
+    OptionBox ..> Box
 ```
 
 **Own\<T\> is `Option<Box<T>>`. That's the whole implementation.**
