@@ -128,10 +128,13 @@ public:
   /**
    * @brief Return a Promise that resolves after `ms` milliseconds.
    *
-   * Schedules a one-shot timer on the current event loop via
-   * xTimerStart. When the timer fires, the promise resolves.
+   * Schedules a one-shot timer on the current event loop. When the
+   * timer fires, the promise resolves. The returned promise owns a
+   * `TimerPromiseNode` that manages the timer's lifecycle.
    *
-   * Must be called from within a WaitScope.
+   * Must be called from within a WaitScope. The returned promise
+   * MUST be destroyed on the same WaitScope thread — its destructor
+   * stops the timer if it has not yet fired.
    *
    * @param ms  Delay in milliseconds. 0 = "next iteration".
    * @return    Promise<void> that resolves after the delay.
@@ -392,16 +395,7 @@ auto Promise<T>::then(Func &&func)
 template <class T>
 template <class V, class, class>
 inline Promise<void> Promise<T>::after(uint64_t ms) {
-  auto *resolver = new PromiseResolver<void>(PromiseResolver<void>::create());
-  auto  promise  = resolver->promise();
-  xTimerStart(
-    [](void *arg) {
-      auto *r = static_cast<PromiseResolver<void> *>(arg);
-      r->resolve();
-      delete r;
-    },
-    resolver, NULL, ms, 0);
-  return promise;
+  return Promise<void>(Own<_::PromiseNode<void>>(new _::TimerPromiseNode(ms)));
 }
 
 } // namespace xpp

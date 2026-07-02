@@ -600,3 +600,67 @@ TEST(PromiseTest, AfterIndependentTimersAllFire) {
   EXPECT_EQ(a, 42);
   EXPECT_EQ(b, 99);
 }
+
+/* ───────────────────── after() — lifecycle safety tests ───────────────────── */
+
+TEST(PromiseTest, AfterDestroyedBeforeFire) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  /* Construct a promise that won't fire for a long time, then drop it
+   * immediately. ~TimerPromiseNode should call xTimerStop and no
+   * use-after-free should occur. Pumping the loop briefly should not
+   * crash. */
+  {
+    auto p = xpp::Promise<void>::after(60000);
+    (void)p;
+  } // ← ~Promise here
+
+  /* Run the loop briefly to confirm no deferred callback fires. */
+  loop.run(xpp::RunMode::NoWait);
+}
+
+TEST(PromiseTest, AfterLoopDestroyedBeforeFire) {
+  /* Construct a promise with a long delay, then destroy the loop
+   * without firing. The on_cancel_cb should mark the node as fired
+   * and null m_handle. Then dropping the promise should not crash. */
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  {
+    auto p = xpp::Promise<void>::after(60000);
+    (void)p;
+  } // Drop the promise first — ~TimerPromiseNode calls xTimerStop
+
+  /* If we hadn't dropped the promise, destroying the loop would
+   * trigger on_cancel_cb. Test that variant too: */
+  {
+    xpp::EventLoop loop2;
+    xpp::WaitScope scope2(loop2);
+    auto           p = xpp::Promise<void>::after(60000);
+    (void)p;
+    /* ~WaitScope leaves; ~EventLoop destroys loop; on_cancel_cb fires */
+  }
+}
+
+TEST(PromiseTest, AfterStillResolvesOnFire) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  /* Regression: the happy path must still work. */
+  bool fired = false;
+  xpp::Promise<void>::after(10).then([&]() { fired = true; }).wait();
+  EXPECT_TRUE(fired);
+}
+
+TEST(PromiseTest, AfterThenChain) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  /* Composition with then() must still work. */
+  int result = xpp::Promise<void>::after(10)
+                 .then([]() { return 42; })
+                 .then([](int x) { return x * 2; })
+                 .wait();
+  EXPECT_EQ(result, 84);
+}
