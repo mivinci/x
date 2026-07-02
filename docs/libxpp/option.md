@@ -28,44 +28,33 @@ Two key design rules separate it from `std::optional`:
 
 ```mermaid
 classDiagram
-    class Option~T~ {
+    class Option {
         -bool m_has_value
         -aligned_storage m_storage
         +is_some() bool
         +is_none() bool
-        +unwrap() T&
-        +unwrap_unchecked() T&
-        +expect(msg) T&
+        +unwrap() T
+        +unwrap_unchecked() T
+        +expect(msg) T
         +unwrap_or(fallback) T
         +take() Option
-        +map(fn) Option~U~
-        +and_then(fn) Option~U~
+        +map(fn) Option
+        +and_then(fn) Option
         +or_else(fn) Option
         +unwrap_or_else(fn) T
         +filter(pred) Option
-        +inspect(fn) Option&
+        +inspect(fn) Option
         +ok_or(err) Result
         +ok_or_else(fn) Result
     }
-    class Option~T&~ {
-        -T* m_ptr
-        +is_some() bool
-        +unwrap() T&
-        +take() Option
-        +map(fn) Option~U~
-        +and_then(fn) Option~U~
-        +filter(pred) Option
-        +inspect(fn) Option&
-    }
     class None {
-        <<tag>>
+        &lt;&lt;tag&gt;&gt;
     }
     class Some {
-        <<factory function>>
+        &lt;&lt;factory&gt;&gt;
     }
-    Option~T&~ --|> "specializes"
-    Option~T~ ..> None : constructed from
-    Option~T~ ..> Some : constructed via
+    Option ..> None : "constructed from"
+    Option ..> Some : "constructed via"
 ```
 
 **The two variants at a glance:**
