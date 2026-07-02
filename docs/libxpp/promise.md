@@ -190,7 +190,7 @@ int main() {
 
 ```cpp
 #include <xpp/promise.h>
-#include <x/base/event.h>
+#include <xpp/timer.h>
 
 int main() {
     xpp::EventLoop loop;
@@ -200,12 +200,7 @@ int main() {
     auto p = r.promise();
 
     // Schedule resolve after 100ms
-    xTimerStart(
-        [](void *arg) {
-            auto *rr = static_cast<decltype(r) *>(arg);
-            rr->resolve(42);
-        },
-        &r, NULL, 100, 0);
+    xpp::Timer t(100, 0, [&]() { r.resolve(42); });
 
     int result = p.wait();  // blocks ~100ms
     // result == 42
