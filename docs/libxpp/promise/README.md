@@ -73,6 +73,7 @@ graph TD
 - [Timers & Timeouts](timers.md) — `after(ms)`, timeout pattern with `race`
 - [Combinators](combinators.md) — `all()`, `race()`, concurrent composition
 - [Custom Adapters](adapter.md) — `Promise::adapt`, `Promise::work`, Adapter contract, `TimerAdapter`, `WorkAdapter`
+- [C++20 Coroutines](coroutine.md) — `co_await` / `co_return` with `Promise<T>` (no `Task<T>`)
 - [Internals](internals.md) — `PromiseNode` hierarchy, waker system, `ResolveState`
 
 ## API Reference
@@ -88,6 +89,7 @@ graph TD
 | `static auto defer(Func fn)` | Defer sync function as promise |
 | `static Promise<void> after(uint64_t ms)` | (void only) Resolve after delay |
 | `static Promise<T> work(Func fn)` | Run func on thread pool, resolve with result |
+| `operator co_await()` | (C++20 only) Await in coroutine. Rvalue-qualified |
 | `operator bool()` | True if non-empty |
 
 ### PromiseResolver\<T\>

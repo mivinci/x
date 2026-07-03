@@ -26,5 +26,21 @@ if(XPP_BUILD_TESTS)
     set_target_properties(${test_name} PROPERTIES FOLDER "libxpp")
     add_test(NAME ${test_name} COMMAND ${test_name})
     set_tests_properties(${test_name} PROPERTIES LABELS "xpp")
+
+    # Coroutine tests require C++20
+    if(test_name MATCHES "coroutine")
+      target_compile_features(${test_name} PRIVATE cxx_std_20)
+      # Check if compiler supports coroutines; skip if not
+      include(CheckCXXSourceCompiles)
+      check_cxx_source_compiles("
+        #include <coroutine>
+        struct pt { int gv() { return 0; } };
+        int main() { return 0; }
+      " XPP_HAS_COROUTINES_${test_name})
+      if(NOT XPP_HAS_COROUTINES_${test_name})
+        set_target_properties(${test_name} PROPERTIES EXCLUDE_FROM_ALL TRUE)
+        set_tests_properties(${test_name} PROPERTIES WILL_FAIL TRUE)
+      endif()
+    endif()
   endforeach()
 endif()

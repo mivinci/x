@@ -10,55 +10,11 @@
 
 #include <gtest/gtest.h>
 #include <xpp/promise_combinators.h>
+#include <xpp/promise_test_helper.h>
 
 #include <x/base/event.h>
 
-/* ───────────────────── Helpers ───────────────────── */
-
-static xTimer schedule_resolve_int(xpp::PromiseResolver<int> &r, int value, uint64_t delay_ms) {
-  struct Ctx {
-    xpp::PromiseResolver<int> *r;
-    int                        value;
-  };
-  auto *ctx = new Ctx{&r, value};
-  return xTimerStart(
-    [](void *a) {
-      auto *c = static_cast<Ctx *>(a);
-      c->r->resolve(c->value);
-      delete c;
-    },
-    ctx, nullptr, delay_ms, 0);
-}
-
-static xTimer schedule_resolve_str(xpp::PromiseResolver<std::string> &r, const char *val,
-                                   uint64_t delay_ms) {
-  struct Ctx {
-    xpp::PromiseResolver<std::string> *r;
-    std::string                        val;
-  };
-  auto *ctx = new Ctx{&r, val};
-  return xTimerStart(
-    [](void *a) {
-      auto *c = static_cast<Ctx *>(a);
-      c->r->resolve(std::move(c->val));
-      delete c;
-    },
-    ctx, nullptr, delay_ms, 0);
-}
-
-static xTimer schedule_resolve_void(xpp::PromiseResolver<void> &r, uint64_t delay_ms) {
-  struct Ctx {
-    xpp::PromiseResolver<void> *r;
-  };
-  auto *ctx = new Ctx{&r};
-  return xTimerStart(
-    [](void *a) {
-      auto *c = static_cast<Ctx *>(a);
-      c->r->resolve();
-      delete c;
-    },
-    ctx, nullptr, delay_ms, 0);
-}
+using namespace xpp;
 
 /* ───────────────────── all: immediate ───────────────────── */
 
@@ -112,8 +68,8 @@ TEST(AllTest, DeferredHeterogeneous) {
   auto [p1, r1] = xpp::async<int>();
   auto [p2, r2] = xpp::async<std::string>();
 
-  schedule_resolve_int(r1, 99, 10);
-  schedule_resolve_str(r2, "deferred", 30);
+  auto t1 = schedule_resolve(r1, 99, 10);
+  auto t2 = schedule_resolve(r2, std::string("deferred"), 30);
 
   auto t = xpp::all(std::move(p1), std::move(p2)).wait();
   EXPECT_EQ(std::get<0>(t), 99);
@@ -127,8 +83,8 @@ TEST(AllTest, DeferredAllVoid) {
   auto [p1, r1] = xpp::async<void>();
   auto [p2, r2] = xpp::async<void>();
 
-  schedule_resolve_void(r1, 10);
-  schedule_resolve_void(r2, 30);
+  auto t1 = schedule_resolve(r1, 10);
+  auto t2 = schedule_resolve(r2, 30);
 
   xpp::all(std::move(p1), std::move(p2)).wait();
   SUCCEED();
@@ -195,8 +151,8 @@ TEST(RaceTest, DeferredViaResolver) {
   auto [p1, r1] = xpp::async<int>();
   auto [p2, r2] = xpp::async<int>();
 
-  schedule_resolve_int(r2, 77, 10); // r2 resolves first
-  schedule_resolve_int(r1, 88, 50);
+  auto t2 = schedule_resolve(r2, 77, 10); // r2 resolves first
+  auto t1 = schedule_resolve(r1, 88, 50);
 
   int result = xpp::race(std::move(p1), std::move(p2)).wait();
   EXPECT_EQ(result, 77);

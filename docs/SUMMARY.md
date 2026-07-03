@@ -59,6 +59,7 @@
     - [Timers & Timeouts](libxpp/promise/timers.md)
     - [Combinators (all/race)](libxpp/promise/combinators.md)
     - [Custom Adapters](libxpp/promise/adapter.md)
+    - [C++20 Coroutines](libxpp/promise/coroutine.md)
     - [Internals](libxpp/promise/internals.md)
   - [Result\<T, E\>](libxpp/result.md)
   - [Option\<T\>](libxpp/option.md)

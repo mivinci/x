@@ -13,43 +13,9 @@
 
 #include <gtest/gtest.h>
 #include <xpp/promise.h>
+#include <xpp/promise_test_helper.h>
 
 #include <x/base/event.h>
-
-/* ───────────────────── Helpers ───────────────────── */
-
-/**
- * Schedule a timer that resolves the promise after delay_ms.
- * Returns the timer handle so the test can stop it if needed.
- */
-static xTimer schedule_resolve(xpp::PromiseResolver<int> &r, int value, uint64_t delay_ms) {
-  struct ResolveCtx {
-    xpp::PromiseResolver<int> *r;
-    int                        value;
-  };
-  auto *ctx = new ResolveCtx{&r, value};
-  return xTimerStart(
-    [](void *arg) {
-      auto *c = static_cast<ResolveCtx *>(arg);
-      c->r->resolve(c->value);
-      delete c;
-    },
-    ctx, NULL, delay_ms, 0);
-}
-
-static xTimer schedule_resolve_void(xpp::PromiseResolver<void> &r, uint64_t delay_ms) {
-  struct Ctx {
-    xpp::PromiseResolver<void> *r;
-  };
-  auto *ctx = new Ctx{&r};
-  return xTimerStart(
-    [](void *arg) {
-      auto *c = static_cast<Ctx *>(arg);
-      c->r->resolve();
-      delete c;
-    },
-    ctx, NULL, delay_ms, 0);
-}
 
 /* ───────────────────── Immediate resolve ───────────────────── */
 
@@ -132,10 +98,9 @@ TEST(PromiseTest, DeferredResolveInt) {
   xpp::WaitScope scope(loop);
 
   auto [p, r] = xpp::async<int>();
-  xTimer t    = schedule_resolve(r, 99, 50);
+  xpp::Timer t = schedule_resolve(r, 99, 50);
 
   EXPECT_EQ(p.wait(), 99);
-  if (t) xTimerStop(t);
 }
 
 TEST(PromiseTest, DeferredResolveVoid) {
@@ -143,10 +108,9 @@ TEST(PromiseTest, DeferredResolveVoid) {
   xpp::WaitScope scope(loop);
 
   auto [p, r] = xpp::async<void>();
-  xTimer t    = schedule_resolve_void(r, 50);
+  xpp::Timer t = schedule_resolve(r, 50);
 
   p.wait();
-  if (t) xTimerStop(t);
 }
 
 TEST(PromiseTest, DeferredResolveWithThen) {
@@ -154,11 +118,10 @@ TEST(PromiseTest, DeferredResolveWithThen) {
   xpp::WaitScope scope(loop);
 
   auto [p, r] = xpp::async<int>();
-  xTimer t    = schedule_resolve(r, 7, 50);
+  xpp::Timer t = schedule_resolve(r, 7, 50);
 
   int result = p.then([](int x) { return x * 3; }).wait();
   EXPECT_EQ(result, 21);
-  if (t) xTimerStop(t);
 }
 
 /* ───────────────────── defer / yield ───────────────────── */
@@ -312,33 +275,11 @@ TEST(PromiseTest, NestedWaitDeferred) {
 
   /* Schedule outer resolve at 30ms — triggers then() which calls
    * inner wait() on a not-yet-resolved inner promise. */
-  struct OuterCtx {
-    xpp::PromiseResolver<int> *r;
-    int                        value;
-  };
-  auto  *oc          = new OuterCtx{&pr_outer.second, 7};
-  xTimer outer_timer = xTimerStart(
-    [](void *arg) {
-      auto *c = static_cast<OuterCtx *>(arg);
-      c->r->resolve(c->value);
-      delete c;
-    },
-    oc, NULL, 30, 0);
+  xpp::Timer outer_timer = xpp::schedule_resolve(pr_outer.second, 7, 30);
 
   /* Schedule inner resolve at 60ms — fires while inner wait()'s
    * xEventLoopRun is running. */
-  struct InnerCtx {
-    xpp::PromiseResolver<int> *r;
-    int                        value;
-  };
-  auto  *ic          = new InnerCtx{&pr_inner.second, 42};
-  xTimer inner_timer = xTimerStart(
-    [](void *arg) {
-      auto *c = static_cast<InnerCtx *>(arg);
-      c->r->resolve(c->value);
-      delete c;
-    },
-    ic, NULL, 60, 0);
+  xpp::Timer inner_timer = xpp::schedule_resolve(pr_inner.second, 42, 60);
 
   /* then() callback calls inner wait() — this nests xEventLoopRun. */
   int result = outer_p
@@ -354,8 +295,6 @@ TEST(PromiseTest, NestedWaitDeferred) {
 
   EXPECT_EQ(result, 49); /* 7 + 42 */
 
-  if (outer_timer) xTimerStop(outer_timer);
-  if (inner_timer) xTimerStop(inner_timer);
 }
 
 TEST(PromiseTest, TripleNestedWait) {
@@ -368,18 +307,7 @@ TEST(PromiseTest, TripleNestedWait) {
   auto &r3  = pr3.second;
 
   /* Resolve p3 at 30ms */
-  struct Ctx {
-    xpp::PromiseResolver<int> *r;
-    int                        value;
-  };
-  auto  *c  = new Ctx{&r3, 300};
-  xTimer t3 = xTimerStart(
-    [](void *arg) {
-      auto *ctx = static_cast<Ctx *>(arg);
-      ctx->r->resolve(ctx->value);
-      delete ctx;
-    },
-    c, NULL, 30, 0);
+  xpp::Timer t3 = xpp::schedule_resolve(r3, 300, 30);
 
   int result = xpp::Promise<int>::resolve(1)
                  .then([&p3](int a) {
@@ -395,7 +323,6 @@ TEST(PromiseTest, TripleNestedWait) {
 
   EXPECT_EQ(result, 302); /* (1*2) + 300 */
 
-  if (t3) xTimerStop(t3);
 }
 
 /* ───────────────────── Cross-thread resolve ───────────────────── */

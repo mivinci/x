@@ -338,4 +338,8 @@ template <class T> std::pair<Promise<T>, PromiseResolver<T>> async() {
 
 } // namespace xpp
 
+#if XPP_HAS_COROUTINES
+#include <xpp/promise_coroutine.h>
+#endif
+
 #endif // XPP_PROMISE_H
