@@ -212,8 +212,6 @@ private:
   Own<PromiseNode<T>>          m_inner;
 };
 
-
-
 /* ── YieldPromiseNode ────────────────────────────────────────────── */
 
 class YieldPromiseNode final : public PromiseNode<void> {
@@ -222,7 +220,6 @@ public:
     return Option<Void>(Void{});
   }
 };
-
 
 } // namespace _
 } // namespace xpp

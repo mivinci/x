@@ -13,7 +13,6 @@
 
 #include <gtest/gtest.h>
 #include <xpp/promise.h>
-#include <xpp/promise_adapter.h>
 
 #include <x/base/event.h>
 
@@ -26,7 +25,7 @@
 static xTimer schedule_resolve(xpp::PromiseResolver<int> &r, int value, uint64_t delay_ms) {
   struct ResolveCtx {
     xpp::PromiseResolver<int> *r;
-    int                     value;
+    int                        value;
   };
   auto *ctx = new ResolveCtx{&r, value};
   return xTimerStart(
@@ -133,7 +132,7 @@ TEST(PromiseTest, DeferredResolveInt) {
   xpp::WaitScope scope(loop);
 
   auto [p, r] = xpp::async<int>();
-  xTimer t = schedule_resolve(r, 99, 50);
+  xTimer t    = schedule_resolve(r, 99, 50);
 
   EXPECT_EQ(p.wait(), 99);
   if (t) xTimerStop(t);
@@ -144,7 +143,7 @@ TEST(PromiseTest, DeferredResolveVoid) {
   xpp::WaitScope scope(loop);
 
   auto [p, r] = xpp::async<void>();
-  xTimer t = schedule_resolve_void(r, 50);
+  xTimer t    = schedule_resolve_void(r, 50);
 
   p.wait();
   if (t) xTimerStop(t);
@@ -155,20 +154,20 @@ TEST(PromiseTest, DeferredResolveWithThen) {
   xpp::WaitScope scope(loop);
 
   auto [p, r] = xpp::async<int>();
-  xTimer t = schedule_resolve(r, 7, 50);
+  xTimer t    = schedule_resolve(r, 7, 50);
 
   int result = p.then([](int x) { return x * 3; }).wait();
   EXPECT_EQ(result, 21);
   if (t) xTimerStop(t);
 }
 
-/* ───────────────────── eval / yield ───────────────────── */
+/* ───────────────────── defer / yield ───────────────────── */
 
 TEST(PromiseTest, EvalSynchronous) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::Promise<void>::eval([] { return 42; }).wait();
+  int result = xpp::Promise<void>::defer([] { return 42; }).wait();
   EXPECT_EQ(result, 42);
 }
 
@@ -306,8 +305,10 @@ TEST(PromiseTest, NestedWaitDeferred) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [outer_p, outer_r] = xpp::async<int>();
-  auto [inner_p, inner_r] = xpp::async<int>();
+  auto pr_outer = xpp::async<int>();
+  auto outer_p  = std::move(pr_outer.first);
+  auto pr_inner = xpp::async<int>();
+  auto inner_p  = std::move(pr_inner.first);
 
   /* Schedule outer resolve at 30ms — triggers then() which calls
    * inner wait() on a not-yet-resolved inner promise. */
@@ -315,7 +316,7 @@ TEST(PromiseTest, NestedWaitDeferred) {
     xpp::PromiseResolver<int> *r;
     int                        value;
   };
-  auto  *oc          = new OuterCtx{&outer_r, 7};
+  auto  *oc          = new OuterCtx{&pr_outer.second, 7};
   xTimer outer_timer = xTimerStart(
     [](void *arg) {
       auto *c = static_cast<OuterCtx *>(arg);
@@ -330,7 +331,7 @@ TEST(PromiseTest, NestedWaitDeferred) {
     xpp::PromiseResolver<int> *r;
     int                        value;
   };
-  auto  *ic          = new InnerCtx{&inner_r, 42};
+  auto  *ic          = new InnerCtx{&pr_inner.second, 42};
   xTimer inner_timer = xTimerStart(
     [](void *arg) {
       auto *c = static_cast<InnerCtx *>(arg);
@@ -362,7 +363,9 @@ TEST(PromiseTest, TripleNestedWait) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p3, r3] = xpp::async<int>();
+  auto  pr3 = xpp::async<int>();
+  auto  p3  = std::move(pr3.first);
+  auto &r3  = pr3.second;
 
   /* Resolve p3 at 30ms */
   struct Ctx {
@@ -407,14 +410,15 @@ TEST(PromiseTest, CrossThreadResolveInt) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r] = xpp::async<int>();
+  auto pr = xpp::async<int>();
+  auto r  = std::move(pr.second);
 
   std::thread worker([&r]() {
     /* Simulate async work — resolve from another thread */
     r.resolve(77);
   });
 
-  EXPECT_EQ(p.wait(), 77);
+  EXPECT_EQ(pr.first.wait(), 77);
   worker.join();
 }
 
@@ -422,11 +426,12 @@ TEST(PromiseTest, CrossThreadResolveVoid) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r] = xpp::async<void>();
+  auto pr = xpp::async<void>();
+  auto r  = std::move(pr.second);
 
   std::thread worker([&r]() { r.resolve(); });
 
-  p.wait();
+  pr.first.wait();
   worker.join();
   SUCCEED();
 }
@@ -435,11 +440,12 @@ TEST(PromiseTest, CrossThreadResolveString) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r] = xpp::async<std::string>();
+  auto pr = xpp::async<std::string>();
+  auto r  = std::move(pr.second);
 
   std::thread worker([&r]() { r.resolve(std::string("from another thread")); });
 
-  EXPECT_EQ(p.wait(), "from another thread");
+  EXPECT_EQ(pr.first.wait(), "from another thread");
   worker.join();
 }
 
@@ -447,11 +453,12 @@ TEST(PromiseTest, CrossThreadResolveWithThen) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r] = xpp::async<int>();
+  auto pr = xpp::async<int>();
+  auto r  = std::move(pr.second);
 
   std::thread worker([&r]() { r.resolve(21); });
 
-  int result = p.then([](int x) { return x * 2; }).wait();
+  int result = pr.first.then([](int x) { return x * 2; }).wait();
   EXPECT_EQ(result, 42);
   worker.join();
 }
@@ -462,14 +469,15 @@ TEST(PromiseTest, CrossThreadResolveDelayed) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r] = xpp::async<int>();
+  auto pr = xpp::async<int>();
+  auto r  = std::move(pr.second);
 
   std::thread worker([&r]() {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     r.resolve(99);
   });
 
-  EXPECT_EQ(p.wait(), 99);
+  EXPECT_EQ(pr.first.wait(), 99);
   worker.join();
 }
 
@@ -479,13 +487,14 @@ TEST(PromiseTest, CrossThreadResolveBeforePoll) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r] = xpp::async<int>();
+  auto pr = xpp::async<int>();
+  auto r  = std::move(pr.second);
 
   std::thread worker([&r]() { r.resolve(42); });
   worker.join();
 
   /* Now wait — promise is already resolved. */
-  EXPECT_EQ(p.wait(), 42);
+  EXPECT_EQ(pr.first.wait(), 42);
 }
 
 /* ───────────────────── after() — timer-based deferred promise ───────────────────── */

@@ -1,6 +1,6 @@
 ## 1. ResolveState + WeakResolver
 
-- [ ] 1.1 Define `ResolveState<T>` in `promise_adapter.h`: `Option<T> value`, `PromiseAtomicWaker waker`, `std::atomic<bool> resolved{false}`
+- [ ] 1.1 Define `ResolveState<T>` in `promise_adapter.h`: `Option<T> value`, `AtomicPromiseWaker waker`, `std::atomic<bool> resolved{false}`
 - [ ] 1.2 Define `WeakResolver<T>` in `promise_adapter.h`: holds `ArcWeak<ResolveState<T>>`, `resolve(T&&)` calls `upgrade()` → if Some, check `resolved` flag, set value, wake
 - [ ] 1.3 Add void specialization `WeakResolver<void>`: `resolve()` takes no args, value type is `Void`
 - [ ] 1.4 Add `is_pending()`: returns `upgrade().is_some() && !resolved`

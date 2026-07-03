@@ -26,7 +26,7 @@ The new design uses `Arc<T>` / `ArcWeak<T>` (from PR #15) to share a `ResolveSta
 template <class T>
 struct ResolveState {
   Option<T>            value;
-  PromiseAtomicWaker   waker;
+  AtomicPromiseWaker   waker;
   std::atomic<bool>    resolved{false};
 };
 ```

@@ -28,6 +28,8 @@
 #include <xpp/own.h>
 #include <xpp/panic.h>
 #include <xpp/promise_adapter.h>
+#include <xpp/promise_adapter_timer.h>
+#include <xpp/promise_adapter_work.h>
 #include <xpp/promise_node.h>
 #include <xpp/void.h>
 
@@ -38,6 +40,8 @@ namespace xpp {
 namespace _ {
 /// Forward declaration so Promise<T> can befriend it.
 template <class U> Own<PromiseNode<U>> _extract_node(Promise<U> &&);
+template <class T, class Adapter> class AdapterPromiseNode;
+template <class T, class Func> class WorkAdapter;
 } // namespace _
 
 /* ── ReturnType helper ──────────────────────────────────────────── */
@@ -60,7 +64,7 @@ template <class Func> using ReturnTypeVoid = decltype(std::declval<Func>()());
  * - @b then() / resolve(): Not thread-safe; call before sharing
  *   across threads.
  * - @b PromiseResolver::resolve(): Thread-safe. May be called from
- *   any thread — the AdapterPromiseNode uses PromiseAtomicWaker +
+ *   any thread — the AdapterPromiseNode uses AtomicPromiseWaker +
  *   atomic flag to coordinate concurrent poll and resolve without
  *   a mutex.
  *
@@ -122,14 +126,28 @@ public:
     return Promise(std::move(node));
   }
 
-  /// Evaluate a synchronous function as a promise.
+  /// Defer a synchronous function as a promise (runs on first poll).
   template <class Func, class V = ValueType,
             class = typename std::enable_if<std::is_same<V, Void>::value>::type>
-  static auto eval(Func &&func)
+  static auto defer(Func &&func)
     -> Promise<typename _::ReducePromise<_::ReturnTypeVoid<Func>>::Type> {
     return Promise<void>(Own<_::PromiseNode<void>>(new _::YieldPromiseNode()))
       .then(std::forward<Func>(func));
   }
+
+  /**
+   * @brief Submit work to the thread pool, return a Promise for the result.
+   *
+   * func() runs on a worker thread. When it returns, the Promise resolves
+   * with the return value. If the Promise is destroyed before func()
+   * completes (e.g., a losing branch in race()), resolve() silently drops.
+   *
+   * @code
+   *   auto p = Promise<int>::work([&] { return heavy_computation(); });
+   *   int result = p.wait();
+   * @endcode
+   */
+  template <class Func> static Promise<T> work(Func &&fn);
 
   /**
    * @brief Return a Promise that resolves after `ms` milliseconds.
@@ -153,6 +171,19 @@ public:
             class = typename std::enable_if<std::is_same<V, Void>::value>::type, class = void>
   static Promise<void> after(uint64_t ms);
 
+  /**
+   * @brief Create a promise backed by a custom Adapter.
+   *
+   * The Adapter's constructor receives `PromiseResolver<T>&&` followed by
+   * `args...`. It starts an async operation and calls `resolver.resolve()`
+   * when done. The Adapter's destructor cancels the operation.
+   *
+   * @code
+   *   auto p = Promise<Response>::adapt<HttpAdapter>(url);
+   * @endcode
+   */
+  template <class Adapter, class... AdapterArgs> static Promise<T> adapt(AdapterArgs &&...args);
+
   /// True if the promise holds a node (not empty).
   explicit operator bool() const {
     return m_node != nullptr;
@@ -169,7 +200,7 @@ public:
    * Not thread-safe. Only the WaitScope thread may call wait().
    * However, the promise being waited on may be resolved from
    * another thread via PromiseResolver::resolve() — that path is
-   * thread-safe (PromiseAtomicWaker + atomic flag).
+   * thread-safe (AtomicPromiseWaker + atomic flag).
    *
    * @par Nested wait()
    * Safe to call wait() inside a callback that runs during another
@@ -271,18 +302,38 @@ auto Promise<T>::then(Func &&func)
   return Promise<ReducedT>(std::move(node));
 }
 
-class TimerAdapter; // forward declaration for after()
-template <class T, class Adapter, class... AdapterArgs>
-Promise<T> newAdaptedPromise(AdapterArgs &&...args);
+/* ── Forward declarations for static methods ───────────────────── */
+
+class TimerAdapter;
 template <class T> class PromiseResolver;
 template <class T> std::pair<Promise<T>, PromiseResolver<T>> async();
 
-/* ── Promise<T>::after ──────────────────────────────────────── */
+/* ── Promise<T>::after, adapt, work, async ──────────────────────── */
 
 template <class T>
 template <class V, class, class>
 inline Promise<void> Promise<T>::after(uint64_t ms) {
-  return newAdaptedPromise<void, TimerAdapter>(ms);
+  return Promise<void>::adapt<TimerAdapter>(ms);
+}
+
+template <class T>
+template <class Adapter, class... AdapterArgs>
+Promise<T> Promise<T>::adapt(AdapterArgs &&...args) {
+  auto *node = new _::AdapterPromiseNode<T, Adapter>(std::forward<AdapterArgs>(args)...);
+  return Promise<T>(Own<_::PromiseNode<T>>(node));
+}
+
+template <class T> template <class Func> Promise<T> Promise<T>::work(Func &&fn) {
+  return Promise<T>::adapt<_::WorkAdapter<T, typename std::decay<Func>::type>>(
+    std::forward<Func>(fn));
+}
+
+template <class T> std::pair<Promise<T>, PromiseResolver<T>> async() {
+  using V       = typename FixVoid<T>::Type;
+  auto state    = Arc<_::ResolveState<V>>::make();
+  auto resolver = PromiseResolver<T>(Arc<_::ResolveState<V>>::downgrade(state));
+  auto promise  = Promise<T>(Own<_::PromiseNode<T>>(new _::ManualResolveNode<T>(std::move(state))));
+  return {std::move(promise), std::move(resolver)};
 }
 
 } // namespace xpp

@@ -4,7 +4,7 @@ The current Promise system has two lifecycle safety gaps:
 
 1. **PromiseResolver holds a raw pointer to AdapterPromiseNode.** If the Promise is destroyed before `resolve()` is called (e.g., a losing branch in `race()`), the pointer dangles — calling `resolve()` is a use-after-free.
 
-2. **TimerPromiseNode duplicates poll/waker/resolved logic.** Its `m_fired` (atomic), `m_waker` (PromiseAtomicWaker), and `poll()` are identical to what a generalized adapter node would provide. Every future async-to-Promise bridge (HTTP, DNS, thread pool) would face the same duplication.
+2. **TimerPromiseNode duplicates poll/waker/resolved logic.** Its `m_fired` (atomic), `m_waker` (AtomicPromiseWaker), and `poll()` are identical to what a generalized adapter node would provide. Every future async-to-Promise bridge (HTTP, DNS, thread pool) would face the same duplication.
 
 The fix is a unified Adapter + WeakResolver design: `AdaptedPromiseNode<T, Adapter>` owns an Adapter and shares a `ResolveState<T>` via `Arc`/`ArcWeak`. `WeakResolver<T>` holds an `ArcWeak` — safe to call after the node is destroyed. `TimerPromiseNode` becomes a thin `TimerAdapter` that only manages the `xTimer` handle.
 
