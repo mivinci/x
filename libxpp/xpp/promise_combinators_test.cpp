@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 #include <xpp/promise_combinators.h>
+#include <xpp/promise_adapter.h>
 
 #include <x/base/event.h>
 
@@ -88,13 +89,13 @@ TEST(AllTest, DeferredHeterogeneous) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r1 = xpp::PromiseResolver<int>::create();
-  auto r2 = xpp::PromiseResolver<std::string>::create();
+  auto [p1, r1] = xpp::async<int>();
+  auto [p2, r2] = xpp::async<std::string>();
 
   schedule_resolve_int(r1, 99, 10);
   schedule_resolve_str(r2, "deferred", 30);
 
-  auto t = xpp::all(r1.promise(), r2.promise()).wait();
+  auto t = xpp::all(std::move(p1), std::move(p2)).wait();
   EXPECT_EQ(std::get<0>(t), 99);
   EXPECT_EQ(std::get<1>(t), "deferred");
 }
@@ -103,13 +104,13 @@ TEST(AllTest, DeferredAllVoid) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r1 = xpp::PromiseResolver<void>::create();
-  auto r2 = xpp::PromiseResolver<void>::create();
+  auto [p1, r1] = xpp::async<void>();
+  auto [p2, r2] = xpp::async<void>();
 
   schedule_resolve_void(r1, 10);
   schedule_resolve_void(r2, 30);
 
-  xpp::all(r1.promise(), r2.promise()).wait();
+  xpp::all(std::move(p1), std::move(p2)).wait();
   SUCCEED();
 }
 
@@ -174,13 +175,13 @@ TEST(RaceTest, DeferredViaResolver) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r1 = xpp::PromiseResolver<int>::create();
-  auto r2 = xpp::PromiseResolver<int>::create();
+  auto [p1, r1] = xpp::async<int>();
+  auto [p2, r2] = xpp::async<int>();
 
   schedule_resolve_int(r2, 77, 10);  // r2 resolves first
   schedule_resolve_int(r1, 88, 50);
 
-  int result = xpp::race(r1.promise(), r2.promise()).wait();
+  int result = xpp::race(std::move(p1), std::move(p2)).wait();
   EXPECT_EQ(result, 77);
 }
 

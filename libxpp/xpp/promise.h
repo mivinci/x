@@ -27,6 +27,7 @@
 #include <xpp/option.h>
 #include <xpp/own.h>
 #include <xpp/panic.h>
+#include <xpp/promise_adapter.h>
 #include <xpp/promise_node.h>
 #include <xpp/void.h>
 
@@ -34,12 +35,10 @@ namespace xpp {
 
 /* ── Forward declarations ────────────────────────────────────────── */
 
-template <class T> class PromiseResolver;
-
 namespace _ {
 /// Forward declaration so Promise<T> can befriend it.
 template <class U> Own<PromiseNode<U>> _extract_node(Promise<U> &&);
-}
+} // namespace _
 
 /* ── ReturnType helper ──────────────────────────────────────────── */
 
@@ -102,7 +101,8 @@ public:
 
   template <class Func, class V = ValueType,
             class = typename std::enable_if<std::is_same<V, Void>::value>::type, class = void>
-  auto then(Func &&func) -> Promise<typename _::ReducePromise<decltype(std::declval<Func>()())>::Type>;
+  auto then(Func &&func)
+    -> Promise<typename _::ReducePromise<decltype(std::declval<Func>()())>::Type>;
 
   /// Discard the value, returning a completion-only Promise<void>.
   Promise<void> discard() {
@@ -125,7 +125,8 @@ public:
   /// Evaluate a synchronous function as a promise.
   template <class Func, class V = ValueType,
             class = typename std::enable_if<std::is_same<V, Void>::value>::type>
-  static auto eval(Func &&func) -> Promise<typename _::ReducePromise<_::ReturnTypeVoid<Func>>::Type> {
+  static auto eval(Func &&func)
+    -> Promise<typename _::ReducePromise<_::ReturnTypeVoid<Func>>::Type> {
     return Promise<void>(Own<_::PromiseNode<void>>(new _::YieldPromiseNode()))
       .then(std::forward<Func>(func));
   }
@@ -204,144 +205,10 @@ private:
   Own<_::PromiseNode<T>> m_node;
 
   template <class U> friend class Promise;
-  template <class U> friend class PromiseResolver;
   template <class U> friend class _::ChainPromiseNode;
 
   /// Internal: extract node from a moved Promise. Used by combinators.
   template <class U> friend Own<_::PromiseNode<U>> _::_extract_node(Promise<U> &&);
-};
-
-/* ── PromiseResolver<T> ─────────────────────────────────────────── */
-
-/**
- * @brief Manual resolver for a deferred Promise.
- *
- * Create via PromiseResolver<T>::create(), then call .promise() to
- * obtain the associated Promise and .resolve() to fulfill it.
- *
- * Move-only. Holds a raw pointer to the AdapterPromiseNode (ownership
- * stays with the Promise's Own<PromiseNode<T>>).
- *
- * @par Thread safety
- * resolve() is thread-safe — may be called from any thread. The
- * AdapterPromiseNode uses PromiseAtomicWaker (lock-free 2-bit state
- * machine) and std::atomic<bool> for the resolved flag, so concurrent
- * poll (loop thread) and resolve (any thread) are safe without a
- * mutex.
- *
- * is_pending() is not atomic — only call on the thread that owns
- * the PromiseResolver.
- *
- * @code
- *   auto r = xpp::PromiseResolver<int>::create();
- *   auto p = r.promise();
- *   // ... pass r to an async operation ...
- *   // ... later, from any thread:
- *   r.resolve(42);
- *   // ... in WaitScope:
- *   EXPECT_EQ(p.wait(), 42);
- * @endcode
- */
-template <class T> class PromiseResolver {
-public:
-  using ValueType = typename FixVoid<T>::Type;
-
-  PromiseResolver(PromiseResolver &&o) noexcept : m_node(o.m_node) {
-    o.m_node = nullptr;
-  }
-  PromiseResolver &operator=(PromiseResolver &&o) noexcept {
-    m_node   = o.m_node;
-    o.m_node = nullptr;
-    return *this;
-  }
-  PromiseResolver(const PromiseResolver &)            = delete;
-  PromiseResolver &operator=(const PromiseResolver &) = delete;
-
-  /**
-   * @brief Obtain the associated Promise.
-   *
-   * Can be called at most once. The Promise takes ownership of the
-   * AdapterPromiseNode; after this call, the resolver still holds
-   * a raw pointer to the node (for resolve()), but lifecycle is
-   * managed by the Promise.
-   */
-  Promise<T> promise() {
-    XPP_ASSERT(m_node != nullptr, "promise() on empty or already-consumed resolver");
-    auto *node = m_node;
-    // Don't null m_node — resolve() still needs it.
-    // Lifecycle is transferred to Promise's Own<>.
-    return Promise<T>(Own<_::PromiseNode<T>>(static_cast<_::PromiseNode<T> *>(node)));
-  }
-
-  void resolve(ValueType &&value) {
-    XPP_ASSERT(m_node != nullptr, "PromiseResolver: already consumed or moved-from");
-    m_node->resolve(std::move(value));
-    m_node = nullptr;
-  }
-
-  void resolve(const ValueType &value) {
-    resolve(ValueType(value));
-  }
-
-  bool is_pending() const {
-    return m_node != nullptr;
-  }
-
-  /**
-   * @brief Create a PromiseResolver for deferred resolution.
-   *
-   * The returned resolver holds a raw pointer to a newly-allocated
-   * AdapterPromiseNode. Call .promise() to obtain the Promise (which
-   * takes ownership of the node), then call .resolve() to fulfill it.
-   */
-  static PromiseResolver create() {
-    auto *adapter = new _::AdapterPromiseNode<ValueType>();
-    return PromiseResolver(adapter);
-  }
-
-private:
-  explicit PromiseResolver(_::AdapterPromiseNode<ValueType> *node) : m_node(node) {}
-
-  _::AdapterPromiseNode<ValueType> *m_node;
-};
-
-template <> class PromiseResolver<void> {
-public:
-  PromiseResolver(PromiseResolver &&o) noexcept : m_node(o.m_node) {
-    o.m_node = nullptr;
-  }
-  PromiseResolver &operator=(PromiseResolver &&o) noexcept {
-    m_node   = o.m_node;
-    o.m_node = nullptr;
-    return *this;
-  }
-  PromiseResolver(const PromiseResolver &)            = delete;
-  PromiseResolver &operator=(const PromiseResolver &) = delete;
-
-  Promise<void> promise() {
-    XPP_ASSERT(m_node != nullptr, "promise() on empty or already-consumed resolver");
-    return Promise<void>(Own<_::PromiseNode<void>>(static_cast<_::PromiseNode<void> *>(m_node)));
-  }
-
-  void resolve() {
-    XPP_ASSERT(m_node != nullptr, "PromiseResolver: already consumed or moved-from");
-    m_node->resolve();
-    m_node = nullptr;
-  }
-
-  bool is_pending() const {
-    return m_node != nullptr;
-  }
-
-  static PromiseResolver create() {
-    auto *adapter = new _::AdapterPromiseNode<Void>();
-    return PromiseResolver(adapter);
-  }
-
-private:
-  explicit PromiseResolver(_::AdapterPromiseNode<Void> *node) : m_node(node) {}
-
-  _::AdapterPromiseNode<Void> *m_node;
 };
 
 /* ── Free helper functions ──────────────────────────────────────── */
@@ -404,12 +271,18 @@ auto Promise<T>::then(Func &&func)
   return Promise<ReducedT>(std::move(node));
 }
 
+class TimerAdapter; // forward declaration for after()
+template <class T, class Adapter, class... AdapterArgs>
+Promise<T> newAdaptedPromise(AdapterArgs &&...args);
+template <class T> class PromiseResolver;
+template <class T> std::pair<Promise<T>, PromiseResolver<T>> async();
+
 /* ── Promise<T>::after ──────────────────────────────────────── */
 
 template <class T>
 template <class V, class, class>
 inline Promise<void> Promise<T>::after(uint64_t ms) {
-  return Promise<void>(Own<_::PromiseNode<void>>(new _::TimerPromiseNode(ms)));
+  return newAdaptedPromise<void, TimerAdapter>(ms);
 }
 
 } // namespace xpp

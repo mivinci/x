@@ -37,10 +37,8 @@ TEST(PromiseDeadlockTest, NestedWaitDeferredOuter) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto outer_r = xpp::PromiseResolver<int>::create();
-  auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<int>::create();
-  auto inner_p = inner_r.promise();
+  auto [outer_p, outer_r] = xpp::async<int>();
+  auto [inner_p, inner_r] = xpp::async<int>();
 
   /* Inner resolves at 30ms via timer */
   struct InnerCtx {
@@ -115,10 +113,8 @@ TEST(PromiseDeadlockTest, OuterResolvedInsideNestedWait) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto outer_r = xpp::PromiseResolver<int>::create();
-  auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<int>::create();
-  auto inner_p = inner_r.promise();
+  auto [outer_p, outer_r] = xpp::async<int>();
+  auto [inner_p, inner_r] = xpp::async<int>();
 
   /* Inner resolves at 30ms, AND resolves outer too */
   struct Ctx {
@@ -201,10 +197,8 @@ TEST(PromiseDeadlockTest, PureAdapterNoTimerNestedWait) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto outer_r = xpp::PromiseResolver<int>::create();
-  auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<int>::create();
-  auto inner_p = inner_r.promise();
+  auto [outer_p, outer_r] = xpp::async<int>();
+  auto [inner_p, inner_r] = xpp::async<int>();
 
   /* Timer at 30ms resolves BOTH promises simultaneously */
   struct Ctx {
@@ -275,10 +269,8 @@ TEST(PromiseDeadlockTest, OuterResolvedByInnerThenCallback) {
   /* Inner promise resolved by timer at 30ms.
    * Inner's then() callback resolves outer.
    * Outer's wait() drives the loop. */
-  auto outer_r = xpp::PromiseResolver<int>::create();
-  auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<void>::create();
-  auto inner_p = inner_r.promise();
+  auto [outer_p, outer_r] = xpp::async<int>();
+  auto [inner_p, inner_r] = xpp::async<void>();
 
   struct Ctx {
     xpp::PromiseResolver<void> *inner_r;

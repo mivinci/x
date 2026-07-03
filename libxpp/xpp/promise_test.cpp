@@ -13,6 +13,7 @@
 
 #include <gtest/gtest.h>
 #include <xpp/promise.h>
+#include <xpp/promise_adapter.h>
 
 #include <x/base/event.h>
 
@@ -25,7 +26,7 @@
 static xTimer schedule_resolve(xpp::PromiseResolver<int> &r, int value, uint64_t delay_ms) {
   struct ResolveCtx {
     xpp::PromiseResolver<int> *r;
-    int                        value;
+    int                     value;
   };
   auto *ctx = new ResolveCtx{&r, value};
   return xTimerStart(
@@ -131,8 +132,7 @@ TEST(PromiseTest, DeferredResolveInt) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto   r = xpp::PromiseResolver<int>::create();
-  auto   p = r.promise();
+  auto [p, r] = xpp::async<int>();
   xTimer t = schedule_resolve(r, 99, 50);
 
   EXPECT_EQ(p.wait(), 99);
@@ -143,8 +143,7 @@ TEST(PromiseTest, DeferredResolveVoid) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto   r = xpp::PromiseResolver<void>::create();
-  auto   p = r.promise();
+  auto [p, r] = xpp::async<void>();
   xTimer t = schedule_resolve_void(r, 50);
 
   p.wait();
@@ -155,8 +154,7 @@ TEST(PromiseTest, DeferredResolveWithThen) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto   r = xpp::PromiseResolver<int>::create();
-  auto   p = r.promise();
+  auto [p, r] = xpp::async<int>();
   xTimer t = schedule_resolve(r, 7, 50);
 
   int result = p.then([](int x) { return x * 3; }).wait();
@@ -208,8 +206,7 @@ TEST(PromiseTest, ResolverIsPendingBeforeResolve) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r = xpp::PromiseResolver<int>::create();
-  auto p = r.promise();
+  auto [p, r] = xpp::async<int>();
   EXPECT_TRUE(r.is_pending());
   r.resolve(1);
   EXPECT_FALSE(r.is_pending());
@@ -222,8 +219,7 @@ TEST(PromiseTest, ResolveBeforePollIsImmediate) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r = xpp::PromiseResolver<int>::create();
-  auto p = r.promise();
+  auto [p, r] = xpp::async<int>();
   r.resolve(77);
   EXPECT_EQ(p.wait(), 77);
 }
@@ -232,8 +228,7 @@ TEST(PromiseTest, ResolveVoidBeforePoll) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r = xpp::PromiseResolver<void>::create();
-  auto p = r.promise();
+  auto [p, r] = xpp::async<void>();
   r.resolve();
   p.wait();
   SUCCEED();
@@ -311,10 +306,8 @@ TEST(PromiseTest, NestedWaitDeferred) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto outer_r = xpp::PromiseResolver<int>::create();
-  auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<int>::create();
-  auto inner_p = inner_r.promise();
+  auto [outer_p, outer_r] = xpp::async<int>();
+  auto [inner_p, inner_r] = xpp::async<int>();
 
   /* Schedule outer resolve at 30ms — triggers then() which calls
    * inner wait() on a not-yet-resolved inner promise. */
@@ -369,8 +362,7 @@ TEST(PromiseTest, TripleNestedWait) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r3 = xpp::PromiseResolver<int>::create();
-  auto p3 = r3.promise();
+  auto [p3, r3] = xpp::async<int>();
 
   /* Resolve p3 at 30ms */
   struct Ctx {
@@ -415,8 +407,7 @@ TEST(PromiseTest, CrossThreadResolveInt) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r = xpp::PromiseResolver<int>::create();
-  auto p = r.promise();
+  auto [p, r] = xpp::async<int>();
 
   std::thread worker([&r]() {
     /* Simulate async work — resolve from another thread */
@@ -431,8 +422,7 @@ TEST(PromiseTest, CrossThreadResolveVoid) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r = xpp::PromiseResolver<void>::create();
-  auto p = r.promise();
+  auto [p, r] = xpp::async<void>();
 
   std::thread worker([&r]() { r.resolve(); });
 
@@ -445,8 +435,7 @@ TEST(PromiseTest, CrossThreadResolveString) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r = xpp::PromiseResolver<std::string>::create();
-  auto p = r.promise();
+  auto [p, r] = xpp::async<std::string>();
 
   std::thread worker([&r]() { r.resolve(std::string("from another thread")); });
 
@@ -458,8 +447,7 @@ TEST(PromiseTest, CrossThreadResolveWithThen) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r = xpp::PromiseResolver<int>::create();
-  auto p = r.promise();
+  auto [p, r] = xpp::async<int>();
 
   std::thread worker([&r]() { r.resolve(21); });
 
@@ -474,8 +462,7 @@ TEST(PromiseTest, CrossThreadResolveDelayed) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r = xpp::PromiseResolver<int>::create();
-  auto p = r.promise();
+  auto [p, r] = xpp::async<int>();
 
   std::thread worker([&r]() {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -492,8 +479,7 @@ TEST(PromiseTest, CrossThreadResolveBeforePoll) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto r = xpp::PromiseResolver<int>::create();
-  auto p = r.promise();
+  auto [p, r] = xpp::async<int>();
 
   std::thread worker([&r]() { r.resolve(42); });
   worker.join();

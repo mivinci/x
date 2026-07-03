@@ -4,10 +4,11 @@
 
 `promise.h` provides a type-safe Promise system for composable asynchronous programming within the libx event loop. It models the **Rust `Future` trait** in C++17: a deferred value is polled until it resolves, transformations are chained without nesting, and resolution can cross thread boundaries without a mutex.
 
-The system consists of two public types:
+The system consists of three public types:
 
-- **`Promise<T>`** — A move-only deferred value. Create via `Promise::resolve(v)` (immediate) or `PromiseResolver::promise()` (deferred). Chain transformations with `.then(fn)`. Block and retrieve with `.wait()`.
-- **`PromiseResolver<T>`** — A manual fulfillment handle. Create via `PromiseResolver::create()`, hand the associated `Promise` to the consumer, and call `.resolve(v)` when the value is ready — from any thread.
+- **`Promise<T>`** — A move-only deferred value. Create via `Promise::resolve(v)` (immediate), `Promise<void>::after(ms)` (timer), or `xpp::async<T>()` (deferred). Chain transformations with `.then(fn)`. Block and retrieve with `.wait()`.
+- **`PromiseResolver<T>`** — A manual fulfillment handle. Obtained from `xpp::async<T>()` alongside the Promise. Call `.resolve(v)` when the value is ready — from any thread. Safe to call after the Promise is destroyed (silently drops via `ArcWeak::upgrade()`).
+- **`TimerAdapter`** — An Adapter that bridges `xTimer` into the Promise system. Used internally by `Promise<void>::after(ms)`.
 
 No separate runtime is needed. The event loop drives all polling via `xEventLoopRun` inside `wait()`.
 
@@ -19,7 +20,7 @@ No separate runtime is needed. The event loop drives all polling via `xEventLoop
 
 3. **Auto-Flatten** — `.then(fn)` that returns `Promise<U>` is automatically flattened to `Promise<U>` rather than `Promise<Promise<U>>`. This is transparent to the caller and eliminates a layer of indirection in every chain.
 
-4. **Lock-Free Cross-Thread Resolve** — `AdapterPromiseNode` and `PromiseAtomicWaker` coordinate `poll()` (event loop thread) and `resolve()` (any thread) without a mutex. A 2-bit atomic state machine handles the race where both sides arrive simultaneously — the registerer self-wakes to prevent lost notifications.
+4. **Lock-Free Cross-Thread Resolve** — `ResolveState<T>` (shared via `Arc`/`ArcWeak`) and `PromiseAtomicWaker` coordinate `poll()` (event loop thread) and `resolve()` (any thread) without a mutex. `PromiseResolver` holds an `ArcWeak` — `resolve()` calls `upgrade()` (CAS loop), which returns `None` if the Promise is already destroyed, silently dropping the call. No UAF.
 
 5. **Void-Aware Templates** — C++ forbids storing, passing, or returning `void` as a value. The `Void` unit type and `FixVoid<T>` metafunction map `void` → `Void` transparently so generic code can treat all promise types uniformly. SFINAE-based `then()` overloads dispatch on whether the transform function returns `void` or a value.
 
@@ -43,8 +44,10 @@ graph TD
         IMM["ImmediatePromiseNode<br/>poll → Some(v)"]
         TRANS["TransformPromiseNode<br/>poll dep → Some(fn(r))"]
         CHAINP["ChainPromiseNode<br/>flatten Promise&lt;Promise&lt;T&gt;&gt;"]
-        ADAPT["AdapterPromiseNode<br/>DCL + PromiseAtomicWaker"]
+        ADAPT["AdaptedPromiseNode&lt;T, Adapter&gt;<br/>owns Adapter + Arc&lt;State&gt;"]
+        MANUAL["ManualResolveNode&lt;T&gt;<br/>for async() factory"]
         YIELD_N["YieldPromiseNode<br/>poll → Some(Void{})"]
+        TIMER_A["TimerAdapter<br/>owns xTimer, calls resolver.resolve()"]
     end
 
     subgraph "Waker System"
@@ -69,6 +72,8 @@ graph TD
     YIELD --> YIELD_N
     CHAIN --> TRANS
     CHAIN --> CHAINP
+    ASYNC["async&lt;T&gt;()"] --> MANUAL
+    ASYNC --> PRR
     PRR --> ADAPT
     WAIT --> BASE
     DISCARD --> CHAIN
@@ -110,9 +115,9 @@ sequenceDiagram
 
     Note over L: drain done, poll I/O, timers
 
-    R->>N: resolve(value)
-    N->>N: store value
-    N->>W: wake()
+    R->>R: upgrade() → Arc<State>
+    R->>R: CAS resolved → true
+    R->>R: store value + wake()
     W->>L: post done flag
     L-->>L: set done
     L-->>P: Run returns
@@ -129,12 +134,12 @@ sequenceDiagram
 | Type | Description |
 | --- | --- |
 | `Promise<T>` | Move-only deferred value. `then()`, `wait()`, `discard()`, `resolve()`, `after()` (void only). |
-| `PromiseResolver<T>` | Manual fulfillment handle. `promise()`, `resolve()`, `is_pending()`. |
+| `PromiseResolver<T>` | Manual fulfillment handle. `resolve()`, `is_pending()`. Holds `ArcWeak` — safe after Promise destruction. |
+| `TimerAdapter` | Adapter bridging `xTimer` into Promise. Used by `after(ms)`. |
 | `Void` | Unit type representing `void` as a storable value (`struct Void {}`). |
 | `FixVoid<T>` | Metafunction: `FixVoid<T>::Type` → `T`; `FixVoid<void>::Type` → `Void`. |
-| `ReducePromise<T>` | Metafunction: `ReducePromise<Promise<U>>::Type` → `U`; otherwise → `T`. |
 | `PromiseWaker` | 16-byte waker: event loop handle + bool pointer. Trivially copyable. |
-| `PromiseAtomicWaker` | Lock-free waker cell for `AdapterPromiseNode`. Non-copyable. |
+| `PromiseAtomicWaker` | Lock-free waker cell in `ResolveState`. Non-copyable. |
 | `WaitScope` | RAII guard for `xEventLoopEnter` / `xEventLoopLeave`. Non-copyable, non-movable. |
 | `EventLoop` | RAII wrapper for `xEventLoop`. Must outlive all WaitScopes. |
 
@@ -156,16 +161,20 @@ sequenceDiagram
 
 | Member | Description |
 | --- | --- |
-| `static PromiseResolver create()` | Create a resolver. Allocates `AdapterPromiseNode`. |
-| `Promise<T> promise()` | Obtain the associated Promise. Can be called at most once. |
-| `void resolve(T v)` | Fulfill the promise. Thread-safe. Marks resolver consumed. |
-| `bool is_pending()` | True before `resolve()` is called. Not atomic. |
+| `void resolve(T v)` | Fulfill the promise. Thread-safe. Silently drops if Promise is destroyed. |
+| `bool is_pending()` | True if Promise is alive and not yet resolved. |
+
+`PromiseResolver` is obtained from `xpp::async<T>()`, not constructed directly. It holds an `ArcWeak<ResolveState<T>>` — `resolve()` calls `ArcWeak::upgrade()`, which returns `None` if the Promise (and `AdaptedPromiseNode`) is already destroyed.
 
 ### Free Functions
 
 | Function | Signature | Description |
 | --- | --- | --- |
 | `yield` | `Promise<void> yield()` | Create an immediately-resolved `Promise<void>`, useful for starting chains. |
+| `async` | `std::pair<Promise<T>, PromiseResolver<T>> async<T>()` | Create a deferred promise + resolver pair. The resolver is safe to call after the promise is destroyed. |
+| `newAdaptedPromise` | `Promise<T> newAdaptedPromise<T, Adapter>(args...)` | Create a promise backed by a custom Adapter. Adapter constructor receives `PromiseResolver<T>&&` + `args`. |
+| `all` | `auto all(Promise<Ts>...)` | Wait for all promises. Returns `Promise<tuple<...>>` or `Promise<void>`. |
+| `race` | `Promise<T> race(Promise<T>, Promise<T>...)` | First resolved wins. Losing branches destroyed. |
 
 ## Usage Examples
 
@@ -186,18 +195,17 @@ int main() {
 }
 ```
 
-### Deferred Resolve via Timer
+### Deferred Resolve (async)
 
 ```cpp
 #include <xpp/promise.h>
-#include <xpp/timer.h>
+#include <xpp/promise_adapter.h>
 
 int main() {
     xpp::EventLoop loop;
     xpp::WaitScope scope(loop);
 
-    auto r = xpp::PromiseResolver<int>::create();
-    auto p = r.promise();
+    auto [p, r] = xpp::async<int>();
 
     // Schedule resolve after 100ms
     xpp::Timer t(100, 0, [&]() { r.resolve(42); });
@@ -206,6 +214,8 @@ int main() {
     // result == 42
 }
 ```
+
+`async<T>()` returns a `std::pair<Promise<T>, PromiseResolver<T>>`. The resolver holds an `ArcWeak` to the shared `ResolveState` — calling `resolve()` after the Promise is destroyed silently drops (no UAF).
 
 ### Auto-Flatten (then Returns Promise)
 
@@ -246,7 +256,7 @@ xpp::Promise<void>::after(100)
 
 `after(ms)` schedules a one-shot timer on the current event loop. Available only on `Promise<void>`. Chain with `.then()` to start computation after the delay.
 
-The returned promise owns a `TimerPromiseNode` that manages the timer's lifecycle. The promise must be destroyed on the same WaitScope thread (its destructor stops the timer if it has not yet fired).
+The returned promise owns an `AdaptedPromiseNode<void, TimerAdapter>` that manages the timer's lifecycle. `TimerAdapter`'s destructor calls `xTimerStop` if the timer has not yet fired (checked via `m_fired` atomic flag). The promise must be destroyed on the same WaitScope thread.
 
 ### Cross-Thread Resolve
 
@@ -256,8 +266,7 @@ The returned promise owns a `TimerPromiseNode` that manages the timer's lifecycl
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto r = xpp::PromiseResolver<std::string>::create();
-auto p = r.promise();
+auto [p, r] = xpp::async<std::string>();
 
 std::thread worker([&]() {
     r.resolve(std::string("from another thread"));
@@ -267,6 +276,8 @@ std::string result = p.wait();  // blocks until worker thread resolves
 // result == "from another thread"
 worker.join();
 ```
+
+`resolve()` is thread-safe — `ArcWeak::upgrade()` is a CAS loop that atomically increments the strong count. If the Promise is destroyed concurrently, `upgrade()` returns `None` and the call is silently dropped.
 
 ### Nested wait()
 
@@ -320,12 +331,12 @@ int result = xpp::yield().then([] { return 1; }).wait();
 ## Best Practices
 
 - **Always create a `WaitScope` before `wait()`.** It binds the event loop to the current thread via `xEventLoopEnter`. Without it, `EventLoop::current()` panics.
-- **`PromiseResolver::resolve()` is thread-safe, `is_pending()` is not.** Check `is_pending()` only from the owner thread.
-- **`promise()` can be called at most once per resolver.** The resolver retains a raw pointer for `resolve()` but the Promise owns the node via `Own<>`. Calling `promise()` twice yields a double-`Own` and use-after-free.
+- **`PromiseResolver::resolve()` is thread-safe and safe after Promise destruction.** The resolver holds an `ArcWeak` — `resolve()` calls `upgrade()`, which returns `None` if the Promise is already destroyed. No UAF.
+- **`is_pending()` is not atomic.** Check only from the owner thread.
 - **Don't `wait()` on an empty promise.** The default-constructed `Promise<T>()` has no node — `wait()` asserts. Check with `operator bool()` first.
 - **Move semantics are ownership transfer.** After `std::move(promise)`, the source is empty (`operator bool() == false`). Use this to pass promises across scope boundaries.
 - **Prefer `.then()` over manual polling.** The `then()` chain composes cleanly. Manual `poll()` on internal node types should remain within the `_` namespace.
-- **`PromiseResolver` outlives the associated `Promise` in practice.** The resolver holds a raw pointer to the `AdapterPromiseNode`, whose lifetime is managed by the Promise's `Own<>`. If the Promise is destroyed first, resolving a dangling resolver is undefined behavior.
+- **`PromiseResolver` can safely outlive the Promise.** The resolver holds `ArcWeak<ResolveState<T>>` — if the Promise is destroyed, `resolve()` silently drops. This is safe by design, not undefined behavior.
 - **All callbacks run on the event loop thread.** No synchronization is needed within `.then()` callbacks for any state protected by single-thread access.
 - **Nested `wait()` is safe but beware of deadlock scenarios.** If the inner promise is never resolved, the inner `wait()` will spin `xEventLoopRun` indefinitely — the outer promise can never complete either. This is not a bug; it is the same class of bug as an unresolved single promise. See `promise_deadlock_test.cpp` for detailed analysis.
 
@@ -348,46 +359,60 @@ int result = xpp::yield().then([] { return 1; }).wait();
 
 ### PromiseNode Hierarchy
 
-Five concrete node types implement the `PromiseNode<T>` interface:
+Seven concrete node types implement the `PromiseNode<T>` interface:
 
 | Node Type | Purpose | poll() Behavior |
 | --- | --- | --- |
 | `ImmediatePromiseNode<T>` | `Promise::resolve(v)` | Returns `Some(v)` — ignores waker |
 | `TransformPromiseNode<U, T, F>` | `.then(fn)` | Polls dependency; if `Some`, applies `fn` and returns `Some(fn(r))` |
 | `ChainPromiseNode<T>` | Auto-flatten `Promise<Promise<T>>` | Polls outer; when ready, extracts inner node and polls it |
-| `AdapterPromiseNode<T>` | `PromiseResolver` bridge | DCL pattern: check resolved → register waker → double-check → return |
+| `AdaptedPromiseNode<T, Adapter>` | Generic adapter pattern | Polls `ResolveState`: check resolved → register waker → double-check → return |
+| `ManualResolveNode<T>` | `async<T>()` factory | Same poll logic as AdaptedPromiseNode, no Adapter |
 | `YieldPromiseNode` | `yield()` | Returns `Some(Void{})` — immediate void |
+| `AllTuplePromiseNode<Ts...>` | `all()` combinator | Polls all children, collects tuple when all done |
+| `AllVoidPromiseNode<N>` | `all()` all-void | Countdown, returns `Some(Void{})` when all done |
+| `RacePromiseNode<T, N>` | `race()` combinator | Returns first `Some`, destroys losers |
 
 **TransformPromiseNode** has four partial specializations (`T→U`, `void→U`, `T→void`, `void→void`) to handle the void-unit-type mapping. Each specialization uses `_voidwrap::call` / `_voidwrap::call1` SFINAE helpers that detect whether the transform function returns `void` and wrap accordingly.
 
 **ChainPromiseNode** uses `m_inner != nullptr` as a simple state machine: `nullptr` means "still polling outer", non-null means "outer done, polling inner". No enum, no extra branch.
 
-**AdapterPromiseNode** is the only node type with lock-free thread safety:
+**AdaptedPromiseNode<T, Adapter>** owns an Adapter and an `Arc<ResolveState<T>>`. The shared `ResolveState` is what enables safe lifecycle decoupling — the node holds a strong reference (Arc), the PromiseResolver holds a weak reference (ArcWeak). When the node is destroyed, the strong count drops to zero; `PromiseResolver::resolve()` calls `ArcWeak::upgrade()`, which returns `None`, and the call is silently dropped.
 
 ```cpp
-Option<ValueType> poll(const PromiseWaker &waker) override {
-    // 1. Fast path: already resolved
-    if (m_resolved.load(std::memory_order_acquire))
-        return std::move(m_val);
+struct ResolveState<T> {
+  Option<T>          value;
+  PromiseAtomicWaker waker;
+  std::atomic<bool>  resolved{false};
+};
 
-    // 2. Register waker (may race with concurrent resolve)
-    m_waker.register_waker(std::move(waker));
-
-    // 3. Double-check: resolve may have occurred during register
-    if (m_resolved.load(std::memory_order_acquire)) {
-        m_waker.wake(); // Self-wake to set done flag
-        return std::move(m_val);
+// poll() is generic — shared by AdaptedPromiseNode and ManualResolveNode:
+Option<T> poll_state(ResolveState<T> &s, const PromiseWaker &waker) {
+    if (s.resolved.load(std::memory_order_acquire))
+        return std::move(s.value);           // Fast path
+    s.waker.register_waker(waker);           // May race with resolve
+    if (s.resolved.load(std::memory_order_acquire)) {
+        s.waker.wake();                      // Self-wake
+        return std::move(s.value);
     }
-
-    return none; // Pending — waker registered
+    return none;
 }
 
-void resolve(T &&value) {
-    m_val = Option<ValueType>(std::move(value));
-    m_resolved.store(true, std::memory_order_release);
-    m_waker.wake();
+// PromiseResolver::resolve() — thread-safe, safe after node destruction:
+void resolve(ValueType &&value) {
+    auto s = m_weak.upgrade();               // ArcWeak → Option<Arc<State>>
+    if (s.is_some()) {                       // Node still alive?
+        auto &state = *s.unwrap();
+        if (state.resolved.compare_exchange_strong(false, true, acq_rel)) {
+            state.value = Option<T>(std::move(value));
+            state.waker.wake();
+        }
+    }
+    // else: node destroyed — silently drop
 }
 ```
+
+**TimerAdapter** replaces the old `TimerPromiseNode`. It's a thin Adapter (~25 lines) that owns an `xTimer` handle. The timer callback calls `m_resolver.resolve()`. The destructor calls `xTimerStop` if not yet fired (checked via `m_fired` atomic flag, same pattern as the old `TimerPromiseNode`). The `on_cancel` callback (called during loop destroy) nulls `m_handle` and sets `m_fired=true`.
 
 ### PromiseAtomicWaker — Lock-Free 2-Bit State Machine
 
@@ -472,9 +497,10 @@ Both `xEventLoopRun` calls see the same thread-local loop handle because `WaitSc
 
 | Consumer | Node Type | Reason |
 | --- | --- | --- |
-| `PromiseResolver::create()` | `AdapterPromiseNode` | Deferred cross-thread resolution |
+| `async<T>()` | `ManualResolveNode<T>` | Deferred resolve via `PromiseResolver` (ArcWeak, safe after destruction) |
 | `Promise::resolve(v)` | `ImmediatePromiseNode` | Immediate synchronous completion |
-| `Promise<void>::after(ms)` | `TimerPromiseNode` | Timer-based delayed resolution; owns `xTimer` handle, uses `on_cancel` for safe shutdown |
+| `Promise<void>::after(ms)` | `AdaptedPromiseNode<void, TimerAdapter>` | Timer-based delayed resolution; TimerAdapter owns `xTimer` |
+| `newAdaptedPromise<T, Adapter>(args)` | `AdaptedPromiseNode<T, Adapter>` | Custom adapter pattern |
 | `.then(fn)` | `TransformPromiseNode` / `ChainPromiseNode` | Value transformation / auto-flatten |
 | `yield()` | `YieldPromiseNode` | Chain entry point for eval() |
 | `xpp::all(...)` | `AllTuplePromiseNode` / `AllVoidPromiseNode` | Concurrent composition — wait for all |
@@ -560,12 +586,12 @@ When `race` resolves, N-1 losing children are destroyed. Their destructors handl
 
 | Node | Destructor behavior |
 | --- | --- |
-| `TimerPromiseNode` | Calls `xTimerStop` if not yet fired |
-| `AdapterPromiseNode` | Destroyed — caller must ensure `PromiseResolver` is not used after |
+| `TimerAdapter` | Calls `xTimerStop` if not yet fired (via `m_fired` flag) |
+| `AdaptedPromiseNode` | Destroyed — `PromiseResolver::resolve()` safely drops via `ArcWeak::upgrade()` |
 | `ImmediatePromiseNode` | No cleanup needed |
 | `TransformPromiseNode` | Destroys dependency chain |
 
-The `AdapterPromiseNode` case is the same destroy-before-resolve risk that exists for any `Promise`. Race amplifies it (N-1 losers), but the contract is unchanged: the caller must ensure resolvers don't outlive their promises.
+With `ArcWeak`-based `PromiseResolver`, destroying an `AdaptedPromiseNode` is safe — the resolver's `resolve()` call will find `upgrade() == None` and silently drop. No UAF, no special contract needed.
 
 ### Comparison with other languages
 
