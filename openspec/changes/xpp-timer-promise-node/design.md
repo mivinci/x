@@ -171,7 +171,7 @@ operations. This decision just makes it explicit for `after()`.
 - Make destructor thread-safe with a mutex → rejected — adds overhead
   to every Promise destruction, and the rest of the Promise API
   isn't thread-safe for destruction either. Inconsistent.
-- Use `PromiseAtomicWaker`'s 2-bit state machine for full lock-free
+- Use `AtomicPromiseWaker`'s 2-bit state machine for full lock-free
   coordination → rejected — overkill; the single-thread contract is
   already required for `wait()`.
 

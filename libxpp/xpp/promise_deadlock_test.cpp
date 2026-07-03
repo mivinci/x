@@ -37,10 +37,12 @@ TEST(PromiseDeadlockTest, NestedWaitDeferredOuter) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto outer_r = xpp::PromiseResolver<int>::create();
-  auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<int>::create();
-  auto inner_p = inner_r.promise();
+  auto pr_outer = xpp::async<int>();
+  auto outer_p = std::move(pr_outer.first);
+  auto outer_r = std::move(pr_outer.second);
+  auto pr_inner = xpp::async<int>();
+  auto inner_p = std::move(pr_inner.first);
+  auto inner_r = std::move(pr_inner.second);
 
   /* Inner resolves at 30ms via timer */
   struct InnerCtx {
@@ -115,10 +117,12 @@ TEST(PromiseDeadlockTest, OuterResolvedInsideNestedWait) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto outer_r = xpp::PromiseResolver<int>::create();
-  auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<int>::create();
-  auto inner_p = inner_r.promise();
+  auto pr_outer = xpp::async<int>();
+  auto outer_p = std::move(pr_outer.first);
+  auto outer_r = std::move(pr_outer.second);
+  auto pr_inner = xpp::async<int>();
+  auto inner_p = std::move(pr_inner.first);
+  auto inner_r = std::move(pr_inner.second);
 
   /* Inner resolves at 30ms, AND resolves outer too */
   struct Ctx {
@@ -201,10 +205,12 @@ TEST(PromiseDeadlockTest, PureAdapterNoTimerNestedWait) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto outer_r = xpp::PromiseResolver<int>::create();
-  auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<int>::create();
-  auto inner_p = inner_r.promise();
+  auto pr_outer = xpp::async<int>();
+  auto outer_p = std::move(pr_outer.first);
+  auto outer_r = std::move(pr_outer.second);
+  auto pr_inner = xpp::async<int>();
+  auto inner_p = std::move(pr_inner.first);
+  auto inner_r = std::move(pr_inner.second);
 
   /* Timer at 30ms resolves BOTH promises simultaneously */
   struct Ctx {
@@ -275,10 +281,12 @@ TEST(PromiseDeadlockTest, OuterResolvedByInnerThenCallback) {
   /* Inner promise resolved by timer at 30ms.
    * Inner's then() callback resolves outer.
    * Outer's wait() drives the loop. */
-  auto outer_r = xpp::PromiseResolver<int>::create();
-  auto outer_p = outer_r.promise();
-  auto inner_r = xpp::PromiseResolver<void>::create();
-  auto inner_p = inner_r.promise();
+  auto pr_outer = xpp::async<int>();
+  auto outer_p = std::move(pr_outer.first);
+  auto outer_r = std::move(pr_outer.second);
+  auto pr_inner = xpp::async<void>();
+  auto inner_p = std::move(pr_inner.first);
+  auto inner_r = std::move(pr_inner.second);
 
   struct Ctx {
     xpp::PromiseResolver<void> *inner_r;

@@ -27,7 +27,7 @@ libx reclaims the timer — closes the gap.
 
 - Add `class TimerPromiseNode : public PromiseNode<void>` in
   `libxpp/xpp/promise_node.h`. It owns an `xTimer` handle, an
-  `std::atomic<bool> m_fired` flag, and a `PromiseAtomicWaker`.
+  `std::atomic<bool> m_fired` flag, and a `AtomicPromiseWaker`.
 - `TimerPromiseNode` registers two libx callbacks at construction:
   - `fire_cb`: sets `m_fired=true`, wakes the waker
   - `on_cancel_cb`: nulls `m_handle`, sets `m_fired=true`, wakes the

@@ -5,7 +5,7 @@
 - [x] 1.3 Add `class TimerPromiseNode final : public PromiseNode<void>` in `libxpp/xpp/promise_node.h`, placed after `YieldPromiseNode` and before the closing `}  // namespace _`. Members:
   - `xTimer m_handle` (raw handle; dangling after fire)
   - `std::atomic<bool> m_fired`
-  - `PromiseAtomicWaker m_waker`
+  - `AtomicPromiseWaker m_waker`
   - Constructor: `explicit TimerPromiseNode(uint64_t ms)` — calls `xTimerStart(fire_cb, this, on_cancel_cb, ms, 0)`, stores handle, inits `m_fired=false`
   - `~TimerPromiseNode()` override: if `!m_fired.load(acquire)`, call `xTimerStop(m_handle)`. Otherwise skip (handle is dangling or null).
   - `Option<Void> poll(const PromiseWaker &waker) override`: if `m_fired.load(acquire)`, return `Some(Void)`; else register waker, re-check, return `Some` or `None`

@@ -3,13 +3,13 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * promise_waker.h - PromiseWaker + PromiseAtomicWaker.
+ * promise_waker.h - PromiseWaker + AtomicPromiseWaker.
  *
  * PromiseWaker captures an event loop handle + flag pointer. When
  * fired, it sets *done = true — directly if same-thread, or via
  * xEventLoopPost if cross-thread.
  *
- * PromiseAtomicWaker is a lock-free waker cell that coordinates
+ * AtomicPromiseWaker is a lock-free waker cell that coordinates
  * concurrent register/wake without a mutex. Modeled after Tokio's
  * AtomicWaker.
  *
@@ -87,12 +87,12 @@ private:
  * The waker cell is only accessed by whichever thread holds exclusive
  * access (REGISTERING or WAKING bit).
  */
-class PromiseAtomicWaker {
+class AtomicPromiseWaker {
 public:
-  PromiseAtomicWaker() = default;
+  AtomicPromiseWaker() = default;
 
-  PromiseAtomicWaker(const PromiseAtomicWaker &)            = delete;
-  PromiseAtomicWaker &operator=(const PromiseAtomicWaker &) = delete;
+  AtomicPromiseWaker(const AtomicPromiseWaker &)            = delete;
+  AtomicPromiseWaker &operator=(const AtomicPromiseWaker &) = delete;
 
   /**
    * @brief Store a waker for later notification.

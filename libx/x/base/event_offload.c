@@ -50,7 +50,7 @@ xWork xWorkSubmit(xTaskGroup group, xTaskFunc work_fn, xWorkDoneFunc done_fn,
     group = g;
   }
 
-  struct xWork_ *w = event_work_alloc((struct xEventLoop_ *)loop);
+  struct xWork_ *w = event_work_alloc(loop);
   if (!w) return NULL;
 
   w->work_fn   = work_fn;
@@ -62,7 +62,7 @@ xWork xWorkSubmit(xTaskGroup group, xTaskFunc work_fn, xWorkDoneFunc done_fn,
 
   xTask t = xTaskSubmit(group, offload_worker, w);
   if (!t) {
-    event_work_free((struct xEventLoop_ *)loop, w);
+    event_work_free(loop, w);
     return NULL;
   }
 
