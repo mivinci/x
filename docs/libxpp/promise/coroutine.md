@@ -9,17 +9,17 @@ You have multi-step async flows and want linear code instead of `.then()` chains
 ```cpp
 // .then() chain — nested callbacks
 Promise<int> compute() {
-    return Promise<int>::resolve(1)
+    return resolve(1)
         .then([](int x) { return x + 1; })
-        .then([](int x) { return Promise<int>::work([x] { return x * 2; }); })
+        .then([](int x) { return work([x] { return x * 2; }); })
         .then([](int x) { return x - 3; });
 }
 
 // Coroutine — linear code
 Promise<int> compute() {
-    int x = co_await Promise<int>::resolve(1);
+    int x = co_await resolve(1);
     x = x + 1;
-    x = co_await Promise<int>::work([x] { return x * 2; });
+    x = co_await work([x] { return x * 2; });
     co_return x - 3;
 }
 ```
@@ -51,15 +51,15 @@ The coroutine is **lazy** — it doesn't start until `wait()` (or `.then()`) dri
 ```cpp
 Promise<int> fetch_and_parse() {
     auto data = co_await Promise<std::string>::work(fetch_url);
-    auto result = co_await Promise<int>::work([&] { return parse(data); });
+    auto result = co_await work([&] { return parse(data); });
     co_return result;
 }
 ```
 
 You can `co_await` any Promise source:
 - `Promise::resolve(v)` — immediate
-- `Promise<void>::after(ms)` — timer
-- `Promise<T>::work(fn)` — thread pool
+- `after(ms)` — timer
+- `work(fn)` — thread pool
 - `async<T>()` — deferred (pass resolver to another thread)
 - `all(...)` / `race(...)` — combinators
 - Another coroutine's return value
@@ -70,7 +70,7 @@ You can `co_await` any Promise source:
 
 ```cpp
 Promise<int> delayed_compute() {
-    co_await Promise<void>::after(100);  // wait 100ms
+    co_await after(100);  // wait 100ms
     co_return 42;
 }
 ```
@@ -81,7 +81,7 @@ Coroutines can `co_await` other coroutines:
 
 ```cpp
 Promise<int> inner() {
-    co_await Promise<void>::after(10);
+    co_await after(10);
     co_return 100;
 }
 
@@ -98,7 +98,7 @@ Promise<int> outer() {
 ```cpp
 Promise<int> fetch_both() {
     auto [status, body] = co_await xpp::all(
-        Promise<int>::work(fetch_status),
+        work(fetch_status),
         Promise<std::string>::work(fetch_body)
     );
     co_return status + static_cast<int>(body.size());
@@ -106,8 +106,8 @@ Promise<int> fetch_both() {
 
 Promise<int> fetch_with_timeout() {
     int result = co_await xpp::race(
-        Promise<int>::work(fetch),
-        Promise<void>::after(5000).then([] { return -1; })
+        work(fetch),
+        after(5000).then([] { return -1; })
     );
     co_return result;
 }

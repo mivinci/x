@@ -124,7 +124,7 @@ TEST(PromiseAdaptTest, CustomAdapter) {
   {
     EventLoop loop;
     WaitScope scope(loop);
-    auto      p = Promise<int>::adapt<CountingAdapter>(42);
+    auto      p = adapt<int, CountingAdapter>(42);
     EXPECT_EQ(CountingAdapter::construct_count, 1);
     EXPECT_EQ(p.wait(), 42);
   }

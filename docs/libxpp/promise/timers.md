@@ -6,7 +6,7 @@
 
 You need a delay, a timeout, or want to race a Promise against a timer.
 
-## `Promise<void>::after(ms)`
+## `after(ms)`
 
 Resolves after `ms` milliseconds. Available only on `Promise<void>`. Chain with `.then()` to run code after the delay.
 
@@ -14,7 +14,7 @@ Resolves after `ms` milliseconds. Available only on `Promise<void>`. Chain with 
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-xpp::Promise<void>::after(100)
+xpp::after(100)
     .then([]() { printf("100ms elapsed\n"); })
     .wait();
 ```
@@ -39,8 +39,8 @@ xpp::WaitScope scope(loop);
 
 // Fetch takes 100ms, timeout is 10ms → timeout wins
 int result = xpp::race(
-    xpp::Promise<void>::after(100).then([] { return 200; }),  // "fetch"
-    xpp::Promise<void>::after(10).then([] { return -1; })     // timeout
+    xpp::after(100).then([] { return 200; }),  // "fetch"
+    xpp::after(10).then([] { return -1; })     // timeout
 ).wait();
 // result == -1 (timeout)
 ```
@@ -50,8 +50,8 @@ When `race` resolves, the losing branch is destroyed. `TimerAdapter`'s destructo
 ## Sequential Delays
 
 ```cpp
-xpp::Promise<void>::after(10)
-    .then([]() { return xpp::Promise<void>::after(20); })  // auto-flattened
+xpp::after(10)
+    .then([]() { return xpp::after(20); })  // auto-flattened
     .then([]() { printf("30ms total\n"); })
     .wait();
 ```
@@ -60,7 +60,7 @@ xpp::Promise<void>::after(10)
 
 ```cpp
 int counter = 0;
-xpp::Promise<void>::resolve()
+xpp::yield()
     .then([&]() { counter++; })
     .then([&]() { counter++; })
     .wait();
@@ -71,7 +71,7 @@ xpp::Promise<void>::resolve()
 
 ```cpp
 // defer: wrap a sync function as a promise
-int result = xpp::Promise<void>::defer([] { return 42; }).wait();
+int result = xpp::defer([] { return 42; }).wait();
 // result == 42
 
 // yield: immediately-resolved Promise<void>, chain entry point

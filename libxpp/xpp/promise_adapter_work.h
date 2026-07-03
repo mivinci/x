@@ -9,7 +9,7 @@
  * the Promise system. func() runs on a worker thread; resolve() is
  * called from there (thread-safe via ArcWeak).
  *
- * Used by Promise<T>::work(fn).
+ * Used by xpp::work(fn).
  *
  * C++17-compatible. Header-only.
  */

@@ -72,7 +72,7 @@ template <class Func> using ReturnTypeVoid = decltype(std::declval<Func>()());
  *   xpp::EventLoop loop;
  *   xpp::WaitScope scope(loop);
  *
- *   int result = xpp::Promise<int>::resolve(42)
+ *   int result = xpp::resolve(42)
  *     .then([](int x) { return x * 2; })
  *     .wait();
  *   // result == 84
@@ -112,77 +112,6 @@ public:
   Promise<void> discard() {
     return then([](ValueType) {});
   }
-
-  /// Create an immediately-resolved promise.
-  static Promise resolve(ValueType value) {
-    Own<_::PromiseNode<T>> node(new _::ImmediatePromiseNode<T>(std::move(value)));
-    return Promise(std::move(node));
-  }
-
-  template <class V = ValueType,
-            class   = typename std::enable_if<std::is_same<V, Void>::value>::type>
-  static Promise resolve() {
-    Own<_::PromiseNode<T>> node(new _::ImmediatePromiseNode<void>());
-    return Promise(std::move(node));
-  }
-
-  /// Defer a synchronous function as a promise (runs on first poll).
-  template <class Func, class V = ValueType,
-            class = typename std::enable_if<std::is_same<V, Void>::value>::type>
-  static auto defer(Func &&func)
-    -> Promise<typename _::ReducePromise<_::ReturnTypeVoid<Func>>::Type> {
-    return Promise<void>(Own<_::PromiseNode<void>>(new _::YieldPromiseNode()))
-      .then(std::forward<Func>(func));
-  }
-
-  /**
-   * @brief Submit work to the thread pool, return a Promise for the result.
-   *
-   * func() runs on a worker thread. When it returns, the Promise resolves
-   * with the return value. If the Promise is destroyed before func()
-   * completes (e.g., a losing branch in race()), resolve() silently drops.
-   *
-   * @code
-   *   auto p = Promise<int>::work([&] { return heavy_computation(); });
-   *   int result = p.wait();
-   * @endcode
-   */
-  template <class Func> static Promise<T> work(Func &&fn);
-
-  /**
-   * @brief Return a Promise that resolves after `ms` milliseconds.
-   *
-   * Schedules a one-shot timer on the current event loop. When the
-   * timer fires, the promise resolves. The returned promise owns a
-   * `TimerPromiseNode` that manages the timer's lifecycle.
-   *
-   * Must be called from within a WaitScope. The returned promise
-   * MUST be destroyed on the same WaitScope thread — its destructor
-   * stops the timer if it has not yet fired.
-   *
-   * @param ms  Delay in milliseconds. 0 = "next iteration".
-   * @return    Promise<void> that resolves after the delay.
-   *
-   * @code
-   *   Promise<void>::after(100).then([]() { ... }).wait();
-   * @endcode
-   */
-  template <class V = ValueType,
-            class = typename std::enable_if<std::is_same<V, Void>::value>::type, class = void>
-  static Promise<void> after(uint64_t ms);
-
-  /**
-   * @brief Create a promise backed by a custom Adapter.
-   *
-   * The Adapter's constructor receives `PromiseResolver<T>&&` followed by
-   * `args...`. It starts an async operation and calls `resolver.resolve()`
-   * when done. The Adapter's destructor cancels the operation.
-   *
-   * @code
-   *   auto p = Promise<Response>::adapt<HttpAdapter>(url);
-   * @endcode
-   */
-  template <class Adapter, class... AdapterArgs> static Promise<T> adapt(AdapterArgs &&...args);
 
   /// True if the promise holds a node (not empty).
   explicit operator bool() const {
@@ -302,33 +231,54 @@ auto Promise<T>::then(Func &&func)
   return Promise<ReducedT>(std::move(node));
 }
 
-/* ── Forward declarations for static methods ───────────────────── */
+/* ── Forward declarations ───────────────────────────────────────── */
 
 class TimerAdapter;
 template <class T> class PromiseResolver;
 template <class T> std::pair<Promise<T>, PromiseResolver<T>> async();
 
-/* ── Promise<T>::after, adapt, work, async ──────────────────────── */
+/* ── Free function factories ────────────────────────────────────── */
 
-template <class T>
-template <class V, class, class>
-inline Promise<void> Promise<T>::after(uint64_t ms) {
-  return Promise<void>::adapt<TimerAdapter>(ms);
-}
-
-template <class T>
-template <class Adapter, class... AdapterArgs>
-Promise<T> Promise<T>::adapt(AdapterArgs &&...args) {
-  auto *node = new _::AdapterPromiseNode<T, Adapter>(std::forward<AdapterArgs>(args)...);
+/** Create a promise backed by a custom Adapter. */
+template <class T, class Adapter, class... AdapterArgs>
+Promise<T> adapt(AdapterArgs &&...args) {
+  auto *node = new _::AdapterPromiseNode<T, Adapter>(
+      std::forward<AdapterArgs>(args)...);
   return Promise<T>(Own<_::PromiseNode<T>>(node));
 }
 
-template <class T> template <class Func> Promise<T> Promise<T>::work(Func &&fn) {
-  return Promise<T>::adapt<_::WorkAdapter<T, typename std::decay<Func>::type>>(
-    std::forward<Func>(fn));
+/** Create an immediately-resolved promise. T deduced from argument. */
+template <class T>
+Promise<T> resolve(T v) {
+  return Promise<T>(Own<_::PromiseNode<T>>(
+      new _::ImmediatePromiseNode<T>(std::move(v))));
 }
 
-template <class T> std::pair<Promise<T>, PromiseResolver<T>> async() {
+/** Resolve after `ms` milliseconds. Always returns Promise<void>. */
+inline Promise<void> after(uint64_t ms) {
+  return adapt<void, TimerAdapter>(ms);
+}
+
+/** Defer a synchronous function as a promise (runs on first poll). */
+template <class Func>
+auto defer(Func &&fn)
+  -> Promise<typename _::ReducePromise<_::ReturnTypeVoid<Func>>::Type> {
+  return yield().then(std::forward<Func>(fn));
+}
+
+/** Submit work to the thread pool, return a Promise for the result. */
+template <class Func>
+auto work(Func &&fn)
+  -> Promise<typename std::decay<decltype(std::declval<Func>()())>::type> {
+  using T = typename std::decay<decltype(std::declval<Func>()())>::type;
+  return adapt<T, _::WorkAdapter<T, typename std::decay<Func>::type>>(
+      std::forward<Func>(fn));
+}
+
+/* ── async() ────────────────────────────────────────────────────── */
+
+template <class T>
+std::pair<Promise<T>, PromiseResolver<T>> async() {
   using V       = typename FixVoid<T>::Type;
   auto state    = Arc<_::ResolveState<V>>::make();
   auto resolver = PromiseResolver<T>(Arc<_::ResolveState<V>>::downgrade(state));

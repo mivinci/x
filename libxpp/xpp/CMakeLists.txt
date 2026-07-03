@@ -30,16 +30,9 @@ if(XPP_BUILD_TESTS)
     # Coroutine tests require C++20
     if(test_name MATCHES "coroutine")
       target_compile_features(${test_name} PRIVATE cxx_std_20)
-      # Check if compiler supports coroutines; skip if not
-      include(CheckCXXSourceCompiles)
-      check_cxx_source_compiles("
-        #include <coroutine>
-        struct pt { int gv() { return 0; } };
-        int main() { return 0; }
-      " XPP_HAS_COROUTINES_${test_name})
-      if(NOT XPP_HAS_COROUTINES_${test_name})
-        set_target_properties(${test_name} PROPERTIES EXCLUDE_FROM_ALL TRUE)
-        set_tests_properties(${test_name} PROPERTIES WILL_FAIL TRUE)
+      # GCC < 12 needs -fcoroutines flag
+      if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
+        target_compile_options(${test_name} PRIVATE -fcoroutines)
       endif()
     endif()
   endforeach()

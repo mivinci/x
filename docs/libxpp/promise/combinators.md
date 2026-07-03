@@ -32,8 +32,8 @@ xpp::all(
 
 // With void + value — Void in tuple, ignored
 auto [_, val] = xpp::all(
-    Promise<void>::resolve(),
-    Promise<int>::resolve(42)
+    yield(),
+    resolve(42)
 ).wait();
 // val == 42
 ```
@@ -49,14 +49,14 @@ Resolves with the first ready promise. All losing branches are destroyed.
 // Timeout pattern
 auto result = xpp::race(
     fetch_async(url),                                        // Promise<int>
-    xpp::Promise<void>::after(5000).then([] { return -1; })  // timeout
+    xpp::after(5000).then([] { return -1; })  // timeout
 ).wait();
 
 // N CDNs, take fastest
 auto fastest = xpp::race(fetch(cdn1), fetch(cdn2), fetch(cdn3)).wait();
 
 // Void race
-xpp::race(Promise<void>::after(10), Promise<void>::after(50)).wait();
+xpp::race(after(10), after(50)).wait();
 // resolves at ~10ms
 ```
 

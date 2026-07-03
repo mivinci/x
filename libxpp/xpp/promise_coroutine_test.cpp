@@ -34,29 +34,29 @@ static Promise<void> simple_void() {
 }
 
 static Promise<int> await_resolve() {
-  int x = co_await Promise<int>::resolve(10);
+  int x = co_await resolve(10);
   co_return x * 2;
 }
 
 static Promise<int> multiple_awaits() {
-  int a = co_await Promise<int>::resolve(1);
-  int b = co_await Promise<int>::resolve(2);
-  int c = co_await Promise<int>::resolve(3);
+  int a = co_await resolve(1);
+  int b = co_await resolve(2);
+  int c = co_await resolve(3);
   co_return a + b + c;
 }
 
 static Promise<int> await_void() {
-  co_await Promise<void>::resolve();
+  co_await yield();
   co_return 42;
 }
 
 static Promise<int> await_after() {
-  co_await Promise<void>::after(10);
+  co_await after(10);
   co_return 99;
 }
 
 static Promise<int> await_work() {
-  int x = co_await Promise<int>::work([] { return 42; });
+  int x = co_await work([] { return 42; });
   co_return x + 1;
 }
 
@@ -69,7 +69,7 @@ static Promise<int> await_async() {
 }
 
 static Promise<int> inner_coro() {
-  co_await Promise<void>::after(10);
+  co_await after(10);
   co_return 100;
 }
 
@@ -80,13 +80,13 @@ static Promise<int> outer_coro() {
 
 static Promise<int> await_all() {
   auto t =
-    co_await all(Promise<int>::resolve(10), Promise<std::string>::resolve(std::string("hi")));
+    co_await all(resolve(10), resolve(std::string("hi")));
   co_return std::get<0>(t) + static_cast<int>(std::get<1>(t).size());
 }
 
 static Promise<int> await_race() {
   int result =
-    co_await race(Promise<int>::resolve(42), Promise<void>::after(100).then([] { return 0; }));
+    co_await race(resolve(42), after(100).then([] { return 0; }));
   co_return result;
 }
 
@@ -95,7 +95,7 @@ static Promise<int> coro_for_then() {
 }
 
 static Promise<int> slow_coro() {
-  co_await Promise<void>::after(10000);
+  co_await after(10000);
   co_return 42;
 }
 

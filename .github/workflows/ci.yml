@@ -52,12 +52,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             cmake \
+            g++-12 \
             libgtest-dev \
             libnghttp2-dev \
             libssl-dev \
             libmbedtls-dev \
             libusrsctp-dev \
             libcurl4-openssl-dev
+
+      - name: Set GCC 12 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "CC=gcc-12" >> $GITHUB_ENV
+          echo "CXX=g++-12" >> $GITHUB_ENV
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
