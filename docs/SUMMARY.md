@@ -60,6 +60,8 @@
   - [Option\<T\>](libxpp/option.md)
   - [Own\<T\>](libxpp/own.md)
   - [Box\<T\>](libxpp/box.md)
+  - [Rc\<T\> & Weak\<T\>](libxpp/rc.md)
+  - [Arc\<T\> & ArcWeak\<T\>](libxpp/arc.md)
   - [NonNull\<T\>](libxpp/nonnull.md)
   - [Variant](libxpp/variant.md)
   - [Panic](libxpp/panic.md)
