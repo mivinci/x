@@ -136,6 +136,19 @@ static_assert(sizeof(Box<int>) == sizeof(int*));
 static_assert(sizeof(Option<Box<int>>) == sizeof(int*));
 ```
 
+## Comparison
+
+| Feature | xpp::Box\<T\> | std::unique_ptr\<T\> | Rust Box\<T\> |
+|---|---|---|---|
+| sizeof | `sizeof(T*)` | `sizeof(T*)` (default deleter) | `sizeof(T*)` |
+| Non-null | Guaranteed (no default ctor) | Nullable (default ctor) | Guaranteed |
+| Move-only | Yes | Yes | Yes |
+| Custom deleter | Template parameter | Template parameter | `GlobalAlloc` |
+| Covariant | `Box<Derived>` → `Box<Base>` (implicit) | `unique_ptr<Derived>` → `unique_ptr<Base>` | Via `DerefMut` trait |
+| Niche Option | Yes (`Option<Box<T>> = ptr`) | No | `Option<Box<T>> = ptr` |
+| EBO | Yes (`CompressedPair`) | Via empty-base optimization | N/A (no custom deleter) |
+| Post-move | `nullptr` husk (dtor guards) | `nullptr` (dtor guards) | Consumed (no husk) |
+
 ## Implementation Notes
 
 ### CompressedPair
