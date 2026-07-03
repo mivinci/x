@@ -58,7 +58,7 @@ This separation mirrors the C API where `xEventLoopCreate`/`Destroy` and `xEvent
 
 ```cpp
 #include <xpp/event.h>
-#include <x/base/event.h>
+#include <xpp/timer.h>
 
 int main() {
     xpp::EventLoop loop;
@@ -66,11 +66,8 @@ int main() {
     {
         xpp::WaitScope scope(loop);
 
-        // Start a 100ms timer
-        xTimerStart([](void* arg) {
-            auto* lp = static_cast<xpp::EventLoop*>(arg);
-            lp->stop();
-        }, &loop, NULL, 100, 0);
+        // One-shot: fire once after 100ms, then stop the loop
+        xpp::Timer(100, 0, [&]() { loop.stop(); });
 
         loop.run();  // Blocks ~100ms, then timer fires → stop
     }
@@ -81,15 +78,17 @@ int main() {
 ### Interop with Promise\<T\>
 
 ```cpp
+#include <xpp/event.h>
+#include <xpp/promise.h>
+#include <xpp/timer.h>
+
 xpp::EventLoop loop;
 {
     xpp::WaitScope scope(loop);
 
     auto r = xpp::PromiseResolver<int>::create();
 
-    xTimerStart([](void* arg) {
-        static_cast<decltype(r)*>(arg)->resolve(42);
-    }, &r, NULL, 50, 0);
+    xpp::Timer(50, 0, [&]() { r.resolve(42); });
 
     int result = r.promise().wait();  // EventLoop::current() succeeds
 }
