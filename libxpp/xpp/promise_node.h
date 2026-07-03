@@ -29,6 +29,8 @@ namespace xpp {
 
 template <class T> class Promise;
 
+namespace _ {
+
 /* ── ReturnType helper ──────────────���────────────────────────────── */
 
 template <class Func, class Arg>
@@ -44,8 +46,6 @@ template <class T> struct ReducePromise {
 template <class U> struct ReducePromise<Promise<U>> {
   using Type = U;
 };
-
-namespace _ {
 
 /* ── PromiseNode<T> ──────────────────────────────────────────────── */
 

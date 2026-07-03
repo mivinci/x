@@ -477,3 +477,103 @@ Both `xEventLoopRun` calls see the same thread-local loop handle because `WaitSc
 | `Promise<void>::after(ms)` | `TimerPromiseNode` | Timer-based delayed resolution; owns `xTimer` handle, uses `on_cancel` for safe shutdown |
 | `.then(fn)` | `TransformPromiseNode` / `ChainPromiseNode` | Value transformation / auto-flatten |
 | `yield()` | `YieldPromiseNode` | Chain entry point for eval() |
+| `xpp::all(...)` | `AllTuplePromiseNode` / `AllVoidPromiseNode` | Concurrent composition — wait for all |
+| `xpp::race(...)` | `RacePromiseNode` | Concurrent composition — first wins |
+
+## Combinators: `all` and `race`
+
+The `promise_combinators.h` header adds two free functions for concurrent promise composition. Neither requires changes to the existing `Promise` / `PromiseNode` / `PromiseWaker` API — they are new node types that aggregate children.
+
+### `xpp::all(Promise<Ts>...)`
+
+Waits for all input promises to resolve, collecting results into a `std::tuple`.
+
+- **Heterogeneous**: each promise may have a different type. Returns `Promise<std::tuple<FixVoid<Ts>::Type...>>`.
+- **All-void special case**: when every input is `Promise<void>`, returns `Promise<void>` (not `Promise<tuple<Void, Void, ...>>`). Dispatched at compile time via SFINAE.
+- **Zero arguments**: rejected by `static_assert`.
+
+```cpp
+// Heterogeneous — returns tuple
+auto [status, body] = xpp::all(
+    fetch_status(url),   // Promise<int>
+    fetch_body(url)      // Promise<std::string>
+).wait();
+
+// All-void — returns void
+xpp::all(
+    prefetch(0),
+    prefetch(1),
+    prefetch(2)
+).then([] { start_playback(); }).wait();
+
+// With void + value — Void in tuple, ignored
+auto [_, val] = xpp::all(
+    Promise<void>::resolve(),
+    Promise<int>::resolve(42)
+).wait();
+// val == 42
+```
+
+Internally, `AllTuplePromiseNode<Ts...>` stores children in a `std::tuple<Own<PromiseNode<Ts>>...>` and results in `std::tuple<Option<FixVoid<Ts>::Type>...>`. On each `poll(waker)`, it polls all not-done children using a C++17 fold expression over `std::index_sequence`. When `m_remaining` reaches 0, it collects results via `make_tuple(move(get<I>(m_results).unwrap())...)`.
+
+The all-void path uses `AllVoidPromiseNode<N>` with `std::array` — simpler, no tuple machinery, just a countdown.
+
+### `xpp::race(Promise<T> first, Promise<Rest>...)`
+
+Resolves with the first ready promise. All losing branches are destroyed (their destructors run — `TimerPromiseNode` stops its timer, etc.).
+
+- **Homogeneous**: all promises must have the same type `T`. Enforced by `static_assert`.
+- **Void support**: `race(Promise<void>...)` returns `Promise<void>`.
+
+```cpp
+// Timeout pattern
+auto result = xpp::race(
+    fetch_async(url),                                    // Promise<int>
+    xpp::Promise<void>::after(5000).then([] { return -1; })  // timeout
+).wait();
+if (result == -1) { /* timed out */ }
+
+// N CDNs, take fastest
+auto fastest = xpp::race(fetch(cdn1), fetch(cdn2), fetch(cdn3)).wait();
+
+// Void race
+xpp::race(Promise<void>::after(10), Promise<void>::after(50)).wait();
+// resolves at ~10ms
+```
+
+### Waker sharing
+
+Both `all` and `race` pass the **same** `PromiseWaker` to all children. `PromiseWaker` is 16 bytes, trivially copyable — each child stores its own copy. When any child fires the waker (sets `*done = true`), `wait()` re-polls the parent node.
+
+Re-polling is safe because the parent tracks which children are done:
+
+- `AllTuplePromiseNode`: checks `Option::is_some()` per child
+- `RacePromiseNode`: returns on first `Some`, remaining children are destroyed
+
+### `wait()` uses `X_RUN_ONCE`
+
+`Promise::wait()` runs the event loop with `X_RUN_ONCE` (one iteration per call) rather than `X_RUN_DEFAULT` (block until all event sources drain). This is critical for `race`: with two timers, the faster timer sets `done = true`, but the slower timer keeps the loop alive. `X_RUN_ONCE` returns after each event, letting `wait()` re-check `done` immediately.
+
+### Destruction safety for `race`
+
+When `race` resolves, N-1 losing children are destroyed. Their destructors handle cleanup:
+
+| Node | Destructor behavior |
+| --- | --- |
+| `TimerPromiseNode` | Calls `xTimerStop` if not yet fired |
+| `AdapterPromiseNode` | Destroyed — caller must ensure `PromiseResolver` is not used after |
+| `ImmediatePromiseNode` | No cleanup needed |
+| `TransformPromiseNode` | Destroys dependency chain |
+
+The `AdapterPromiseNode` case is the same destroy-before-resolve risk that exists for any `Promise`. Race amplifies it (N-1 losers), but the contract is unchanged: the caller must ensure resolvers don't outlive their promises.
+
+### Comparison with other languages
+
+| Feature | xpp::Promise | JS Promise | Rust Future | folly::Future |
+| --- | --- | --- | --- | --- |
+| `all` | `all(p1, p2)` → `tuple` | `Promise.all([p1,p2])` → `array` | `try_join(p1,p2)` → `tuple` | `collect()` → `vector` |
+| `race` | `race(p1, p2)` → first | `Promise.race([p1,p2])` → first | `select(p1,p2)` → first | `any()` → first |
+| Heterogeneous `all` | Yes (tuple) | No (coerce) | Yes (tuple) | No (vector) |
+| Types checked at | Compile time | Runtime | Compile time | Compile time |
+| Loser cleanup | Destructor | GC | `Drop` | Destructor |
+| Executor needed | No | Yes (microtask) | Yes (tokio) | Yes (executor) |

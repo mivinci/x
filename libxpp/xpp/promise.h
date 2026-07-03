@@ -36,6 +36,11 @@ namespace xpp {
 
 template <class T> class PromiseResolver;
 
+namespace _ {
+/// Forward declaration so Promise<T> can befriend it.
+template <class U> Own<PromiseNode<U>> _extract_node(Promise<U> &&);
+}
+
 /* ── ReturnType helper ──────────────────────────────────────────── */
 
 template <class Func, class T> using ReturnType = decltype(std::declval<Func>()(std::declval<T>()));
@@ -93,11 +98,11 @@ public:
   template <class Func, class V = ValueType,
             class = typename std::enable_if<!std::is_same<V, Void>::value>::type>
   auto then(Func &&func)
-    -> Promise<typename ReducePromise<decltype(std::declval<Func>()(std::declval<V>()))>::Type>;
+    -> Promise<typename _::ReducePromise<decltype(std::declval<Func>()(std::declval<V>()))>::Type>;
 
   template <class Func, class V = ValueType,
             class = typename std::enable_if<std::is_same<V, Void>::value>::type, class = void>
-  auto then(Func &&func) -> Promise<typename ReducePromise<decltype(std::declval<Func>()())>::Type>;
+  auto then(Func &&func) -> Promise<typename _::ReducePromise<decltype(std::declval<Func>()())>::Type>;
 
   /// Discard the value, returning a completion-only Promise<void>.
   Promise<void> discard() {
@@ -120,7 +125,7 @@ public:
   /// Evaluate a synchronous function as a promise.
   template <class Func, class V = ValueType,
             class = typename std::enable_if<std::is_same<V, Void>::value>::type>
-  static auto eval(Func &&func) -> Promise<typename ReducePromise<ReturnTypeVoid<Func>>::Type> {
+  static auto eval(Func &&func) -> Promise<typename _::ReducePromise<_::ReturnTypeVoid<Func>>::Type> {
     return Promise<void>(Own<_::PromiseNode<void>>(new _::YieldPromiseNode()))
       .then(std::forward<Func>(func));
   }
@@ -181,9 +186,15 @@ public:
       if (result.is_some()) {
         return result.unwrap();
       }
-      // Pending — run the loop until waker fires
+      // Pending — run one loop iteration per try. X_RUN_ONCE returns
+      // after processing one batch of events (timers, I/O, done queue),
+      // so we can re-check `done` without waiting for all event sources
+      // to drain. This is critical for race(): with two timers, the
+      // faster timer sets done=true, but the slower timer keeps the
+      // loop alive. X_RUN_ONCE returns after the faster timer fires,
+      // allowing re-poll before the slower timer completes.
       while (!done) {
-        xEventLoopRun(EventLoop::current(), X_RUN_DEFAULT);
+        xEventLoopRun(EventLoop::current(), X_RUN_ONCE);
       }
       done = false; // reset for next poll iteration
     }
@@ -195,6 +206,9 @@ private:
   template <class U> friend class Promise;
   template <class U> friend class PromiseResolver;
   template <class U> friend class _::ChainPromiseNode;
+
+  /// Internal: extract node from a moved Promise. Used by combinators.
+  template <class U> friend Own<_::PromiseNode<U>> _::_extract_node(Promise<U> &&);
 };
 
 /* ── PromiseResolver<T> ─────────────────────────────────────────── */
@@ -366,9 +380,9 @@ chain(Own<PromiseNode<T>> dep, Func &&func) {
 template <class T>
 template <class Func, class V, class>
 auto Promise<T>::then(Func &&func)
-  -> Promise<typename ReducePromise<decltype(std::declval<Func>()(std::declval<V>()))>::Type> {
+  -> Promise<typename _::ReducePromise<decltype(std::declval<Func>()(std::declval<V>()))>::Type> {
   using RawU     = decltype(std::declval<Func>()(std::declval<V>()));
-  using ReducedT = typename ReducePromise<RawU>::Type;
+  using ReducedT = typename _::ReducePromise<RawU>::Type;
   using OutT     = RawU;
 
   Own<_::PromiseNode<T>> dep(std::move(m_node));
@@ -379,9 +393,9 @@ auto Promise<T>::then(Func &&func)
 template <class T>
 template <class Func, class V, class, class>
 auto Promise<T>::then(Func &&func)
-  -> Promise<typename ReducePromise<decltype(std::declval<Func>()())>::Type> {
+  -> Promise<typename _::ReducePromise<decltype(std::declval<Func>()())>::Type> {
   using RawU     = decltype(std::declval<Func>()());
-  using ReducedT = typename ReducePromise<RawU>::Type;
+  using ReducedT = typename _::ReducePromise<RawU>::Type;
   using OutT     = RawU;
 
   Own<_::PromiseNode<void>> dep(std::move(m_node));
