@@ -113,6 +113,7 @@ set_target_properties(xbase_test PROPERTIES FOLDER "libx")
     target_compile_definitions(xbase_test PRIVATE _CRT_SECURE_NO_WARNINGS)
   endif()
   add_test(NAME xbase_test COMMAND xbase_test)
+  set_tests_properties(xbase_test PROPERTIES LABELS "libx")
 endif()
 
 if(XBASE_BUILD_BENCHMARKS)

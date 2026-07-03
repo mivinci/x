@@ -102,6 +102,6 @@ set_target_properties(xp2p_test PROPERTIES FOLDER "libx")
     # NOTE: several ICE tests intentionally wait for STUN/TURN retransmission
     # timeouts (~11s each). On slow CI runners the accumulated wall time can
     # approach the CTest limit, so we give the whole binary a generous cap.
-    set_tests_properties(xp2p_test PROPERTIES TIMEOUT 300)
+    set_tests_properties(xp2p_test PROPERTIES TIMEOUT 300 LABELS "libx")
   endif()
 endif()

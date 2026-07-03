@@ -20,4 +20,5 @@ if(X_BUILD_TESTS)
   target_compile_options(dlproxy_test PRIVATE -Wno-error)
 
   add_test(NAME dlproxy COMMAND dlproxy_test)
+  set_tests_properties(dlproxy PROPERTIES LABELS "libx")
 endif()
