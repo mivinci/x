@@ -12,7 +12,7 @@ No separate runtime is needed — `wait()` drives the event loop directly.
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-int result = xpp::Promise<int>::resolve(10)
+int result = xpp::resolve(10)
     .then([](int x) { return x * 2; })
     .wait();
 // result == 20
@@ -32,7 +32,7 @@ int result = xpp::Promise<int>::resolve(10)
 ```mermaid
 graph TD
     subgraph "User API"
-        PR["Promise::resolve(v)"]
+        PR["resolve(v)"]
         CHAIN[".then(fn)"]
         WAIT[".wait()"]
         ASYNC["async&lt;T&gt;()"]
@@ -72,7 +72,8 @@ graph TD
 - [Deferred Resolution](deferred.md) — `async()`, `PromiseResolver`, cross-thread resolve
 - [Timers & Timeouts](timers.md) — `after(ms)`, timeout pattern with `race`
 - [Combinators](combinators.md) — `all()`, `race()`, concurrent composition
-- [Custom Adapters](adapter.md) — `Promise::adapt`, `Promise::work`, Adapter contract, `TimerAdapter`, `WorkAdapter`
+- [Custom Adapters](adapter.md) — `adapt`, `work`, Adapter contract, `TimerAdapter`, `WorkAdapter`
+- [C++20 Coroutines](coroutine.md) — `co_await` / `co_return` with `Promise<T>` (no `Task<T>`)
 - [Internals](internals.md) — `PromiseNode` hierarchy, waker system, `ResolveState`
 
 ## API Reference
@@ -81,13 +82,10 @@ graph TD
 
 | Member | Description |
 | -------- | ------------- |
-| `static Promise resolve(T v)` | Immediately-resolved promise |
 | `auto then(Func fn)` | Chain transform (auto-flattens) |
 | `Promise<void> discard()` | Drop value, return `Promise<void>` |
 | `T wait()` | Block + drive event loop. Consumes promise |
-| `static auto defer(Func fn)` | Defer sync function as promise |
-| `static Promise<void> after(uint64_t ms)` | (void only) Resolve after delay |
-| `static Promise<T> work(Func fn)` | Run func on thread pool, resolve with result |
+| `operator co_await()` | (C++20 only) Await in coroutine. Rvalue-qualified |
 | `operator bool()` | True if non-empty |
 
 ### PromiseResolver\<T\>
@@ -101,8 +99,12 @@ graph TD
 
 | Function | Description |
 | ---------- | ------------- |
+| `resolve(v)` | Immediately-resolved promise. T deduced from argument |
+| `yield()` | Immediately-resolved `Promise<void>` |
+| `after(ms)` | Resolve after `ms` milliseconds. Returns `Promise<void>` |
+| `defer(fn)` | Defer sync function as promise. T deduced from return type |
+| `work(fn)` | Run func on thread pool. T deduced from return type |
+| `adapt<T, Adapter>(args...)` | Custom adapter-backed promise |
 | `async<T>()` | → `pair<Promise<T>, PromiseResolver<T>>` |
-| `Promise<T>::adapt<Adapter>(args...)` | Custom adapter-backed promise |
 | `all(Promise<Ts>...)` | Wait for all → `tuple` or `void` |
 | `race(Promise<T>, Promise<T>...)` | First resolved wins |
-| `yield()` | Immediately-resolved `Promise<void>` |

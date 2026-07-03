@@ -20,7 +20,7 @@ using namespace xpp;
 TEST(PromiseWorkTest, BasicWork) {
   EventLoop loop;
   WaitScope scope(loop);
-  int       result = Promise<int>::work([] { return 42; }).wait();
+  int       result = work([] { return 42; }).wait();
   EXPECT_EQ(result, 42);
 }
 
@@ -28,14 +28,14 @@ TEST(PromiseWorkTest, WorkWithString) {
   EventLoop   loop;
   WaitScope   scope(loop);
   std::string result =
-    Promise<std::string>::work([] { return std::string("from thread pool"); }).wait();
+    work([] { return std::string("from thread pool"); }).wait();
   EXPECT_EQ(result, "from thread pool");
 }
 
 TEST(PromiseWorkTest, WorkWithThenChain) {
   EventLoop loop;
   WaitScope scope(loop);
-  int       result = Promise<int>::work([] { return 10; }).then([](int x) { return x * 3; }).wait();
+  int       result = work([] { return 10; }).then([](int x) { return x * 3; }).wait();
   EXPECT_EQ(result, 30);
 }
 
@@ -43,7 +43,7 @@ TEST(PromiseWorkTest, WorkWithSleep) {
   EventLoop loop;
   WaitScope scope(loop);
   auto      start  = std::chrono::steady_clock::now();
-  int       result = Promise<int>::work([] {
+  int       result = work([] {
                  std::this_thread::sleep_for(std::chrono::milliseconds(50));
                  return 99;
                }).wait();
@@ -57,11 +57,11 @@ TEST(PromiseWorkTest, WorkWithSleep) {
 TEST(PromiseWorkTest, WorkRaceWithTimer) {
   EventLoop loop;
   WaitScope scope(loop);
-  int       result = race(Promise<int>::work([] {
+  int       result = race(work([] {
                       std::this_thread::sleep_for(std::chrono::milliseconds(100));
                       return 200;
                     }),
-                          Promise<void>::after(10).then([] { return -1; }))
+                          after(10).then([] { return -1; }))
                  .wait();
   EXPECT_EQ(result, -1);
 }

@@ -8,7 +8,7 @@
  * TimerAdapter owns an xTimer; callback calls resolver.resolve().
  * Destructor calls xTimerStop (synchronous on the event loop thread).
  *
- * Used by Promise<void>::after(ms).
+ * Used by xpp::after(ms).
  *
  * C++17-compatible. Header-only.
  */

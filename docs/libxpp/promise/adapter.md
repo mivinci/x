@@ -29,12 +29,12 @@ public:
 };
 ```
 
-## `Promise<T>::adapt<Adapter>(args...)`
+## `adapt<T, Adapter>(args...)`
 
 ```cpp
 #include <xpp/promise_adapter.h>
 
-auto p = xpp::Promise<int>::adapt<MyAdapter>(url);
+auto p = xpp::adapt<int, MyAdapter>(url);
 // MyAdapter is constructed with (PromiseResolver<int>&&, url)
 // When the fetch completes, MyAdapter calls resolver.resolve(code)
 int code = p.wait();
@@ -114,11 +114,11 @@ public:
 };
 ```
 
-Used internally by `Promise<void>::after(ms)`:
+Used internally by `after(ms)`:
 
 ```cpp
-Promise<void> Promise<void>::after(uint64_t ms) {
-  return Promise<void>::adapt<TimerAdapter>(ms);
+Promise<void> after(uint64_t ms) {
+  return adapt<void, TimerAdapter>(ms);
 }
 ```
 
@@ -162,5 +162,5 @@ public:
   ~MyFetchAdapter() { if (m_work) xWorkCancel(m_work); }
 };
 
-auto p = xpp::Promise<Response>::adapt<MyFetchAdapter>(url);
+auto p = xpp::adapt<Response, MyFetchAdapter>(url);
 ```

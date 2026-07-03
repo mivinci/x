@@ -12,41 +12,12 @@
 
 #include <gtest/gtest.h>
 #include <xpp/promise.h>
+#include <xpp/promise_test_helper.h>
+#include <xpp/timer.h>
 
 #include <x/base/event.h>
 
 using namespace xpp;
-
-/* ───────────────────── Helpers ───────────────────── */
-
-static xTimer schedule_resolve_int(PromiseResolver<int> &r, int value, uint64_t delay_ms) {
-  struct Ctx {
-    PromiseResolver<int> *r;
-    int                   value;
-  };
-  auto *ctx = new Ctx{&r, value};
-  return xTimerStart(
-    [](void *a) {
-      auto *c = static_cast<Ctx *>(a);
-      c->r->resolve(c->value);
-      delete c;
-    },
-    ctx, nullptr, delay_ms, 0);
-}
-
-static xTimer schedule_resolve_void(PromiseResolver<void> &r, uint64_t delay_ms) {
-  struct Ctx {
-    PromiseResolver<void> *r;
-  };
-  auto *ctx = new Ctx{&r};
-  return xTimerStart(
-    [](void *a) {
-      auto *c = static_cast<Ctx *>(a);
-      c->r->resolve();
-      delete c;
-    },
-    ctx, nullptr, delay_ms, 0);
-}
 
 /* ───────────────────── PromiseResolver tests ───────────────────── */
 
@@ -63,7 +34,7 @@ TEST(PromiseResolverTest, ResolveDeferred) {
   WaitScope scope(loop);
   auto      pr = async<int>();
   auto      r  = std::move(pr.second);
-  schedule_resolve_int(r, 99, 10);
+  auto t = schedule_resolve(r, 99, 10);
   EXPECT_EQ(pr.first.wait(), 99);
 }
 
@@ -72,7 +43,7 @@ TEST(PromiseResolverTest, ResolveVoid) {
   WaitScope scope(loop);
   auto      pr = async<void>();
   auto      r  = std::move(pr.second);
-  schedule_resolve_void(r, 10);
+  auto t = schedule_resolve(r, 10);
   pr.first.wait();
   SUCCEED();
 }
@@ -127,14 +98,10 @@ class CountingAdapter {
 public:
   static int construct_count;
   static int destruct_count;
-  CountingAdapter(PromiseResolver<int> &&r, int value) : m_resolver(std::move(r)), m_value(value) {
+  CountingAdapter(PromiseResolver<int> &&r, int value)
+      : m_resolver(std::move(r)), m_value(value),
+        m_timer(0, 0, [this] { m_resolver.resolve(m_value); }) {
     construct_count++;
-    xTimerStart(
-      [](void *a) {
-        auto *self = static_cast<CountingAdapter *>(a);
-        self->m_resolver.resolve(self->m_value);
-      },
-      this, nullptr, 0, 0);
   }
   ~CountingAdapter() {
     destruct_count++;
@@ -145,6 +112,7 @@ public:
 private:
   PromiseResolver<int> m_resolver;
   int                  m_value;
+  Timer                m_timer;
 };
 
 int CountingAdapter::construct_count = 0;
@@ -156,7 +124,7 @@ TEST(PromiseAdaptTest, CustomAdapter) {
   {
     EventLoop loop;
     WaitScope scope(loop);
-    auto      p = Promise<int>::adapt<CountingAdapter>(42);
+    auto      p = adapt<int, CountingAdapter>(42);
     EXPECT_EQ(CountingAdapter::construct_count, 1);
     EXPECT_EQ(p.wait(), 42);
   }

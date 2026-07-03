@@ -26,5 +26,14 @@ if(XPP_BUILD_TESTS)
     set_target_properties(${test_name} PROPERTIES FOLDER "libxpp")
     add_test(NAME ${test_name} COMMAND ${test_name})
     set_tests_properties(${test_name} PROPERTIES LABELS "xpp")
+
+    # Coroutine tests require C++20
+    if(test_name MATCHES "coroutine")
+      target_compile_features(${test_name} PRIVATE cxx_std_20)
+      # GCC < 12 needs -fcoroutines flag
+      if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
+        target_compile_options(${test_name} PRIVATE -fcoroutines)
+      endif()
+    endif()
   endforeach()
 endif()

@@ -1,0 +1,192 @@
+/*
+ * Copyright 2025 The libx++ Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * promise_coroutine_test.cpp — Tests for C++20 coroutine support.
+ *
+ * Requires C++20 coroutine support.
+ */
+
+#include <string>
+
+#include <gtest/gtest.h>
+#include <xpp/promise.h>
+#include <xpp/promise_combinators.h>
+#include <xpp/promise_test_helper.h>
+
+#include <x/base/event.h>
+
+using namespace xpp;
+
+/* ───────────────────── Coroutine functions ───────────────────── */
+
+static Promise<int> simple_int() {
+  co_return 42;
+}
+
+static Promise<std::string> simple_string() {
+  co_return std::string("hello");
+}
+
+static Promise<void> simple_void() {
+  co_return;
+}
+
+static Promise<int> await_resolve() {
+  int x = co_await resolve(10);
+  co_return x * 2;
+}
+
+static Promise<int> multiple_awaits() {
+  int a = co_await resolve(1);
+  int b = co_await resolve(2);
+  int c = co_await resolve(3);
+  co_return a + b + c;
+}
+
+static Promise<int> await_void() {
+  co_await yield();
+  co_return 42;
+}
+
+static Promise<int> await_after() {
+  co_await after(10);
+  co_return 99;
+}
+
+static Promise<int> await_work() {
+  int x = co_await work([] { return 42; });
+  co_return x + 1;
+}
+
+static Promise<int> await_async() {
+  auto pr = async<int>();
+  auto r  = std::move(pr.second);
+  auto t = schedule_resolve(r, 77, 10);
+  int x = co_await std::move(pr.first);
+  co_return x;
+}
+
+static Promise<int> inner_coro() {
+  co_await after(10);
+  co_return 100;
+}
+
+static Promise<int> outer_coro() {
+  int x = co_await inner_coro();
+  co_return x + 1;
+}
+
+static Promise<int> await_all() {
+  auto t =
+    co_await all(resolve(10), resolve(std::string("hi")));
+  co_return std::get<0>(t) + static_cast<int>(std::get<1>(t).size());
+}
+
+static Promise<int> await_race() {
+  int result =
+    co_await race(resolve(42), after(100).then([] { return 0; }));
+  co_return result;
+}
+
+static Promise<int> coro_for_then() {
+  co_return 10;
+}
+
+static Promise<int> slow_coro() {
+  co_await after(10000);
+  co_return 42;
+}
+
+/* ───────────────────── Tests ───────────────────── */
+
+TEST(PromiseCoroutineTest, SimpleReturn) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  EXPECT_EQ(simple_int().wait(), 42);
+}
+
+TEST(PromiseCoroutineTest, SimpleReturnString) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  EXPECT_EQ(simple_string().wait(), "hello");
+}
+
+TEST(PromiseCoroutineTest, ReturnVoid) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  simple_void().wait();
+  SUCCEED();
+}
+
+TEST(PromiseCoroutineTest, AwaitResolve) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  EXPECT_EQ(await_resolve().wait(), 20);
+}
+
+TEST(PromiseCoroutineTest, MultipleAwaits) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  EXPECT_EQ(multiple_awaits().wait(), 6);
+}
+
+TEST(PromiseCoroutineTest, AwaitVoid) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  EXPECT_EQ(await_void().wait(), 42);
+}
+
+TEST(PromiseCoroutineTest, AwaitAfter) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  EXPECT_EQ(await_after().wait(), 99);
+}
+
+TEST(PromiseCoroutineTest, AwaitWork) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  EXPECT_EQ(await_work().wait(), 43);
+}
+
+TEST(PromiseCoroutineTest, AwaitAsync) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  EXPECT_EQ(await_async().wait(), 77);
+}
+
+TEST(PromiseCoroutineTest, NestedCoroutines) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  EXPECT_EQ(outer_coro().wait(), 101);
+}
+
+TEST(PromiseCoroutineTest, AwaitAll) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  EXPECT_EQ(await_all().wait(), 12);
+}
+
+TEST(PromiseCoroutineTest, AwaitRace) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  EXPECT_EQ(await_race().wait(), 42);
+}
+
+TEST(PromiseCoroutineTest, CoroutineThenChain) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  int       result = coro_for_then().then([](int x) { return x * 3; }).wait();
+  EXPECT_EQ(result, 30);
+}
+
+TEST(PromiseCoroutineTest, EarlyDestruction) {
+  EventLoop loop;
+  WaitScope scope(loop);
+  {
+    auto p = slow_coro();
+    (void)p;
+  }
+  SUCCEED();
+}
