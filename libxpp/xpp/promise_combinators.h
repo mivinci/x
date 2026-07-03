@@ -33,12 +33,12 @@ namespace xpp {
 
 /* ── Internal: extract node from a moved Promise ──────────────────── */
 
+namespace _ {
+
 template <class U>
-Own<_::PromiseNode<U>> _extract_node(Promise<U> &&p) {
+Own<PromiseNode<U>> _extract_node(Promise<U> &&p) {
   return std::move(p.m_node);
 }
-
-namespace _ {
 
 /* ── AllTuplePromiseNode<Ts...> ───────────────────────────────────── */
 /*
