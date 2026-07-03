@@ -181,9 +181,15 @@ public:
       if (result.is_some()) {
         return result.unwrap();
       }
-      // Pending — run the loop until waker fires
+      // Pending — run one loop iteration per try. X_RUN_ONCE returns
+      // after processing one batch of events (timers, I/O, done queue),
+      // so we can re-check `done` without waiting for all event sources
+      // to drain. This is critical for race(): with two timers, the
+      // faster timer sets done=true, but the slower timer keeps the
+      // loop alive. X_RUN_ONCE returns after the faster timer fires,
+      // allowing re-poll before the slower timer completes.
       while (!done) {
-        xEventLoopRun(EventLoop::current(), X_RUN_DEFAULT);
+        xEventLoopRun(EventLoop::current(), X_RUN_ONCE);
       }
       done = false; // reset for next poll iteration
     }
@@ -195,6 +201,9 @@ private:
   template <class U> friend class Promise;
   template <class U> friend class PromiseResolver;
   template <class U> friend class _::ChainPromiseNode;
+
+  /// Internal: extract node from a moved Promise. Used by combinators.
+  template <class U> friend Own<_::PromiseNode<U>> _extract_node(Promise<U> &&);
 };
 
 /* ── PromiseResolver<T> ─────────────────────────────────────────── */
