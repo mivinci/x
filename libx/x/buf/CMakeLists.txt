@@ -19,6 +19,7 @@ if(XBUF_BUILD_TESTS)
     x_source_group(xbuf_test "${CMAKE_CURRENT_SOURCE_DIR}")
 set_target_properties(xbuf_test PROPERTIES FOLDER "libx")
     add_test(NAME xbuf_test COMMAND xbuf_test)
+    set_tests_properties(xbuf_test PROPERTIES LABELS "libx")
   endif()
 endif()
 

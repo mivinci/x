@@ -52,6 +52,6 @@ cmake --build "$BUILD_DIR" -j "$JOBS"
 
 # ── Test ────────────────────────────────────────────────────────────────
 echo "=== Testing ==="
-cd "$BUILD_DIR" && ctest --output-on-failure
+cd "$BUILD_DIR" && ctest --output-on-failure ${CTEST_ARGS:-}
 
 echo "=== Done ==="

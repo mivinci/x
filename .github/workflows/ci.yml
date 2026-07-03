@@ -64,6 +64,34 @@ jobs:
         run: |
           brew install googletest llhttp nghttp2 openssl mbedtls libusrsctp curl
 
+      # ── Detect test scope ───────────────────────────────────────────
+      # If only libxpp/ changed, run only xpp-labeled tests.
+      # If libx/ (or cmake/, libdlproxy/) changed, run all tests
+      # (libxpp + libdlproxy link libx, so upstream changes must be
+      # verified downstream).
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            libx:
+              - 'libx/**'
+              - 'libdlproxy/**'
+              - 'CMakeLists.txt'
+              - 'cmake/**'
+            xpp:
+              - 'libxpp/**'
+
+      - name: Set test scope
+        id: scope
+        run: |
+          if [ "${{ steps.changes.outputs.libx }}" = "true" ]; then
+            echo "filter=" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.changes.outputs.xpp }}" = "true" ]; then
+            echo "filter=-L xpp" >> "$GITHUB_OUTPUT"
+          else
+            echo "filter=-L nosuchlabel" >> "$GITHUB_OUTPUT"
+          fi
+
       # ── Build cache ────────────────────────────────────────────────────
       - name: Compute cache key
         id: cache-key
@@ -81,12 +109,16 @@ jobs:
       # ── Build & Test ──────────────────────────────────────────────────
       - name: Build & Test (Linux)
         if: runner.os == 'Linux'
+        env:
+          CTEST_ARGS: ${{ steps.scope.outputs.filter }}
         run: |
           rm -f build/CMakeCache.txt
           bash scripts/test-linux.sh -t ${{ matrix.tls }} -j $(nproc) -B build --asan
 
       - name: Build & Test (macOS)
         if: runner.os == 'macOS'
+        env:
+          CTEST_ARGS: ${{ steps.scope.outputs.filter }}
         run: |
           rm -f build/CMakeCache.txt
           zsh scripts/test-mac.sh -t ${{ matrix.tls }} -j $(sysctl -n hw.ncpu) -B build --asan
