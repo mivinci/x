@@ -3,34 +3,35 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * nonnull_own_test.cpp - Tests for Box<T, Deleter> and
- *                           Option<Box<T, Deleter>>.
+ * box_test.cpp - Tests for Box<T, Allocator> and Option<Box<T, Allocator>>.
  *
  * Uses a Tracker fixture (heap-allocated) to verify:
  *   - no leaks
  *   - no double-frees
- *   - correct deleter invocation count
+ *   - correct allocator deallocate invocation count
  *
  * Also exercises:
- *   - default_delete (empty → EBO, sizeof == sizeof(T*))
- *   - a custom *empty* deleter (CountingDeleter — still EBO)
- *   - a *stateful* deleter (StatefulDeleter — sizeof grows)
+ *   - GlobalAllocator (empty → EBO, sizeof == sizeof(T*))
+ *   - a custom *empty* allocator (CountingAlloc — still EBO)
+ *   - a *stateful* allocator (StatefulAlloc — sizeof grows)
  *   - asymmetric unwrap / combinator semantics (const& borrow vs && consume)
  *   - SFINAE-removed operator* / operator-> for T = void
  *   - copy-construction is deleted (compile-time)
  */
 
+#include <atomic>
 #include <string>
 #include <type_traits>
 #include <utility>
 
 #include <gtest/gtest.h>
+#include <xpp/allocator.h>
 #include <xpp/box.h>
 
 /* ── Compile-time guarantees ─────────────────────────────────────────── */
 
 static_assert(sizeof(xpp::Box<int>) == sizeof(int *),
-              "Box<int, default_delete> must be sizeof(int*) via EBO");
+              "Box<int, GlobalAllocator> must be sizeof(int*) via EBO");
 static_assert(sizeof(xpp::Option<xpp::Box<int>>) == sizeof(int *), "Option<Box<int>> niche broken");
 
 static_assert(!std::is_copy_constructible<xpp::Box<int>>::value, "Box must not be copyable");
@@ -89,37 +90,54 @@ protected:
 };
 
 /*
- * An *empty* custom deleter. Records calls in a static counter. Must be
- * empty (no data members) so EBO still applies → sizeof unchanged.
+ * An *empty* custom allocator. Records deallocate calls in a static
+ * counter. Must be empty (no data members) so EBO still applies →
+ * sizeof unchanged.
  */
-struct CountingDeleter {
-  static int calls;
-  void       operator()(Tracker *p) const noexcept {
+struct CountingAlloc {
+  static std::atomic<int> calls;
+
+  xpp::Result<xpp::Span<uint8_t>, xpp::AllocError> allocate(xpp::Layout layout) const {
+    void *p = ::operator new(layout.size);
+    if (!p) return xpp::Result<xpp::Span<uint8_t>, xpp::AllocError>(xpp::err, xpp::AllocError{});
+    return xpp::Result<xpp::Span<uint8_t>, xpp::AllocError>(
+      xpp::ok, xpp::Span<uint8_t>(static_cast<uint8_t *>(p), layout.size));
+  }
+
+  void deallocate(void *ptr, xpp::Layout) const noexcept {
     ++calls;
-    delete p;
+    ::operator delete(ptr);
   }
 };
-int CountingDeleter::calls = 0;
+std::atomic<int> CountingAlloc::calls{0};
 
-static_assert(std::is_empty<CountingDeleter>::value, "CountingDeleter must be empty for EBO");
-static_assert(sizeof(xpp::Box<Tracker, CountingDeleter>) == sizeof(Tracker *),
-              "Box with empty custom deleter must still be sizeof(T*)");
+static_assert(std::is_empty<CountingAlloc>::value, "CountingAlloc must be empty for EBO");
+static_assert(sizeof(xpp::Box<Tracker, CountingAlloc>) == sizeof(Tracker *),
+              "Box with empty custom allocator must still be sizeof(T*)");
 
 /*
- * A *stateful* deleter. sizeof grows by sizeof(int) (rounded for
+ * A *stateful* allocator. sizeof grows by sizeof(int*) (rounded for
  * alignment), so sizeof(Box) > sizeof(T*).
  */
-struct StatefulDeleter {
-  int *call_count;
-  void operator()(Tracker *p) const noexcept {
+struct StatefulAlloc {
+  std::atomic<int> *call_count;
+
+  xpp::Result<xpp::Span<uint8_t>, xpp::AllocError> allocate(xpp::Layout layout) const {
+    void *p = ::operator new(layout.size);
+    if (!p) return xpp::Result<xpp::Span<uint8_t>, xpp::AllocError>(xpp::err, xpp::AllocError{});
+    return xpp::Result<xpp::Span<uint8_t>, xpp::AllocError>(
+      xpp::ok, xpp::Span<uint8_t>(static_cast<uint8_t *>(p), layout.size));
+  }
+
+  void deallocate(void *ptr, xpp::Layout) const noexcept {
     if (call_count) ++*call_count;
-    delete p;
+    ::operator delete(ptr);
   }
 };
-static_assert(!std::is_empty<StatefulDeleter>::value,
-              "StatefulDeleter must be non-empty for this test");
-static_assert(sizeof(xpp::Box<Tracker, StatefulDeleter>) > sizeof(Tracker *),
-              "Box with stateful deleter must grow beyond sizeof(T*)");
+static_assert(!std::is_empty<StatefulAlloc>::value,
+              "StatefulAlloc must be non-empty for this test");
+static_assert(sizeof(xpp::Box<Tracker, StatefulAlloc>) > sizeof(Tracker *),
+              "Box with stateful allocator must grow beyond sizeof(T*)");
 
 } // namespace
 
@@ -529,45 +547,43 @@ TEST(OptionBoxTest, InspectSkipsWhenNone) {
   EXPECT_FALSE(called);
 }
 
-/* ── Custom (empty) deleter — still EBO ──────────────────────────────── */
+/* ── Custom (empty) allocator — still EBO ────────────────────────────── */
 
-TEST_F(BoxTrackerTest, CustomEmptyDeleterIsInvoked) {
-  CountingDeleter::calls = 0;
+TEST_F(BoxTrackerTest, CustomEmptyAllocatorIsInvoked) {
+  CountingAlloc::calls = 0;
   {
-    auto u = xpp::Box<Tracker, CountingDeleter>::from_raw(new Tracker(1));
+    auto u = xpp::Box<Tracker, CountingAlloc>::from_raw(new Tracker(1));
     EXPECT_EQ(Tracker::alive, 1);
   }
-  EXPECT_EQ(CountingDeleter::calls, 1);
+  EXPECT_EQ(CountingAlloc::calls.load(), 1);
   EXPECT_EQ(Tracker::alive, 0);
 }
 
-TEST_F(BoxTrackerTest, CustomEmptyDeleterInOptionIsInvoked) {
-  CountingDeleter::calls = 0;
+TEST_F(BoxTrackerTest, CustomEmptyAllocatorInOptionIsInvoked) {
+  CountingAlloc::calls = 0;
   {
-    xpp::Option<xpp::Box<Tracker, CountingDeleter>> o(
-      xpp::Box<Tracker, CountingDeleter>::from_raw(new Tracker(2)));
+    xpp::Option<xpp::Box<Tracker, CountingAlloc>> o(
+      xpp::Box<Tracker, CountingAlloc>::from_raw(new Tracker(2)));
     EXPECT_TRUE(o.is_some());
   }
-  EXPECT_EQ(CountingDeleter::calls, 1);
+  EXPECT_EQ(CountingAlloc::calls.load(), 1);
   EXPECT_EQ(Tracker::alive, 0);
 }
 
-/* ── Stateful deleter — sizeof grows ─────────────────────────────────── */
+/* ── Stateful allocator — sizeof grows ───────────────────────────────── */
 
-TEST_F(BoxTrackerTest, StatefulDeleterCarriesState) {
-  int call_count = 0;
+TEST_F(BoxTrackerTest, StatefulAllocatorCarriesState) {
+  std::atomic<int> call_count{0};
   {
-    auto u =
-      xpp::Box<Tracker, StatefulDeleter>::from_raw(new Tracker(3), StatefulDeleter{&call_count});
+    auto u = xpp::Box<Tracker, StatefulAlloc>::from_raw(new Tracker(3), StatefulAlloc{&call_count});
     EXPECT_EQ(Tracker::alive, 1);
   }
-  EXPECT_EQ(call_count, 1);
+  EXPECT_EQ(call_count.load(), 1);
   EXPECT_EQ(Tracker::alive, 0);
 }
 
-TEST_F(BoxTrackerTest, StatefulDeleterAccessibleViaGetDeleter) {
-  int  call_count = 0;
-  auto u =
-    xpp::Box<Tracker, StatefulDeleter>::from_raw(new Tracker(4), StatefulDeleter{&call_count});
-  EXPECT_EQ(u.get_deleter().call_count, &call_count);
+TEST_F(BoxTrackerTest, StatefulAllocatorAccessibleViaAllocator) {
+  std::atomic<int> call_count{0};
+  auto u = xpp::Box<Tracker, StatefulAlloc>::from_raw(new Tracker(4), StatefulAlloc{&call_count});
+  EXPECT_EQ(u.allocator().call_count, &call_count);
 }

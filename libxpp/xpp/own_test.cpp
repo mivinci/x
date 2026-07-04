@@ -15,10 +15,12 @@
  *   - SFINAE: Own<void> has no operator* or operator->
  */
 
+#include <atomic>
 #include <type_traits>
 #include <utility>
 
 #include <gtest/gtest.h>
+#include <xpp/allocator.h>
 #include <xpp/own.h>
 
 /* ── Compile-time guarantees ─────────────────────────────────────────── */
@@ -77,16 +79,24 @@ protected:
   }
 };
 
-/* Stateful deleter — verifies sizeof grows. */
-struct StatefulDeleter {
-  int *call_count;
-  void operator()(Tracker *p) const noexcept {
+/* Stateful allocator — verifies sizeof grows. */
+struct StatefulAlloc {
+  std::atomic<int> *call_count;
+
+  xpp::Result<xpp::Span<uint8_t>, xpp::AllocError> allocate(xpp::Layout layout) const {
+    void *p = ::operator new(layout.size);
+    if (!p) return xpp::Result<xpp::Span<uint8_t>, xpp::AllocError>(xpp::err, xpp::AllocError{});
+    return xpp::Result<xpp::Span<uint8_t>, xpp::AllocError>(
+      xpp::ok, xpp::Span<uint8_t>(static_cast<uint8_t *>(p), layout.size));
+  }
+
+  void deallocate(void *ptr, xpp::Layout) const noexcept {
     if (call_count) ++*call_count;
-    delete p;
+    ::operator delete(ptr);
   }
 };
-static_assert(sizeof(xpp::Own<Tracker, StatefulDeleter>) > sizeof(Tracker *),
-              "Own with stateful deleter must grow beyond sizeof(T*)");
+static_assert(sizeof(xpp::Own<Tracker, StatefulAlloc>) > sizeof(Tracker *),
+              "Own with stateful allocator must grow beyond sizeof(T*)");
 
 } // namespace
 
@@ -315,24 +325,24 @@ TEST_F(OwnTrackerTest, RoundtripThroughBox) {
   EXPECT_EQ(Tracker::alive, 0);
 }
 
-/* ── Stateful deleter ────────────────────────────────────────────────── */
+/* ── Stateful allocator ────────────────────────────────────────────── */
 
-TEST_F(OwnTrackerTest, StatefulDeleterIsInvoked) {
-  int call_count = 0;
+TEST_F(OwnTrackerTest, StatefulAllocatorIsInvoked) {
+  std::atomic<int> call_count{0};
   {
-    xpp::Own<Tracker, StatefulDeleter> o(new Tracker(1), StatefulDeleter{&call_count});
+    xpp::Own<Tracker, StatefulAlloc> o(new Tracker(1), StatefulAlloc{&call_count});
     EXPECT_EQ(Tracker::alive, 1);
   }
-  EXPECT_EQ(call_count, 1);
+  EXPECT_EQ(call_count.load(), 1);
   EXPECT_EQ(Tracker::alive, 0);
 }
 
-TEST_F(OwnTrackerTest, StatefulDeleterSurvivesReset) {
-  int call_count = 0;
+TEST_F(OwnTrackerTest, StatefulAllocatorSurvivesReset) {
+  std::atomic<int> call_count{0};
   {
-    xpp::Own<Tracker, StatefulDeleter> o(new Tracker(1), StatefulDeleter{&call_count});
+    xpp::Own<Tracker, StatefulAlloc> o(new Tracker(1), StatefulAlloc{&call_count});
     o.reset();
-    EXPECT_EQ(call_count, 1);
+    EXPECT_EQ(call_count.load(), 1);
     EXPECT_EQ(Tracker::alive, 0);
   }
 }

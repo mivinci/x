@@ -34,7 +34,7 @@ TEST(PromiseResolverTest, ResolveDeferred) {
   WaitScope scope(loop);
   auto      pr = async<int>();
   auto      r  = std::move(pr.second);
-  auto t = schedule_resolve(r, 99, 10);
+  auto      t  = schedule_resolve(r, 99, 10);
   EXPECT_EQ(pr.first.wait(), 99);
 }
 
@@ -43,7 +43,7 @@ TEST(PromiseResolverTest, ResolveVoid) {
   WaitScope scope(loop);
   auto      pr = async<void>();
   auto      r  = std::move(pr.second);
-  auto t = schedule_resolve(r, 10);
+  auto      t  = schedule_resolve(r, 10);
   pr.first.wait();
   SUCCEED();
 }

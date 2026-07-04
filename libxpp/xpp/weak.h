@@ -3,20 +3,25 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * weak.h - Weak<T>: a non-owning, count-tracking handle to the same
- *          RcInner<T> that backs Rc<T>. Upgrade to Option<Rc<T>> on
- *          demand; the upgrade returns None if every strong has
- *          dropped.
+ * weak.h - Weak<T, Allocator>: a non-owning, count-tracking handle to the
+ *          same RcInner<T, Allocator> that backs Rc<T, Allocator>. Upgrade to
+ *          Option<Rc<T, Allocator>> on demand; the upgrade returns None
+ *          if every strong has dropped.
  *
- *   sizeof(Weak<T>) == sizeof(T*)
+ *   sizeof(Weak<T, A>) == sizeof(T*)
  *
- * Design analogue: Rust's std::rc::Weak<T>. Like the Rust type,
- * Weak<T> in libx++ is allowed to be null (default constructed
+ * Design analogue: Rust's std::rc::Weak<T, A>. Like the Rust type,
+ * Weak<T, Allocator> in libx++ is allowed to be null (default constructed
  * yields null — no Option wrapper needed; the "absent" state IS the
  * type's identity). Constructing a Weak from an Rc bumps the inner's
  * weak count; dropping the Weak decrements it. Weak alone never
  * keeps the T alive — only Rc does. The inner's memory stays around
  * until the last Weak goes too, so upgrade() can still safely peek.
+ *
+ * Does not store its own Allocator instance — the Allocator lives in RcInner,
+ * which is shared between Rc and Weak. The Allocator type parameter is
+ * only used so `rc_dec_weak_and_maybe_dealloc` knows which
+ * instantiation to call.
  *
  * ── Worked example: parent ⇄ child tree ─────────────────────────────
  *
@@ -76,10 +81,10 @@
  *
  * Reading semantics:
  *   - default ctor / Weak{} → null
- *   - Weak(const Rc<T>&)    → observe; weak += 1
+ *   - Weak(const Rc<T, Allocator>&) → observe; weak += 1
  *   - copy / move           → standard handle moves (copy → weak +=
  *                             1, move → unchanged)
- *   - upgrade() → Option<Rc<T>>: None if strong == 0, else Some(Rc).
+ *   - upgrade() → Option<Rc<T, Allocator>>: None if strong == 0, else Some(Rc).
  *     The strong is bumped under the existing weak's protection, so
  *     this is sound even if every visible Rc has dropped between
  *     the Weak's construction and the upgrade call.
@@ -93,32 +98,32 @@
 #ifndef XPP_WEAK_H
 #define XPP_WEAK_H
 
+#include <cstddef>
+
 #include <xpp/option.h>
 #include <xpp/panic.h>
 #include <xpp/rc.h>
 
-#include <cstddef>
-
 namespace xpp {
 
 /**
- * @brief Non-owning observer of an Rc<T>'s inner block.
+ * @brief Non-owning observer of an Rc<T, Allocator>'s inner block.
  *
  * May be null. Always safe to call upgrade(); returns None if there
  * are no strong owners left (or if the Weak was default-constructed).
  */
-template <class T> class Weak {
+template <class T, class Allocator> class Weak {
 public:
   /** @brief Default ctor: null Weak. */
   constexpr Weak() noexcept : m_inner(nullptr) {}
 
   /**
-   * @brief Observe an Rc<T>'s inner.
+   * @brief Observe an Rc<T, Allocator>'s inner.
    *
    * Bumps the inner's weak count by 1. The Rc keeps its strong on
    * the same inner; the Weak does not affect strong.
    */
-  explicit Weak(const Rc<T> &r) noexcept : m_inner(r.inner_raw()) {
+  explicit Weak(const Rc<T, Allocator> &r) noexcept : m_inner(r.inner_raw()) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
     ++m_inner->weak;
   }
@@ -152,24 +157,23 @@ public:
   /**
    * @brief Attempt to obtain a strong reference.
    *
-   * @return Some(Rc<T>) with the strong count bumped, or None if the
+   * @return Some(Rc<T, Allocator>) with the strong count bumped, or None if the
    *         underlying T has already been destroyed (strong == 0) or
    *         this Weak is null.
    *
    * The check is the simple `strong != 0` race-free in single-thread
-   * land. Across threads use ArcWeak::upgrade in arc.h, which does
-   * the CAS dance.
+   * land. Across threads use ArcWeak::upgrade in arc.h, which CAS-loops.
    */
-  Option<Rc<T>> upgrade() const noexcept {
-    if (!m_inner) return Option<Rc<T>>();
+  Option<Rc<T, Allocator>> upgrade() const noexcept {
+    if (!m_inner) return Option<Rc<T, Allocator>>();
     // Single-thread only: the check-then-increment is not atomic.
     // For cross-thread upgrade, use ArcWeak<T> (arc.h) which CAS-loops.
-    if (m_inner->strong == 0) return Option<Rc<T>>();
+    if (m_inner->strong == 0) return Option<Rc<T, Allocator>>();
     ++m_inner->strong;
     // Reach into the Option specialization's storage directly. The
     // friend declaration in rc.h makes this legal; we avoid the
     // public `Option(Rc<T>&)` ctor because that would re-bump strong.
-    Option<Rc<T>> out;
+    Option<Rc<T, Allocator>> out;
     out.m_inner = m_inner;
     return out;
   }
@@ -200,9 +204,9 @@ public:
   }
 
   void swap(Weak &o) noexcept {
-    _::RcInner<T> *tmp = m_inner;
-    m_inner            = o.m_inner;
-    o.m_inner          = tmp;
+    _::RcInner<T, Allocator> *tmp = m_inner;
+    m_inner                       = o.m_inner;
+    o.m_inner                     = tmp;
   }
 
   bool operator==(const Weak &o) const noexcept {
@@ -213,17 +217,19 @@ public:
   }
 
 private:
-  _::RcInner<T> *m_inner;
+  _::RcInner<T, Allocator> *m_inner;
 };
 
-template <class T> void swap(Weak<T> &a, Weak<T> &b) noexcept {
+template <class T, class Allocator>
+void swap(Weak<T, Allocator> &a, Weak<T, Allocator> &b) noexcept {
   a.swap(b);
 }
 
-/* ── deferred member impl: Rc<T>::downgrade ──────────────────────────── */
+/* ── deferred member impl: Rc<T, Allocator>::downgrade ──────────────────── */
 
-template <class T> inline Weak<T> Rc<T>::downgrade(const Rc<T> &r) noexcept {
-  return Weak<T>(r);
+template <class T, class Allocator>
+inline Weak<T, Allocator> Rc<T, Allocator>::downgrade(const Rc<T, Allocator> &r) noexcept {
+  return Weak<T, Allocator>(r);
 }
 
 static_assert(sizeof(Weak<int>) == sizeof(int *), "Weak<T> must be sizeof(T*)");

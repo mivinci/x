@@ -2,19 +2,20 @@
 
 ## Introduction
 
-`rc.h` provides `Rc<T>`, a non-null shared-owning reference-counted handle to a heap-allocated `T`. `weak.h` provides `Weak<T>`, a non-owning observer that does not keep `T` alive. Together they form a single-threaded ownership system with explicit cycle-breaking — the same design as Rust's `std::rc::Rc<T>` + `std::rc::Weak<T>`.
+`rc.h` provides `Rc<T, Allocator>`, a non-null shared-owning reference-counted handle to a heap-allocated `T`. `weak.h` provides `Weak<T, Allocator>`, a non-owning observer that does not keep `T` alive. Together they form a single-threaded ownership system with explicit cycle-breaking — the same design as Rust's `std::rc::Rc<T, Allocator>` + `std::rc::Weak<T, Allocator>`.
 
 Key properties:
 
 | Property | Value |
 |---|---|
-| `sizeof(Rc<T>)` | `sizeof(T*)` |
-| `sizeof(Option<Rc<T>>)` | `sizeof(T*)` (niche: nullptr = None) |
-| `sizeof(Weak<T>)` | `sizeof(T*)` |
-| Allocation | 1× per `make()` (inner block = counts + T) |
-| Thread safety | Single-thread only (use `Arc<T>` for cross-thread) |
+| `sizeof(Rc<T, Allocator>)` | `sizeof(T*)` (any `A` — Allocator lives in RcInner, not Rc) |
+| `sizeof(Option<Rc<T, Allocator>>)` | `sizeof(T*)` (niche: nullptr = None) |
+| `sizeof(Weak<T, Allocator>)` | `sizeof(T*)` |
+| Allocation | 1× per `make()` (inner block = counts + T + Allocator) |
+| Thread safety | Single-thread only (use `Arc<T, Allocator>` for cross-thread) |
+| Default Allocator | `GlobalAllocator` (empty → EBO → zero overhead) |
 
-Rc is **co-located but NOT intrusive**: `T` does not need to inherit from anything. A single `Rc<T>::make(args...)` call allocates an `RcInner<T>` block that carries the strong count, weak count, and the value side by side — warm cache lines and one `free` when the last observer leaves.
+Rc is **co-located but NOT intrusive**: `T` does not need to inherit from anything. A single `Rc<T, Allocator>::make(args...)` call allocates an `RcInner<T, Allocator>` block that carries the strong count, weak count, the value, and the allocator instance side by side — warm cache lines and one `free` when the last observer leaves. See [Allocator](../allocator.md) for the allocator protocol.
 
 ## Architecture
 
@@ -211,22 +212,25 @@ public:
 | Niche Option | Yes (Option<Rc<T>> = ptr) | No | Yes (Option<Rc<T>> = ptr) |
 | Weak observer | Weak<T> | weak_ptr<T> | Weak<T> |
 | Cycle-breaking | Explicit via Weak | Explicit via weak_ptr | Explicit via Weak |
-| Custom deleter | No | Yes | No |
-| Covariant | `Rc<Derived>` → `Rc<Base>` (implicit) | converting ctor (implicit) | Via trait objects only |
+| Custom allocator | Yes (`Allocator` template param, in RcInner) | Yes (`std::pmr`, type-erased in ctrl block) | Yes (`A: Allocator`, in RcBox) |
+| Allocator overhead | 0 bytes when empty (EBO) | 1 vtable ptr (always) | 0 bytes when ZST |
+| Deallocation | `~T()` + `alloc.deallocate()` | `deleter(ptr)` (single call) | `drop` + `dealloc` |
+| Covariant | `Rc<Derived, A>` → `Rc<Base, A>` (same A) | converting ctor (implicit) | Via trait objects only |
 
 ## Implementation Notes
 
 ### Inner block layout
 
 ```cpp
-template <class T> struct RcInner {
-    size_t strong;   // number of Rc<T> handles
-    size_t weak;     // number of Weak<T> + 1 (the +1 represents all live Rcs)
+template <class T, class Allocator> struct RcInner {
+    size_t strong;   // number of Rc<T, Allocator> handles
+    size_t weak;     // number of Weak<T, Allocator> + 1 (the +1 represents all live Rcs)
     T      value;    // co-located — warm cache
+    Allocator  alloc;    // for deallocation (EBO if empty)
 };
 ```
 
-Single `::operator new(sizeof(RcInner<T>))`, zero external control block. Used by both `Rc<T>` and `Weak<T>` sharing the same pointer.
+Single allocation via `alloc.allocate(Layout::of<RcInner<T, Allocator>>())`, zero external control block. Used by both `Rc<T, Allocator>` and `Weak<T, Allocator>` sharing the same pointer. The `Allocator` is stored in `RcInner` (not in the handle) so `sizeof(Rc<T, Allocator>) == sizeof(T*)` for any `A`. When the last weak drops, the `Allocator` is moved out before `deallocate` frees the memory.
 
 ### Two-stage destruction
 

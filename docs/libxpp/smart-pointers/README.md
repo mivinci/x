@@ -8,26 +8,30 @@ Rust-inspired smart pointers with `sizeof == sizeof(T*)` guarantees. All are hea
 
 | Type | Ownership | Thread-safe | Header |
 |------|-----------|-------------|--------|
-| [`Own<T>`](own.md) | Unique, nullable | No | `own.h` |
-| [`Box<T>`](box.md) | Unique, non-null | No | `box.h` |
-| [`Rc<T>`](rc.md) | Shared | No | `rc.h` |
-| [`Weak<T>`](rc.md) | Weak observer for `Rc` | No | `weak.h` |
-| [`Arc<T>`](arc.md) | Shared | Yes (atomic) | `arc.h` |
-| [`ArcWeak<T>`](arc.md) | Weak observer for `Arc` | Yes (atomic) | `arc.h` |
+| [`Own<T, Allocator>`](own.md) | Unique, nullable | No | `own.h` |
+| [`Box<T, Allocator>`](box.md) | Unique, non-null | No | `box.h` |
+| [`Rc<T, Allocator>`](rc.md) | Shared | No | `rc.h` |
+| [`Weak<T, Allocator>`](rc.md) | Weak observer for `Rc` | No | `weak.h` |
+| [`Arc<T, Allocator>`](arc.md) | Shared | Yes (atomic) | `arc.h` |
+| [`ArcWeak<T, Allocator>`](arc.md) | Weak observer for `Arc` | Yes (atomic) | `arc.h` |
 | [`NonNull<T>`](nonnull.md) | Non-owning, non-null | No | `nonnull.h` |
+
+All owning types default to [`GlobalAllocator`](../allocator.md) and
+accept a custom `Allocator` template parameter. Empty allocators (like
+`GlobalAllocator`) incur zero storage overhead via EBO.
 
 ## Key Design Choices
 
 - **Single pointer storage**: `sizeof == sizeof(T*)` for all types. No two-word `shared_ptr` layout.
 - **Niche-optimized `Option`**: `Option<Arc<T>>` and `Option<Rc<T>>` are also `sizeof(T*)` — `nullptr = None`.
-- **Non-intrusive**: `RcInner<T> = { strong, weak, value }` in a single heap allocation. T doesn't inherit anything.
+- **Non-intrusive**: `RcInner<T, Allocator> = { strong, weak, value, alloc }` in a single heap allocation. T doesn't inherit anything.
 - **Rust-style refcount**: weak count includes +1 for "all strongs as one weak". `weak_count()` subtracts this to match Rust semantics.
-- **No custom deleter, no aliasing constructor.** Use `make()` — no construction from raw `T*`.
+- **Allocator protocol**: `Allocator` parameter (default `GlobalAllocator`) controls allocation/deallocation. Stored in control block (Arc/Rc) or via `CompressedPair` (Own/Box) with EBO. See [Allocator](../allocator.md).
 - **Arc memory orders**: `relaxed` for clone, `release` for drop, `acquire` fence only when count hits 0. Matches Rust libstd / triomphe / boost.
 
 ## Covariant Up-cast
 
-`Rc<Derived>` → `Rc<Base>` and `Arc<Derived>` → `Arc<Base>` work via covariant constructors (copy and move).
+`Rc<Derived, Allocator>` → `Rc<Base, Allocator>` and `Arc<Derived, Allocator>` → `Arc<Base, Allocator>` work via covariant constructors (copy and move). Same `Allocator` required.
 
 ## What xpp Has That STL Doesn't
 
@@ -113,17 +117,18 @@ All xpp smart pointers are `sizeof(T*)`. `Rc<T>` and `Arc<T>` point directly to 
 ## Comparison with std
 
 | Feature | xpp | std |
-|---|---|---|
+|---------|-----|-----|
 | `sizeof` (unique) | `sizeof(T*)` | `sizeof(T*)` |
 | `sizeof` (shared) | `sizeof(T*)` | `2 × sizeof(T*)` |
 | Non-null default | `Box<T>` | — |
 | Niche Option | Yes (`nullptr = None`) | No |
 | Single-thread shared | `Rc<T>` (no atomics) | `shared_ptr` (always atomic) |
 | Thread-safe shared | `Arc<T>` | `shared_ptr` |
-| Custom deleter | `Box<T, D>` / `Own<T, D>` | `unique_ptr<T, D>` / `shared_ptr<T>` |
-| Covariant upcast | Implicit | Implicit |
+| Custom allocator | Yes (`Allocator` template param, compile-time) | `std::pmr` (type-erased, runtime) |
+| Allocator storage | Control block (Arc/Rc) or `CompressedPair` (Own/Box), EBO when empty | vtable ptr in control block (always) |
+| Deallocation | `~T()` + `alloc.deallocate()` (separated) | `deleter(ptr)` (single call) |
+| Covariant upcast | Implicit (same `Allocator`) | Implicit |
 | Weak observer | `Weak<T>` / `ArcWeak<T>` | `weak_ptr<T>` |
 | Promise interop | Native (`.then()`, `into_nonnull()`) | N/A |
 | Control block | Co-located (single alloc) | Separate or intrusive |
-| Allocator support | Internal slab | `shared_ptr` allocator ctor |
 | Header-only | Yes | Yes |

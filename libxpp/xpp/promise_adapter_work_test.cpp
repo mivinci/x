@@ -27,8 +27,7 @@ TEST(PromiseWorkTest, BasicWork) {
 TEST(PromiseWorkTest, WorkWithString) {
   EventLoop   loop;
   WaitScope   scope(loop);
-  std::string result =
-    work([] { return std::string("from thread pool"); }).wait();
+  std::string result = work([] { return std::string("from thread pool"); }).wait();
   EXPECT_EQ(result, "from thread pool");
 }
 

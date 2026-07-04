@@ -22,9 +22,7 @@ TEST(AllTest, ImmediateHeterogeneous) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto t =
-    xpp::all(xpp::resolve(42), xpp::resolve(std::string("hi")))
-      .wait();
+  auto t = xpp::all(xpp::resolve(42), xpp::resolve(std::string("hi"))).wait();
   EXPECT_EQ(std::get<0>(t), 42);
   EXPECT_EQ(std::get<1>(t), "hi");
 }
@@ -33,9 +31,7 @@ TEST(AllTest, ImmediateAllVoid) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  xpp::all(xpp::yield(), xpp::yield(),
-           xpp::yield())
-    .wait();
+  xpp::all(xpp::yield(), xpp::yield(), xpp::yield()).wait();
   SUCCEED();
 }
 
@@ -51,9 +47,7 @@ TEST(AllTest, ImmediateThreeTypes) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto t = xpp::all(xpp::resolve(1), xpp::resolve(2.5),
-                    xpp::resolve(std::string("three")))
-             .wait();
+  auto t = xpp::all(xpp::resolve(1), xpp::resolve(2.5), xpp::resolve(std::string("three"))).wait();
   EXPECT_EQ(std::get<0>(t), 1);
   EXPECT_DOUBLE_EQ(std::get<1>(t), 2.5);
   EXPECT_EQ(std::get<2>(t), "three");
@@ -126,9 +120,7 @@ TEST(RaceTest, ImmediateOneDeferred) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::race(xpp::resolve(42),
-                         xpp::after(100).then([] { return 99; }))
-                 .wait();
+  int result = xpp::race(xpp::resolve(42), xpp::after(100).then([] { return 99; })).wait();
   EXPECT_EQ(result, 42);
 }
 
@@ -138,9 +130,8 @@ TEST(RaceTest, FasterTimerWins) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::race(xpp::after(50).then([] { return 1; }),
-                         xpp::after(10).then([] { return 2; }))
-                 .wait();
+  int result =
+    xpp::race(xpp::after(50).then([] { return 1; }), xpp::after(10).then([] { return 2; })).wait();
   EXPECT_EQ(result, 2);
 }
 
@@ -199,8 +190,7 @@ TEST(RaceTest, TimerStoppedOnEarlyResolve) {
   // When the immediate promise wins, the TimerPromiseNode must be
   // destroyed and its timer stopped. If the timer fires after the
   // node is destroyed, it would be a use-after-free.
-  xpp::race(xpp::resolve(42), xpp::after(10000).then([] { return 0; }))
-    .wait();
+  xpp::race(xpp::resolve(42), xpp::after(10000).then([] { return 0; })).wait();
 
   // Run the loop briefly to ensure no crash from a stale timer
   xpp::after(50).wait();
@@ -213,9 +203,8 @@ TEST(RaceTest, ThenChain) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int doubled =
-    xpp::race(xpp::resolve(21), xpp::after(50).then([] { return 99; }))
-      .then([](int x) { return x * 2; })
-      .wait();
+  int doubled = xpp::race(xpp::resolve(21), xpp::after(50).then([] { return 99; }))
+                  .then([](int x) { return x * 2; })
+                  .wait();
   EXPECT_EQ(doubled, 42);
 }

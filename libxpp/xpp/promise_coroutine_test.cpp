@@ -63,8 +63,8 @@ static Promise<int> await_work() {
 static Promise<int> await_async() {
   auto pr = async<int>();
   auto r  = std::move(pr.second);
-  auto t = schedule_resolve(r, 77, 10);
-  int x = co_await std::move(pr.first);
+  auto t  = schedule_resolve(r, 77, 10);
+  int  x  = co_await std::move(pr.first);
   co_return x;
 }
 
@@ -79,14 +79,12 @@ static Promise<int> outer_coro() {
 }
 
 static Promise<int> await_all() {
-  auto t =
-    co_await all(resolve(10), resolve(std::string("hi")));
+  auto t = co_await all(resolve(10), resolve(std::string("hi")));
   co_return std::get<0>(t) + static_cast<int>(std::get<1>(t).size());
 }
 
 static Promise<int> await_race() {
-  int result =
-    co_await race(resolve(42), after(100).then([] { return 0; }));
+  int result = co_await race(resolve(42), after(100).then([] { return 0; }));
   co_return result;
 }
 

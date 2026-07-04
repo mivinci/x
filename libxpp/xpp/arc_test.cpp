@@ -13,14 +13,14 @@
  * own.
  */
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <thread>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <xpp/allocator.h>
 #include <xpp/arc.h>
 #include <xpp/option.h>
 
@@ -198,8 +198,8 @@ TEST_F(ArcTrackerTest, ArcWeakOutlivingAllStrongsDoesNotLeakInner) {
 /* ── Concurrency smoke test ──────────────────────────────────────────── */
 
 TEST_F(ArcTrackerTest, ClonesAndDropsAcrossThreadsDoNotLeak) {
-  constexpr int k_threads        = 8;
-  constexpr int k_iterations     = 10000;
+  constexpr int k_threads    = 8;
+  constexpr int k_iterations = 10000;
 
   {
     xpp::Arc<Tracker>        root = xpp::Arc<Tracker>::make(0);
@@ -213,11 +213,12 @@ TEST_F(ArcTrackerTest, ClonesAndDropsAcrossThreadsDoNotLeak) {
         // alive Trackers at the end won't be 1.
         for (int j = 0; j < k_iterations; ++j) {
           xpp::Arc<Tracker> local = root.clone();
-          (void) local; // dropped immediately
+          (void)local; // dropped immediately
         }
       });
     }
-    for (auto &t : ts) t.join();
+    for (auto &t : ts)
+      t.join();
 
     // After every thread joined, only `root` should hold the Arc.
     EXPECT_EQ(root.strong_count(), 1u);
@@ -254,14 +255,169 @@ TEST_F(ArcTrackerTest, UpgradeRacesWithLastDropEitherSomeOrNone) {
     // Main thread drops the only strong reference concurrent with
     // the upgrade attempts.
     a = xpp::Arc<Tracker>::make(-1); // overwrite drops original
-    (void) a;                      // suppress unused warning in release
+    (void)a;                         // suppress unused warning in release
 
-    for (auto &t : ts) t.join();
+    for (auto &t : ts)
+      t.join();
     // No specific count to assert beyond "no UB and no leak" — both
     // are checked by ASan/TSan + the TearDown Tracker count.
-    (void) observed_some;
+    (void)observed_some;
   }
   // Tracker count returns to 0 once a falls out of scope on each iteration.
+}
+
+/* ── Allocator parameter tests ──────────────────────────────────────── */
+
+// Stateful allocator that counts allocate/deallocate calls. Mirrors
+// the CountingAllocator in allocator_test.cpp but with a copyable
+// counter so it can be passed around by value into ArcInner.
+struct ArcCountingAlloc {
+  std::atomic<int> *allocs;
+  std::atomic<int> *deallocs;
+
+  ArcCountingAlloc(std::atomic<int> *a, std::atomic<int> *d) : allocs(a), deallocs(d) {}
+
+  xpp::Result<xpp::Span<uint8_t>, xpp::AllocError> allocate(xpp::Layout layout) const {
+    void *p = ::operator new(layout.size);
+    if (!p) return xpp::Result<xpp::Span<uint8_t>, xpp::AllocError>(xpp::err, xpp::AllocError{});
+    allocs->fetch_add(1, std::memory_order_relaxed);
+    return xpp::Result<xpp::Span<uint8_t>, xpp::AllocError>(
+      xpp::ok, xpp::Span<uint8_t>(static_cast<uint8_t *>(p), layout.size));
+  }
+
+  void deallocate(void *ptr, xpp::Layout) const {
+    deallocs->fetch_add(1, std::memory_order_relaxed);
+    ::operator delete(ptr);
+  }
+};
+
+// Compile-time: EBO must keep sizeof unchanged for empty Allocator.
+static_assert(sizeof(xpp::Arc<int, xpp::GlobalAllocator>) == sizeof(int *),
+              "Arc<T, GlobalAllocator> must be sizeof(T*)");
+static_assert(sizeof(xpp::Option<xpp::Arc<int, xpp::GlobalAllocator>>) == sizeof(int *),
+              "Option<Arc<T, GlobalAllocator>> niche broken");
+static_assert(sizeof(xpp::ArcWeak<int, xpp::GlobalAllocator>) == sizeof(int *),
+              "ArcWeak<T, GlobalAllocator> must be sizeof(T*)");
+
+// Compile-time: stateful Allocator also keeps Arc/ArcWeak/Option at sizeof(T*).
+// (Allocator lives in ArcInner, not in the handle.)
+static_assert(sizeof(xpp::Arc<int, ArcCountingAlloc>) == sizeof(int *),
+              "Arc<T, StatefulAlloc> must still be sizeof(T*)");
+static_assert(sizeof(xpp::Option<xpp::Arc<int, ArcCountingAlloc>>) == sizeof(int *),
+              "Option<Arc<T, StatefulAlloc>> niche still works");
+static_assert(sizeof(xpp::ArcWeak<int, ArcCountingAlloc>) == sizeof(int *),
+              "ArcWeak<T, StatefulAlloc> must still be sizeof(T*)");
+
+TEST(ArcAllocTest, MakeWithGlobalAllocatorMatchesExistingBehavior) {
+  // Explicit GlobalAllocator: default-constructed, behavior matches the
+  // historical single-arg Arc<T>::make.
+  xpp::Arc<int> a = xpp::Arc<int>::make(123);
+  EXPECT_EQ(*a, 123);
+  EXPECT_EQ(a.strong_count(), 1u);
+}
+
+TEST(ArcAllocTest, MakeInWithStatefulAllocator) {
+  std::atomic<int> allocs{0}, deallocs{0};
+  {
+    ArcCountingAlloc                alloc(&allocs, &deallocs);
+    xpp::Arc<int, ArcCountingAlloc> a = xpp::Arc<int, ArcCountingAlloc>::make_in(alloc, 99);
+    EXPECT_EQ(*a, 99);
+    EXPECT_EQ(allocs.load(), 1);
+    EXPECT_EQ(deallocs.load(), 0);
+  }
+  EXPECT_EQ(allocs.load(), 1) << "exactly one allocation for the ArcInner";
+  EXPECT_EQ(deallocs.load(), 1) << "deallocated when last strong drops";
+}
+
+TEST(ArcAllocTest, MakeSfinaeDispatchesOnFirstArg) {
+  std::atomic<int> allocs{0}, deallocs{0};
+  ArcCountingAlloc alloc(&allocs, &deallocs);
+
+  // make(alloc, 42) — first arg is Allocator → uses alloc instance.
+  xpp::Arc<int, ArcCountingAlloc> a = xpp::Arc<int, ArcCountingAlloc>::make(alloc, 42);
+  EXPECT_EQ(*a, 42);
+  EXPECT_EQ(allocs.load(), 1);
+
+  // make(7) — first arg is int (not Allocator) → default-constructs Allocator.
+  // ArcCountingAlloc is not default-constructible, so this would fail
+  // to compile if uncommented; we rely on the SFINAE path firing only
+  // when default-construction is possible. Skip for this allocator.
+  (void)a;
+}
+
+TEST(ArcAllocTest, StatefulAllocatorSurvivesWeakOutlivingStrong) {
+  // The trickiest path: weak outlives strong, so the Allocator must be
+  // moved out of ArcInner when the last weak drops (since the memory
+  // containing it is being freed).
+  std::atomic<int> allocs{0}, deallocs{0};
+  ArcCountingAlloc alloc(&allocs, &deallocs);
+
+  {
+    xpp::ArcWeak<int, ArcCountingAlloc> w;
+    {
+      xpp::Arc<int, ArcCountingAlloc> a = xpp::Arc<int, ArcCountingAlloc>::make_in(alloc, 7);
+      w                                 = xpp::Arc<int, ArcCountingAlloc>::downgrade(a);
+      EXPECT_EQ(allocs.load(), 1);
+      EXPECT_EQ(deallocs.load(), 0);
+    } // a drops: T destroyed, but inner memory stays (weak still alive)
+    EXPECT_EQ(deallocs.load(), 0) << "inner not freed while weak alive";
+
+    // upgrade fails (strong == 0) but is safe.
+    EXPECT_TRUE(w.upgrade().is_none());
+  } // w drops: now inner is freed
+  EXPECT_EQ(allocs.load(), 1);
+  EXPECT_EQ(deallocs.load(), 1);
+}
+
+TEST(ArcAllocTest, StatefulAllocatorWithOptionArc) {
+  std::atomic<int> allocs{0}, deallocs{0};
+  ArcCountingAlloc alloc(&allocs, &deallocs);
+
+  {
+    xpp::Option<xpp::Arc<int, ArcCountingAlloc>> o;
+    EXPECT_TRUE(o.is_none());
+
+    xpp::Arc<int, ArcCountingAlloc> a = xpp::Arc<int, ArcCountingAlloc>::make_in(alloc, 5);
+    o                                 = a; // bump strong
+    EXPECT_EQ(a.strong_count(), 2u);
+    EXPECT_EQ(allocs.load(), 1);
+  }
+  EXPECT_EQ(deallocs.load(), 1);
+}
+
+TEST(ArcAllocTest, CloneAndDropWithStatefulAllocator) {
+  std::atomic<int> allocs{0}, deallocs{0};
+  ArcCountingAlloc alloc(&allocs, &deallocs);
+
+  {
+    xpp::Arc<int, ArcCountingAlloc> a = xpp::Arc<int, ArcCountingAlloc>::make_in(alloc, 1);
+    xpp::Arc<int, ArcCountingAlloc> b = a.clone();
+    xpp::Arc<int, ArcCountingAlloc> c = a;
+    EXPECT_EQ(a.strong_count(), 3u);
+    EXPECT_EQ(allocs.load(), 1) << "clones share the inner, no new alloc";
+  }
+  EXPECT_EQ(deallocs.load(), 1) << "one dealloc when last clone drops";
+}
+
+TEST(ArcAllocTest, CovariantCtorWithSameAlloc) {
+  struct Base {
+    int x;
+    explicit Base(int v) : x(v) {}
+  };
+  struct Derived : Base {
+    explicit Derived(int v) : Base(v) {}
+  };
+
+  std::atomic<int> allocs{0}, deallocs{0};
+  ArcCountingAlloc alloc(&allocs, &deallocs);
+
+  {
+    xpp::Arc<Derived, ArcCountingAlloc> d = xpp::Arc<Derived, ArcCountingAlloc>::make_in(alloc, 77);
+    xpp::Arc<Base, ArcCountingAlloc>    b = d; // covariant, same Allocator
+    EXPECT_EQ(b->x, 77);
+    EXPECT_EQ(d.strong_count(), 2u);
+  }
+  EXPECT_EQ(deallocs.load(), 1);
 }
 
 } // namespace

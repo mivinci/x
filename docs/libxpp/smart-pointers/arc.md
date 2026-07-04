@@ -2,18 +2,19 @@
 
 ## Introduction
 
-`arc.h` provides `Arc<T>`, the thread-safe atomic counterpart of `Rc<T>`. It also provides `ArcWeak<T>`, a cross-thread-safe non-owning observer. Together they form the same ownership model as `Rc`/`Weak` but with `std::atomic<size_t>` counts and carefully chosen memory ordering — matching Rust's `std::sync::Arc<T>` + `std::sync::Weak<T>`.
+`arc.h` provides `Arc<T, Allocator>`, the thread-safe atomic counterpart of `Rc<T, Allocator>`. It also provides `ArcWeak<T, Allocator>`, a cross-thread-safe non-owning observer. Together they form the same ownership model as `Rc`/`Weak` but with `std::atomic<size_t>` counts and carefully chosen memory ordering — matching Rust's `std::sync::Arc<T, Allocator>` + `std::sync::Weak<T, Allocator>`.
 
 Key properties:
 
 | Property | Value |
-|---|---|
-| `sizeof(Arc<T>)` | `sizeof(T*)` |
-| `sizeof(Option<Arc<T>>)` | `sizeof(T*)` (niche: nullptr = None) |
-| `sizeof(ArcWeak<T>)` | `sizeof(T*)` |
+| --- | --- |
+| `sizeof(Arc<T, Allocator>)` | `sizeof(T*)` (any `A` — Allocator lives in ArcInner, not Arc) |
+| `sizeof(Option<Arc<T, Allocator>>)` | `sizeof(T*)` (niche: nullptr = None) |
+| `sizeof(ArcWeak<T, Allocator>)` | `sizeof(T*)` |
 | Allocation | 1× per `make()` |
 | Thread safety | Yes — clone/drop/upgrade safe across threads |
 | Overhead vs Rc | ~3–5× on contended core; free on uncontended cache |
+| Default Allocator | `GlobalAllocator` (empty → EBO → zero overhead) |
 
 ## Design Philosophy
 
@@ -77,7 +78,7 @@ graph TD
 ### Memory Order Discipline
 
 | Operation | Ordering | Rationale |
-|---|---|---|
+| --- | --- | --- |
 | `strong.fetch_add(1)` (clone) | `relaxed` | No synchronisation; ownership alone carries no happens-before |
 | `strong.fetch_sub(1)` (drop) | `release` | All previous writes to `T` must be visible to the destroying thread |
 | When `strong` hits 0 | `atomic_thread_fence(acquire)` | Pair with every prior owner's release so `~T()` sees all writes |
@@ -93,13 +94,14 @@ graph TD
 Identical API to `Rc<T>` — all operations are atomic under the hood.
 
 | Category | Signature | Description |
-|---|---|---|
-| **Construct** | `Arc<T>::make(args...)` | Single allocation. strong=1, weak=1. |
+| --- | --- | --- |
+| **Construct** | `Arc<T, Allocator>::make(args...)` | Single allocation. strong=1, weak=1. SFINAE: if first arg is convertible to `A`, treats it as the alloc instance. |
+| **Construct (explicit)** | `Arc<T, Allocator>::make_in(alloc, args...)` | Explicit allocator — no SFINAE. Use when `make` is ambiguous. |
 | **Copy** | `Arc(const Arc&)` | +1 strong (relaxed) |
 | **Move** | `Arc(Arc&&)` | Zero count change; source invalidated |
-| **Covariant** | `Arc<Base>(const Arc<Derived>&)` | Same inner, +1 strong |
-| **Clone** | `a.clone()`, `Arc<T>::clone(&a)` | Explicit +1 |
-| **Downgrade** | `Arc<T>::downgrade(&a)` → `ArcWeak<T>` | +1 weak, strong unchanged |
+| **Covariant** | `Arc<Base, A>(const Arc<Derived, A>&)` | Same inner, +1 strong. Same `A` required. |
+| **Clone** | `a.clone()`, `Arc<T, Allocator>::clone(&a)` | Explicit +1 |
+| **Downgrade** | `Arc<T, Allocator>::downgrade(&a)` → `ArcWeak<T, Allocator>` | +1 weak, strong unchanged |
 | **Deref** | `*a`, `a->field`, `a.get()` → `T&`, `T*` | Access through inner |
 | **Counts** | `a.strong_count()`, `a.weak_count()` | Relaxed loads (do not branch on) |
 | **Swap** | `a.swap(other)`, `swap(a1, a2)` | Exchange inners |
@@ -107,7 +109,7 @@ Identical API to `Rc<T>` — all operations are atomic under the hood.
 ### ArcWeak\<T\>
 
 | Category | Signature | Description |
-|---|---|---|
+| --- | --- | --- |
 | **Default** | `ArcWeak()` | Null observer |
 | **From Arc** | `ArcWeak(const Arc<T>&)` | +1 weak (relaxed) |
 | **Copy / Move** | standard | Copy bumps weak; move doesn't |
@@ -121,7 +123,7 @@ Identical API to `Rc<T>` — all operations are atomic under the hood.
 Same niche optimization as `Option<Rc<T>>`: `nullptr` = `None`, `sizeof == sizeof(T*)`.
 
 | Category | Signature | Description |
-|---|---|---|
+| --- | --- | --- |
 | **From Arc** | `Option(const Arc<T>&)`, `Option(Arc<T>&&)` | Some, +1 strong or move |
 | **Unwrap** | `opt.unwrap()` → `Arc<T>` (rvalue) | Takes ownership; panics on None |
 | **Take** | `opt.take()` → `Arc<T>` | Moves value out, leaves None |
@@ -201,7 +203,7 @@ EXPECT_TRUE(opt.is_none());
 ## Comparison
 
 | Feature | xpp::Arc\<T\> | std::shared_ptr\<T\> | Rust Arc\<T\> |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | sizeof | `sizeof(T*)` | 2× ptr | `sizeof(T*)` |
 | Allocation | 1× per make() | make_shared: 1×; ptr ctor: 2× | 1× per Arc::new |
 | Thread-safe | Yes (atomic) | Yes (atomic) | Yes (atomic) |
@@ -209,22 +211,35 @@ EXPECT_TRUE(opt.is_none());
 | Niche Option | Yes | No | Yes |
 | Weak observer | ArcWeak\<T\> | weak_ptr\<T\> | Weak\<T\> |
 | Weak upgrade | CAS loop | lock() (atomic) | CAS loop |
-| Custom deleter | No | Yes | No |
-| Covariant | `Arc<Derived>` → `Arc<Base>` (implicit) | converting ctor (implicit) | Via trait objects only |
+| Custom allocator | Yes (`Allocator` template param, in ArcInner) | Yes (`std::pmr`, type-erased in ctrl block) | Yes (`A: Allocator`, in ArcInner) |
+| Allocator overhead | 0 bytes when empty (EBO) | 1 vtable ptr (always) | 0 bytes when ZST |
+| Deallocation | `~T()` + `alloc.deallocate()` (separated) | `deleter(ptr)` (single call) | `drop` + `dealloc` |
+| Covariant | `Arc<Derived, A>` → `Arc<Base, A>` (implicit, same A) | converting ctor (implicit) | Via trait objects only |
 
 ## Implementation Notes
 
 ### ArcInner layout
 
 ```cpp
-template <class T> struct ArcInner {
+template <class T, class Allocator, bool UseEbo = /* is_empty<Allocator> && !is_final */>
+struct ArcInner {
     std::atomic<size_t> strong;
     std::atomic<size_t> weak;
     T                   value;
+    Allocator               alloc;     // non-EBO: stored as member
+};
+
+template <class T, class Allocator>
+struct ArcInner<T, Allocator, /* UseEbo = */ true> : private Allocator {
+    std::atomic<size_t> strong;
+    std::atomic<size_t> weak;
+    T                   value;     // EBO: Allocator inherited as base, 0 bytes
 };
 ```
 
-Same co-located design as `RcInner<T>`, but with `std::atomic<size_t>` for the two counts. The `value` field itself is **not** atomic — it is only accessed while the caller holds an `Arc<T>`, which guarantees `strong >= 1` for the duration of the access.
+Same co-located design as `RcInner<T, Allocator>`, but with `std::atomic<size_t>` for the two counts. The `value` field itself is **not** atomic — it is only accessed while the caller holds an `Arc<T>`, which guarantees `strong >= 1` for the duration of the access.
+
+The `Allocator` is stored in `ArcInner` (not in the `Arc` handle) so `sizeof(Arc<T, Allocator>) == sizeof(T*)` for any `A`. When the last weak drops, the `Allocator` is moved out before `deallocate` frees the memory that contained it — required for stateful allocators that hold resources. See [Allocator](../allocator.md) for details.
 
 ### Why relaxed clone is correct
 

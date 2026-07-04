@@ -105,8 +105,8 @@ public:
 
   template <class Func, class V = ValueType,
             class = typename std::enable_if<std::is_same<V, Void>::value>::type, class = void>
-  auto then(Func &&func)
-    -> Promise<typename _::ReducePromise<decltype(std::declval<Func>()())>::Type>;
+  auto
+  then(Func &&func) -> Promise<typename _::ReducePromise<decltype(std::declval<Func>()())>::Type>;
 
   /// Discard the value, returning a completion-only Promise<void>.
   Promise<void> discard() {
@@ -240,18 +240,14 @@ template <class T> std::pair<Promise<T>, PromiseResolver<T>> async();
 /* ── Free function factories ────────────────────────────────────── */
 
 /** Create a promise backed by a custom Adapter. */
-template <class T, class Adapter, class... AdapterArgs>
-Promise<T> adapt(AdapterArgs &&...args) {
-  auto *node = new _::AdapterPromiseNode<T, Adapter>(
-      std::forward<AdapterArgs>(args)...);
+template <class T, class Adapter, class... AdapterArgs> Promise<T> adapt(AdapterArgs &&...args) {
+  auto *node = new _::AdapterPromiseNode<T, Adapter>(std::forward<AdapterArgs>(args)...);
   return Promise<T>(Own<_::PromiseNode<T>>(node));
 }
 
 /** Create an immediately-resolved promise. T deduced from argument. */
-template <class T>
-Promise<T> resolve(T v) {
-  return Promise<T>(Own<_::PromiseNode<T>>(
-      new _::ImmediatePromiseNode<T>(std::move(v))));
+template <class T> Promise<T> resolve(T v) {
+  return Promise<T>(Own<_::PromiseNode<T>>(new _::ImmediatePromiseNode<T>(std::move(v))));
 }
 
 /** Resolve after `ms` milliseconds. Always returns Promise<void>. */
@@ -261,24 +257,20 @@ inline Promise<void> after(uint64_t ms) {
 
 /** Defer a synchronous function as a promise (runs on first poll). */
 template <class Func>
-auto defer(Func &&fn)
-  -> Promise<typename _::ReducePromise<_::ReturnTypeVoid<Func>>::Type> {
+auto defer(Func &&fn) -> Promise<typename _::ReducePromise<_::ReturnTypeVoid<Func>>::Type> {
   return yield().then(std::forward<Func>(fn));
 }
 
 /** Submit work to the thread pool, return a Promise for the result. */
 template <class Func>
-auto work(Func &&fn)
-  -> Promise<typename std::decay<decltype(std::declval<Func>()())>::type> {
+auto work(Func &&fn) -> Promise<typename std::decay<decltype(std::declval<Func>()())>::type> {
   using T = typename std::decay<decltype(std::declval<Func>()())>::type;
-  return adapt<T, _::WorkAdapter<T, typename std::decay<Func>::type>>(
-      std::forward<Func>(fn));
+  return adapt<T, _::WorkAdapter<T, typename std::decay<Func>::type>>(std::forward<Func>(fn));
 }
 
 /* ── async() ────────────────────────────────────────────────────── */
 
-template <class T>
-std::pair<Promise<T>, PromiseResolver<T>> async() {
+template <class T> std::pair<Promise<T>, PromiseResolver<T>> async() {
   using V       = typename FixVoid<T>::Type;
   auto state    = Arc<_::ResolveState<V>>::make();
   auto resolver = PromiseResolver<T>(Arc<_::ResolveState<V>>::downgrade(state));
