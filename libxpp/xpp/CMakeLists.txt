@@ -9,8 +9,8 @@ target_include_directories(xpp_core INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 target_compile_features(xpp_core INTERFACE cxx_std_17)
-# event.h / timer.h / promise.h / fs/file.h include libx headers; link for their users.
-target_link_libraries(xpp_core INTERFACE xbase xlog xfs)
+# event.h / timer.h / promise.h / fs/file.h / net/tcp.h include libx headers; link for their users.
+target_link_libraries(xpp_core INTERFACE xbase xlog xfs xnet)
 
 # ── Tests ────────────────────────────────────────────────────────────
 option(XPP_BUILD_TESTS "Build libxpp tests" ${X_BUILD_TESTS})
