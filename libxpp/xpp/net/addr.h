@@ -10,7 +10,7 @@
  * types store bytes in network byte order to match struct in_addr /
  * struct in6_addr layout.
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 
 #ifndef XPP_NET_ADDR_H
@@ -69,15 +69,21 @@ class SocketAddr;
 
 class Ipv4Addr {
 public:
-  static const Ipv4Addr LOCALHOST;
-  static const Ipv4Addr UNSPECIFIED;
-  static const Ipv4Addr BROADCAST;
-
   static constexpr Ipv4Addr from(uint8_t a, uint8_t b, uint8_t c, uint8_t d) noexcept {
     Ipv4Addr r;
     r.m_addr = (static_cast<uint32_t>(a) << 24) | (static_cast<uint32_t>(b) << 16) |
                (static_cast<uint32_t>(c) << 8) | static_cast<uint32_t>(d);
     return r;
+  }
+
+  static constexpr Ipv4Addr localhost() noexcept {
+    return from(127, 0, 0, 1);
+  }
+  static constexpr Ipv4Addr unspecified() noexcept {
+    return from(0, 0, 0, 0);
+  }
+  static constexpr Ipv4Addr broadcast() noexcept {
+    return from(255, 255, 255, 255);
   }
 
   static constexpr Ipv4Addr from_octets(const uint8_t o[4]) noexcept {
@@ -169,20 +175,20 @@ private:
   constexpr Ipv4Addr() noexcept : m_addr(0) {}
 };
 
-inline constexpr Ipv4Addr Ipv4Addr::LOCALHOST   = Ipv4Addr::from(127, 0, 0, 1);
-inline constexpr Ipv4Addr Ipv4Addr::UNSPECIFIED = Ipv4Addr::from(0, 0, 0, 0);
-inline constexpr Ipv4Addr Ipv4Addr::BROADCAST   = Ipv4Addr::from(255, 255, 255, 255);
-
 /* ── Ipv6Addr ──────────────────────────────────────────────────────── */
 
 class Ipv6Addr {
 public:
-  static const Ipv6Addr LOCALHOST;
-  static const Ipv6Addr UNSPECIFIED;
-
   static constexpr Ipv6Addr from(uint16_t s0, uint16_t s1, uint16_t s2, uint16_t s3, uint16_t s4,
                                  uint16_t s5, uint16_t s6, uint16_t s7) noexcept {
     return Ipv6Addr(s0, s1, s2, s3, s4, s5, s6, s7);
+  }
+
+  static constexpr Ipv6Addr localhost() noexcept {
+    return from(0, 0, 0, 0, 0, 0, 0, 1);
+  }
+  static constexpr Ipv6Addr unspecified() noexcept {
+    return from(0, 0, 0, 0, 0, 0, 0, 0);
   }
 
   static inline Result<Ipv6Addr, AddrParseError> parse(Span<const char> s) {
@@ -296,9 +302,6 @@ private:
 
   friend class Ipv4Addr;
 };
-
-inline constexpr Ipv6Addr Ipv6Addr::LOCALHOST   = Ipv6Addr::from(0, 0, 0, 0, 0, 0, 0, 1);
-inline constexpr Ipv6Addr Ipv6Addr::UNSPECIFIED = Ipv6Addr::from(0, 0, 0, 0, 0, 0, 0, 0);
 
 /* ── Ipv4Addr deferred methods ─────────────────────────────────────── */
 
@@ -581,7 +584,7 @@ public:
   }
 
   static inline SocketAddr unspecified() noexcept {
-    return SocketAddr::from(SocketAddrV4::from(Ipv4Addr::UNSPECIFIED, 0));
+    return SocketAddr::from(SocketAddrV4::from(Ipv4Addr::unspecified(), 0));
   }
 
   static inline Result<SocketAddr, AddrParseError> parse(Span<const char> s) {

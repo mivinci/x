@@ -7,7 +7,7 @@
  *
  * No empty state — a Result is always Ok or Err.
  * Misuse (unwrap on Err, unwrap_err on Ok) panics via xbase/log.
- * C++17-compatible.
+ * C++11-compatible.
  */
 
 #ifndef XPP_RESULT_H

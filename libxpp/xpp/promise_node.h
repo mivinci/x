@@ -9,7 +9,7 @@
  * node types that implement Promise chaining, flattening, and deferred
  * resolution. Users should not include this directly — use <xpp/promise.h>.
  *
- * C++17-compatible. Header-only (templates).
+ * C++11-compatible. Header-only (templates).
  */
 
 #ifndef XPP_PROMISE_NODE_H

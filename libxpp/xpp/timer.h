@@ -15,7 +15,7 @@
  * Uses xTimerStart's on_cancel hook (added in the x-timer-on-cancel
  * change) for safe shutdown when the host loop is destroyed.
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 
 #ifndef XPP_TIMER_H

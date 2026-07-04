@@ -6,7 +6,7 @@ file(GLOB_RECURSE XPP_HEADERS "*.h")
   add_library(xpp INTERFACE)
     target_include_directories(xpp INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/.."
                                              "${CMAKE_CURRENT_SOURCE_DIR}")
-      target_compile_features(xpp INTERFACE cxx_std_17)
+      target_compile_features(xpp INTERFACE cxx_std_11)
 #event.h / timer.h / promise.h / fs / file.h / net / tcp.h include libx headers; \
   link for their                                                        users.
         target_link_libraries(xpp INTERFACE xbase xlog xfs xnet)

@@ -13,7 +13,7 @@
  * closes synchronously. Buffer overloads: void*+size (base) and
  * Span<uint8_t> (type-safe). Errors: negative ssize_t = -errno.
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 
 #ifndef XPP_FS_FILE_H

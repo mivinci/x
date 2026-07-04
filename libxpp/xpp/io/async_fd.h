@@ -15,7 +15,7 @@
  * Single-threaded. When multi-threaded scheduler is added, upgrade to
  * atomic<uint8_t> + mutex<Waiters> + double-check-under-lock.
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 
 #ifndef XPP_IO_ASYNC_FD_H

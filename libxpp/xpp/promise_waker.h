@@ -16,7 +16,7 @@
  * sizeof(PromiseWaker) == 2 * sizeof(void*) == 16 bytes.
  * Trivially copyable.
  *
- * C++17-compatible.
+ * C++11-compatible.
  */
 
 #ifndef XPP_PROMISE_WAKER_H

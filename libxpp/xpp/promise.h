@@ -14,7 +14,7 @@
  * Works within a WaitScope — no separate runtime layer required.
  * The event loop drives poll/wake via xEventLoopPost.
  *
- * C++17-compatible.
+ * C++11-compatible.
  */
 
 #ifndef XPP_PROMISE_H

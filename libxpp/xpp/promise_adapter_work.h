@@ -11,7 +11,7 @@
  *
  * Used by xpp::work(fn).
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 #ifndef XPP_PROMISE_ADAPTER_WORK_H
 #define XPP_PROMISE_ADAPTER_WORK_H

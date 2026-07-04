@@ -15,7 +15,7 @@
  * The same strategy is used inside std::unique_ptr by libc++ /
  * libstdc++ / MSVC STL.
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 
 #ifndef XPP_COMPRESSED_PAIR_H

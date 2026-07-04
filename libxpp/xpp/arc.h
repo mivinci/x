@@ -151,7 +151,7 @@
  *
  * ────────��──────────────────────────────────────────────────────────
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 
 #ifndef XPP_ARC_H

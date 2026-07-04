@@ -92,7 +92,7 @@
  * Thread safety: Weak<T> is single-thread. For thread-safe weak refs
  * use ArcWeak<T> in xpp/arc.h.
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 
 #ifndef XPP_WEAK_H

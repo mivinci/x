@@ -9,7 +9,7 @@
  * (fast-path syscall + EAGAIN readiness wait). connect() and accept()
  * use adapt() — callback → PromiseResolver.
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 
 #ifndef XPP_NET_TCP_H

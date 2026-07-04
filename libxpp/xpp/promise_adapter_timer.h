@@ -10,7 +10,7 @@
  *
  * Used by xpp::after(ms).
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 #ifndef XPP_PROMISE_ADAPTER_TIMER_H
 #define XPP_PROMISE_ADAPTER_TIMER_H

@@ -27,7 +27,7 @@
  *     // ...
  *   };
  *
- * C++17-compatible (no auto non-type template parameter needed).
+ * C++11-compatible (no auto non-type template parameter needed).
  */
 
 #ifndef XPP_OPAQUE_H

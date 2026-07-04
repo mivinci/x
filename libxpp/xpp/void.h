@@ -10,7 +10,7 @@
  * FixVoid<T>::Type maps T→T, void→Void so templates can uniformly
  * operate on "the value of a Promise<void>" etc.
  *
- * C++17-compatible.
+ * C++11-compatible.
  */
 
 #ifndef XPP_VOID_H

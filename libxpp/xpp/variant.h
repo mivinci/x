@@ -5,7 +5,7 @@
  *
  * variant.h - Type-safe tagged union for exactly one of N types.
  *
- * C++17-compatible replacement for std::variant.
+ * C++11-compatible replacement for std::variant.
  */
 
 #ifndef XPP_VARIANT_H
@@ -104,7 +104,7 @@ template <class Storage> struct MoveConstructVisitor {
 /**
  * @brief Type-safe tagged union holding exactly one of Types...
  *
- * Always holds a value (no empty/default state). C++17-compatible.
+ * Always holds a value (no empty/default state). C++11-compatible.
  *
  * Usage:
  *   Variant<int, float> a(42);       // holds int

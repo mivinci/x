@@ -32,9 +32,9 @@ TEST(AddrTest, Ipv4ParseInvalid) {
 }
 
 TEST(AddrTest, Ipv4Properties) {
-  EXPECT_TRUE(Ipv4Addr::LOCALHOST.is_loopback());
-  EXPECT_TRUE(Ipv4Addr::UNSPECIFIED.is_unspecified());
-  EXPECT_TRUE(Ipv4Addr::BROADCAST.is_broadcast());
+  EXPECT_TRUE(Ipv4Addr::localhost().is_loopback());
+  EXPECT_TRUE(Ipv4Addr::unspecified().is_unspecified());
+  EXPECT_TRUE(Ipv4Addr::broadcast().is_broadcast());
   EXPECT_TRUE(Ipv4Addr::from(224, 0, 0, 1).is_multicast());
   EXPECT_TRUE(Ipv4Addr::from(169, 254, 1, 1).is_link_local());
   EXPECT_TRUE(Ipv4Addr::from(10, 0, 0, 1).is_private());
@@ -91,22 +91,22 @@ TEST(AddrTest, Ipv6ParseInvalid) {
 }
 
 TEST(AddrTest, Ipv6Properties) {
-  EXPECT_TRUE(Ipv6Addr::LOCALHOST.is_loopback());
-  EXPECT_TRUE(Ipv6Addr::UNSPECIFIED.is_unspecified());
+  EXPECT_TRUE(Ipv6Addr::localhost().is_loopback());
+  EXPECT_TRUE(Ipv6Addr::unspecified().is_unspecified());
   EXPECT_TRUE(Ipv6Addr::from(0xFF00, 0, 0, 0, 0, 0, 0, 0).is_multicast());
 }
 
 /* ── IpAddr ────────────────────────────────────────────────────────── */
 
 TEST(AddrTest, IpAddrFromV4) {
-  auto addr = IpAddr::from(Ipv4Addr::LOCALHOST);
+  auto addr = IpAddr::from(Ipv4Addr::localhost());
   EXPECT_TRUE(addr.is_ipv4());
   EXPECT_FALSE(addr.is_ipv6());
   EXPECT_EQ(addr.to_string(), "127.0.0.1");
 }
 
 TEST(AddrTest, IpAddrFromV6) {
-  auto addr = IpAddr::from(Ipv6Addr::LOCALHOST);
+  auto addr = IpAddr::from(Ipv6Addr::localhost());
   EXPECT_TRUE(addr.is_ipv6());
   EXPECT_FALSE(addr.is_ipv4());
   EXPECT_EQ(addr.to_string(), "::1");
@@ -128,7 +128,7 @@ TEST(AddrTest, SocketAddrV4Parse) {
   auto r = SocketAddrV4::parse("127.0.0.1:8080");
   ASSERT_TRUE(r.is_ok());
   auto sa = r.unwrap();
-  EXPECT_EQ(sa.ip(), Ipv4Addr::LOCALHOST);
+  EXPECT_EQ(sa.ip(), Ipv4Addr::localhost());
   EXPECT_EQ(sa.port(), 8080);
   EXPECT_EQ(sa.to_string(), "127.0.0.1:8080");
 }
@@ -145,7 +145,7 @@ TEST(AddrTest, SocketAddrV6Parse) {
   auto r = SocketAddrV6::parse("[::1]:443");
   ASSERT_TRUE(r.is_ok());
   auto sa = r.unwrap();
-  EXPECT_EQ(sa.ip(), Ipv6Addr::LOCALHOST);
+  EXPECT_EQ(sa.ip(), Ipv6Addr::localhost());
   EXPECT_EQ(sa.port(), 443);
   EXPECT_EQ(sa.to_string(), "[::1]:443");
 }
