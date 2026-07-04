@@ -317,64 +317,80 @@ inline Promise<void> File::close() {
 }
 
 inline Promise<void> File::sync_all() {
-  if (m_fd >= 0) ::fsync(m_fd);
-  return xpp::yield();
+  if (m_fd < 0) return xpp::yield();
+  int fd = m_fd;
+  return xpp::work([fd] { ::fsync(fd); });
 }
 
 inline Promise<Stat> File::stat() {
   if (m_fd < 0) return xpp::resolve(Stat{-1, 0, 0, 0});
-  struct ::stat st;
-  if (::fstat(m_fd, &st) == 0) {
-    return xpp::resolve(Stat{st.st_size, static_cast<int>(st.st_mode),
-                             static_cast<uint64_t>(st.st_mtime),
-                             static_cast<uint64_t>(st.st_ctime)});
-  }
-  return xpp::resolve(Stat{-1, 0, 0, 0});
+  int fd = m_fd;
+  return xpp::work([fd]() -> Stat {
+    struct ::stat st;
+    if (::fstat(fd, &st) == 0) {
+      return Stat{st.st_size, static_cast<int>(st.st_mode), static_cast<uint64_t>(st.st_mtime),
+                  static_cast<uint64_t>(st.st_ctime)};
+    }
+    return Stat{-1, 0, 0, 0};
+  });
 }
 
 inline Promise<std::vector<uint8_t>> File::read_all() {
-  struct ::stat st;
-  if (::fstat(m_fd, &st) != 0) return xpp::resolve(std::vector<uint8_t>{});
-  size_t               file_size = static_cast<size_t>(st.st_size);
-  std::vector<uint8_t> buf(file_size);
-  if (file_size > 0) {
-    size_t total = 0;
-    while (total < file_size) {
-      ssize_t n = ::pread(m_fd, buf.data() + total, file_size - total, static_cast<off_t>(total));
-      if (n <= 0) break;
-      total += static_cast<size_t>(n);
+  if (m_fd < 0) return xpp::resolve(std::vector<uint8_t>{});
+  int fd = m_fd;
+  return xpp::work([fd]() -> std::vector<uint8_t> {
+    struct ::stat st;
+    if (::fstat(fd, &st) != 0) return {};
+    size_t               file_size = static_cast<size_t>(st.st_size);
+    std::vector<uint8_t> buf(file_size);
+    if (file_size > 0) {
+      size_t total = 0;
+      while (total < file_size) {
+        ssize_t n = ::pread(fd, buf.data() + total, file_size - total, static_cast<off_t>(total));
+        if (n <= 0) break;
+        total += static_cast<size_t>(n);
+      }
+      buf.resize(total);
     }
-    buf.resize(total);
-  }
-  return xpp::resolve(std::move(buf));
+    return buf;
+  });
 }
 
 inline Promise<std::string> File::read_to_string() {
-  struct ::stat st;
-  if (::fstat(m_fd, &st) != 0) return xpp::resolve(std::string{});
-  size_t      file_size = static_cast<size_t>(st.st_size);
-  std::string s(file_size, '\0');
-  if (file_size > 0) {
-    size_t total = 0;
-    while (total < file_size) {
-      ssize_t n = ::pread(m_fd, &s[total], file_size - total, static_cast<off_t>(total));
-      if (n <= 0) break;
-      total += static_cast<size_t>(n);
+  if (m_fd < 0) return xpp::resolve(std::string{});
+  int fd = m_fd;
+  return xpp::work([fd]() -> std::string {
+    struct ::stat st;
+    if (::fstat(fd, &st) != 0) return {};
+    size_t      file_size = static_cast<size_t>(st.st_size);
+    std::string s(file_size, '\0');
+    if (file_size > 0) {
+      size_t total = 0;
+      while (total < file_size) {
+        ssize_t n = ::pread(fd, &s[total], file_size - total, static_cast<off_t>(total));
+        if (n <= 0) break;
+        total += static_cast<size_t>(n);
+      }
+      s.resize(total);
     }
-    s.resize(total);
-  }
-  return xpp::resolve(std::move(s));
+    return s;
+  });
 }
 
 inline Promise<void> File::write_all(const void *buf, size_t len) {
-  size_t total = 0;
-  while (total < len) {
-    ssize_t n = ::pwrite(m_fd, static_cast<const char *>(buf) + total, len - total,
-                         static_cast<off_t>(total));
-    if (n <= 0) break;
-    total += static_cast<size_t>(n);
-  }
-  return xpp::yield();
+  if (m_fd < 0) return xpp::yield();
+  int fd = m_fd;
+  // Copy buf — it may be stack memory that's gone by the time work runs.
+  std::vector<uint8_t> data(static_cast<const uint8_t *>(buf),
+                            static_cast<const uint8_t *>(buf) + len);
+  return xpp::work([fd, data = std::move(data)] {
+    size_t total = 0;
+    while (total < data.size()) {
+      ssize_t n = ::pwrite(fd, data.data() + total, data.size() - total, static_cast<off_t>(total));
+      if (n <= 0) break;
+      total += static_cast<size_t>(n);
+    }
+  });
 }
 
 inline Promise<Stat> stat(const char *path) {
