@@ -24,7 +24,7 @@
 #include <type_traits>
 #include <utility>
 
-#include <xpp/allocator.h> // for _::IsFinal
+#include <xpp/meta.h> // for _::is_final
 
 namespace xpp {
 namespace _ {
@@ -40,7 +40,7 @@ namespace _ {
  * the two specializations have identical public interfaces. Members
  * are private. This mirrors libc++'s `__compressed_pair` design.
  */
-template <class T1, class T2, bool UseEbo = std::is_empty<T2>::value && !IsFinal<T2>::value>
+template <class T1, class T2, bool UseEbo = std::is_empty<T2>::value && !is_final<T2>::value>
 struct CompressedPair {
   CompressedPair() noexcept(std::is_nothrow_default_constructible<T2>::value)
       : m_first(), m_second() {}

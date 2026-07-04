@@ -25,6 +25,7 @@
 #include <new>
 #include <type_traits>
 
+#include <xpp/meta.h>
 #include <xpp/result.h>
 #include <xpp/span.h>
 
@@ -112,25 +113,6 @@ Result<Span<uint8_t>, AllocError> default_shrink(const A &alloc, void *ptr, Layo
 }
 
 namespace _ {
-
-/* ── IsFinal — C++11/14 portable is_final ─────────────────────────── */
-// std::is_final is C++14. On C++11 toolchains we fall back to the
-// __is_final compiler intrinsic (clang, gcc 4.7+, MSVC) which the
-// stdlib's own is_final wraps; on truly ancient toolchains we
-// degrade to "assume not final", which at worst forces the
-// member-storage specialization for an EBO-eligible allocator (a
-// size-not-correctness issue).
-#if __cplusplus >= 201402L
-template <class D> struct IsFinal : std::is_final<D> {};
-#elif defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
-template <class D> struct IsFinal {
-  static constexpr bool value = __is_final(D);
-};
-#else
-template <class D> struct IsFinal {
-  static constexpr bool value = false;
-};
-#endif
 
 /* ── FirstIsAlloc — SFINAE helper for make() ──────────────────────── */
 // True iff the first arg in Args... is convertible to Alloc.

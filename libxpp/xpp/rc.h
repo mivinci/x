@@ -110,7 +110,8 @@ namespace _ {
  * `strong` and `weak` are plain size_t — Rc is single-thread. Arc
  * has its own ArcInner with std::atomic<size_t> in xpp/arc.h.
  */
-template <class T, class Alloc, bool UseEbo = std::is_empty<Alloc>::value && !IsFinal<Alloc>::value>
+template <class T, class Alloc,
+          bool UseEbo = std::is_empty<Alloc>::value && !is_final<Alloc>::value>
 struct RcInner {
   size_t strong;
   size_t weak;

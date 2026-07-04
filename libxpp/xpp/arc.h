@@ -188,7 +188,8 @@ namespace _ {
  * offset 16 — so covariant reinterpret_casts between ArcInner<T, A>
  * and ArcInner<U, A> (for T/U related by inheritance) are valid.
  */
-template <class T, class Alloc, bool UseEbo = std::is_empty<Alloc>::value && !IsFinal<Alloc>::value>
+template <class T, class Alloc,
+          bool UseEbo = std::is_empty<Alloc>::value && !is_final<Alloc>::value>
 struct ArcInner {
   std::atomic<size_t> strong;
   std::atomic<size_t> weak;
