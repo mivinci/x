@@ -45,6 +45,6 @@
 
 ## 5. Docs
 
-- [ ] 5.1 Create `docs/libxpp/arena.md` — Arena<N> API, inline vs heap, owns(), reset(), PromiseNode usage
-- [ ] 5.2 Update `docs/SUMMARY.md` — add Arena page
-- [ ] 5.3 Update `docs/libxpp/README.md` — add Arena to module list
+- [x] 5.1 Create `docs/libxpp/arena.md` — Arena<N> API, inline vs heap, owns(), reset(), PromiseNode usage
+- [x] 5.2 Update `docs/SUMMARY.md` — add Arena page
+- [x] 5.3 Update `docs/libxpp/README.md` — add Arena to module list

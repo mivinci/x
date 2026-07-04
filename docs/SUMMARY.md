@@ -62,6 +62,7 @@
     - [C++20 Coroutines](libxpp/promise/coroutine.md)
     - [Internals](libxpp/promise/internals.md)
   - [Allocator](libxpp/allocator.md)
+  - [Arena](libxpp/arena.md)
   - [Smart Pointers](libxpp/smart-pointers/README.md)
     - [Own](libxpp/smart-pointers/own.md)
     - [Box](libxpp/smart-pointers/box.md)
