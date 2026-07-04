@@ -582,8 +582,8 @@ TEST_F(BoxTrackerTest, StatefulAllocatorCarriesState) {
   EXPECT_EQ(Tracker::alive, 0);
 }
 
-TEST_F(BoxTrackerTest, StatefulAllocatorAccessibleViaGetAllocator) {
+TEST_F(BoxTrackerTest, StatefulAllocatorAccessibleViaAllocator) {
   std::atomic<int> call_count{0};
   auto u = xpp::Box<Tracker, StatefulAlloc>::from_raw(new Tracker(4), StatefulAlloc{&call_count});
-  EXPECT_EQ(u.get_allocator().call_count, &call_count);
+  EXPECT_EQ(u.allocator().call_count, &call_count);
 }

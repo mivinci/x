@@ -167,7 +167,7 @@ public:
    *
    * If the Own was empty, returns None. Otherwise Some(Box). To
    * inspect or take the allocator, do
-   * `std::move(own).into_nonnull().unwrap().get_allocator()`.
+   * `std::move(own).into_nonnull().unwrap().allocator()`.
    */
   Option<Box<T, Alloc>> into_nonnull() && noexcept {
     return std::move(m_inner);

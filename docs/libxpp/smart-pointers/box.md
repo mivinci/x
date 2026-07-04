@@ -63,7 +63,7 @@ graph TD
 | `T* get()` | Raw pointer access. |
 | `T& operator*()` | Dereference (SFINAE-removed for `T = void`). |
 | `T* operator->()` | Member access (SFINAE-removed for `T = void`). |
-| `Alloc& get_allocator()` | Access the allocator. |
+| `Alloc& allocator()` | Access the allocator. |
 | `NonNull<T> as_nonnull()` | Non-owning non-null view. |
 | `T* into_raw() &&` | Relinquish ownership (consuming, rvalue only). |
 

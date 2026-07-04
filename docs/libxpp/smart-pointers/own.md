@@ -101,7 +101,8 @@ classDiagram
 | Method | Returns | Description |
 |---|---|---|
 | `into_nonnull()` | `Option<Box<T, A>>&&` (rvalue only) | Consume Own, get nullable Box |
-| `get_allocator()` | `Alloc&` / `const Alloc&` | Access the allocator (on the inner Box) |
+
+To access the allocator, unwrap to `Box` first: `std::move(own).into_nonnull().unwrap().allocator()`. `Own` itself doesn't expose `allocator()` because an empty `Own` has no inner `Box` and thus no allocator instance.
 
 ## Usage Examples
 

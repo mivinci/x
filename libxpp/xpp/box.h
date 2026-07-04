@@ -264,7 +264,7 @@ public:
                                                      !std::is_same<U, T>::value>::type>
   Option(Option<Box<U, Alloc>> &&o) noexcept
       : m_storage(static_cast<T *>(o.m_storage.p),
-                  static_cast<Alloc>(std::move(o.m_storage.alloc()))) {
+                  static_cast<Alloc>(std::move(o.m_storage.allocator()))) {
     o.m_storage.p = nullptr;
   }
   Option &operator=(Option &&o) noexcept {
