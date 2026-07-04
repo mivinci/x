@@ -76,3 +76,4 @@
   - [Compiler Macros](libxpp/compiler.md)
   - [Opaque Handle Wrapper](libxpp/opaque.md)
   - [Timer](libxpp/timer.md)
+  - [Filesystem](libxpp/fs.md)
