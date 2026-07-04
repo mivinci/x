@@ -19,8 +19,9 @@
 #define XPP_PANIC_H
 
 #include <cstdarg>
-#include <cstdio>
 #include <cstdlib>
+
+#include <x/base/log.h>
 
 #include <xpp/compiler.h>
 
@@ -31,9 +32,10 @@ namespace _ {
  * @brief Dispatch a panic message and terminate the process.
  *
  * Defined inline in the header so xpp stays header-only. Routes to
- * vfprintf(stderr) + std::abort() — no external logging dependency.
- * The XPP_PANIC / XPP_ASSERT macros prepend "panic at __FILE__:__LINE__: "
- * so file/line capture happens for free at every call site.
+ * libx's xLogV(fatal=true), which prints the message, collects a
+ * backtrace, and aborts. The XPP_PANIC / XPP_ASSERT macros prepend
+ * "panic at __FILE__:__LINE__: " so file/line capture happens for
+ * free at every call site.
  *
  * Prefer the XPP_PANIC / XPP_ASSERT macros over calling this directly.
  * The printf-format attribute (where supported) lets the compiler
@@ -46,9 +48,10 @@ __attribute__((format(printf, 1, 2)))
 inline void do_panic(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
-  vfprintf(stderr, fmt, ap);
+  xLogV(/*fatal=*/true, fmt, ap);
   va_end(ap);
-  fputc('\n', stderr);
+  // xLogV(fatal=true) calls abort() and never returns. The std::abort()
+  // below is unreachable but satisfies XPP_NORETURN on every code path.
   std::abort();
 }
 
