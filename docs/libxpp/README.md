@@ -2,6 +2,47 @@
 
 C++11 bindings for libx — smart pointers, async primitives, and type utilities. Header-only.
 
+## At a Glance
+
+```cpp
+#include <xpp/arc.h>
+#include <xpp/box.h>
+#include <xpp/option.h>
+#include <xpp/result.h>
+#include <xpp/promise.h>
+using namespace xpp;
+
+// Result<T, E> — explicit error handling, no exceptions
+Result<int, std::string> parse(std::string_view s) {
+    if (s.empty()) return Err("empty input");
+    return Ok(std::stoi(std::string(s)));
+}
+
+// Arc<T> — thread-safe shared ownership, sizeof == sizeof(T*)
+// (std::shared_ptr is 2× ptr; Arc is 1× ptr with niche-optimized Option)
+auto config = Arc<Config>::make(args...);
+
+// Promise<T> — poll-based async, no executor needed
+// (drives the event loop via wait(); C++20 coroutines optional)
+Promise<Stats> fetch() {
+    auto raw = co_await http_get("/api/stats");
+    co_return parse_stats(raw);
+}
+
+// Option<T> — nullptr == None, sizeof == sizeof(T*)
+Option<Arc<Config>> cached = lookup(key);
+if (cached) {
+    use(**cached);     // Option → Arc → Config
+}
+```
+
+**Design philosophy:**
+
+- **Rust-inspired, C++11-compatible** — `Result`/`Option`/`Arc`/`Box` with the same semantics as their Rust counterparts, but portable to any C++11 toolchain.
+- **Zero overhead** — every smart pointer is `sizeof(T*)`. `Option<Arc<T>>` is also `sizeof(T*)` via niche optimization (`nullptr = None`). Empty allocators vanish via EBO.
+- **Poll-based Promise** — no executor, no thread pool, no hidden runtime. `wait()` drives the event loop; `co_await` is optional (C++20).
+- **Single allocation** — `Arc::make()` allocates the control block and value together in one heap block, matching Rust's `Arc::new`.
+
 ## Modules
 
 - [EventLoop & WaitScope](event.md) — RAII wrappers for the libx event loop
