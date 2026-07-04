@@ -25,13 +25,15 @@
  * delete fails the test on TearDown.
  */
 
-#include <gtest/gtest.h>
-
+#include <atomic>
 #include <type_traits>
 #include <utility>
 
+#include <gtest/gtest.h>
+#include <xpp/allocator.h>
 #include <xpp/option.h>
 #include <xpp/rc.h>
+#include <xpp/weak.h>
 
 /* ── Compile-time guarantees ─────────────────────────────────────────── */
 
@@ -45,8 +47,7 @@ static_assert(std::is_move_constructible<xpp::Rc<int>>::value, "Rc must be movab
 static_assert(std::is_move_assignable<xpp::Rc<int>>::value, "Rc must be move-assignable");
 static_assert(!std::is_default_constructible<xpp::Rc<int>>::value,
               "Rc must NOT be default-constructible (always non-null)");
-static_assert(std::is_nothrow_destructible<xpp::Rc<int>>::value,
-              "Rc destructor must be noexcept");
+static_assert(std::is_nothrow_destructible<xpp::Rc<int>>::value, "Rc destructor must be noexcept");
 
 static_assert(std::is_default_constructible<xpp::Option<xpp::Rc<int>>>::value,
               "Option<Rc<T>> must default-construct to None");
@@ -123,7 +124,7 @@ TEST_F(RcTrackerTest, CopyCtorBumpsCount) {
       EXPECT_EQ(b->value, 7);
       EXPECT_EQ(a.get(), b.get()); // same Tracker
       EXPECT_EQ(Tracker::alive, 1);
-    }                              // b dies: -1
+    } // b dies: -1
     EXPECT_EQ(a.strong_count(), 1u);
     EXPECT_EQ(Tracker::alive, 1);
   }
@@ -148,9 +149,9 @@ TEST_F(RcTrackerTest, CopyAssignBumpsAndDropsCorrectly) {
 
 TEST_F(RcTrackerTest, SelfAssignIsNoop) {
   {
-    xpp::Rc<Tracker> a = xpp::Rc<Tracker>::make(99);
+    xpp::Rc<Tracker>  a     = xpp::Rc<Tracker>::make(99);
     xpp::Rc<Tracker> &alias = a;
-    alias = a; // must not blow up
+    alias                   = a; // must not blow up
     EXPECT_EQ(a.strong_count(), 1u);
     EXPECT_EQ(a->value, 99);
   }
@@ -217,9 +218,9 @@ TEST_F(RcTrackerTest, StaticCloneEqualsMemberClone) {
 
 TEST_F(RcTrackerTest, EqualityIsPointerIdentity) {
   {
-    xpp::Rc<Tracker> a  = xpp::Rc<Tracker>::make(1);
-    xpp::Rc<Tracker> b  = a;
-    xpp::Rc<Tracker> c  = xpp::Rc<Tracker>::make(1); // distinct Tracker
+    xpp::Rc<Tracker> a = xpp::Rc<Tracker>::make(1);
+    xpp::Rc<Tracker> b = a;
+    xpp::Rc<Tracker> c = xpp::Rc<Tracker>::make(1); // distinct Tracker
     EXPECT_TRUE(a == b);
     EXPECT_FALSE(a == c) << "same value, different object";
     EXPECT_TRUE(a != c);
@@ -365,10 +366,10 @@ TEST_F(OptionRcTrackerTest, MoveOptionDoesNotBumpCount) {
 TEST_F(OptionRcTrackerTest, TakeMovesOutRcCountUnchanged) {
   {
     xpp::Rc<Tracker>              r = xpp::Rc<Tracker>::make(3);
-    xpp::Option<xpp::Rc<Tracker>> o(r);    // count = 2
+    xpp::Option<xpp::Rc<Tracker>> o(r); // count = 2
     EXPECT_EQ(r.strong_count(), 2u);
 
-    xpp::Rc<Tracker> taken = o.take();     // moves out; count unchanged
+    xpp::Rc<Tracker> taken = o.take(); // moves out; count unchanged
     EXPECT_TRUE(o.is_none());
     EXPECT_EQ(r.strong_count(), 2u) << "take() moves ownership, does not bump or drop";
     EXPECT_EQ(taken.get(), r.get());
@@ -384,6 +385,143 @@ TEST_F(OptionRcTrackerTest, UnwrapOnRvalue) {
     EXPECT_EQ(r->value, 5);
   }
   EXPECT_EQ(Tracker::alive, 0);
+}
+
+} // namespace
+
+/* ── Allocator parameter tests ──────────────────────────────────────── */
+
+namespace {
+
+struct RcCountingAlloc {
+  std::atomic<int> *allocs;
+  std::atomic<int> *deallocs;
+
+  RcCountingAlloc(std::atomic<int> *a, std::atomic<int> *d) : allocs(a), deallocs(d) {}
+
+  xpp::Result<xpp::Span<uint8_t>, xpp::AllocError> allocate(xpp::Layout layout) const {
+    void *p = ::operator new(layout.size);
+    if (!p) return xpp::Result<xpp::Span<uint8_t>, xpp::AllocError>(xpp::err, xpp::AllocError{});
+    allocs->fetch_add(1, std::memory_order_relaxed);
+    return xpp::Result<xpp::Span<uint8_t>, xpp::AllocError>(
+      xpp::ok, xpp::Span<uint8_t>(static_cast<uint8_t *>(p), layout.size));
+  }
+
+  void deallocate(void *ptr, xpp::Layout) const {
+    deallocs->fetch_add(1, std::memory_order_relaxed);
+    ::operator delete(ptr);
+  }
+};
+
+// EBO: empty Alloc must not inflate any of the handle types.
+static_assert(sizeof(xpp::Rc<int, xpp::GlobalAllocator>) == sizeof(int *), "");
+static_assert(sizeof(xpp::Option<xpp::Rc<int, xpp::GlobalAllocator>>) == sizeof(int *), "");
+static_assert(sizeof(xpp::Weak<int, xpp::GlobalAllocator>) == sizeof(int *), "");
+
+// Stateful Alloc also keeps handles at sizeof(T*) (Alloc in RcInner, not handle).
+static_assert(sizeof(xpp::Rc<int, RcCountingAlloc>) == sizeof(int *), "");
+static_assert(sizeof(xpp::Option<xpp::Rc<int, RcCountingAlloc>>) == sizeof(int *), "");
+static_assert(sizeof(xpp::Weak<int, RcCountingAlloc>) == sizeof(int *), "");
+
+TEST(RcAllocTest, MakeInWithStatefulAllocator) {
+  std::atomic<int> allocs{0}, deallocs{0};
+  {
+    RcCountingAlloc               alloc(&allocs, &deallocs);
+    xpp::Rc<int, RcCountingAlloc> r = xpp::Rc<int, RcCountingAlloc>::make_in(alloc, 42);
+    EXPECT_EQ(*r, 42);
+    EXPECT_EQ(allocs.load(), 1);
+    EXPECT_EQ(deallocs.load(), 0);
+  }
+  EXPECT_EQ(allocs.load(), 1) << "exactly one allocation for the RcInner";
+  EXPECT_EQ(deallocs.load(), 1) << "deallocated when last strong drops";
+}
+
+TEST(RcAllocTest, MakeSfinaeDispatchesOnFirstArg) {
+  std::atomic<int> allocs{0}, deallocs{0};
+  RcCountingAlloc  alloc(&allocs, &deallocs);
+
+  // make(alloc, 42) — first arg is Alloc → uses alloc instance.
+  xpp::Rc<int, RcCountingAlloc> r = xpp::Rc<int, RcCountingAlloc>::make(alloc, 42);
+  EXPECT_EQ(*r, 42);
+  EXPECT_EQ(allocs.load(), 1);
+}
+
+TEST(RcAllocTest, StatefulAllocatorSurvivesWeakOutlivingStrong) {
+  // The trickiest path: weak outlives strong, so the Alloc must be
+  // moved out of RcInner when the last weak drops (since the memory
+  // containing it is being freed).
+  std::atomic<int> allocs{0}, deallocs{0};
+  RcCountingAlloc  alloc(&allocs, &deallocs);
+
+  {
+    xpp::Weak<int, RcCountingAlloc> w;
+    {
+      xpp::Rc<int, RcCountingAlloc> r = xpp::Rc<int, RcCountingAlloc>::make_in(alloc, 7);
+      w                               = xpp::Rc<int, RcCountingAlloc>::downgrade(r);
+      EXPECT_EQ(allocs.load(), 1);
+      EXPECT_EQ(deallocs.load(), 0);
+    } // r drops: T destroyed, but inner memory stays (weak still alive)
+    EXPECT_EQ(deallocs.load(), 0) << "inner not freed while weak alive";
+
+    // upgrade fails (strong == 0) but is safe.
+    EXPECT_TRUE(w.upgrade().is_none());
+  } // w drops: now inner is freed
+  EXPECT_EQ(allocs.load(), 1);
+  EXPECT_EQ(deallocs.load(), 1);
+}
+
+TEST(RcAllocTest, CloneAndDropWithStatefulAllocator) {
+  std::atomic<int> allocs{0}, deallocs{0};
+  RcCountingAlloc  alloc(&allocs, &deallocs);
+
+  {
+    xpp::Rc<int, RcCountingAlloc> r = xpp::Rc<int, RcCountingAlloc>::make_in(alloc, 1);
+    xpp::Rc<int, RcCountingAlloc> s = r.clone();
+    xpp::Rc<int, RcCountingAlloc> t = r;
+    EXPECT_EQ(r.strong_count(), 3u);
+    EXPECT_EQ(allocs.load(), 1) << "clones share the inner, no new alloc";
+  }
+  EXPECT_EQ(deallocs.load(), 1) << "one dealloc when last clone drops";
+}
+
+TEST(RcAllocTest, UpgradeBumpsStrongWithStatefulAllocator) {
+  std::atomic<int> allocs{0}, deallocs{0};
+  RcCountingAlloc  alloc(&allocs, &deallocs);
+
+  {
+    xpp::Rc<int, RcCountingAlloc>   r = xpp::Rc<int, RcCountingAlloc>::make_in(alloc, 9);
+    xpp::Weak<int, RcCountingAlloc> w = xpp::Rc<int, RcCountingAlloc>::downgrade(r);
+    EXPECT_EQ(r.strong_count(), 1u);
+
+    xpp::Option<xpp::Rc<int, RcCountingAlloc>> upgraded = w.upgrade();
+    ASSERT_TRUE(upgraded.is_some());
+    EXPECT_EQ(r.strong_count(), 2u);
+
+    xpp::Rc<int, RcCountingAlloc> r2 = std::move(upgraded).unwrap();
+    EXPECT_EQ(*r2, 9);
+  }
+  EXPECT_EQ(deallocs.load(), 1);
+}
+
+TEST(RcAllocTest, CovariantCtorWithSameAlloc) {
+  struct Base {
+    int x;
+    explicit Base(int v) : x(v) {}
+  };
+  struct Derived : Base {
+    explicit Derived(int v) : Base(v) {}
+  };
+
+  std::atomic<int> allocs{0}, deallocs{0};
+  RcCountingAlloc  alloc(&allocs, &deallocs);
+
+  {
+    xpp::Rc<Derived, RcCountingAlloc> d = xpp::Rc<Derived, RcCountingAlloc>::make_in(alloc, 77);
+    xpp::Rc<Base, RcCountingAlloc>    b = d; // covariant, same Alloc
+    EXPECT_EQ(b->x, 77);
+    EXPECT_EQ(d.strong_count(), 2u);
+  }
+  EXPECT_EQ(deallocs.load(), 1);
 }
 
 } // namespace

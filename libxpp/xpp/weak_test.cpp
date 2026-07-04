@@ -17,11 +17,12 @@
  *   - sizeof invariant
  */
 
-#include <gtest/gtest.h>
-
+#include <atomic>
 #include <type_traits>
 #include <utility>
 
+#include <gtest/gtest.h>
+#include <xpp/allocator.h>
 #include <xpp/option.h>
 #include <xpp/rc.h>
 #include <xpp/weak.h>
@@ -204,8 +205,8 @@ TEST_F(WeakTrackerTest, AssignWeakToNullDropsObservation) {
 /* ── Cycle break: list with weak back-pointer doesn't leak ───────────── */
 
 struct CycleNode {
-  static int            alive;
-  int                   value;
+  static int                      alive;
+  int                             value;
   xpp::Option<xpp::Rc<CycleNode>> next;
   xpp::Weak<CycleNode>            prev;
 
@@ -250,5 +251,70 @@ TEST_F(CycleTest, ForwardRcBackwardWeakReleasesAll) {
 // test would intentionally leak memory and trip ASan in CI, so we
 // settle for the README's documentation of "no Weak<T> → don't build
 // cycles" instead.
+
+} // namespace
+
+/* ── Allocator parameter tests for Weak ─────────────────────────────── */
+
+namespace {
+
+struct WeakCountingAlloc {
+  std::atomic<int> *allocs;
+  std::atomic<int> *deallocs;
+
+  WeakCountingAlloc(std::atomic<int> *a, std::atomic<int> *d) : allocs(a), deallocs(d) {}
+
+  xpp::Result<xpp::Span<uint8_t>, xpp::AllocError> allocate(xpp::Layout layout) const {
+    void *p = ::operator new(layout.size);
+    if (!p) return xpp::Result<xpp::Span<uint8_t>, xpp::AllocError>(xpp::err, xpp::AllocError{});
+    allocs->fetch_add(1, std::memory_order_relaxed);
+    return xpp::Result<xpp::Span<uint8_t>, xpp::AllocError>(
+      xpp::ok, xpp::Span<uint8_t>(static_cast<uint8_t *>(p), layout.size));
+  }
+
+  void deallocate(void *ptr, xpp::Layout) const {
+    deallocs->fetch_add(1, std::memory_order_relaxed);
+    ::operator delete(ptr);
+  }
+};
+
+TEST(WeakAllocTest, WeakWithStatefulAllocator) {
+  std::atomic<int>  allocs{0}, deallocs{0};
+  WeakCountingAlloc alloc(&allocs, &deallocs);
+
+  // Weak outlives Rc — the trickiest path for stateful alloc: the
+  // Alloc must be moved out of RcInner when the last weak drops.
+  {
+    xpp::Weak<int, WeakCountingAlloc> w;
+    {
+      xpp::Rc<int, WeakCountingAlloc> r = xpp::Rc<int, WeakCountingAlloc>::make_in(alloc, 99);
+      w                                 = xpp::Rc<int, WeakCountingAlloc>::downgrade(r);
+      EXPECT_EQ(r.weak_count(), 1u);
+
+      xpp::Option<xpp::Rc<int, WeakCountingAlloc>> upgraded = w.upgrade();
+      ASSERT_TRUE(upgraded.is_some());
+      EXPECT_EQ(*std::move(upgraded).unwrap(), 99);
+    }
+    EXPECT_EQ(deallocs.load(), 0) << "inner kept alive by weak";
+    EXPECT_TRUE(w.is_expired());
+    EXPECT_TRUE(w.upgrade().is_none());
+  }
+  EXPECT_EQ(allocs.load(), 1);
+  EXPECT_EQ(deallocs.load(), 1) << "freed when last weak drops";
+}
+
+TEST(WeakAllocTest, WeakCopyAndAssignWithStatefulAllocator) {
+  std::atomic<int>  allocs{0}, deallocs{0};
+  WeakCountingAlloc alloc(&allocs, &deallocs);
+
+  xpp::Rc<int, WeakCountingAlloc>   r  = xpp::Rc<int, WeakCountingAlloc>::make_in(alloc, 5);
+  xpp::Weak<int, WeakCountingAlloc> w1 = xpp::Rc<int, WeakCountingAlloc>::downgrade(r);
+  xpp::Weak<int, WeakCountingAlloc> w2 = w1;            // copy
+  xpp::Weak<int, WeakCountingAlloc> w3 = std::move(w1); // move
+
+  EXPECT_EQ(r.weak_count(), 2u) << "w1 moved out (still alive, just null); w2+w3 alive";
+  EXPECT_TRUE(w3.upgrade().is_some());
+  EXPECT_TRUE(w2.upgrade().is_some());
+}
 
 } // namespace
