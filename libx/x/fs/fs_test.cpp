@@ -169,3 +169,92 @@ TEST_F(FsTest, OpenNonexistent) {
   r.flags  = O_RDONLY;
   ASSERT_NE(xFsReqSubmit(&r), xErrno_Ok);
 }
+
+/* ───────────────────── Rmdir ───────────────────── */
+
+TEST_F(FsTest, RmdirEmptyDir) {
+  xFsReq r = {};
+
+  /* Create a dir first */
+  r.op   = xFsOpMkdir;
+  r.path = XFS_TMPDIR "/__xfs_test_rmdir";
+  r.mode = 0755;
+  ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
+
+  /* Remove it */
+  r = {};
+  r.op   = xFsOpRmdir;
+  r.path = XFS_TMPDIR "/__xfs_test_rmdir";
+  ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
+
+  /* Verify it's gone */
+  struct stat st;
+  EXPECT_NE(stat(XFS_TMPDIR "/__xfs_test_rmdir", &st), 0);
+}
+
+TEST_F(FsTest, RmdirNonEmptyDirFails) {
+  xFsReq r = {};
+
+  /* Create a dir */
+  r.op   = xFsOpMkdir;
+  r.path = XFS_TMPDIR "/__xfs_test_rmdir_ne";
+  r.mode = 0755;
+  ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
+
+  /* Create a file inside it */
+  r = {};
+  r.op    = xFsOpOpen;
+  r.path  = XFS_TMPDIR "/__xfs_test_rmdir_ne/child.tmp";
+  r.flags = O_CREAT | O_RDWR;
+  r.mode  = 0644;
+  ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
+  XFS_CLOSE((int)(intptr_t)r.out_file);
+
+  /* Rmdir should fail — directory not empty */
+  r = {};
+  r.op   = xFsOpRmdir;
+  r.path = XFS_TMPDIR "/__xfs_test_rmdir_ne";
+  ASSERT_NE(xFsReqSubmit(&r), xErrno_Ok);
+
+  /* Cleanup: remove child then dir */
+  r = {};
+  r.op   = xFsOpUnlink;
+  r.path = XFS_TMPDIR "/__xfs_test_rmdir_ne/child.tmp";
+  xFsReqSubmit(&r);
+
+  r = {};
+  r.op   = xFsOpRmdir;
+  r.path = XFS_TMPDIR "/__xfs_test_rmdir_ne";
+  xFsReqSubmit(&r);
+}
+
+TEST_F(FsTest, RmdirNonexistentFails) {
+  xFsReq r = {};
+  r.op   = xFsOpRmdir;
+  r.path = XFS_TMPDIR "/__xfs_no_such_dir_XXXXXX";
+  ASSERT_NE(xFsReqSubmit(&r), xErrno_Ok);
+}
+
+TEST_F(FsTest, RmdirOnFileFails) {
+  xFsReq r = {};
+
+  /* Create a regular file */
+  r.op    = xFsOpOpen;
+  r.path  = XFS_TMPDIR "/__xfs_test_rmdir_file.tmp";
+  r.flags = O_CREAT | O_RDWR;
+  r.mode  = 0644;
+  ASSERT_EQ(xFsReqSubmit(&r), xErrno_Ok);
+  XFS_CLOSE((int)(intptr_t)r.out_file);
+
+  /* Rmdir on a file should fail */
+  r = {};
+  r.op   = xFsOpRmdir;
+  r.path = XFS_TMPDIR "/__xfs_test_rmdir_file.tmp";
+  ASSERT_NE(xFsReqSubmit(&r), xErrno_Ok);
+
+  /* Cleanup */
+  r = {};
+  r.op   = xFsOpUnlink;
+  r.path = XFS_TMPDIR "/__xfs_test_rmdir_file.tmp";
+  xFsReqSubmit(&r);
+}
