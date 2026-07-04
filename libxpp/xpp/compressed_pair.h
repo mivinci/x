@@ -7,7 +7,7 @@
  *                     with Empty Base Optimization (EBO) when T2 is
  *                     an empty class.
  *
- *   sizeof(CompressedPair<T*, EmptyA>)  == sizeof(T*)         (EBO)
+ *   sizeof(CompressedPair<T*, EmptyA>)    == sizeof(T*)         (EBO)
  *   sizeof(CompressedPair<T*, StatefulA>) == sizeof(T*) + sizeof(StatefulA)
  *
  * Used by Box<T, Alloc> / Own<T, Alloc> to store `T* + Alloc` without
@@ -30,52 +30,63 @@ namespace xpp {
 namespace _ {
 
 /**
- * @brief Pair of (T, A) with EBO when A is empty and non-final.
+ * @brief Pair of (T1, T2) with EBO when T2 is empty and non-final.
  *
- * Two specializations keyed on `is_empty<A> && !is_final<A>`:
- *   - empty + non-final → inherit privately from A, sizeof == sizeof(T)
- *   - otherwise         → store A as a member, sizeof == sizeof(T) + sizeof(A)
+ * Two specializations keyed on `is_empty<T2> && !is_final<T2>`:
+ *   - empty + non-final → inherit privately from T2, sizeof == sizeof(T1)
+ *   - otherwise         → store T2 as a member, sizeof == sizeof(T1) + sizeof(T2)
  *
- * The first template parameter T is stored as a member in both
- * specializations; only A is EBO-eligible (as a base class). This
- * matches the layout of std::unique_ptr's storage: the pointer is
- * the primary member, the deleter/allocator is the EBO candidate.
- *
- * Accessor is named `allocator()` because the only current use is
- * storing (T*, Alloc) pairs in Box/Own. If CompressedPair is later
- * reused for non-allocator purposes, rename to `second()` or add a
- * generic accessor.
+ * Both elements are accessed via methods (`first()` / `second()`) so
+ * the two specializations have identical public interfaces. Members
+ * are private. This mirrors libc++'s `__compressed_pair` design.
  */
-template <class T, class A, bool UseEbo = std::is_empty<A>::value && !IsFinal<A>::value>
+template <class T1, class T2, bool UseEbo = std::is_empty<T2>::value && !IsFinal<T2>::value>
 struct CompressedPair {
-  T p;
-  A a;
+  CompressedPair() noexcept(std::is_nothrow_default_constructible<T2>::value)
+      : m_first(), m_second() {}
+  CompressedPair(T1 f, T2 s) noexcept(std::is_nothrow_move_constructible<T2>::value)
+      : m_first(std::move(f)), m_second(std::move(s)) {}
 
-  CompressedPair() noexcept(std::is_nothrow_default_constructible<A>::value) : p(), a() {}
-  CompressedPair(T p_, A a_) noexcept(std::is_nothrow_move_constructible<A>::value)
-      : p(std::move(p_)), a(std::move(a_)) {}
+  T1 &first() noexcept {
+    return m_first;
+  }
+  const T1 &first() const noexcept {
+    return m_first;
+  }
 
-  A &allocator() noexcept {
-    return a;
+  T2 &second() noexcept {
+    return m_second;
   }
-  const A &allocator() const noexcept {
-    return a;
+  const T2 &second() const noexcept {
+    return m_second;
   }
+
+private:
+  T1 m_first;
+  T2 m_second;
 };
 
-template <class T, class A> struct CompressedPair<T, A, true> : private A {
-  T p;
+template <class T1, class T2> struct CompressedPair<T1, T2, true> : private T2 {
+  CompressedPair() noexcept(std::is_nothrow_default_constructible<T2>::value) : T2(), m_first() {}
+  CompressedPair(T1 f, T2 s) noexcept(std::is_nothrow_move_constructible<T2>::value)
+      : T2(std::move(s)), m_first(std::move(f)) {}
 
-  CompressedPair() noexcept(std::is_nothrow_default_constructible<A>::value) : A(), p() {}
-  CompressedPair(T p_, A a_) noexcept(std::is_nothrow_move_constructible<A>::value)
-      : A(std::move(a_)), p(std::move(p_)) {}
+  T1 &first() noexcept {
+    return m_first;
+  }
+  const T1 &first() const noexcept {
+    return m_first;
+  }
 
-  A &allocator() noexcept {
+  T2 &second() noexcept {
     return *this;
   }
-  const A &allocator() const noexcept {
+  const T2 &second() const noexcept {
     return *this;
   }
+
+private:
+  T1 m_first;
 };
 
 } // namespace _

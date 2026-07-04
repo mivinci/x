@@ -66,8 +66,8 @@ public:
   Box &operator=(const Box &) = delete;
 
   /** @brief Move ctor. Source becomes a "destruction-only" husk. */
-  Box(Box &&o) noexcept : m_storage(o.m_storage.p, std::move(o.m_storage.allocator())) {
-    o.m_storage.p = nullptr;
+  Box(Box &&o) noexcept : m_storage(o.m_storage.first(), std::move(o.m_storage.second())) {
+    o.m_storage.first() = nullptr;
   }
 
   /**
@@ -79,18 +79,18 @@ public:
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
                                                      !std::is_same<U, T>::value>::type>
   Box(Box<U, Alloc> &&o) noexcept
-      : m_storage(static_cast<T *>(o.m_storage.p),
-                  static_cast<Alloc>(std::move(o.m_storage.allocator()))) {
-    o.m_storage.p = nullptr;
+      : m_storage(static_cast<T *>(o.m_storage.first()),
+                  static_cast<Alloc>(std::move(o.m_storage.second()))) {
+    o.m_storage.first() = nullptr;
   }
 
   /** @brief Move assignment. Old target is destroyed; source becomes husk. */
   Box &operator=(Box &&o) noexcept {
     if (this != &o) {
       reset_internal();
-      m_storage.p           = o.m_storage.p;
-      m_storage.allocator() = std::move(o.m_storage.allocator());
-      o.m_storage.p         = nullptr;
+      m_storage.first()   = o.m_storage.first();
+      m_storage.second()  = std::move(o.m_storage.second());
+      o.m_storage.first() = nullptr;
     }
     return *this;
   }
@@ -109,29 +109,29 @@ public:
   static Option<Box> try_from_raw(T *p, Alloc a = Alloc{}) noexcept;
 
   T *get() const noexcept {
-    return m_storage.p;
+    return m_storage.first();
   }
 
   template <class U = T, class = typename std::enable_if<!std::is_void<U>::value>::type>
   U &operator*() const noexcept {
-    return *m_storage.p;
+    return *m_storage.first();
   }
 
   template <class U = T, class = typename std::enable_if<!std::is_void<U>::value>::type>
   U *operator->() const noexcept {
-    return m_storage.p;
+    return m_storage.first();
   }
 
   Alloc &allocator() noexcept {
-    return m_storage.allocator();
+    return m_storage.second();
   }
   const Alloc &allocator() const noexcept {
-    return m_storage.allocator();
+    return m_storage.second();
   }
 
   /** @brief Borrow as a non-owning NonNull view. */
   NonNull<T> as_nonnull() const noexcept {
-    return NonNull<T>::new_unchecked(m_storage.p);
+    return NonNull<T>::new_unchecked(m_storage.first());
   }
 
   /**
@@ -141,8 +141,8 @@ public:
    * never leave a Box observable in a "null" state.
    */
   T *into_raw() && noexcept {
-    T *r        = m_storage.p;
-    m_storage.p = nullptr;
+    T *r              = m_storage.first();
+    m_storage.first() = nullptr;
     return r;
   }
 
@@ -151,9 +151,9 @@ private:
   Box(T *p, Alloc a, _PrivateTag) noexcept : m_storage(p, std::move(a)) {}
 
   void reset_internal() noexcept {
-    if (m_storage.p) {
-      _::destroy_and_dealloc(m_storage.p, m_storage.allocator());
-      m_storage.p = nullptr;
+    if (m_storage.first()) {
+      _::destroy_and_dealloc(m_storage.first(), m_storage.second());
+      m_storage.first() = nullptr;
     }
   }
 
@@ -196,40 +196,40 @@ public:
   Option() noexcept : m_storage() {}
   Option(None) noexcept : m_storage() {}
   Option(Box<T, Alloc> &&u) noexcept
-      : m_storage(u.m_storage.p, std::move(u.m_storage.allocator())) {
-    u.m_storage.p = nullptr;
+      : m_storage(u.m_storage.first(), std::move(u.m_storage.second())) {
+    u.m_storage.first() = nullptr;
   }
 
   /** @brief Covariant: adopt Box<U, Alloc>. */
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
                                                      !std::is_same<U, T>::value>::type>
   Option(Box<U, Alloc> &&u) noexcept
-      : m_storage(static_cast<T *>(u.m_storage.p),
-                  static_cast<Alloc>(std::move(u.m_storage.allocator()))) {
-    u.m_storage.p = nullptr;
+      : m_storage(static_cast<T *>(u.m_storage.first()),
+                  static_cast<Alloc>(std::move(u.m_storage.second()))) {
+    u.m_storage.first() = nullptr;
   }
 
   Option(const Option &)            = delete;
   Option &operator=(const Option &) = delete;
 
-  Option(Option &&o) noexcept : m_storage(o.m_storage.p, std::move(o.m_storage.allocator())) {
-    o.m_storage.p = nullptr;
+  Option(Option &&o) noexcept : m_storage(o.m_storage.first(), std::move(o.m_storage.second())) {
+    o.m_storage.first() = nullptr;
   }
 
   /** @brief Covariant: adopt Option<Box<U, Alloc>>. */
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
                                                      !std::is_same<U, T>::value>::type>
   Option(Option<Box<U, Alloc>> &&o) noexcept
-      : m_storage(static_cast<T *>(o.m_storage.p),
-                  static_cast<Alloc>(std::move(o.m_storage.allocator()))) {
-    o.m_storage.p = nullptr;
+      : m_storage(static_cast<T *>(o.m_storage.first()),
+                  static_cast<Alloc>(std::move(o.m_storage.second()))) {
+    o.m_storage.first() = nullptr;
   }
   Option &operator=(Option &&o) noexcept {
     if (this != &o) {
       reset_internal();
-      m_storage.p           = o.m_storage.p;
-      m_storage.allocator() = std::move(o.m_storage.allocator());
-      o.m_storage.p         = nullptr;
+      m_storage.first()   = o.m_storage.first();
+      m_storage.second()  = std::move(o.m_storage.second());
+      o.m_storage.first() = nullptr;
     }
     return *this;
   }
@@ -243,37 +243,37 @@ public:
   }
 
   bool is_some() const noexcept {
-    return m_storage.p != nullptr;
+    return m_storage.first() != nullptr;
   }
   bool is_none() const noexcept {
-    return m_storage.p == nullptr;
+    return m_storage.first() == nullptr;
   }
   explicit operator bool() const noexcept {
-    return m_storage.p != nullptr;
+    return m_storage.first() != nullptr;
   }
 
   /* ── unwrap (asymmetric: borrow vs consume) ─────────────────────── */
 
   T *unwrap() const & {
-    XPP_ASSERT(m_storage.p != nullptr, "unwrap() on None Option");
-    return m_storage.p;
+    XPP_ASSERT(m_storage.first() != nullptr, "unwrap() on None Option");
+    return m_storage.first();
   }
   Box<T, Alloc> unwrap() && {
-    XPP_ASSERT(m_storage.p != nullptr, "unwrap() on None Option");
+    XPP_ASSERT(m_storage.first() != nullptr, "unwrap() on None Option");
     return take_owned();
   }
 
   T *unwrap_unchecked() const & noexcept {
-    XPP_DEBUG_ASSERT(m_storage.p, "internal: Option must be Some");
-    return m_storage.p;
+    XPP_DEBUG_ASSERT(m_storage.first(), "internal: Option must be Some");
+    return m_storage.first();
   }
   Box<T, Alloc> unwrap_unchecked() && noexcept {
-    XPP_DEBUG_ASSERT(m_storage.p, "internal: Option must be Some");
+    XPP_DEBUG_ASSERT(m_storage.first(), "internal: Option must be Some");
     return take_owned();
   }
 
   Box<T, Alloc> unwrap_or(Box<T, Alloc> &&fallback) && {
-    if (m_storage.p) return take_owned();
+    if (m_storage.first()) return take_owned();
     return std::move(fallback);
   }
 
@@ -282,11 +282,11 @@ public:
   }
 
   T *expect(const char *msg) const & {
-    XPP_ASSERT(m_storage.p != nullptr, "expect: %s", msg);
-    return m_storage.p;
+    XPP_ASSERT(m_storage.first() != nullptr, "expect: %s", msg);
+    return m_storage.first();
   }
   Box<T, Alloc> expect(const char *msg) && {
-    XPP_ASSERT(m_storage.p != nullptr, "expect: %s", msg);
+    XPP_ASSERT(m_storage.first() != nullptr, "expect: %s", msg);
     return take_owned();
   }
 
@@ -295,12 +295,13 @@ public:
   template <class Func>
   auto map(Func &&fn) const & -> Option<decltype(fn(std::declval<NonNull<T>>()))> {
     using U = decltype(fn(std::declval<NonNull<T>>()));
-    return m_storage.p ? Option<U>(fn(NonNull<T>::new_unchecked(m_storage.p))) : Option<U>(none);
+    return m_storage.first() ? Option<U>(fn(NonNull<T>::new_unchecked(m_storage.first())))
+                             : Option<U>(none);
   }
   template <class Func>
   auto map(Func &&fn) && -> Option<decltype(fn(std::declval<Box<T, Alloc> &&>()))> {
     using U = decltype(fn(std::declval<Box<T, Alloc> &&>()));
-    if (!m_storage.p) return Option<U>(none);
+    if (!m_storage.first()) return Option<U>(none);
     Box<T, Alloc> owned = take_owned();
     return Option<U>(fn(std::move(owned)));
   }
@@ -308,23 +309,23 @@ public:
   template <class Func>
   auto and_then(Func &&fn) && -> decltype(fn(std::declval<Box<T, Alloc> &&>())) {
     using R = decltype(fn(std::declval<Box<T, Alloc> &&>()));
-    if (!m_storage.p) return R(none);
+    if (!m_storage.first()) return R(none);
     Box<T, Alloc> owned = take_owned();
     return fn(std::move(owned));
   }
 
   template <class Func> Option or_else(Func &&fn) && {
-    if (m_storage.p) return std::move(*this);
+    if (m_storage.first()) return std::move(*this);
     return fn();
   }
 
   template <class Func> Box<T, Alloc> unwrap_or_else(Func &&fn) && {
-    if (m_storage.p) return take_owned();
+    if (m_storage.first()) return take_owned();
     return fn();
   }
 
   template <class Func> Option filter(Func &&pred) && {
-    if (m_storage.p && pred(NonNull<T>::new_unchecked(m_storage.p))) {
+    if (m_storage.first() && pred(NonNull<T>::new_unchecked(m_storage.first()))) {
       return std::move(*this);
     }
     reset_internal();
@@ -332,26 +333,26 @@ public:
   }
 
   template <class Func> const Option &inspect(Func &&fn) const & {
-    if (m_storage.p) fn(NonNull<T>::new_unchecked(m_storage.p));
+    if (m_storage.first()) fn(NonNull<T>::new_unchecked(m_storage.first()));
     return *this;
   }
   template <class Func> Option inspect(Func &&fn) && {
-    if (m_storage.p) fn(NonNull<T>::new_unchecked(m_storage.p));
+    if (m_storage.first()) fn(NonNull<T>::new_unchecked(m_storage.first()));
     return std::move(*this);
   }
 
 private:
   void reset_internal() noexcept {
-    if (m_storage.p) {
-      _::destroy_and_dealloc(m_storage.p, m_storage.allocator());
-      m_storage.p = nullptr;
+    if (m_storage.first()) {
+      _::destroy_and_dealloc(m_storage.first(), m_storage.second());
+      m_storage.first() = nullptr;
     }
   }
 
   /** Move ownership out of storage; storage left empty. Caller has checked p != null. */
   Box<T, Alloc> take_owned() noexcept {
-    Box<T, Alloc> r = Box<T, Alloc>::from_raw(m_storage.p, std::move(m_storage.allocator()));
-    m_storage.p     = nullptr;
+    Box<T, Alloc> r   = Box<T, Alloc>::from_raw(m_storage.first(), std::move(m_storage.second()));
+    m_storage.first() = nullptr;
     return r;
   }
 
