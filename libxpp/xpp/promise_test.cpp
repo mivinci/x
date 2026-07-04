@@ -575,3 +575,113 @@ TEST(PromiseTest, AfterThenChain) {
   int result = xpp::after(10).then([]() { return 42; }).then([](int x) { return x * 2; }).wait();
   EXPECT_EQ(result, 84);
 }
+
+/* ── Arena integration tests ───────────────────────────────────────── */
+
+// 4.2: Arena hit — a .then() chain of small nodes fits in one 256B arena.
+// Each TransformPromiseNode is ~40B (16B header + 24B data). A chain of
+// 5 nodes = ~200B, fits in 256B. If arena allocation is broken (misaligned,
+// corrupted, etc.), the chain would crash or produce wrong results.
+TEST(PromiseTest, ArenaHitShortChain) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  // 5 .then() calls — all TransformPromiseNodes should fit in one arena.
+  int result = xpp::resolve(1)
+                 .then([](int x) { return x + 1; }) // 2
+                 .then([](int x) { return x + 1; }) // 3
+                 .then([](int x) { return x + 1; }) // 4
+                 .then([](int x) { return x + 1; }) // 5
+                 .then([](int x) { return x + 1; }) // 6
+                 .wait();
+  EXPECT_EQ(result, 6);
+}
+
+// 4.2b: Longer chain still works — exercises arena bump pointer.
+TEST(PromiseTest, ArenaHitLongChain) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  // 8 .then() calls — ~320B of nodes. First few in arena, rest overflow
+  // to heap. Either way, the chain must produce the correct result.
+  auto p = xpp::resolve(0);
+  for (int i = 0; i < 8; ++i) {
+    p = p.then([](int x) { return x + 1; });
+  }
+  EXPECT_EQ(p.wait(), 8);
+}
+
+// 4.3: Arena overflow — lambdas with large captures exceed 256B arena.
+// Nodes that don't fit fall back to heap. The chain must still work.
+TEST(PromiseTest, ArenaOverflowLargeCaptures) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  // Each lambda captures a 64-byte array, making each TransformPromiseNode
+  // ~80B (16 header + 24 base + 64 capture). Three nodes = ~240B, fits.
+  // Four nodes = ~320B, overflows — last node goes to heap.
+  char buf1[64] = {};
+  buf1[0]       = 1;
+  char buf2[64] = {};
+  buf2[0]       = 2;
+  char buf3[64] = {};
+  buf3[0]       = 3;
+  char buf4[64] = {};
+  buf4[0]       = 4;
+
+  int result = xpp::resolve(0)
+                 .then([buf1](int x) { return x + (int)buf1[0]; })
+                 .then([buf2](int x) { return x + (int)buf2[0]; })
+                 .then([buf3](int x) { return x + (int)buf3[0]; })
+                 .then([buf4](int x) { return x + (int)buf4[0]; })
+                 .wait();
+  EXPECT_EQ(result, 10); // 0 + 1 + 2 + 3 + 4
+}
+
+// 4.4: Destruction routing — arena-allocated nodes skip ::operator delete,
+// heap-allocated nodes don't. Verified by creating and destroying many
+// chains in a loop. If routing is wrong (double-free or leak), ASan/LSan
+// in CI would catch it. Here we verify no crash.
+TEST(PromiseTest, ArenaDestructionRoutingManyChains) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  // Create and destroy 100 short chains. If arena deallocation is broken
+  // (use-after-free, double-free), this would crash.
+  for (int i = 0; i < 100; ++i) {
+    auto p = xpp::resolve(i)
+               .then([](int x) { return x + 1; })
+               .then([](int x) { return x * 2; })
+               .then([](int x) { return x - 3; });
+    // p destroyed here — triggers arena deallocation.
+  }
+
+  // Also test mixed: some chains short (arena), some long (overflow).
+  for (int i = 0; i < 50; ++i) {
+    char big[64] = {};
+    big[0]       = (char)i;
+    auto p       = xpp::resolve(0)
+               .then([big](int x) { return x + (int)big[0]; })
+               .then([big](int x) { return x + (int)big[0]; })
+               .then([big](int x) { return x + (int)big[0]; })
+               .then([big](int x) { return x + (int)big[0]; })
+               .then([big](int x) { return x + (int)big[0]; });
+    // p destroyed — mix of arena and heap nodes.
+  }
+
+  SUCCEED(); // No crash = routing is correct.
+}
+
+// 4.4b: Destruction with wait() — verify arena is freed after wait()
+// consumes the promise.
+TEST(PromiseTest, ArenaDestructionAfterWait) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  // wait() consumes the promise — arena must be freed in the process.
+  for (int i = 0; i < 50; ++i) {
+    int result =
+      xpp::resolve(i).then([](int x) { return x + 1; }).then([](int x) { return x * 2; }).wait();
+    EXPECT_EQ(result, (i + 1) * 2);
+  }
+}

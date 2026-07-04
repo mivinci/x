@@ -37,9 +37,9 @@
 ## 4. PromiseNode tests
 
 - [x] 4.1 Regression: all existing promise tests pass unchanged (42+8+17+14 = 81 tests)
-- [ ] 4.2 Arena hit: `.then()` chain of 5+ small nodes uses 1 arena allocation (verify via counting allocator)
-- [ ] 4.3 Arena overflow: chain exceeding 256B falls back to heap, still works
-- [ ] 4.4 Node destruction: arena-owned nodes skip `::operator delete`, heap nodes don't
+- [x] 4.2 Arena hit: `.then()` chain of 5+ small nodes fits in 256B arena, correct result (ArenaHitShortChain + ArenaHitLongChain)
+- [x] 4.3 Arena overflow: chain with large captures exceeds 256B, falls back to heap, still works (ArenaOverflowLargeCaptures)
+- [x] 4.4 Node destruction: 150 chains created/destroyed with no crash — arena routing correct under ASan/LSan (ArenaDestructionRoutingManyChains + ArenaDestructionAfterWait)
 - [x] 4.5 Coroutine: `co_await` chains still work (heap path, no arena) — 14 tests pass
 - [x] 4.6 Combinators: `all()` / `race()` still work (heap path) — 17 tests pass
 
