@@ -281,9 +281,7 @@ inline Promise<File> File::open(const char *path) {
 }
 
 inline Promise<File> File::open(const char *path, int flags, int mode) {
-  auto pr = xpp::async<File>();
-  new _::FsOpenAdapter(std::move(pr.second), path, flags, mode);
-  return std::move(pr.first);
+  return xpp::adapt<File, _::FsOpenAdapter>(path, flags, mode);
 }
 
 inline Promise<File> File::create(const char *path, int mode) {
@@ -295,26 +293,22 @@ inline File File::from_raw_fd(int fd) {
 }
 
 inline Promise<ssize_t> File::read(void *buf, size_t len, off_t offset) {
-  auto pr = xpp::async<ssize_t>();
-  new _::FsReadAdapter(std::move(pr.second), reinterpret_cast<xFile>(static_cast<intptr_t>(m_fd)),
-                       buf, len, offset);
-  return std::move(pr.first);
+  return xpp::adapt<ssize_t, _::FsReadAdapter>(reinterpret_cast<xFile>(static_cast<intptr_t>(m_fd)),
+                                               buf, len, offset);
 }
 
 inline Promise<ssize_t> File::write(const void *buf, size_t len, off_t offset) {
-  auto pr = xpp::async<ssize_t>();
-  new _::FsWriteAdapter(std::move(pr.second), reinterpret_cast<xFile>(static_cast<intptr_t>(m_fd)),
-                        buf, len, offset);
-  return std::move(pr.first);
+  return xpp::adapt<ssize_t, _::FsWriteAdapter>(
+    reinterpret_cast<xFile>(static_cast<intptr_t>(m_fd)), buf, len, offset);
 }
 
 inline Promise<void> File::close() {
   if (!m_open) return xpp::yield();
-  auto pr = xpp::async<void>();
-  new _::FsCloseAdapter(std::move(pr.second), reinterpret_cast<xFile>(static_cast<intptr_t>(m_fd)));
+  auto p =
+    xpp::adapt<void, _::FsCloseAdapter>(reinterpret_cast<xFile>(static_cast<intptr_t>(m_fd)));
   m_open = false;
   m_fd   = -1;
-  return std::move(pr.first);
+  return p;
 }
 
 inline Promise<void> File::sync_all() {
@@ -379,9 +373,7 @@ inline Promise<void> File::write_all(const void *buf, size_t len) {
 }
 
 inline Promise<Stat> stat(const char *path) {
-  auto pr = xpp::async<Stat>();
-  new _::FsStatAdapter(std::move(pr.second), path);
-  return std::move(pr.first);
+  return xpp::adapt<Stat, _::FsStatAdapter>(path);
 }
 
 inline Promise<std::vector<uint8_t>> read(const char *path) {
