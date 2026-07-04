@@ -125,7 +125,7 @@ Promise<void> write_all(AsyncFd &io, const void *buf, size_t len);
 
 /* ── Inline implementations ────────────────────────────────────────── */
 
-#include "async_fd_adapter.h"
+#include <xpp/io/async_fd_adapter.h>
 
 namespace xpp {
 namespace io {
