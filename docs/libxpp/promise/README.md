@@ -8,7 +8,7 @@
 
 The core API (`.then()`, `.wait()`, `resolve()`, `all()`, `race()`) is C++11. C++20 is required only for `co_await` / `co_return`.
 
-No separate runtime is needed — `wait()` drives the event loop directly.
+`wait()` drives the event loop on the calling thread, like Tokio's single-threaded `current_thread` runtime — no background thread pool is needed.
 
 ```cpp
 xpp::EventLoop loop;
@@ -32,7 +32,7 @@ xpp::Promise<int> compute() {
 ## Design Philosophy
 
 1. **One-Shot Polling** — `poll()` returns `Option<T>`: `Some(value)` = ready, `None` = pending. No separate `take()`.
-2. **No Executor** — No scheduler, no reactor. Only `wait()` → `xEventLoopRun`.
+2. **Single-Threaded Executor** — Like Tokio's `current_thread` runtime. The event loop is both reactor (I/O) and scheduler (timers/callbacks). `wait()` polls futures on the calling thread; no background thread pool needed. `co_await` is optional (C++20).
 3. **Auto-Flatten** — `.then(fn)` returning `Promise<U>` becomes `Promise<U>`, not `Promise<Promise<U>>`.
 4. **Lock-Free Cross-Thread Resolve** — `PromiseResolver` holds `ArcWeak`; `resolve()` silently drops if Promise is destroyed.
 5. **Void-Aware Templates** — `Void` + `FixVoid<T>` maps `void → Void` for uniform generic code.

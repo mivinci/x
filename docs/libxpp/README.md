@@ -21,8 +21,8 @@ xpp::Result<int, std::string> parse(std::string_view s) {
 // (std::shared_ptr is 2× ptr; Arc is 1× ptr with niche-optimized Option)
 auto config = xpp::Arc<Config>::make(args...);
 
-// Promise<T> — poll-based async, no executor needed
-// (drives the event loop via wait(); C++20 coroutines optional)
+// Promise<T> — poll-based async, single-threaded executor
+// (like Tokio's current_thread; C++20 coroutines optional)
 xpp::Promise<Stats> fetch() {
     auto raw = co_await http_get("/api/stats");
     co_return parse_stats(raw);
@@ -39,7 +39,7 @@ if (cached) {
 
 - **Rust-inspired, C++11-compatible** — `Result`/`Option`/`Arc`/`Box` with the same semantics as their Rust counterparts, but portable to any C++11 toolchain.
 - **Zero overhead** — every smart pointer is `sizeof(T*)`. `Option<Arc<T>>` is also `sizeof(T*)` via niche optimization (`nullptr = None`). Empty allocators vanish via EBO.
-- **Poll-based Promise** — no executor, no thread pool, no hidden runtime. `wait()` drives the event loop; `co_await` is optional (C++20).
+- **Poll-based Promise** — single-threaded executor (like Tokio's `current_thread`). `wait()` drives the event loop on the calling thread; `co_await` is optional (C++20).
 - **Single allocation** — `Arc::make()` allocates the control block and value together in one heap block, matching Rust's `Arc::new`.
 
 ## Modules
