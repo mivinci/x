@@ -58,10 +58,8 @@ TEST(PromiseTest, ThenChainedTransforms) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::resolve(10)
-                 .then([](int x) { return x * 2; })
-                 .then([](int x) { return x - 5; })
-                 .wait();
+  int result =
+    xpp::resolve(10).then([](int x) { return x * 2; }).then([](int x) { return x - 5; }).wait();
   EXPECT_EQ(result, 15);
 }
 
@@ -85,9 +83,7 @@ TEST(PromiseTest, ThenReturnsPromise) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::resolve(1)
-                 .then([](int x) { return xpp::resolve(x * 10); })
-                 .wait();
+  int result = xpp::resolve(1).then([](int x) { return xpp::resolve(x * 10); }).wait();
   EXPECT_EQ(result, 10);
 }
 
@@ -97,7 +93,7 @@ TEST(PromiseTest, DeferredResolveInt) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r] = xpp::async<int>();
+  auto [p, r]  = xpp::async<int>();
   xpp::Timer t = schedule_resolve(r, 99, 50);
 
   EXPECT_EQ(p.wait(), 99);
@@ -107,7 +103,7 @@ TEST(PromiseTest, DeferredResolveVoid) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r] = xpp::async<void>();
+  auto [p, r]  = xpp::async<void>();
   xpp::Timer t = schedule_resolve(r, 50);
 
   p.wait();
@@ -117,7 +113,7 @@ TEST(PromiseTest, DeferredResolveWithThen) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r] = xpp::async<int>();
+  auto [p, r]  = xpp::async<int>();
   xpp::Timer t = schedule_resolve(r, 7, 50);
 
   int result = p.then([](int x) { return x * 3; }).wait();
@@ -294,7 +290,6 @@ TEST(PromiseTest, NestedWaitDeferred) {
                  .wait();
 
   EXPECT_EQ(result, 49); /* 7 + 42 */
-
 }
 
 TEST(PromiseTest, TripleNestedWait) {
@@ -322,7 +317,6 @@ TEST(PromiseTest, TripleNestedWait) {
                  .wait();
 
   EXPECT_EQ(result, 302); /* (1*2) + 300 */
-
 }
 
 /* ───────────────────── Cross-thread resolve ───────────────────── */
@@ -471,10 +465,8 @@ TEST(PromiseTest, AfterComposeWithImmediatePromise) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::after(10)
-                 .then([]() { return xpp::resolve(7); })
-                 .then([](int x) { return x * 6; })
-                 .wait();
+  int result =
+    xpp::after(10).then([]() { return xpp::resolve(7); }).then([](int x) { return x * 6; }).wait();
 
   EXPECT_EQ(result, 42);
 }
@@ -580,9 +572,6 @@ TEST(PromiseTest, AfterThenChain) {
   xpp::WaitScope scope(loop);
 
   /* Composition with then() must still work. */
-  int result = xpp::after(10)
-                 .then([]() { return 42; })
-                 .then([](int x) { return x * 2; })
-                 .wait();
+  int result = xpp::after(10).then([]() { return 42; }).then([](int x) { return x * 2; }).wait();
   EXPECT_EQ(result, 84);
 }

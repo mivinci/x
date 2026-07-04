@@ -413,12 +413,12 @@ struct RcCountingAlloc {
   }
 };
 
-// EBO: empty Alloc must not inflate any of the handle types.
+// EBO: empty Allocator must not inflate any of the handle types.
 static_assert(sizeof(xpp::Rc<int, xpp::GlobalAllocator>) == sizeof(int *), "");
 static_assert(sizeof(xpp::Option<xpp::Rc<int, xpp::GlobalAllocator>>) == sizeof(int *), "");
 static_assert(sizeof(xpp::Weak<int, xpp::GlobalAllocator>) == sizeof(int *), "");
 
-// Stateful Alloc also keeps handles at sizeof(T*) (Alloc in RcInner, not handle).
+// Stateful Allocator also keeps handles at sizeof(T*) (Allocator in RcInner, not handle).
 static_assert(sizeof(xpp::Rc<int, RcCountingAlloc>) == sizeof(int *), "");
 static_assert(sizeof(xpp::Option<xpp::Rc<int, RcCountingAlloc>>) == sizeof(int *), "");
 static_assert(sizeof(xpp::Weak<int, RcCountingAlloc>) == sizeof(int *), "");
@@ -440,14 +440,14 @@ TEST(RcAllocTest, MakeSfinaeDispatchesOnFirstArg) {
   std::atomic<int> allocs{0}, deallocs{0};
   RcCountingAlloc  alloc(&allocs, &deallocs);
 
-  // make(alloc, 42) — first arg is Alloc → uses alloc instance.
+  // make(alloc, 42) — first arg is Allocator → uses alloc instance.
   xpp::Rc<int, RcCountingAlloc> r = xpp::Rc<int, RcCountingAlloc>::make(alloc, 42);
   EXPECT_EQ(*r, 42);
   EXPECT_EQ(allocs.load(), 1);
 }
 
 TEST(RcAllocTest, StatefulAllocatorSurvivesWeakOutlivingStrong) {
-  // The trickiest path: weak outlives strong, so the Alloc must be
+  // The trickiest path: weak outlives strong, so the Allocator must be
   // moved out of RcInner when the last weak drops (since the memory
   // containing it is being freed).
   std::atomic<int> allocs{0}, deallocs{0};
@@ -517,7 +517,7 @@ TEST(RcAllocTest, CovariantCtorWithSameAlloc) {
 
   {
     xpp::Rc<Derived, RcCountingAlloc> d = xpp::Rc<Derived, RcCountingAlloc>::make_in(alloc, 77);
-    xpp::Rc<Base, RcCountingAlloc>    b = d; // covariant, same Alloc
+    xpp::Rc<Base, RcCountingAlloc>    b = d; // covariant, same Allocator
     EXPECT_EQ(b->x, 77);
     EXPECT_EQ(d.strong_count(), 2u);
   }

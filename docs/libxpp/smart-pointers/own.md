@@ -2,7 +2,7 @@
 
 ## Introduction
 
-`own.h` provides `Own<T, Alloc>`, a move-only nullable owning smart pointer. It is the libxpp counterpart of `std::unique_ptr<T>`, with a Rust-style API surface and first-class integration with `Box<T>` and `Option<Box<T>>`.
+`own.h` provides `Own<T, Allocator>`, a move-only nullable owning smart pointer. It is the libxpp counterpart of `std::unique_ptr<T>`, with a Rust-style API surface and first-class integration with `Box<T>` and `Option<Box<T>>`.
 
 The design bridges two worlds:
 
@@ -15,11 +15,11 @@ At rest, `Own<T>` is `sizeof(T*)` when using the default `GlobalAllocator` (empt
 
 1. **Nullable by default.** `Own<T>` can be null — default-constructed, moved-from, or assigned `nullptr`. Use `if (own)` to check. If you need a type-level guarantee of non-null, use `Box<T>` directly.
 
-2. **Box\<T\> as the foundation.** `Own<T>` is implemented as `Option<Box<T, Alloc>>`. The `Box<T>` type is non-null by construction; wrapping it in `Option` adds the null state. This means all `Own<T>` operations ultimately delegate to `Box<T>` for resource management.
+2. **Box\<T\> as the foundation.** `Own<T>` is implemented as `Option<Box<T, Allocator>>`. The `Box<T>` type is non-null by construction; wrapping it in `Option` adds the null state. This means all `Own<T>` operations ultimately delegate to `Box<T>` for resource management.
 
-3. **Alloc via EBO.** The default `GlobalAllocator` is an empty class. C++ empty-base optimization (EBO) collapses it to zero size, so `sizeof(Own<T>) == sizeof(T*)`. Stateful allocators add their own size.
+3. **Allocator via EBO.** The default `GlobalAllocator` is an empty class. C++ empty-base optimization (EBO) collapses it to zero size, so `sizeof(Own<T>) == sizeof(T*)`. Stateful allocators add their own size.
 
-4. **Covariant construction.** `Own<Derived, Alloc>` implicitly converts to `Own<Base, Alloc>` (if the pointer is convertible). Same `Alloc` required — different `Alloc` types would have different `CompressedPair` layouts.
+4. **Covariant construction.** `Own<Derived, Allocator>` implicitly converts to `Own<Base, Allocator>` (if the pointer is convertible). Same `Allocator` required — different `Allocator` types would have different `CompressedPair` layouts.
 
 5. **Void specialization.** `Own<void>` stores a raw pointer without `operator*` or `operator->`. Useful for opaque handles where only `reset()` and `get()` matter. SFINAE removes the dereference operators when `T = void`. The destructor calls `deallocate(ptr, Layout{0,1})` (no `~T()` for void).
 
@@ -100,7 +100,7 @@ classDiagram
 
 | Method | Returns | Description |
 |---|---|---|
-| `into_nonnull()` | `Option<Box<T, A>>&&` (rvalue only) | Consume Own, get nullable Box |
+| `into_nonnull()` | `Option<Box<T, Allocator>>&&` (rvalue only) | Consume Own, get nullable Box |
 
 To access the allocator, unwrap to `Box` first: `std::move(own).into_nonnull().unwrap().allocator()`. `Own` itself doesn't expose `allocator()` because an empty `Own` has no inner `Box` and thus no allocator instance.
 
@@ -146,7 +146,7 @@ xpp::Own<FILE, FileAlloc> file(fopen("data.txt", "r"), FileAlloc{});
 
 ```cpp
 xpp::Own<FileStream> stream = open_file_stream("data.bin");
-xpp::Own<Stream>     base   = std::move(stream);  // implicit upcast (same Alloc)
+xpp::Own<Stream>     base   = std::move(stream);  // implicit upcast (same Allocator)
 base->read(buf, len);
 // Own<Base> destructor calls ~FileStream() then GlobalAllocator::deallocate.
 ```
@@ -178,7 +178,7 @@ platform_draw(handle.get());
 | Nullable | Yes (default) | Yes (default) | Yes (via Option) |
 | Move-only | Yes | Yes | Yes |
 | Release/take | `take()` / `release()` | `release()` | `Option::take` + `Box::into_raw` |
-| Custom allocator | Template parameter (`Alloc`) | Template parameter (`Deleter`) | `Box<T, A>` where A: Allocator |
+| Custom allocator | Template parameter (`Allocator`) | Template parameter (`Deleter`) | `Box<T, Allocator>` where A: Allocator |
 | Covariant | `Own<Derived, A>` → `Own<Base, A>` | `unique_ptr<Derived>` → `unique_ptr<Base>` | Via trait objects only |
 | Into Rust path | `into_nonnull() -> Option<Box<T>>` | N/A | Built-in |
 | Void support | Yes (SFINAE on `*` / `->`) | Yes (specialization) | `Box<dyn Any>` |
@@ -190,14 +190,14 @@ platform_draw(handle.get());
 ### Storage
 
 ```cpp
-template <class T, class Alloc = GlobalAllocator>
+template <class T, class Allocator = GlobalAllocator>
 class Own {
-  using Inner = Option<Box<T, Alloc>>;
+  using Inner = Option<Box<T, Allocator>>;
   Inner m_inner;
 };
 ```
 
-`Own<T>` is a thin wrapper around `Option<Box<T, Alloc>>`. Every operation maps to a corresponding `Option` or `Box` operation:
+`Own<T>` is a thin wrapper around `Option<Box<T, Allocator>>`. Every operation maps to a corresponding `Option` or `Box` operation:
 
 | Own operation | Underlying |
 |---|---|
@@ -242,12 +242,12 @@ template <class U,
           class = typename std::enable_if<
               std::is_convertible<U*, T*>::value &&
               !std::is_same<U, T>::value>::type>
-Own(Own<U, Alloc> &&other) noexcept : m_inner(std::move(other.m_inner)) {}
+Own(Own<U, Allocator> &&other) noexcept : m_inner(std::move(other.m_inner)) {}
 
 template <class, class> friend class Own;
 ```
 
-Two constraints gate the conversion: pointer convertibility (Derived* → Base*) and non-identity (not Own<T> → Own<T>). Same `Alloc` required — different `Alloc` types would have different `CompressedPair` layouts. The `friend` declaration is necessary because `Own<U, Alloc>::m_inner` is private to that instantiation.
+Two constraints gate the conversion: pointer convertibility (Derived* → Base*) and non-identity (not Own<T> → Own<T>). Same `Allocator` required — different `Allocator` types would have different `CompressedPair` layouts. The `friend` declaration is necessary because `Own<U, Allocator>::m_inner` is private to that instantiation.
 
 ### Default vs debug
 

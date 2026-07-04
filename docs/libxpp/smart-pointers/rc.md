@@ -2,20 +2,20 @@
 
 ## Introduction
 
-`rc.h` provides `Rc<T, Alloc>`, a non-null shared-owning reference-counted handle to a heap-allocated `T`. `weak.h` provides `Weak<T, Alloc>`, a non-owning observer that does not keep `T` alive. Together they form a single-threaded ownership system with explicit cycle-breaking — the same design as Rust's `std::rc::Rc<T, A>` + `std::rc::Weak<T, A>`.
+`rc.h` provides `Rc<T, Allocator>`, a non-null shared-owning reference-counted handle to a heap-allocated `T`. `weak.h` provides `Weak<T, Allocator>`, a non-owning observer that does not keep `T` alive. Together they form a single-threaded ownership system with explicit cycle-breaking — the same design as Rust's `std::rc::Rc<T, Allocator>` + `std::rc::Weak<T, Allocator>`.
 
 Key properties:
 
 | Property | Value |
 |---|---|
-| `sizeof(Rc<T, A>)` | `sizeof(T*)` (any `A` — Alloc lives in RcInner, not Rc) |
-| `sizeof(Option<Rc<T, A>>)` | `sizeof(T*)` (niche: nullptr = None) |
-| `sizeof(Weak<T, A>)` | `sizeof(T*)` |
-| Allocation | 1× per `make()` (inner block = counts + T + Alloc) |
-| Thread safety | Single-thread only (use `Arc<T, A>` for cross-thread) |
-| Default Alloc | `GlobalAllocator` (empty → EBO → zero overhead) |
+| `sizeof(Rc<T, Allocator>)` | `sizeof(T*)` (any `A` — Allocator lives in RcInner, not Rc) |
+| `sizeof(Option<Rc<T, Allocator>>)` | `sizeof(T*)` (niche: nullptr = None) |
+| `sizeof(Weak<T, Allocator>)` | `sizeof(T*)` |
+| Allocation | 1× per `make()` (inner block = counts + T + Allocator) |
+| Thread safety | Single-thread only (use `Arc<T, Allocator>` for cross-thread) |
+| Default Allocator | `GlobalAllocator` (empty → EBO → zero overhead) |
 
-Rc is **co-located but NOT intrusive**: `T` does not need to inherit from anything. A single `Rc<T, Alloc>::make(args...)` call allocates an `RcInner<T, Alloc>` block that carries the strong count, weak count, the value, and the allocator instance side by side — warm cache lines and one `free` when the last observer leaves. See [Allocator](../allocator.md) for the allocator protocol.
+Rc is **co-located but NOT intrusive**: `T` does not need to inherit from anything. A single `Rc<T, Allocator>::make(args...)` call allocates an `RcInner<T, Allocator>` block that carries the strong count, weak count, the value, and the allocator instance side by side — warm cache lines and one `free` when the last observer leaves. See [Allocator](../allocator.md) for the allocator protocol.
 
 ## Architecture
 
@@ -220,15 +220,15 @@ public:
 ### Inner block layout
 
 ```cpp
-template <class T, class Alloc> struct RcInner {
-    size_t strong;   // number of Rc<T, Alloc> handles
-    size_t weak;     // number of Weak<T, Alloc> + 1 (the +1 represents all live Rcs)
+template <class T, class Allocator> struct RcInner {
+    size_t strong;   // number of Rc<T, Allocator> handles
+    size_t weak;     // number of Weak<T, Allocator> + 1 (the +1 represents all live Rcs)
     T      value;    // co-located — warm cache
-    Alloc  alloc;    // for deallocation (EBO if empty)
+    Allocator  alloc;    // for deallocation (EBO if empty)
 };
 ```
 
-Single allocation via `alloc.allocate(Layout::of<RcInner<T, Alloc>>())`, zero external control block. Used by both `Rc<T, Alloc>` and `Weak<T, Alloc>` sharing the same pointer. The `Alloc` is stored in `RcInner` (not in the handle) so `sizeof(Rc<T, A>) == sizeof(T*)` for any `A`. When the last weak drops, the `Alloc` is moved out before `deallocate` frees the memory.
+Single allocation via `alloc.allocate(Layout::of<RcInner<T, Allocator>>())`, zero external control block. Used by both `Rc<T, Allocator>` and `Weak<T, Allocator>` sharing the same pointer. The `Allocator` is stored in `RcInner` (not in the handle) so `sizeof(Rc<T, Allocator>) == sizeof(T*)` for any `A`. When the last weak drops, the `Allocator` is moved out before `deallocate` frees the memory.
 
 ### Two-stage destruction
 

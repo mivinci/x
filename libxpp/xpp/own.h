@@ -3,10 +3,10 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * own.h - Own<T, Alloc>: a nullable owning smart pointer with
+ * own.h - Own<T, Allocator>: a nullable owning smart pointer with
  *         Rust-style / std::unique_ptr-style API.
  *
- * Storage is Option<Box<T, Alloc>> directly, so:
+ * Storage is Option<Box<T, Allocator>> directly, so:
  *   sizeof(Own<T>)          == sizeof(T*)              (GlobalAllocator is empty → EBO)
  *   sizeof(Own<T, StatefulA>) == sizeof(T*) + sizeof(StatefulA)
  *
@@ -42,19 +42,19 @@ namespace xpp {
  * @brief Nullable owning smart pointer. Rust/std::unique_ptr-style API.
  *
  * Move-only. Exception-free destructor. Holds at most one heap-allocated T,
- * disposed via Alloc on destruction or reset.
+ * disposed via Allocator on destruction or reset.
  *
  * @tparam T     Pointee type. T = void supported (operator*, ->
  *               SFINAE-removed).
- * @tparam Alloc Allocator used for deallocation. Defaults to
+ * @tparam Allocator Allocator used for deallocation. Defaults to
  *               GlobalAllocator (empty, EBO → sizeof(Own<T>) == sizeof(T*)).
  */
-template <class T, class Alloc = GlobalAllocator> class Own {
-  using Inner = Option<Box<T, Alloc>>;
+template <class T, class Allocator = GlobalAllocator> class Own {
+  using Inner = Option<Box<T, Allocator>>;
 
 public:
   using element_type   = T;
-  using allocator_type = Alloc;
+  using allocator_type = Allocator;
   using pointer        = T *;
 
   /** @brief Default ctor. Constructs an empty (null) Own. */
@@ -68,31 +68,31 @@ public:
    *
    * If `p` is null, the resulting Own is empty. Otherwise it owns `p`.
    */
-  explicit Own(T *p) noexcept : m_inner(Box<T, Alloc>::try_from_raw(p)) {}
+  explicit Own(T *p) noexcept : m_inner(Box<T, Allocator>::try_from_raw(p)) {}
 
   /** @brief Take ownership of a raw pointer with a custom allocator instance. */
-  Own(T *p, Alloc a) noexcept : m_inner(Box<T, Alloc>::try_from_raw(p, std::move(a))) {}
+  Own(T *p, Allocator a) noexcept : m_inner(Box<T, Allocator>::try_from_raw(p, std::move(a))) {}
 
   /** @brief Adopt an existing Box (always non-empty). */
-  Own(Box<T, Alloc> &&nn) noexcept : m_inner(std::move(nn)) {}
+  Own(Box<T, Allocator> &&nn) noexcept : m_inner(std::move(nn)) {}
 
   /** @brief Adopt from Option<Box>. Empty iff the Option is None. */
-  Own(Option<Box<T, Alloc>> &&opt) noexcept : m_inner(std::move(opt)) {}
+  Own(Option<Box<T, Allocator>> &&opt) noexcept : m_inner(std::move(opt)) {}
 
-  /** @brief Covariant: adopt Box<U, Alloc>. */
+  /** @brief Covariant: adopt Box<U, Allocator>. */
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
                                                      !std::is_same<U, T>::value>::type>
-  Own(Box<U, Alloc> &&nn) noexcept : m_inner(std::move(nn)) {}
+  Own(Box<U, Allocator> &&nn) noexcept : m_inner(std::move(nn)) {}
 
-  /** @brief Covariant: adopt Option<Box<U, Alloc>>. */
+  /** @brief Covariant: adopt Option<Box<U, Allocator>>. */
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
                                                      !std::is_same<U, T>::value>::type>
-  Own(Option<Box<U, Alloc>> &&opt) noexcept : m_inner(std::move(opt)) {}
+  Own(Option<Box<U, Allocator>> &&opt) noexcept : m_inner(std::move(opt)) {}
 
-  /** @brief Covariant: Own<U, Alloc> → Own<T, Alloc>. */
+  /** @brief Covariant: Own<U, Allocator> → Own<T, Allocator>. */
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
                                                      !std::is_same<U, T>::value>::type>
-  Own(Own<U, Alloc> &&other) noexcept : m_inner(std::move(other.m_inner)) {}
+  Own(Own<U, Allocator> &&other) noexcept : m_inner(std::move(other.m_inner)) {}
 
   Own(const Own &)            = delete;
   Own &operator=(const Own &) = delete;
@@ -110,7 +110,7 @@ public:
 
   /** @brief Replace held pointer. Old object (if any) is deleted. */
   void reset(T *p = nullptr) noexcept {
-    m_inner = Box<T, Alloc>::try_from_raw(p);
+    m_inner = Box<T, Allocator>::try_from_raw(p);
   }
 
   /**
@@ -169,7 +169,7 @@ public:
    * inspect or take the allocator, do
    * `std::move(own).into_nonnull().unwrap().allocator()`.
    */
-  Option<Box<T, Alloc>> into_nonnull() && noexcept {
+  Option<Box<T, Allocator>> into_nonnull() && noexcept {
     return std::move(m_inner);
   }
 

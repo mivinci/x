@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * box_test.cpp - Tests for Box<T, Alloc> and Option<Box<T, Alloc>>.
+ * box_test.cpp - Tests for Box<T, Allocator> and Option<Box<T, Allocator>>.
  *
  * Uses a Tracker fixture (heap-allocated) to verify:
  *   - no leaks

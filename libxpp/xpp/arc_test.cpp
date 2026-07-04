@@ -291,7 +291,7 @@ struct ArcCountingAlloc {
   }
 };
 
-// Compile-time: EBO must keep sizeof unchanged for empty Alloc.
+// Compile-time: EBO must keep sizeof unchanged for empty Allocator.
 static_assert(sizeof(xpp::Arc<int, xpp::GlobalAllocator>) == sizeof(int *),
               "Arc<T, GlobalAllocator> must be sizeof(T*)");
 static_assert(sizeof(xpp::Option<xpp::Arc<int, xpp::GlobalAllocator>>) == sizeof(int *),
@@ -299,8 +299,8 @@ static_assert(sizeof(xpp::Option<xpp::Arc<int, xpp::GlobalAllocator>>) == sizeof
 static_assert(sizeof(xpp::ArcWeak<int, xpp::GlobalAllocator>) == sizeof(int *),
               "ArcWeak<T, GlobalAllocator> must be sizeof(T*)");
 
-// Compile-time: stateful Alloc also keeps Arc/ArcWeak/Option at sizeof(T*).
-// (Alloc lives in ArcInner, not in the handle.)
+// Compile-time: stateful Allocator also keeps Arc/ArcWeak/Option at sizeof(T*).
+// (Allocator lives in ArcInner, not in the handle.)
 static_assert(sizeof(xpp::Arc<int, ArcCountingAlloc>) == sizeof(int *),
               "Arc<T, StatefulAlloc> must still be sizeof(T*)");
 static_assert(sizeof(xpp::Option<xpp::Arc<int, ArcCountingAlloc>>) == sizeof(int *),
@@ -333,12 +333,12 @@ TEST(ArcAllocTest, MakeSfinaeDispatchesOnFirstArg) {
   std::atomic<int> allocs{0}, deallocs{0};
   ArcCountingAlloc alloc(&allocs, &deallocs);
 
-  // make(alloc, 42) — first arg is Alloc → uses alloc instance.
+  // make(alloc, 42) — first arg is Allocator → uses alloc instance.
   xpp::Arc<int, ArcCountingAlloc> a = xpp::Arc<int, ArcCountingAlloc>::make(alloc, 42);
   EXPECT_EQ(*a, 42);
   EXPECT_EQ(allocs.load(), 1);
 
-  // make(7) — first arg is int (not Alloc) → default-constructs Alloc.
+  // make(7) — first arg is int (not Allocator) → default-constructs Allocator.
   // ArcCountingAlloc is not default-constructible, so this would fail
   // to compile if uncommented; we rely on the SFINAE path firing only
   // when default-construction is possible. Skip for this allocator.
@@ -346,7 +346,7 @@ TEST(ArcAllocTest, MakeSfinaeDispatchesOnFirstArg) {
 }
 
 TEST(ArcAllocTest, StatefulAllocatorSurvivesWeakOutlivingStrong) {
-  // The trickiest path: weak outlives strong, so the Alloc must be
+  // The trickiest path: weak outlives strong, so the Allocator must be
   // moved out of ArcInner when the last weak drops (since the memory
   // containing it is being freed).
   std::atomic<int> allocs{0}, deallocs{0};
@@ -413,7 +413,7 @@ TEST(ArcAllocTest, CovariantCtorWithSameAlloc) {
 
   {
     xpp::Arc<Derived, ArcCountingAlloc> d = xpp::Arc<Derived, ArcCountingAlloc>::make_in(alloc, 77);
-    xpp::Arc<Base, ArcCountingAlloc>    b = d; // covariant, same Alloc
+    xpp::Arc<Base, ArcCountingAlloc>    b = d; // covariant, same Allocator
     EXPECT_EQ(b->x, 77);
     EXPECT_EQ(d.strong_count(), 2u);
   }

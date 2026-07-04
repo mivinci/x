@@ -3,15 +3,15 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * opaque.h - OwnedOpaquePointer<A>: alias for Own<void, A>, the
+ * opaque.h - OwnedOpaquePointer<Allocator>: alias for Own<void, Allocator>, the
  *            canonical RAII wrapper for libx's opaque handles.
  *
  * libx's opaque handles are all `typedef void *xFoo` (via XDEF_HANDLE).
- * Wrapping them with Own<void, A> is correct but exposes `void` at
+ * Wrapping them with Own<void, Allocator> is correct but exposes `void` at
  * every use site. This alias hides `void` behind a name that
  * communicates intent: "I own an opaque pointer."
  *
- * The Alloc A only needs a `deallocate(void*, Layout)` method —
+ * The allocator only needs a `deallocate(void*, Layout)` method —
  * `allocate` is never called because handles come from the C API
  * (e.g. `xEventLoopCreate`), not from the allocator.
  *
@@ -40,15 +40,15 @@ namespace xpp {
 /**
  * @brief RAII wrapper for libx opaque handles (void* typedefs).
  *
- * Equivalent to Own<void, A>. The `void` is hidden here so that
+ * Equivalent to Own<void, Allocator>. The `void` is hidden here so that
  * wrapper classes never expose it directly.
  *
- * @tparam A  Allocator type with `void deallocate(void*, Layout) const noexcept`.
+ * @tparam Allocator  Allocator type with `void deallocate(void*, Layout) const noexcept`.
  *            `allocate` is never called — handles come from the C API.
  *            Typically a small struct that casts to the correct handle
  *            type and calls the corresponding xXxxDestroy function.
  */
-template <class A> using OwnedOpaquePointer = Own<void, A>;
+template <class Allocator> using OwnedOpaquePointer = Own<void, Allocator>;
 
 } // namespace xpp
 

@@ -3,11 +3,11 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * arc.h - Arc<T, Alloc>: the atomic, thread-safe counterpart of
- *         Rc<T, Alloc>. Plus ArcWeak<T, Alloc> and a niche-optimized
- *         Option<Arc<T, Alloc>> at sizeof(T*).
+ * arc.h - Arc<T, Allocator>: the atomic, thread-safe counterpart of
+ *         Rc<T, Allocator>. Plus ArcWeak<T, Allocator> and a niche-optimized
+ *         Option<Arc<T, Allocator>> at sizeof(T*).
  *
- *   sizeof(Arc<T, A>)         == sizeof(T*)   (Alloc lives in ArcInner, not Arc)
+ *   sizeof(Arc<T, A>)         == sizeof(T*)   (Allocator lives in ArcInner, not Arc)
  *   sizeof(Option<Arc<T, A>>) == sizeof(T*)   (niche: nullptr ↔ None)
  *   sizeof(ArcWeak<T, A>)     == sizeof(T*)
  *
@@ -28,8 +28,8 @@
  * suffices for any given lifetime).
  *
  * Allocator:
- *   Arc<T, Alloc> stores the Alloc instance inside ArcInner<T, Alloc>
- *   (with EBO when Alloc is empty), NOT inside the Arc handle itself.
+ *   Arc<T, Allocator> stores the Allocator instance inside ArcInner<T, Allocator>
+ *   (with EBO when Allocator is empty), NOT inside the Arc handle itself.
  *   This keeps sizeof(Arc<T, A>) == sizeof(T*) regardless of A. The
  *   allocator is moved out of ArcInner before deallocation so it can
  *   be used to free the very memory that contained it.
@@ -168,54 +168,54 @@
 
 namespace xpp {
 
-template <class T, class Alloc = GlobalAllocator> class Arc;
-template <class T, class Alloc = GlobalAllocator> class ArcWeak;
+template <class T, class Allocator = GlobalAllocator> class Arc;
+template <class T, class Allocator = GlobalAllocator> class ArcWeak;
 
 namespace _ {
 
-/* ── ArcInner — control block + value, with EBO on empty Alloc ────── */
+/* ── ArcInner — control block + value, with EBO on empty Allocator ────── */
 /**
  * @brief Atomic counterpart of RcInner. Same layout strategy, but
- *        strong/weak are std::atomic<size_t>. Stores the Alloc
+ *        strong/weak are std::atomic<size_t>. Stores the Allocator
  *        instance so it's available at deallocation time (last weak
  *        drop). Empty Allocs are EBO-eligible (inherit privately) →
  *        zero storage overhead.
  *
  * Layout (non-EBO): { strong, weak, value, alloc }
- * Layout (EBO):     inherits Alloc, then { strong, weak, value }
+ * Layout (EBO):     inherits Allocator, then { strong, weak, value }
  *
  * In both cases strong is at offset 0, weak at offset 8, value at
  * offset 16 — so covariant reinterpret_casts between ArcInner<T, A>
  * and ArcInner<U, A> (for T/U related by inheritance) are valid.
  */
-template <class T, class Alloc,
-          bool UseEbo = std::is_empty<Alloc>::value && !is_final<Alloc>::value>
+template <class T, class Allocator,
+          bool UseEbo = std::is_empty<Allocator>::value && !is_final<Allocator>::value>
 struct ArcInner {
   std::atomic<size_t> strong;
   std::atomic<size_t> weak;
   T                   value;
-  Alloc               alloc;
+  Allocator           alloc;
 
   template <class A, class... Args>
   explicit ArcInner(A &&a, Args &&...args)
       : strong(1), weak(1), value(std::forward<Args>(args)...), alloc(std::forward<A>(a)) {}
 
-  Alloc &alloc_ref() noexcept {
+  Allocator &alloc_ref() noexcept {
     return alloc;
   }
 };
 
-template <class T, class Alloc> struct ArcInner<T, Alloc, true> : private Alloc {
+template <class T, class Allocator> struct ArcInner<T, Allocator, true> : private Allocator {
   std::atomic<size_t> strong;
   std::atomic<size_t> weak;
   T                   value;
 
   template <class A, class... Args>
   explicit ArcInner(A &&a, Args &&...args)
-      : Alloc(std::forward<A>(a)), strong(1), weak(1), value(std::forward<Args>(args)...) {}
+      : Allocator(std::forward<A>(a)), strong(1), weak(1), value(std::forward<Args>(args)...) {}
 
-  Alloc &alloc_ref() noexcept {
-    return static_cast<Alloc &>(*this);
+  Allocator &alloc_ref() noexcept {
+    return static_cast<Allocator &>(*this);
   }
 };
 
@@ -226,21 +226,21 @@ template <class T, class Alloc> struct ArcInner<T, Alloc, true> : private Alloc 
  * decrements to 0) can `acquire` and see every previous owner's
  * stores to the inner block.
  *
- * When weak hits 0: move the Alloc out of the inner (so it survives
+ * When weak hits 0: move the Allocator out of the inner (so it survives
  * the deallocate call), then dealloc the inner's memory. T was
  * already destroyed by arc_dec_strong on the strong→0 transition;
- * atomics are trivially destructible; the Alloc subobject is now in
+ * atomics are trivially destructible; the Allocator subobject is now in
  * a moved-from state and its resources are owned by the local `a`.
  */
-template <class T, class Alloc>
-inline void arc_dec_weak_and_maybe_dealloc(ArcInner<T, Alloc> *inner) noexcept {
+template <class T, class Allocator>
+inline void arc_dec_weak_and_maybe_dealloc(ArcInner<T, Allocator> *inner) noexcept {
   XPP_DEBUG_ASSERT(inner != nullptr, "internal: arc_dec_weak called with null inner");
   if (inner->weak.fetch_sub(1, std::memory_order_release) == 1) {
     std::atomic_thread_fence(std::memory_order_acquire);
     // Move alloc out before deallocating the memory that contains it.
     // For empty Allocs (the common case) this is a no-op.
-    Alloc  a      = std::move(inner->alloc_ref());
-    Layout layout = Layout::of<ArcInner<T, Alloc>>();
+    Allocator a      = std::move(inner->alloc_ref());
+    Layout    layout = Layout::of<ArcInner<T, Allocator>>();
     a.deallocate(inner, layout);
   }
 }
@@ -249,7 +249,8 @@ inline void arc_dec_weak_and_maybe_dealloc(ArcInner<T, Alloc> *inner) noexcept {
  * @brief Drop a strong reference. Same two-stage strategy as the
  *        Rc helper, but with the atomic ordering pattern above.
  */
-template <class T, class Alloc> inline void arc_dec_strong(ArcInner<T, Alloc> *inner) noexcept {
+template <class T, class Allocator>
+inline void arc_dec_strong(ArcInner<T, Allocator> *inner) noexcept {
   XPP_DEBUG_ASSERT(inner != nullptr, "internal: arc_dec_strong called with null inner");
   if (inner->strong.fetch_sub(1, std::memory_order_release) == 1) {
     // Last strong gone. Acquire-fence to see every prior owner's
@@ -277,18 +278,18 @@ template <class T, class Alloc> inline void arc_dec_strong(ArcInner<T, Alloc> *i
  * Use Arc<T>::make(args...) to construct.
  *
  * @tparam T     Pointee type.
- * @tparam Alloc Allocator used for the ArcInner block. Defaults to
+ * @tparam Allocator Allocator used for the ArcInner block. Defaults to
  *               GlobalAllocator (empty, EBO → zero overhead). The
- *               Alloc instance lives inside ArcInner, not inside Arc,
- *               so sizeof(Arc<T, Alloc>) == sizeof(T*) for any Alloc.
+ *               Allocator instance lives inside ArcInner, not inside Arc,
+ *               so sizeof(Arc<T, Allocator>) == sizeof(T*) for any Allocator.
  */
-template <class T, class Alloc> class Arc {
-  static_assert(std::is_move_constructible<Alloc>::value,
+template <class T, class Allocator> class Arc {
+  static_assert(std::is_move_constructible<Allocator>::value,
                 "Allocator must be move-constructible to support deallocation");
 
 public:
   using value_type     = T;
-  using allocator_type = Alloc;
+  using allocator_type = Allocator;
 
   Arc(const Arc &o) noexcept : m_inner(o.m_inner) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
@@ -302,21 +303,21 @@ public:
   }
 
   /**
-   * @brief Covariant copy: Arc<U, Alloc> → Arc<T, Alloc>.
+   * @brief Covariant copy: Arc<U, Allocator> → Arc<T, Allocator>.
    *
-   * Same Alloc required — different Allocs would have different
+   * Same Allocator required — different Allocs would have different
    * ArcInner layouts, breaking the reinterpret_cast.
    */
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value>::type>
-  Arc(const Arc<U, Alloc> &o) noexcept
-      : m_inner(reinterpret_cast<_::ArcInner<T, Alloc> *>(o.inner_raw())) {
+  Arc(const Arc<U, Allocator> &o) noexcept
+      : m_inner(reinterpret_cast<_::ArcInner<T, Allocator> *>(o.inner_raw())) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
     m_inner->strong.fetch_add(1, std::memory_order_relaxed);
   }
 
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value>::type>
-  Arc(Arc<U, Alloc> &&o) noexcept
-      : m_inner(reinterpret_cast<_::ArcInner<T, Alloc> *>(o.inner_raw())) {
+  Arc(Arc<U, Allocator> &&o) noexcept
+      : m_inner(reinterpret_cast<_::ArcInner<T, Allocator> *>(o.inner_raw())) {
     o.inner_raw_reset();
   }
 
@@ -379,9 +380,9 @@ public:
   }
 
   void swap(Arc &o) noexcept {
-    _::ArcInner<T, Alloc> *tmp = m_inner;
-    m_inner                    = o.m_inner;
-    o.m_inner                  = tmp;
+    _::ArcInner<T, Allocator> *tmp = m_inner;
+    m_inner                        = o.m_inner;
+    o.m_inner                      = tmp;
   }
 
   bool operator==(const Arc &o) const noexcept {
@@ -395,11 +396,11 @@ public:
     return r.clone();
   }
 
-  static ArcWeak<T, Alloc> downgrade(const Arc &r) noexcept;
+  static ArcWeak<T, Allocator> downgrade(const Arc &r) noexcept;
 
   /* ── internals exposed only to friends / templates ───────────────── */
 
-  _::ArcInner<T, Alloc> *inner_raw() const noexcept {
+  _::ArcInner<T, Allocator> *inner_raw() const noexcept {
     return m_inner;
   }
   void inner_raw_reset() noexcept {
@@ -407,88 +408,88 @@ public:
   }
 
 private:
-  explicit Arc(_::ArcInner<T, Alloc> *inner) noexcept : m_inner(inner) {
+  explicit Arc(_::ArcInner<T, Allocator> *inner) noexcept : m_inner(inner) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
   }
 
-  _::ArcInner<T, Alloc> *m_inner;
+  _::ArcInner<T, Allocator> *m_inner;
 
   template <class, class> friend class Arc;
   template <class, class> friend class ArcWeak;
-  friend class Option<Arc<T, Alloc>>;
+  friend class Option<Arc<T, Allocator>>;
 
 public:
   /* ── factories ──────────────────────────────────────────────────── */
 
   /**
-   * @brief Construct an Arc<T, Alloc> in place using a default-constructed
-   *        Alloc.
+   * @brief Construct an Arc<T, Allocator> in place using a default-constructed
+   *        Allocator.
    *
    * Single heap allocation containing the strong count (=1), the weak
    * count (=1, the "all strongs as one weak" marker), and T constructed
    * from @p args.
    *
-   * If the first argument is convertible to `Alloc`, it is treated as
+   * If the first argument is convertible to `Allocator`, it is treated as
    * the allocator instance (for stateful allocators); otherwise, the
-   * Alloc is default-constructed and all arguments are forwarded to T's
+   * Allocator is default-constructed and all arguments are forwarded to T's
    * constructor. For the ambiguous case (T's first ctor arg is
-   * convertible to Alloc), use `make_in` explicitly.
+   * convertible to Allocator), use `make_in` explicitly.
    */
   template <class... Args,
-            class = typename std::enable_if<!_::FirstIsAlloc<Alloc, Args...>::value>::type>
+            class = typename std::enable_if<!_::FirstIsAlloc<Allocator, Args...>::value>::type>
   static Arc make(Args &&...args) {
-    return make_in(Alloc{}, std::forward<Args>(args)...);
+    return make_in(Allocator{}, std::forward<Args>(args)...);
   }
 
-  /** @brief Overload that accepts an Alloc instance as the first argument. */
+  /** @brief Overload that accepts an Allocator instance as the first argument. */
   template <class First, class... Rest,
             class = typename std::enable_if<
-              std::is_convertible<typename std::decay<First>::type, Alloc>::value>::type>
+              std::is_convertible<typename std::decay<First>::type, Allocator>::value>::type>
   static Arc make(First &&alloc, Rest &&...rest) {
     return make_in(std::forward<First>(alloc), std::forward<Rest>(rest)...);
   }
 
   /**
-   * @brief Construct an Arc<T, Alloc> with an explicit allocator instance.
+   * @brief Construct an Arc<T, Allocator> with an explicit allocator instance.
    *
    * Use this when `make`'s SFINAE detection is ambiguous (T's first
-   * ctor arg is convertible to Alloc) or when you want to be explicit
+   * ctor arg is convertible to Allocator) or when you want to be explicit
    * about which argument is the allocator.
    */
   template <class AllocArg, class... Args> static Arc make_in(AllocArg &&alloc, Args &&...args) {
-    Layout layout = Layout::of<_::ArcInner<T, Alloc>>();
+    Layout layout = Layout::of<_::ArcInner<T, Allocator>>();
     auto   r      = alloc.allocate(layout);
     XPP_ASSERT(r.is_ok(), "Arc::make_in: allocation failed");
-    void                  *mem = r.unwrap().data();
-    _::ArcInner<T, Alloc> *inner =
-      ::new (mem) _::ArcInner<T, Alloc>(std::forward<AllocArg>(alloc), std::forward<Args>(args)...);
+    void                      *mem   = r.unwrap().data();
+    _::ArcInner<T, Allocator> *inner = ::new (mem)
+      _::ArcInner<T, Allocator>(std::forward<AllocArg>(alloc), std::forward<Args>(args)...);
     return Arc(inner);
   }
 };
 
-template <class T, class Alloc> void swap(Arc<T, Alloc> &a, Arc<T, Alloc> &b) noexcept {
+template <class T, class Allocator> void swap(Arc<T, Allocator> &a, Arc<T, Allocator> &b) noexcept {
   a.swap(b);
 }
 
 /**
- * @brief Niche-optimized Option<Arc<T, Alloc>>. Storage is a single
- *        ArcInner<T, Alloc>* whose nullptr value means None.
+ * @brief Niche-optimized Option<Arc<T, Allocator>>. Storage is a single
+ *        ArcInner<T, Allocator>* whose nullptr value means None.
  *
- * Works for any Alloc because sizeof(Arc<T, Alloc>) == sizeof(T*)
- * (the Alloc lives in ArcInner, not in the Arc handle).
+ * Works for any Allocator because sizeof(Arc<T, Allocator>) == sizeof(T*)
+ * (the Allocator lives in ArcInner, not in the Arc handle).
  */
-template <class T, class Alloc> class Option<Arc<T, Alloc>> {
+template <class T, class Allocator> class Option<Arc<T, Allocator>> {
 public:
-  using value_type = Arc<T, Alloc>;
+  using value_type = Arc<T, Allocator>;
 
   constexpr Option() noexcept : m_inner(nullptr) {}
   constexpr Option(None) noexcept : m_inner(nullptr) {}
 
-  Option(const Arc<T, Alloc> &r) noexcept : m_inner(r.m_inner) {
+  Option(const Arc<T, Allocator> &r) noexcept : m_inner(r.m_inner) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
     m_inner->strong.fetch_add(1, std::memory_order_relaxed);
   }
-  Option(Arc<T, Alloc> &&r) noexcept : m_inner(r.m_inner) {
+  Option(Arc<T, Allocator> &&r) noexcept : m_inner(r.m_inner) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
     r.m_inner = nullptr;
   }
@@ -534,59 +535,59 @@ public:
     return m_inner != nullptr;
   }
 
-  Arc<T, Alloc> unwrap() && {
+  Arc<T, Allocator> unwrap() && {
     XPP_ASSERT(m_inner != nullptr, "unwrap() on None Option");
-    _::ArcInner<T, Alloc> *taken = m_inner;
-    m_inner                      = nullptr;
-    return Arc<T, Alloc>(taken);
+    _::ArcInner<T, Allocator> *taken = m_inner;
+    m_inner                          = nullptr;
+    return Arc<T, Allocator>(taken);
   }
 
-  Arc<T, Alloc> unwrap_unchecked() && noexcept {
+  Arc<T, Allocator> unwrap_unchecked() && noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Option must be Some");
-    _::ArcInner<T, Alloc> *taken = m_inner;
-    m_inner                      = nullptr;
-    return Arc<T, Alloc>(taken);
+    _::ArcInner<T, Allocator> *taken = m_inner;
+    m_inner                          = nullptr;
+    return Arc<T, Allocator>(taken);
   }
 
-  Arc<T, Alloc> take() {
+  Arc<T, Allocator> take() {
     return std::move(*this).unwrap();
   }
 
   void swap(Option &o) noexcept {
-    _::ArcInner<T, Alloc> *tmp = m_inner;
-    m_inner                    = o.m_inner;
-    o.m_inner                  = tmp;
+    _::ArcInner<T, Allocator> *tmp = m_inner;
+    m_inner                        = o.m_inner;
+    o.m_inner                      = tmp;
   }
 
 private:
-  _::ArcInner<T, Alloc> *m_inner;
+  _::ArcInner<T, Allocator> *m_inner;
 
-  friend class ArcWeak<T, Alloc>; // for ArcWeak::upgrade to build a Some directly
+  friend class ArcWeak<T, Allocator>; // for ArcWeak::upgrade to build a Some directly
 };
 
-template <class T, class Alloc>
-void swap(Option<Arc<T, Alloc>> &a, Option<Arc<T, Alloc>> &b) noexcept {
+template <class T, class Allocator>
+void swap(Option<Arc<T, Allocator>> &a, Option<Arc<T, Allocator>> &b) noexcept {
   a.swap(b);
 }
 
 /**
- * @brief Non-owning, thread-safe observer of an Arc<T, Alloc>'s inner.
+ * @brief Non-owning, thread-safe observer of an Arc<T, Allocator>'s inner.
  *
  * Default-constructs to null. Constructing from an Arc bumps the
  * inner's weak count atomically. `upgrade()` does a CAS loop on the
  * strong count so it sees a consistent "is anyone still strong?"
  * snapshot even if another thread is dropping the last Arc.
  *
- * Does not store its own Alloc instance — the Alloc lives in ArcInner,
- * which is shared between Arc and ArcWeak. The Alloc type parameter
+ * Does not store its own Allocator instance — the Allocator lives in ArcInner,
+ * which is shared between Arc and ArcWeak. The Allocator type parameter
  * is only used so `arc_dec_weak_and_maybe_dealloc` knows which
  * instantiation to call.
  */
-template <class T, class Alloc> class ArcWeak {
+template <class T, class Allocator> class ArcWeak {
 public:
   constexpr ArcWeak() noexcept : m_inner(nullptr) {}
 
-  explicit ArcWeak(const Arc<T, Alloc> &r) noexcept : m_inner(r.inner_raw()) {
+  explicit ArcWeak(const Arc<T, Allocator> &r) noexcept : m_inner(r.inner_raw()) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
     m_inner->weak.fetch_add(1, std::memory_order_relaxed);
   }
@@ -630,14 +631,14 @@ public:
    * Returns None if every strong has been dropped (T destroyed) or
    * this ArcWeak is null.
    */
-  Option<Arc<T, Alloc>> upgrade() const noexcept {
-    if (!m_inner) return Option<Arc<T, Alloc>>();
+  Option<Arc<T, Allocator>> upgrade() const noexcept {
+    if (!m_inner) return Option<Arc<T, Allocator>>();
     size_t s = m_inner->strong.load(std::memory_order_relaxed);
     for (;;) {
-      if (s == 0) return Option<Arc<T, Alloc>>();
+      if (s == 0) return Option<Arc<T, Allocator>>();
       if (m_inner->strong.compare_exchange_weak(s, s + 1, std::memory_order_acquire,
                                                 std::memory_order_relaxed)) {
-        Option<Arc<T, Alloc>> out;
+        Option<Arc<T, Allocator>> out;
         out.m_inner = m_inner;
         return out;
       }
@@ -662,9 +663,9 @@ public:
   }
 
   void swap(ArcWeak &o) noexcept {
-    _::ArcInner<T, Alloc> *tmp = m_inner;
-    m_inner                    = o.m_inner;
-    o.m_inner                  = tmp;
+    _::ArcInner<T, Allocator> *tmp = m_inner;
+    m_inner                        = o.m_inner;
+    o.m_inner                      = tmp;
   }
 
   bool operator==(const ArcWeak &o) const noexcept {
@@ -675,18 +676,19 @@ public:
   }
 
 private:
-  _::ArcInner<T, Alloc> *m_inner;
+  _::ArcInner<T, Allocator> *m_inner;
 };
 
-template <class T, class Alloc> void swap(ArcWeak<T, Alloc> &a, ArcWeak<T, Alloc> &b) noexcept {
+template <class T, class Allocator>
+void swap(ArcWeak<T, Allocator> &a, ArcWeak<T, Allocator> &b) noexcept {
   a.swap(b);
 }
 
-/* ── deferred member impl: Arc<T, Alloc>::downgrade ─────────────────── */
+/* ── deferred member impl: Arc<T, Allocator>::downgrade ─────────────────── */
 
-template <class T, class Alloc>
-inline ArcWeak<T, Alloc> Arc<T, Alloc>::downgrade(const Arc<T, Alloc> &r) noexcept {
-  return ArcWeak<T, Alloc>(r);
+template <class T, class Allocator>
+inline ArcWeak<T, Allocator> Arc<T, Allocator>::downgrade(const Arc<T, Allocator> &r) noexcept {
+  return ArcWeak<T, Allocator>(r);
 }
 
 /* ── invariants pinned at compile time ───────────────────────────────── */

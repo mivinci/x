@@ -8,30 +8,30 @@ Rust-inspired smart pointers with `sizeof == sizeof(T*)` guarantees. All are hea
 
 | Type | Ownership | Thread-safe | Header |
 |------|-----------|-------------|--------|
-| [`Own<T, Alloc>`](own.md) | Unique, nullable | No | `own.h` |
-| [`Box<T, Alloc>`](box.md) | Unique, non-null | No | `box.h` |
-| [`Rc<T, Alloc>`](rc.md) | Shared | No | `rc.h` |
-| [`Weak<T, Alloc>`](rc.md) | Weak observer for `Rc` | No | `weak.h` |
-| [`Arc<T, Alloc>`](arc.md) | Shared | Yes (atomic) | `arc.h` |
-| [`ArcWeak<T, Alloc>`](arc.md) | Weak observer for `Arc` | Yes (atomic) | `arc.h` |
+| [`Own<T, Allocator>`](own.md) | Unique, nullable | No | `own.h` |
+| [`Box<T, Allocator>`](box.md) | Unique, non-null | No | `box.h` |
+| [`Rc<T, Allocator>`](rc.md) | Shared | No | `rc.h` |
+| [`Weak<T, Allocator>`](rc.md) | Weak observer for `Rc` | No | `weak.h` |
+| [`Arc<T, Allocator>`](arc.md) | Shared | Yes (atomic) | `arc.h` |
+| [`ArcWeak<T, Allocator>`](arc.md) | Weak observer for `Arc` | Yes (atomic) | `arc.h` |
 | [`NonNull<T>`](nonnull.md) | Non-owning, non-null | No | `nonnull.h` |
 
 All owning types default to [`GlobalAllocator`](../allocator.md) and
-accept a custom `Alloc` template parameter. Empty allocators (like
+accept a custom `Allocator` template parameter. Empty allocators (like
 `GlobalAllocator`) incur zero storage overhead via EBO.
 
 ## Key Design Choices
 
 - **Single pointer storage**: `sizeof == sizeof(T*)` for all types. No two-word `shared_ptr` layout.
 - **Niche-optimized `Option`**: `Option<Arc<T>>` and `Option<Rc<T>>` are also `sizeof(T*)` — `nullptr = None`.
-- **Non-intrusive**: `RcInner<T, Alloc> = { strong, weak, value, alloc }` in a single heap allocation. T doesn't inherit anything.
+- **Non-intrusive**: `RcInner<T, Allocator> = { strong, weak, value, alloc }` in a single heap allocation. T doesn't inherit anything.
 - **Rust-style refcount**: weak count includes +1 for "all strongs as one weak". `weak_count()` subtracts this to match Rust semantics.
-- **Allocator protocol**: `Alloc` parameter (default `GlobalAllocator`) controls allocation/deallocation. Stored in control block (Arc/Rc) or via `CompressedPair` (Own/Box) with EBO. See [Allocator](../allocator.md).
+- **Allocator protocol**: `Allocator` parameter (default `GlobalAllocator`) controls allocation/deallocation. Stored in control block (Arc/Rc) or via `CompressedPair` (Own/Box) with EBO. See [Allocator](../allocator.md).
 - **Arc memory orders**: `relaxed` for clone, `release` for drop, `acquire` fence only when count hits 0. Matches Rust libstd / triomphe / boost.
 
 ## Covariant Up-cast
 
-`Rc<Derived, Alloc>` → `Rc<Base, Alloc>` and `Arc<Derived, Alloc>` → `Arc<Base, Alloc>` work via covariant constructors (copy and move). Same `Alloc` required.
+`Rc<Derived, Allocator>` → `Rc<Base, Allocator>` and `Arc<Derived, Allocator>` → `Arc<Base, Allocator>` work via covariant constructors (copy and move). Same `Allocator` required.
 
 ## What xpp Has That STL Doesn't
 

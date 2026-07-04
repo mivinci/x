@@ -283,7 +283,7 @@ TEST(WeakAllocTest, WeakWithStatefulAllocator) {
   WeakCountingAlloc alloc(&allocs, &deallocs);
 
   // Weak outlives Rc — the trickiest path for stateful alloc: the
-  // Alloc must be moved out of RcInner when the last weak drops.
+  // Allocator must be moved out of RcInner when the last weak drops.
   {
     xpp::Weak<int, WeakCountingAlloc> w;
     {

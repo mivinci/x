@@ -3,13 +3,13 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * box.h - Box<T, Alloc>: a guaranteed-non-null owning smart pointer
+ * box.h - Box<T, Allocator>: a guaranteed-non-null owning smart pointer
  *         (move-only RAII), plus a niche-optimized Option<Box<T, A>>.
  *
  * sizeof(Box<T>)         == sizeof(T*)   (GlobalAllocator is empty → EBO)
  * sizeof(Option<Box<T>>) == sizeof(T*)   ← matches Rust's Option<Box<T>>
  *
- * For stateful Allocs, sizeof grows by sizeof(Alloc) (rounded for
+ * For stateful Allocs, sizeof grows by sizeof(Allocator) (rounded for
  * alignment), matching std::unique_ptr's storage strategy.
  *
  * The "moved-from" state of Box technically holds a null pointer,
@@ -36,7 +36,7 @@
 namespace xpp {
 
 /**
- * @brief A non-null owning pointer to T with a custom Alloc.
+ * @brief A non-null owning pointer to T with a custom Allocator.
  *
  * Semantically equivalent to a std::unique_ptr<T, D> that is never null.
  * Move-only. No reset (would imply nullable storage).
@@ -49,16 +49,16 @@ namespace xpp {
  *
  * @tparam T     Pointee type. T = void supported (operator*, ->
  *               SFINAE-removed).
- * @tparam Alloc Allocator used for deallocation. Defaults to
+ * @tparam Allocator Allocator used for deallocation. Defaults to
  *               GlobalAllocator (empty, EBO → sizeof(Box<T>) == sizeof(T*)).
- *               The Alloc is stored via CompressedPair with EBO when empty.
+ *               The Allocator is stored via CompressedPair with EBO when empty.
  */
-template <class T, class Alloc = GlobalAllocator> class Box {
-  using Storage = _::CompressedPair<T *, Alloc>;
+template <class T, class Allocator = GlobalAllocator> class Box {
+  using Storage = _::CompressedPair<T *, Allocator>;
 
 public:
   using element_type   = T;
-  using allocator_type = Alloc;
+  using allocator_type = Allocator;
   using pointer        = T *;
 
   Box()                       = delete;
@@ -71,16 +71,16 @@ public:
   }
 
   /**
-   * @brief Covariant move ctor: Box<U, Alloc> → Box<T, Alloc>.
+   * @brief Covariant move ctor: Box<U, Allocator> → Box<T, Allocator>.
    *
-   * Same Alloc required — different Allocs would have different
+   * Same Allocator required — different Allocs would have different
    * CompressedPair layouts. Enabled when U* is convertible to T*.
    */
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
                                                      !std::is_same<U, T>::value>::type>
-  Box(Box<U, Alloc> &&o) noexcept
+  Box(Box<U, Allocator> &&o) noexcept
       : m_storage(static_cast<T *>(o.m_storage.first()),
-                  static_cast<Alloc>(std::move(o.m_storage.second()))) {
+                  static_cast<Allocator>(std::move(o.m_storage.second()))) {
     o.m_storage.first() = nullptr;
   }
 
@@ -100,13 +100,13 @@ public:
   }
 
   /** @brief Wrap a raw pointer; caller asserts non-null (mirrors unsafe Box::from_raw). */
-  static Box from_raw(T *p, Alloc a = Alloc{}) noexcept {
+  static Box from_raw(T *p, Allocator a = Allocator{}) noexcept {
     XPP_DEBUG_ASSERT(p != nullptr, "Box::from_raw: pointer is null");
     return Box(p, std::move(a), _PrivateTag{});
   }
 
   /** @brief Checked factory. Returns None if p is null. */
-  static Option<Box> try_from_raw(T *p, Alloc a = Alloc{}) noexcept;
+  static Option<Box> try_from_raw(T *p, Allocator a = Allocator{}) noexcept;
 
   T *get() const noexcept {
     return m_storage.first();
@@ -122,10 +122,10 @@ public:
     return m_storage.first();
   }
 
-  Alloc &allocator() noexcept {
+  Allocator &allocator() noexcept {
     return m_storage.second();
   }
-  const Alloc &allocator() const noexcept {
+  const Allocator &allocator() const noexcept {
     return m_storage.second();
   }
 
@@ -148,7 +148,7 @@ public:
 
 private:
   struct _PrivateTag {};
-  Box(T *p, Alloc a, _PrivateTag) noexcept : m_storage(p, std::move(a)) {}
+  Box(T *p, Allocator a, _PrivateTag) noexcept : m_storage(p, std::move(a)) {}
 
   void reset_internal() noexcept {
     if (m_storage.first()) {
@@ -187,25 +187,25 @@ private:
  *   - const & overload  → fn receives NonNull<T> (non-owning view)
  *   - && overload       → fn receives Box<T, A>&& (consumes)
  */
-template <class T, class Alloc> class Option<Box<T, Alloc>> {
-  using Storage = _::CompressedPair<T *, Alloc>;
+template <class T, class Allocator> class Option<Box<T, Allocator>> {
+  using Storage = _::CompressedPair<T *, Allocator>;
 
 public:
-  using value_type = Box<T, Alloc>;
+  using value_type = Box<T, Allocator>;
 
   Option() noexcept : m_storage() {}
   Option(None) noexcept : m_storage() {}
-  Option(Box<T, Alloc> &&u) noexcept
+  Option(Box<T, Allocator> &&u) noexcept
       : m_storage(u.m_storage.first(), std::move(u.m_storage.second())) {
     u.m_storage.first() = nullptr;
   }
 
-  /** @brief Covariant: adopt Box<U, Alloc>. */
+  /** @brief Covariant: adopt Box<U, Allocator>. */
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
                                                      !std::is_same<U, T>::value>::type>
-  Option(Box<U, Alloc> &&u) noexcept
+  Option(Box<U, Allocator> &&u) noexcept
       : m_storage(static_cast<T *>(u.m_storage.first()),
-                  static_cast<Alloc>(std::move(u.m_storage.second()))) {
+                  static_cast<Allocator>(std::move(u.m_storage.second()))) {
     u.m_storage.first() = nullptr;
   }
 
@@ -216,12 +216,12 @@ public:
     o.m_storage.first() = nullptr;
   }
 
-  /** @brief Covariant: adopt Option<Box<U, Alloc>>. */
+  /** @brief Covariant: adopt Option<Box<U, Allocator>>. */
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
                                                      !std::is_same<U, T>::value>::type>
-  Option(Option<Box<U, Alloc>> &&o) noexcept
+  Option(Option<Box<U, Allocator>> &&o) noexcept
       : m_storage(static_cast<T *>(o.m_storage.first()),
-                  static_cast<Alloc>(std::move(o.m_storage.second()))) {
+                  static_cast<Allocator>(std::move(o.m_storage.second()))) {
     o.m_storage.first() = nullptr;
   }
   Option &operator=(Option &&o) noexcept {
@@ -258,7 +258,7 @@ public:
     XPP_ASSERT(m_storage.first() != nullptr, "unwrap() on None Option");
     return m_storage.first();
   }
-  Box<T, Alloc> unwrap() && {
+  Box<T, Allocator> unwrap() && {
     XPP_ASSERT(m_storage.first() != nullptr, "unwrap() on None Option");
     return take_owned();
   }
@@ -267,12 +267,12 @@ public:
     XPP_DEBUG_ASSERT(m_storage.first(), "internal: Option must be Some");
     return m_storage.first();
   }
-  Box<T, Alloc> unwrap_unchecked() && noexcept {
+  Box<T, Allocator> unwrap_unchecked() && noexcept {
     XPP_DEBUG_ASSERT(m_storage.first(), "internal: Option must be Some");
     return take_owned();
   }
 
-  Box<T, Alloc> unwrap_or(Box<T, Alloc> &&fallback) && {
+  Box<T, Allocator> unwrap_or(Box<T, Allocator> &&fallback) && {
     if (m_storage.first()) return take_owned();
     return std::move(fallback);
   }
@@ -285,7 +285,7 @@ public:
     XPP_ASSERT(m_storage.first() != nullptr, "expect: %s", msg);
     return m_storage.first();
   }
-  Box<T, Alloc> expect(const char *msg) && {
+  Box<T, Allocator> expect(const char *msg) && {
     XPP_ASSERT(m_storage.first() != nullptr, "expect: %s", msg);
     return take_owned();
   }
@@ -299,18 +299,18 @@ public:
                              : Option<U>(none);
   }
   template <class Func>
-  auto map(Func &&fn) && -> Option<decltype(fn(std::declval<Box<T, Alloc> &&>()))> {
-    using U = decltype(fn(std::declval<Box<T, Alloc> &&>()));
+  auto map(Func &&fn) && -> Option<decltype(fn(std::declval<Box<T, Allocator> &&>()))> {
+    using U = decltype(fn(std::declval<Box<T, Allocator> &&>()));
     if (!m_storage.first()) return Option<U>(none);
-    Box<T, Alloc> owned = take_owned();
+    Box<T, Allocator> owned = take_owned();
     return Option<U>(fn(std::move(owned)));
   }
 
   template <class Func>
-  auto and_then(Func &&fn) && -> decltype(fn(std::declval<Box<T, Alloc> &&>())) {
-    using R = decltype(fn(std::declval<Box<T, Alloc> &&>()));
+  auto and_then(Func &&fn) && -> decltype(fn(std::declval<Box<T, Allocator> &&>())) {
+    using R = decltype(fn(std::declval<Box<T, Allocator> &&>()));
     if (!m_storage.first()) return R(none);
-    Box<T, Alloc> owned = take_owned();
+    Box<T, Allocator> owned = take_owned();
     return fn(std::move(owned));
   }
 
@@ -319,7 +319,7 @@ public:
     return fn();
   }
 
-  template <class Func> Box<T, Alloc> unwrap_or_else(Func &&fn) && {
+  template <class Func> Box<T, Allocator> unwrap_or_else(Func &&fn) && {
     if (m_storage.first()) return take_owned();
     return fn();
   }
@@ -350,8 +350,9 @@ private:
   }
 
   /** Move ownership out of storage; storage left empty. Caller has checked p != null. */
-  Box<T, Alloc> take_owned() noexcept {
-    Box<T, Alloc> r   = Box<T, Alloc>::from_raw(m_storage.first(), std::move(m_storage.second()));
+  Box<T, Allocator> take_owned() noexcept {
+    Box<T, Allocator> r =
+      Box<T, Allocator>::from_raw(m_storage.first(), std::move(m_storage.second()));
     m_storage.first() = nullptr;
     return r;
   }
@@ -364,10 +365,10 @@ private:
 
 /* ── Box<T, A>::from definition ─────────────────────────────── */
 
-template <class T, class Alloc>
-inline Option<Box<T, Alloc>> Box<T, Alloc>::try_from_raw(T *p, Alloc a) noexcept {
-  if (!p) return Option<Box<T, Alloc>>(none);
-  return Option<Box<T, Alloc>>(Box<T, Alloc>(p, std::move(a), _PrivateTag{}));
+template <class T, class Allocator>
+inline Option<Box<T, Allocator>> Box<T, Allocator>::try_from_raw(T *p, Allocator a) noexcept {
+  if (!p) return Option<Box<T, Allocator>>(none);
+  return Option<Box<T, Allocator>>(Box<T, Allocator>(p, std::move(a), _PrivateTag{}));
 }
 
 /* ── Compile-time size guarantees ────────────────────────────────────── */

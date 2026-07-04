@@ -10,8 +10,8 @@
  *   sizeof(CompressedPair<T*, EmptyA>)    == sizeof(T*)         (EBO)
  *   sizeof(CompressedPair<T*, StatefulA>) == sizeof(T*) + sizeof(StatefulA)
  *
- * Used by Box<T, Alloc> / Own<T, Alloc> to store `T* + Alloc` without
- * inflating the handle size when Alloc is empty (e.g. GlobalAllocator).
+ * Used by Box<T, Allocator> / Own<T, Allocator> to store `T* + Allocator` without
+ * inflating the handle size when Allocator is empty (e.g. GlobalAllocator).
  * The same strategy is used inside std::unique_ptr by libc++ /
  * libstdc++ / MSVC STL.
  *

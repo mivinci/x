@@ -3,16 +3,16 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * rc.h - Rc<T, Alloc>: a non-null, shared-owning, reference-counted
+ * rc.h - Rc<T, Allocator>: a non-null, shared-owning, reference-counted
  *        handle to a heap-allocated T. Plus a niche-optimized
- *        Option<Rc<T, Alloc>> at sizeof(T*).
+ *        Option<Rc<T, Allocator>> at sizeof(T*).
  *
- *   sizeof(Rc<T, A>)         == sizeof(T*)   (Alloc lives in RcInner, not Rc)
+ *   sizeof(Rc<T, A>)         == sizeof(T*)   (Allocator lives in RcInner, not Rc)
  *   sizeof(Option<Rc<T, A>>) == sizeof(T*)   (niche: nullptr ↔ None)
  *
  * Design analogue: Rust's std::rc::Rc<T, A> + Option<Rc<T, A>>. Like
  * Rust's Rc, libx++'s Rc is **co-located but NOT intrusive**: T does
- * not need to inherit from anything. Rc<T, Alloc>::make(args...) is
+ * not need to inherit from anything. Rc<T, Allocator>::make(args...) is
  * the only construction entry — the inner block carries the strong
  * and weak counts next to T, so the whole thing is a single heap
  * allocation.
@@ -23,8 +23,8 @@
  * one follows, even to readers who haven't read the header.
  *
  * Allocator:
- *   Rc<T, Alloc> stores the Alloc instance inside RcInner<T, Alloc>
- *   (with EBO when Alloc is empty), NOT inside the Rc handle itself.
+ *   Rc<T, Allocator> stores the Allocator instance inside RcInner<T, Allocator>
+ *   (with EBO when Allocator is empty), NOT inside the Rc handle itself.
  *   This keeps sizeof(Rc<T, A>) == sizeof(T*) regardless of A. The
  *   allocator is moved out of RcInner before deallocation so it can
  *   be used to free the very memory that contained it.
@@ -83,8 +83,8 @@
 
 namespace xpp {
 
-template <class T, class Alloc = GlobalAllocator> class Rc;
-template <class T, class Alloc = GlobalAllocator> class Weak;
+template <class T, class Allocator = GlobalAllocator> class Rc;
+template <class T, class Allocator = GlobalAllocator> class Weak;
 
 namespace _ {
 
@@ -93,14 +93,14 @@ namespace _ {
  *        and Weak<T> share.
  *
  * Layout (non-EBO): { strong, weak, value, alloc }
- * Layout (EBO):     inherits Alloc, then { strong, weak, value }
+ * Layout (EBO):     inherits Allocator, then { strong, weak, value }
  *
  * In both cases strong is at offset 0, weak at offset 8, value at
  * offset 16 — so covariant reinterpret_casts between RcInner<T, A>
  * and RcInner<U, A> (for T/U related by inheritance) are valid.
  *
  * Lifecycle:
- *   - Rc<T, Alloc>::make(...) allocates the inner with strong=1, weak=1.
+ *   - Rc<T, Allocator>::make(...) allocates the inner with strong=1, weak=1.
  *   - Each new Rc<T> bumps strong; each new Weak<T> bumps weak.
  *   - The last Rc to drop destroys T in place (~value), then
  *     decrements weak as if it were a Weak (the "all-strongs-count-
@@ -110,34 +110,34 @@ namespace _ {
  * `strong` and `weak` are plain size_t — Rc is single-thread. Arc
  * has its own ArcInner with std::atomic<size_t> in xpp/arc.h.
  */
-template <class T, class Alloc,
-          bool UseEbo = std::is_empty<Alloc>::value && !is_final<Alloc>::value>
+template <class T, class Allocator,
+          bool UseEbo = std::is_empty<Allocator>::value && !is_final<Allocator>::value>
 struct RcInner {
-  size_t strong;
-  size_t weak;
-  T      value;
-  Alloc  alloc;
+  size_t    strong;
+  size_t    weak;
+  T         value;
+  Allocator alloc;
 
   template <class A, class... Args>
   explicit RcInner(A &&a, Args &&...args)
       : strong(1), weak(1), value(std::forward<Args>(args)...), alloc(std::forward<A>(a)) {}
 
-  Alloc &alloc_ref() noexcept {
+  Allocator &alloc_ref() noexcept {
     return alloc;
   }
 };
 
-template <class T, class Alloc> struct RcInner<T, Alloc, true> : private Alloc {
+template <class T, class Allocator> struct RcInner<T, Allocator, true> : private Allocator {
   size_t strong;
   size_t weak;
   T      value;
 
   template <class A, class... Args>
   explicit RcInner(A &&a, Args &&...args)
-      : Alloc(std::forward<A>(a)), strong(1), weak(1), value(std::forward<Args>(args)...) {}
+      : Allocator(std::forward<A>(a)), strong(1), weak(1), value(std::forward<Args>(args)...) {}
 
-  Alloc &alloc_ref() noexcept {
-    return static_cast<Alloc &>(*this);
+  Allocator &alloc_ref() noexcept {
+    return static_cast<Allocator &>(*this);
   }
 };
 
@@ -149,18 +149,18 @@ template <class T, class Alloc> struct RcInner<T, Alloc, true> : private Alloc {
  * the last Rc drops (after destroying T). Factored out so both call
  * sites use exactly the same end-of-life decision.
  *
- * When weak hits 0: move the Alloc out of the inner (so it survives
+ * When weak hits 0: move the Allocator out of the inner (so it survives
  * the deallocate call), then dealloc the inner's memory. T was
  * already destroyed by rc_dec_strong on the strong→0 transition.
  */
-template <class T, class Alloc>
-inline void rc_dec_weak_and_maybe_dealloc(RcInner<T, Alloc> *inner) noexcept {
+template <class T, class Allocator>
+inline void rc_dec_weak_and_maybe_dealloc(RcInner<T, Allocator> *inner) noexcept {
   XPP_DEBUG_ASSERT(inner != nullptr, "internal: rc_dec_weak called with null inner");
   if (--inner->weak == 0) {
     // Move alloc out before deallocating the memory that contains it.
     // For empty Allocs (the common case) this is a no-op.
-    Alloc  a      = std::move(inner->alloc_ref());
-    Layout layout = Layout::of<RcInner<T, Alloc>>();
+    Allocator a      = std::move(inner->alloc_ref());
+    Layout    layout = Layout::of<RcInner<T, Allocator>>();
     a.deallocate(inner, layout);
   }
 }
@@ -171,7 +171,8 @@ inline void rc_dec_weak_and_maybe_dealloc(RcInner<T, Alloc> *inner) noexcept {
  *        alive"). The inner block itself dies at weak->0, possibly
  *        in a different call if a Weak is still observing.
  */
-template <class T, class Alloc> inline void rc_dec_strong(RcInner<T, Alloc> *inner) noexcept {
+template <class T, class Allocator>
+inline void rc_dec_strong(RcInner<T, Allocator> *inner) noexcept {
   XPP_DEBUG_ASSERT(inner != nullptr, "internal: rc_dec_strong called with null inner");
   if (--inner->strong == 0) {
     inner->value.~T();
@@ -190,23 +191,23 @@ template <class T, class Alloc> inline void rc_dec_strong(RcInner<T, Alloc> *inn
  * using the moved-from Rc is undefined; only destruction is safe.
  * Same contract as std::unique_ptr's moved-from state.
  *
- * Use Rc<T, Alloc>::make(args...) to construct. There is no public
+ * Use Rc<T, Allocator>::make(args...) to construct. There is no public
  * constructor from a raw T* — Rc always owns the allocation it was
  * born with, and a stray pointer can't be retro-fitted with a count.
  *
  * @tparam T     Pointee type.
- * @tparam Alloc Allocator used for the RcInner block. Defaults to
+ * @tparam Allocator Allocator used for the RcInner block. Defaults to
  *               GlobalAllocator (empty, EBO → zero overhead). The
- *               Alloc instance lives inside RcInner, not inside Rc,
- *               so sizeof(Rc<T, Alloc>) == sizeof(T*) for any Alloc.
+ *               Allocator instance lives inside RcInner, not inside Rc,
+ *               so sizeof(Rc<T, Allocator>) == sizeof(T*) for any Allocator.
  */
-template <class T, class Alloc> class Rc {
-  static_assert(std::is_move_constructible<Alloc>::value,
+template <class T, class Allocator> class Rc {
+  static_assert(std::is_move_constructible<Allocator>::value,
                 "Allocator must be move-constructible to support deallocation");
 
 public:
   using value_type     = T;
-  using allocator_type = Alloc;
+  using allocator_type = Allocator;
 
   /**
    * @brief Copy constructor: +1 on the shared strong count.
@@ -230,23 +231,24 @@ public:
   }
 
   /**
-   * @brief Covariant copy: Rc<U, Alloc> → Rc<T, Alloc>.
+   * @brief Covariant copy: Rc<U, Allocator> → Rc<T, Allocator>.
    *
-   * Same Alloc required — different Allocs would have different
+   * Same Allocator required — different Allocs would have different
    * RcInner layouts, breaking the reinterpret_cast.
    */
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value>::type>
-  Rc(const Rc<U, Alloc> &o) noexcept
-      : m_inner(reinterpret_cast<_::RcInner<T, Alloc> *>(o.inner_raw())) {
+  Rc(const Rc<U, Allocator> &o) noexcept
+      : m_inner(reinterpret_cast<_::RcInner<T, Allocator> *>(o.inner_raw())) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
     ++m_inner->strong;
   }
 
   /**
-   * @brief Covariant move: Rc<U, Alloc> → Rc<T, Alloc>.
+   * @brief Covariant move: Rc<U, Allocator> → Rc<T, Allocator>.
    */
   template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value>::type>
-  Rc(Rc<U, Alloc> &&o) noexcept : m_inner(reinterpret_cast<_::RcInner<T, Alloc> *>(o.inner_raw())) {
+  Rc(Rc<U, Allocator> &&o) noexcept
+      : m_inner(reinterpret_cast<_::RcInner<T, Allocator> *>(o.inner_raw())) {
     o.inner_raw_reset();
   }
 
@@ -317,9 +319,9 @@ public:
   }
 
   void swap(Rc &o) noexcept {
-    _::RcInner<T, Alloc> *tmp = m_inner;
-    m_inner                   = o.m_inner;
-    o.m_inner                 = tmp;
+    _::RcInner<T, Allocator> *tmp = m_inner;
+    m_inner                       = o.m_inner;
+    o.m_inner                     = tmp;
   }
 
   bool operator==(const Rc &o) const noexcept {
@@ -343,16 +345,16 @@ public:
   /**
    * @brief Drop a strong reference, return a non-owning Weak.
    *
-   * Same as `Weak<T, Alloc>(r)`. Rust spells this `Rc::downgrade(&r)`. The
+   * Same as `Weak<T, Allocator>(r)`. Rust spells this `Rc::downgrade(&r)`. The
    * caller still owns the original strong reference; the new Weak
    * adds +1 to the weak count.
    */
-  static Weak<T, Alloc> downgrade(const Rc &r) noexcept;
+  static Weak<T, Allocator> downgrade(const Rc &r) noexcept;
 
   /* ── internals exposed only to friends / templates ───────────────── */
 
   // Used by covariant ctor of Rc<Other>; do not call directly.
-  _::RcInner<T, Alloc> *inner_raw() const noexcept {
+  _::RcInner<T, Allocator> *inner_raw() const noexcept {
     return m_inner;
   }
   void inner_raw_reset() noexcept {
@@ -361,33 +363,33 @@ public:
 
 private:
   // Constructed only by Rc::make, the friend Option specialization,
-  // and Weak<T, Alloc>::upgrade. m_inner is always non-null at this point.
-  explicit Rc(_::RcInner<T, Alloc> *inner) noexcept : m_inner(inner) {
+  // and Weak<T, Allocator>::upgrade. m_inner is always non-null at this point.
+  explicit Rc(_::RcInner<T, Allocator> *inner) noexcept : m_inner(inner) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
   }
 
-  _::RcInner<T, Alloc> *m_inner;
+  _::RcInner<T, Allocator> *m_inner;
 
   template <class, class> friend class Rc;
   template <class, class> friend class Weak;
-  friend class Option<Rc<T, Alloc>>;
+  friend class Option<Rc<T, Allocator>>;
 
 public:
   /* ── factories ──────────────────────────────────────────────────── */
 
   /**
-   * @brief Construct an Rc<T, Alloc> in place using a default-constructed
-   *        Alloc.
+   * @brief Construct an Rc<T, Allocator> in place using a default-constructed
+   *        Allocator.
    *
    * Single heap allocation: the inner block holds the strong count
    * (=1), the weak count (=1, the implicit "all strongs are one weak"
    * marker), and a freshly-constructed T.
    *
-   * If the first argument is convertible to `Alloc`, it is treated as
+   * If the first argument is convertible to `Allocator`, it is treated as
    * the allocator instance (for stateful allocators); otherwise, the
-   * Alloc is default-constructed and all arguments are forwarded to T's
+   * Allocator is default-constructed and all arguments are forwarded to T's
    * constructor. For the ambiguous case (T's first ctor arg is
-   * convertible to Alloc), use `make_in` explicitly.
+   * convertible to Allocator), use `make_in` explicitly.
    *
    * libx++ does not use exceptions for control flow (see README), so
    * make expects T's constructor not to throw. If T can fail to
@@ -395,65 +397,65 @@ public:
    * Result<T, Error> and call make on the unwrapped success path.
    */
   template <class... Args,
-            class = typename std::enable_if<!_::FirstIsAlloc<Alloc, Args...>::value>::type>
+            class = typename std::enable_if<!_::FirstIsAlloc<Allocator, Args...>::value>::type>
   static Rc make(Args &&...args) {
-    return make_in(Alloc{}, std::forward<Args>(args)...);
+    return make_in(Allocator{}, std::forward<Args>(args)...);
   }
 
-  /** @brief Overload that accepts an Alloc instance as the first argument. */
+  /** @brief Overload that accepts an Allocator instance as the first argument. */
   template <class First, class... Rest,
             class = typename std::enable_if<
-              std::is_convertible<typename std::decay<First>::type, Alloc>::value>::type>
+              std::is_convertible<typename std::decay<First>::type, Allocator>::value>::type>
   static Rc make(First &&alloc, Rest &&...rest) {
     return make_in(std::forward<First>(alloc), std::forward<Rest>(rest)...);
   }
 
   /**
-   * @brief Construct an Rc<T, Alloc> with an explicit allocator instance.
+   * @brief Construct an Rc<T, Allocator> with an explicit allocator instance.
    *
    * Use this when `make`'s SFINAE detection is ambiguous (T's first
-   * ctor arg is convertible to Alloc) or when you want to be explicit
+   * ctor arg is convertible to Allocator) or when you want to be explicit
    * about which argument is the allocator.
    */
   template <class AllocArg, class... Args> static Rc make_in(AllocArg &&alloc, Args &&...args) {
-    Layout layout = Layout::of<_::RcInner<T, Alloc>>();
+    Layout layout = Layout::of<_::RcInner<T, Allocator>>();
     auto   r      = alloc.allocate(layout);
     XPP_ASSERT(r.is_ok(), "Rc::make_in: allocation failed");
-    void                 *mem = r.unwrap().data();
-    _::RcInner<T, Alloc> *inner =
-      ::new (mem) _::RcInner<T, Alloc>(std::forward<AllocArg>(alloc), std::forward<Args>(args)...);
+    void                     *mem   = r.unwrap().data();
+    _::RcInner<T, Allocator> *inner = ::new (mem)
+      _::RcInner<T, Allocator>(std::forward<AllocArg>(alloc), std::forward<Args>(args)...);
     return Rc(inner);
   }
 };
 
-template <class T, class Alloc> void swap(Rc<T, Alloc> &a, Rc<T, Alloc> &b) noexcept {
+template <class T, class Allocator> void swap(Rc<T, Allocator> &a, Rc<T, Allocator> &b) noexcept {
   a.swap(b);
 }
 
 /**
- * @brief Niche-optimized Option<Rc<T, Alloc>>. Storage is a single
- *        RcInner<T, Alloc>* whose nullptr value means None.
+ * @brief Niche-optimized Option<Rc<T, Allocator>>. Storage is a single
+ *        RcInner<T, Allocator>* whose nullptr value means None.
  *
- *   sizeof(Option<Rc<T, Alloc>>) == sizeof(T*)
+ *   sizeof(Option<Rc<T, Allocator>>) == sizeof(T*)
  *
- * Works for any Alloc because sizeof(Rc<T, Alloc>) == sizeof(T*)
- * (the Alloc lives in RcInner, not in the Rc handle).
+ * Works for any Allocator because sizeof(Rc<T, Allocator>) == sizeof(T*)
+ * (the Allocator lives in RcInner, not in the Rc handle).
  *
  * Owns a +1 on the strong count whenever it is Some, releases it on
  * destruction or when overwritten with None.
  */
-template <class T, class Alloc> class Option<Rc<T, Alloc>> {
+template <class T, class Allocator> class Option<Rc<T, Allocator>> {
 public:
-  using value_type = Rc<T, Alloc>;
+  using value_type = Rc<T, Allocator>;
 
   constexpr Option() noexcept : m_inner(nullptr) {}
   constexpr Option(None) noexcept : m_inner(nullptr) {}
 
-  Option(const Rc<T, Alloc> &r) noexcept : m_inner(r.m_inner) {
+  Option(const Rc<T, Allocator> &r) noexcept : m_inner(r.m_inner) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
     ++m_inner->strong;
   }
-  Option(Rc<T, Alloc> &&r) noexcept : m_inner(r.m_inner) {
+  Option(Rc<T, Allocator> &&r) noexcept : m_inner(r.m_inner) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
     r.m_inner = nullptr;
   }
@@ -499,38 +501,38 @@ public:
     return m_inner != nullptr;
   }
 
-  Rc<T, Alloc> unwrap() && {
+  Rc<T, Allocator> unwrap() && {
     XPP_ASSERT(m_inner != nullptr, "unwrap() on None Option");
-    _::RcInner<T, Alloc> *taken = m_inner;
-    m_inner                     = nullptr;
-    return Rc<T, Alloc>(taken);
+    _::RcInner<T, Allocator> *taken = m_inner;
+    m_inner                         = nullptr;
+    return Rc<T, Allocator>(taken);
   }
 
-  Rc<T, Alloc> unwrap_unchecked() && noexcept {
+  Rc<T, Allocator> unwrap_unchecked() && noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Option must be Some");
-    _::RcInner<T, Alloc> *taken = m_inner;
-    m_inner                     = nullptr;
-    return Rc<T, Alloc>(taken);
+    _::RcInner<T, Allocator> *taken = m_inner;
+    m_inner                         = nullptr;
+    return Rc<T, Allocator>(taken);
   }
 
-  Rc<T, Alloc> take() {
+  Rc<T, Allocator> take() {
     return std::move(*this).unwrap();
   }
 
   void swap(Option &o) noexcept {
-    _::RcInner<T, Alloc> *tmp = m_inner;
-    m_inner                   = o.m_inner;
-    o.m_inner                 = tmp;
+    _::RcInner<T, Allocator> *tmp = m_inner;
+    m_inner                       = o.m_inner;
+    o.m_inner                     = tmp;
   }
 
 private:
-  _::RcInner<T, Alloc> *m_inner;
+  _::RcInner<T, Allocator> *m_inner;
 
-  friend class Weak<T, Alloc>; // for Weak::upgrade() to construct directly
+  friend class Weak<T, Allocator>; // for Weak::upgrade() to construct directly
 };
 
-template <class T, class Alloc>
-void swap(Option<Rc<T, Alloc>> &a, Option<Rc<T, Alloc>> &b) noexcept {
+template <class T, class Allocator>
+void swap(Option<Rc<T, Allocator>> &a, Option<Rc<T, Allocator>> &b) noexcept {
   a.swap(b);
 }
 

@@ -16,11 +16,11 @@
 #ifndef XPP_SPAN_H
 #define XPP_SPAN_H
 
-#include <xpp/panic.h>
-
 #include <cstddef>
 #include <cstring>
 #include <type_traits>
+
+#include <xpp/panic.h>
 
 namespace xpp {
 

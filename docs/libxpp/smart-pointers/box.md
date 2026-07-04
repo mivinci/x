@@ -2,15 +2,15 @@
 
 ## Introduction
 
-`box.h` provides `Box<T, Alloc>`, a non-null owning smart pointer with a Rust-style API. Unlike `Own<T>` which is nullable, `Box<T>` is **guaranteed non-null by construction** — no default constructor, no `reset()`, no null state.
+`box.h` provides `Box<T, Allocator>`, a non-null owning smart pointer with a Rust-style API. Unlike `Own<T>` which is nullable, `Box<T>` is **guaranteed non-null by construction** — no default constructor, no `reset()`, no null state.
 
-A partial specialization `Option<Box<T, Alloc>>` enables niche optimization: `nullptr` encodes `None`, so `sizeof(Option<Box<T>>) == sizeof(T*)` — matching Rust's `Option<Box<T>>`.
+A partial specialization `Option<Box<T, Allocator>>` enables niche optimization: `nullptr` encodes `None`, so `sizeof(Option<Box<T>>) == sizeof(T*)` — matching Rust's `Option<Box<T>>`.
 
 ## Design Philosophy
 
 1. **Non-null at the type level.** `Box<T>` deletes the default constructor. Construction from a null raw pointer panics in debug. This eliminates an entire class of null-dereference bugs.
 
-2. **EBO via CompressedPair.** `CompressedPair<T, A>` uses private inheritance for empty allocators to achieve zero storage overhead — `sizeof(Box<T, GlobalAllocator>) == sizeof(T*)`.
+2. **EBO via CompressedPair.** `CompressedPair<T, Allocator>` uses private inheritance for empty allocators to achieve zero storage overhead — `sizeof(Box<T, GlobalAllocator>) == sizeof(T*)`.
 
 3. **Niche optimization for Option<Box\<T\>\>.** The `Option<Box<T>>` specialization stores a single `CompressedPair`; `nullptr` means `None`. No bool tag, no wasted bytes — matches Rust exactly.
 
@@ -54,22 +54,22 @@ graph TD
 
 ## API Reference
 
-### Box\<T, Alloc\>
+### Box\<T, Allocator\>
 
 | Member | Description |
 | --- | --- |
-| `static from_raw(T*, Alloc)` | Wrap raw pointer. Debug-asserts non-null. |
-| `static try_from_raw(T*, Alloc)` | Checked: returns `Option<Box>` (`None` if null). |
+| `static from_raw(T*, Allocator)` | Wrap raw pointer. Debug-asserts non-null. |
+| `static try_from_raw(T*, Allocator)` | Checked: returns `Option<Box>` (`None` if null). |
 | `T* get()` | Raw pointer access. |
 | `T& operator*()` | Dereference (SFINAE-removed for `T = void`). |
 | `T* operator->()` | Member access (SFINAE-removed for `T = void`). |
-| `Alloc& allocator()` | Access the allocator. |
+| `Allocator& allocator()` | Access the allocator. |
 | `NonNull<T> as_nonnull()` | Non-owning non-null view. |
 | `T* into_raw() &&` | Relinquish ownership (consuming, rvalue only). |
 
 Deleted: default ctor, copy ctor, copy assignment.
 
-### Option\<Box\<T, Alloc\>\>
+### Option\<Box\<T, Allocator\>\>
 
 Asymmetric `unwrap()`: `const&` returns `T*` (borrow), `&&` returns `Box<T>` (consume). Combinators pass `NonNull<T>` to callbacks on `const&` and `Box<T>&&` on `&&`.
 
@@ -173,13 +173,13 @@ template <class T, class D> struct CompressedPair<T, D, false> {
 ### Option\<Box\> Niche Optimization
 
 ```cpp
-template <class T, class Alloc>
-class Option<Box<T, Alloc>> {
-    CompressedPair<T, Alloc> m_storage;
+template <class T, class Allocator>
+class Option<Box<T, Allocator>> {
+    CompressedPair<T, Allocator> m_storage;
 };
 ```
 
-`Option<Box<T>>` stores the same `CompressedPair<T*, Alloc>` as `Box<T>`. `nullptr` in `m_storage.p` represents `None`. Since `Box` guarantees non-null, `nullptr` is free to repurpose. No bool tag — `sizeof(Option<Box<int>>) == sizeof(int*)`.
+`Option<Box<T>>` stores the same `CompressedPair<T*, Allocator>` as `Box<T>`. `nullptr` in `m_storage.p` represents `None`. Since `Box` guarantees non-null, `nullptr` is free to repurpose. No bool tag — `sizeof(Option<Box<int>>) == sizeof(int*)`.
 
 The asymmetric `unwrap()` is necessary because `Box` is move-only: `const&` cannot move out, so it returns `T*` (a borrow). `&&` consumes the Option and returns `Box<T>` by move.
 

@@ -2,13 +2,13 @@
 
 ## Introduction
 
-libx++ smart pointers (`Arc`, `Rc`, `Own`, `Box`) accept an optional `Alloc` template parameter that controls how the control block (or the pointed-to object) is allocated and deallocated. The default `GlobalAllocator` uses `::operator new` / `::operator delete` and is empty (zero overhead via EBO).
+libx++ smart pointers (`Arc`, `Rc`, `Own`, `Box`) accept an optional `Allocator` template parameter that controls how the control block (or the pointed-to object) is allocated and deallocated. The default `GlobalAllocator` uses `::operator new` / `::operator delete` and is empty (zero overhead via EBO).
 
 The protocol is modeled after Rust's `std::alloc::Allocator` trait: `allocate` returns a fat-pointer `Span<uint8_t>` (pointer + actual size), `deallocate` takes a `Layout` (size + align), and `grow`/`shrink` are optional with default implementations provided.
 
 ## Design Philosophy
 
-1. **Rust-style `&self`.** `allocate` and `deallocate` are `const`-qualified. Stateful allocators track state via `mutable` members or atomic pointers — `std::atomic<T>::fetch_add` is itself `const`, so counters held by pointer work without any `mutable` dance. This lets callers pass `const Alloc&` if they only have a const reference.
+1. **Rust-style `&self`.** `allocate` and `deallocate` are `const`-qualified. Stateful allocators track state via `mutable` members or atomic pointers — `std::atomic<T>::fetch_add` is itself `const`, so counters held by pointer work without any `mutable` dance. This lets callers pass `const Allocator&` if they only have a const reference.
 
 2. **Layout bundles size + align.** Passing them as a pair avoids bugs from mismatched `deallocate(ptr, size)` calls where the size doesn't match the original allocation's alignment. `Layout::of<T>()` derives both from the type, so callers rarely construct one by hand.
 
@@ -16,7 +16,7 @@ The protocol is modeled after Rust's `std::alloc::Allocator` trait: `allocate` r
 
 4. **Empty allocator → zero overhead.** `GlobalAllocator` is an empty class. EBO (via inheritance for `ArcInner`/`RcInner`, via `CompressedPair` for `Own`/`Box`) collapses it to zero bytes, so `sizeof(Arc<T>) == sizeof(T*)` with the default allocator.
 
-5. **Alloc lives in the control block, not the handle.** For `Arc`/`Rc`, the `Alloc` instance is stored inside `ArcInner`/`RcInner` — not inside the `Arc`/`Rc` handle. This keeps `sizeof(Arc<T, A>) == sizeof(T*)` for **any** `A`, stateful or not. For `Own`/`Box`, the `Alloc` is stored via `CompressedPair<T*, Alloc>` and grows the handle when stateful (no separate control block to hide it in).
+5. **Allocator lives in the control block, not the handle.** For `Arc`/`Rc`, the `Allocator` instance is stored inside `ArcInner`/`RcInner` — not inside the `Arc`/`Rc` handle. This keeps `sizeof(Arc<T, Allocator>) == sizeof(T*)` for **any** `A`, stateful or not. For `Own`/`Box`, the `Allocator` is stored via `CompressedPair<T*, Allocator>` and grows the handle when stateful (no separate control block to hide it in).
 
 ## Architecture
 
@@ -26,9 +26,9 @@ graph TD
         L["Layout { size, align }"]
         S["Span&lt;uint8_t&gt; { data, size }"]
         E["AllocError (empty)"]
-        A["Alloc::allocate(Layout) const → Result&lt;Span, AllocError&gt;"]
-        D["Alloc::deallocate(void*, Layout) const noexcept"]
-        G["Alloc::grow / shrink (optional)"]
+        A["Allocator::allocate(Layout) const → Result&lt;Span, AllocError&gt;"]
+        D["Allocator::deallocate(void*, Layout) const noexcept"]
+        G["Allocator::grow / shrink (optional)"]
         A --> L
         A --> S
         A --> E
@@ -116,15 +116,15 @@ Result<Span<uint8_t>, AllocError> default_shrink(const A &alloc, void *ptr,
 
 ### Smart pointer factory methods
 
-| Type | Default Alloc | Stateless custom | Stateful custom |
+| Type | Default Allocator | Stateless custom | Stateful custom |
 | --- | --- | --- | --- |
-| `Arc<T, A>::make(args...)` | `GlobalAllocator{}` | `Arc<T, MyAlloc>::make(args...)` | — |
-| `Arc<T, A>::make(alloc, args...)` | — | — | SFINAE: first arg convertible to `A` |
-| `Arc<T, A>::make_in(alloc, args...)` | Explicit, no SFINAE | Explicit | Explicit |
+| `Arc<T, Allocator>::make(args...)` | `GlobalAllocator{}` | `Arc<T, MyAlloc>::make(args...)` | — |
+| `Arc<T, Allocator>::make(alloc, args...)` | — | — | SFINAE: first arg convertible to `A` |
+| `Arc<T, Allocator>::make_in(alloc, args...)` | Explicit, no SFINAE | Explicit | Explicit |
 | `Own<T>(p)`, `Own<T>(p, alloc)` | `GlobalAllocator{}` | — | Pass alloc instance |
-| `Box<T, A>::from_raw(p, alloc)` | `GlobalAllocator{}` | — | Pass alloc instance |
+| `Box<T, Allocator>::from_raw(p, alloc)` | `GlobalAllocator{}` | — | Pass alloc instance |
 
-`make()` uses SFINAE to detect whether the first argument is an `Alloc` instance (for stateful allocators) or a constructor argument for `T`. `make_in()` is the explicit form that always treats the first argument as the allocator — use it when SFINAE detection is ambiguous (T's first ctor arg is convertible to `Alloc`).
+`make()` uses SFINAE to detect whether the first argument is an `Allocator` instance (for stateful allocators) or a constructor argument for `T`. `make_in()` is the explicit form that always treats the first argument as the allocator — use it when SFINAE detection is ambiguous (T's first ctor arg is convertible to `Allocator`).
 
 ## Usage Examples
 
@@ -187,7 +187,7 @@ xpp::Own<FILE, FileAlloc> file(fopen("data.txt", "r"), FileAlloc{});
 
 ```cpp
 struct Logger {
-  explicit Logger(GlobalAllocator) {}  // first ctor arg convertible to Alloc
+  explicit Logger(GlobalAllocator) {}  // first ctor arg convertible to Allocator
 };
 
 // make(GlobalAllocator{}) would be ambiguous — SFINAE treats it as the alloc.
@@ -218,7 +218,7 @@ struct ReallocAllocator {
 
 ## Comparison
 
-| Feature | xpp `Alloc` | `std::pmr::memory_resource` | Rust `Allocator` trait |
+| Feature | xpp `Allocator` | `std::pmr::memory_resource` | Rust `Allocator` trait |
 | --- | --- | --- | --- |
 | Protocol | `allocate`/`deallocate` methods | `do_allocate`/`do_deallocate` virtuals | `allocate`/`deallocate` methods |
 | Return type | `Result<Span<uint8_t>, AllocError>` | `void*` (throws on failure) | `Result<NonNull<[u8]>, AllocError>` |
@@ -233,31 +233,31 @@ struct ReallocAllocator {
 
 ### EBO (Empty Base Optimization)
 
-When `Alloc` is an empty class (like `GlobalAllocator`), it is stored as a **base class** of the control block (`ArcInner` / `RcInner`) or via `CompressedPair` (`Own` / `Box`), not as a member. This gives zero storage overhead:
+When `Allocator` is an empty class (like `GlobalAllocator`), it is stored as a **base class** of the control block (`ArcInner` / `RcInner`) or via `CompressedPair` (`Own` / `Box`), not as a member. This gives zero storage overhead:
 
 - `sizeof(Arc<T, GlobalAllocator>) == sizeof(T*)`
 - `sizeof(Own<T, GlobalAllocator>) == sizeof(T*)`
-- `sizeof(ArcInner<T, GlobalAllocator>) == sizeof(strong) + sizeof(weak) + sizeof(T)` (no Alloc byte)
+- `sizeof(ArcInner<T, GlobalAllocator>) == sizeof(strong) + sizeof(weak) + sizeof(T)` (no Allocator byte)
 
-When `Alloc` is stateful, it is stored as a member and `sizeof` grows by `sizeof(Alloc)` (rounded for alignment). The `Arc`/`Rc`/`ArcWeak`/`Weak` handles themselves stay at `sizeof(T*)` because the `Alloc` lives in the control block, not in the handle — only `Own`/`Box` grow because they have no separate control block.
+When `Allocator` is stateful, it is stored as a member and `sizeof` grows by `sizeof(Allocator)` (rounded for alignment). The `Arc`/`Rc`/`ArcWeak`/`Weak` handles themselves stay at `sizeof(T*)` because the `Allocator` lives in the control block, not in the handle — only `Own`/`Box` grow because they have no separate control block.
 
 EBO is gated on `is_empty<A> && !is_final<A>` — final classes can't be inherited from, so they fall back to member storage even when empty.
 
 ### Deallocation lifecycle (Arc/Rc)
 
-The trickiest part of the stateful-allocator path: the `Alloc` lives **inside** the control block that it's about to free. The deallocator moves the `Alloc` out before freeing:
+The trickiest part of the stateful-allocator path: the `Allocator` lives **inside** the control block that it's about to free. The deallocator moves the `Allocator` out before freeing:
 
 ```cpp
 // In arc_dec_weak_and_maybe_dealloc:
 if (inner->weak.fetch_sub(1, std::memory_order_release) == 1) {
   std::atomic_thread_fence(std::memory_order_acquire);
-  Alloc a = std::move(inner->alloc_ref());   // move out
-  Layout layout = Layout::of<ArcInner<T, Alloc>>();
+  Allocator a = std::move(inner->alloc_ref());   // move out
+  Layout layout = Layout::of<ArcInner<T, Allocator>>();
   a.deallocate(inner, layout);                // free the memory that contained `a`
 }
 ```
 
-`Alloc` must be move-constructible (enforced by `static_assert` in `Arc`/`Rc`). For empty allocators the move is trivial; for stateful allocators it should be `noexcept` (move the resource handle, not copy it). The moved-from `Alloc` inside `inner` is never accessed again — its resources are now owned by the local `a`, whose destructor runs after `deallocate` returns.
+`Allocator` must be move-constructible (enforced by `static_assert` in `Arc`/`Rc`). For empty allocators the move is trivial; for stateful allocators it should be `noexcept` (move the resource handle, not copy it). The moved-from `Allocator` inside `inner` is never accessed again — its resources are now owned by the local `a`, whose destructor runs after `deallocate` returns.
 
 ### Destruction order (Own/Box)
 
@@ -270,7 +270,7 @@ For `T = void`, `~T()` is skipped via tag dispatch (`_::destroy_and_dealloc` che
 `allocator.h` defines three helpers in `xpp::_` shared by all smart pointers:
 
 - `IsFinal<D>` — portable `is_final` (C++14 / `__is_final` intrinsic / fallback to `false`)
-- `FirstIsAlloc<Alloc, Args...>` — SFINAE: true iff first arg in `Args...` is convertible to `Alloc`
-- `destroy_and_dealloc<T, Alloc>(ptr, alloc)` — calls `~T()` (if not void) then `alloc.deallocate(ptr, Layout::of<T>())`
+- `FirstIsAlloc<Allocator, Args...>` — SFINAE: true iff first arg in `Args...` is convertible to `Allocator`
+- `destroy_and_dealloc<T, Allocator>(ptr, alloc)` — calls `~T()` (if not void) then `alloc.deallocate(ptr, Layout::of<T>())`
 
 Extracting these to a shared header prevents redefinition when `arc.h` + `rc.h` + `box.h` are included together.
