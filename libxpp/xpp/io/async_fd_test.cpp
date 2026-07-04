@@ -170,53 +170,6 @@ TEST_F(IoAsyncFdTest, WriteSlowPath) {
   t.join();
 }
 
-/* ── read_full() ───────────────────────────────────────────────────── */
-
-TEST_F(IoAsyncFdTest, ReadFull) {
-  xpp::EventLoop loop;
-  xpp::WaitScope scope(loop);
-
-  xpp::io::AsyncFd fd(sv[0]);
-
-  // Send 100 bytes in two chunks
-  std::thread t([this]() {
-    char buf[50];
-    memset(buf, 'A', 50);
-    write(sv[1], buf, 50);
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    memset(buf, 'B', 50);
-    write(sv[1], buf, 50);
-  });
-
-  char    buf[100] = {};
-  ssize_t n        = xpp::io::read_full(fd, buf, 100).wait();
-  EXPECT_EQ(n, 100);
-  t.join();
-}
-
-/* ── write_all() ───────────────────────────────────────────────────── */
-
-TEST_F(IoAsyncFdTest, WriteAll) {
-  xpp::EventLoop loop;
-  xpp::WaitScope scope(loop);
-
-  xpp::io::AsyncFd fd(sv[0]);
-
-  char data[100];
-  memset(data, 'Z', 100);
-  xpp::io::write_all(fd, data, 100).wait();
-
-  // Read back from other end
-  char   buf[100] = {};
-  size_t total    = 0;
-  while (total < 100) {
-    ssize_t n = read(sv[1], buf + total, 100 - total);
-    if (n <= 0) break;
-    total += static_cast<size_t>(n);
-  }
-  EXPECT_EQ(total, 100u);
-}
-
 /* ── close() ───────────────────────────────────────────────────────── */
 
 TEST_F(IoAsyncFdTest, CloseWakesReadable) {

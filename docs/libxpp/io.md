@@ -4,7 +4,7 @@
 
 `xpp::io::AsyncFd` provides reactive async I/O for non-blocking file descriptors. It registers an fd with the event loop once (edge-triggered, Read|Write), tracks readiness internally, and provides `readable()`/`writable()` as `Promise<void>`.
 
-Free functions `read()`/`write()` combine a fast-path syscall (zero Promise overhead when data is available) with a readiness wait on EAGAIN. `read_full()`/`write_all()` loop until complete.
+Free functions `read()`/`write()` combine a fast-path syscall (zero Promise overhead when data is available) with a readiness wait on EAGAIN.
 
 ```cpp
 xpp::EventLoop loop;
@@ -80,8 +80,6 @@ AsyncFd (per-fd, registered once)
 | ---------- | --------- | ------------- |
 | `read(io, buf, len)` | `Promise<ssize_t>` | Async recv. Fast path: try immediately. EAGAIN: wait readable |
 | `write(io, buf, len)` | `Promise<ssize_t>` | Async send. Same fast/slow pattern |
-| `read_full(io, buf, len)` | `Promise<ssize_t>` | Read exactly len bytes (loops). Returns bytes read |
-| `write_all(io, buf, len)` | `Promise<void>` | Write all bytes (loops until complete) |
 
 ## Usage Examples
 
@@ -108,12 +106,6 @@ xpp::io::read(io, buf, 1024).then([](ssize_t n) {
 io.readable().then([&]() {
     // fd is readable, do something custom
 }).wait();
-```
-
-### Write all
-
-```cpp
-xpp::io::write_all(io, data, sizeof(data)).wait();
 ```
 
 ### Close wakes pending waiters
@@ -151,10 +143,6 @@ If `on_event` fires while a `PromiseResolver` is stored in `m_read_waiter`, the 
 1. `AdapterPromiseNode` destroyed → `Arc<ResolveState>` dropped
 2. `on_event` fires → `m_read_waiter.resolve()` → `ArcWeak::upgrade()` fails → no-op
 3. No use-after-free
-
-### read_full / write_all recursion
-
-`read_full` and `write_all` use `shared_ptr<std::function>` for recursive Promise chaining. The `shared_ptr` keeps the step function alive until the Promise chain completes. This avoids the dangling reference problem of capturing a local `std::function` by reference.
 
 ### Move semantics
 

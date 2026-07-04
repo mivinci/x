@@ -9,9 +9,8 @@
  * tracks readiness via plain bools (single-threaded), and provides
  * readable()/writable() as Promise<void> via the Adapter pattern.
  *
- * Free functions read()/write()/read_full()/write_all() combine a
- * fast-path syscall (zero Promise overhead) with readiness wait on
- * EAGAIN.
+ * Free functions read()/write() combine a fast-path syscall (zero
+ * Promise overhead) with readiness wait on EAGAIN.
  *
  * Single-threaded. When multi-threaded scheduler is added, upgrade to
  * atomic<uint8_t> + mutex<Waiters> + double-check-under-lock.
@@ -22,14 +21,10 @@
 #ifndef XPP_IO_ASYNC_FD_H
 #define XPP_IO_ASYNC_FD_H
 
-#include <fcntl.h>
-#include <sys/socket.h>
 #include <unistd.h>
 
 #include <cerrno>
 #include <cstddef>
-#include <functional>
-#include <memory>
 #include <utility>
 
 #include <xpp/arc.h>
@@ -113,12 +108,6 @@ Promise<ssize_t> read(AsyncFd &io, void *buf, size_t len);
 
 /** @brief Async write: try send, on EAGAIN wait for writable then retry. */
 Promise<ssize_t> write(AsyncFd &io, const void *buf, size_t len);
-
-/** @brief Read exactly len bytes (loops until full or EOF). Returns bytes read. */
-Promise<ssize_t> read_full(AsyncFd &io, void *buf, size_t len);
-
-/** @brief Write all bytes (loops until complete). */
-Promise<void> write_all(AsyncFd &io, const void *buf, size_t len);
 
 } // namespace io
 } // namespace xpp
@@ -249,58 +238,22 @@ inline Promise<void> AsyncFd::writable() const {
 
 inline Promise<ssize_t> read(AsyncFd &io, void *buf, size_t len) {
   // Fast path: try recv immediately
-  ssize_t n = ::recv(io.fd(), buf, len, 0);
+  ssize_t n = ::read(io.fd(), buf, len);
   if (n >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     return xpp::resolve(n); // success or error
   }
   // Slow path: EAGAIN — wait for readable, then retry
   int fd = io.fd();
-  return io.readable().then([fd, buf, len] { return ::recv(fd, buf, len, 0); });
+  return io.readable().then([fd, buf, len] { return ::read(fd, buf, len); });
 }
 
 inline Promise<ssize_t> write(AsyncFd &io, const void *buf, size_t len) {
-  ssize_t n = ::send(io.fd(), buf, len, 0);
+  ssize_t n = ::write(io.fd(), buf, len);
   if (n >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     return xpp::resolve(n);
   }
   int fd = io.fd();
-  return io.writable().then([fd, buf, len] { return ::send(fd, buf, len, 0); });
-}
-
-inline Promise<ssize_t> read_full(AsyncFd &io, void *buf, size_t len) {
-  auto total = std::make_shared<size_t>(0);
-  auto cur   = std::make_shared<char *>(static_cast<char *>(buf));
-  auto step  = std::make_shared<std::function<Promise<ssize_t>()>>();
-
-  *step = [&io, cur, total, len, step]() -> Promise<ssize_t> {
-    if (*total >= len) return xpp::resolve(static_cast<ssize_t>(*total));
-    return read(io, *cur, len - *total).then([&io, cur, total, len, step](ssize_t n) {
-      if (n <= 0) return xpp::resolve(static_cast<ssize_t>(*total));
-      *cur += n;
-      *total += static_cast<size_t>(n);
-      return (*step)();
-    });
-  };
-
-  return (*step)();
-}
-
-inline Promise<void> write_all(AsyncFd &io, const void *buf, size_t len) {
-  auto total = std::make_shared<size_t>(0);
-  auto cur   = std::make_shared<const char *>(static_cast<const char *>(buf));
-  auto step  = std::make_shared<std::function<Promise<void>()>>();
-
-  *step = [&io, cur, total, len, step]() -> Promise<void> {
-    if (*total >= len) return xpp::yield();
-    return write(io, *cur, len - *total).then([&io, cur, total, len, step](ssize_t n) {
-      if (n <= 0) return xpp::yield();
-      *cur += n;
-      *total += static_cast<size_t>(n);
-      return (*step)();
-    });
-  };
-
-  return (*step)();
+  return io.writable().then([fd, buf, len] { return ::write(fd, buf, len); });
 }
 
 } // namespace io
