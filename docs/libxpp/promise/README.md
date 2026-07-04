@@ -6,6 +6,8 @@
 
 `Promise<T>` provides a type-safe async programming system within the libx event loop. It combines the poll-based model from Rust's `Future` trait with the node-hierarchy and per-chain arena allocation from KJ (Cap'n Proto), plus native C++20 coroutine support — `Promise<T>` itself is the coroutine return type, with no separate `Task<T>`.
 
+The core API (`.then()`, `.wait()`, `resolve()`, `all()`, `race()`) is C++17. C++20 is required only for `co_await` / `co_return`.
+
 No separate runtime is needed — `wait()` drives the event loop directly.
 
 ```cpp
@@ -77,6 +79,8 @@ graph TD
     ADAPT --> RS
     CORO --> COROP
     WAIT --> BASE
+    BASE --> AW
+    RS --> AW
     TRANS -.->|arena-allocated| ARENA
     CHAINP -.->|arena-allocated| ARENA
 
@@ -95,6 +99,7 @@ graph TD
 - [Custom Adapters](adapter.md) — `adapt`, `work`, Adapter contract, `TimerAdapter`, `WorkAdapter`
 - [C++20 Coroutines](coroutine.md) — `co_await` / `co_return` with `Promise<T>` (no `Task<T>`)
 - [Internals](internals.md) — `PromiseNode` hierarchy, waker system, `ResolveState`
+- [Arena](../arena.md) — `Arena<N>` bump allocator, per-chain node allocation, inline/heap storage
 
 ## API Reference
 
@@ -102,17 +107,18 @@ graph TD
 
 | Member | Description |
 | -------- | ------------- |
-| `auto then(Func fn)` | Chain transform (auto-flattens) |
+| `auto then(Func fn)` | Chain transform. If `fn` returns `Promise<U>`, auto-flattens to `Promise<U>` |
 | `Promise<void> discard()` | Drop value, return `Promise<void>` |
-| `T wait()` | Block + drive event loop. Consumes promise |
+| `T wait()` | Block + drive event loop. Moves node out of promise (promise left empty) |
 | `operator co_await()` | (C++20 only) Await in coroutine. Rvalue-qualified |
-| `operator bool()` | True if non-empty |
+| `operator bool()` | True if non-empty (holds a node) |
 
 ### PromiseResolver\<T\>
 
 | Member | Description |
 | -------- | ------------- |
-| `void resolve(T v)` | Fulfill. Thread-safe. Silently drops if Promise destroyed |
+| `void resolve(T v)` | Fulfill with value. Thread-safe. Silently drops if Promise destroyed |
+| `void resolve()` | (void specialization) Fulfill with no value |
 | `bool is_pending()` | True if Promise alive and unresolved |
 
 ### Free Functions
