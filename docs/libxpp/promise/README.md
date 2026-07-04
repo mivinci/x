@@ -6,7 +6,7 @@
 
 `Promise<T>` provides a type-safe async programming system within the libx event loop. It combines the poll-based model from Rust's `Future` trait with the node-hierarchy and per-chain arena allocation from KJ (Cap'n Proto), plus native C++20 coroutine support — `Promise<T>` itself is the coroutine return type, with no separate `Task<T>`.
 
-The core API (`.then()`, `.wait()`, `resolve()`, `all()`, `race()`) is C++17. C++20 is required only for `co_await` / `co_return`.
+The core API (`.then()`, `.wait()`, `resolve()`, `all()`, `race()`) is C++11. C++20 is required only for `co_await` / `co_return`.
 
 No separate runtime is needed — `wait()` drives the event loop directly.
 
@@ -99,7 +99,6 @@ graph TD
 - [Custom Adapters](adapter.md) — `adapt`, `work`, Adapter contract, `TimerAdapter`, `WorkAdapter`
 - [C++20 Coroutines](coroutine.md) — `co_await` / `co_return` with `Promise<T>` (no `Task<T>`)
 - [Internals](internals.md) — `PromiseNode` hierarchy, waker system, `ResolveState`
-- [Arena](../arena.md) — `Arena<N>` bump allocator, per-chain node allocation, inline/heap storage
 
 ## API Reference
 
