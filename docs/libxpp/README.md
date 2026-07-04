@@ -13,8 +13,8 @@ C++11 bindings for libx — smart pointers, async primitives, and type utilities
 
 // Result<T, E> — explicit error handling, no exceptions
 xpp::Result<int, std::string> parse(std::string_view s) {
-    if (s.empty()) return xpp::Err("empty input");
-    return xpp::Ok(std::stoi(std::string(s)));
+    if (s.empty()) return xpp::err("empty input");
+    return xpp::ok(std::stoi(std::string(s)));
 }
 
 // Arc<T> — thread-safe shared ownership, sizeof == sizeof(T*)
