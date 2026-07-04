@@ -129,6 +129,10 @@ private:
 Promise<Stat>                 stat(const char *path);
 Promise<std::vector<uint8_t>> read(const char *path);
 Promise<void>                 write(const char *path, const void *buf, size_t len);
+Promise<void>                 create_dir(const char *path, int mode = 0755);
+Promise<void>                 remove_file(const char *path);
+Promise<void>                 remove_dir(const char *path);
+Promise<void>                 rename(const char *old_path, const char *new_path);
 
 /* ── Internal: FsAdapter (bridges xFsReq → PromiseResolver) ────────── */
 namespace _ {
@@ -262,6 +266,62 @@ public:
     } else {
       m_resolver.resolve(Stat{-1, 0, 0, 0});
     }
+  }
+};
+
+/// Adapter for mkdir → resolves void
+class FsMkdirAdapter : public FsAdapterBase {
+private:
+  PromiseResolver<void> m_resolver;
+
+public:
+  FsMkdirAdapter(PromiseResolver<void> r, const char *path, int mode) : m_resolver(std::move(r)) {
+    m_req.op   = xFsOpMkdir;
+    m_req.path = path;
+    m_req.mode = mode;
+    xFsReqSubmit(&m_req);
+  }
+  void on_complete() override {
+    m_done = true;
+    m_resolver.resolve();
+  }
+};
+
+/// Adapter for unlink → resolves void
+class FsUnlinkAdapter : public FsAdapterBase {
+private:
+  PromiseResolver<void> m_resolver;
+
+public:
+  FsUnlinkAdapter(PromiseResolver<void> r, const char *path) : m_resolver(std::move(r)) {
+    m_req.op   = xFsOpUnlink;
+    m_req.path = path;
+    xFsReqSubmit(&m_req);
+  }
+  void on_complete() override {
+    m_done = true;
+    m_resolver.resolve();
+  }
+};
+
+/// Adapter for rename → resolves void
+class FsRenameAdapter : public FsAdapterBase {
+private:
+  PromiseResolver<void> m_resolver;
+  std::string           m_new_path; // keep alive for duration of request
+
+public:
+  FsRenameAdapter(PromiseResolver<void> r, const char *old_path, const char *new_path)
+      : m_resolver(std::move(r)), m_new_path(new_path) {
+    m_req.op     = xFsOpRename;
+    m_req.path   = old_path;
+    m_req.buf    = const_cast<char *>(m_new_path.c_str());
+    m_req.offset = static_cast<off_t>(m_new_path.size());
+    xFsReqSubmit(&m_req);
+  }
+  void on_complete() override {
+    m_done = true;
+    m_resolver.resolve();
   }
 };
 
@@ -407,6 +467,24 @@ inline Promise<std::vector<uint8_t>> read(const char *path) {
 inline Promise<void> write(const char *path, const void *buf, size_t len) {
   return File::create(path).then(
     [buf, len](File f) { return f.write_all(buf, len).then([f = std::move(f)] {}); });
+}
+
+inline Promise<void> create_dir(const char *path, int mode) {
+  return xpp::adapt<void, _::FsMkdirAdapter>(path, mode);
+}
+
+inline Promise<void> remove_file(const char *path) {
+  return xpp::adapt<void, _::FsUnlinkAdapter>(path);
+}
+
+inline Promise<void> remove_dir(const char *path) {
+  // libx has no xFsOpRmdir — offload to thread pool directly.
+  std::string p = path;
+  return xpp::work([p = std::move(p)] { ::rmdir(p.c_str()); });
+}
+
+inline Promise<void> rename(const char *old_path, const char *new_path) {
+  return xpp::adapt<void, _::FsRenameAdapter>(old_path, new_path);
 }
 
 } // namespace fs

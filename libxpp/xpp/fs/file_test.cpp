@@ -252,3 +252,51 @@ TEST_F(FsFileTest, FromRawFd) {
   buf[n] = '\0';
   EXPECT_STREQ(buf, "raw fd test");
 }
+
+/* ── Directory operations ──────────────────────────────────────────── */
+
+TEST_F(FsFileTest, CreateAndRemoveDir) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  std::string dir = m_path + "_dir";
+  xpp::fs::create_dir(dir.c_str()).wait();
+
+  struct stat st;
+  EXPECT_EQ(::stat(dir.c_str(), &st), 0);
+  EXPECT_TRUE(S_ISDIR(st.st_mode));
+
+  xpp::fs::remove_dir(dir.c_str()).wait();
+  EXPECT_NE(::stat(dir.c_str(), &st), 0);
+}
+
+TEST_F(FsFileTest, RemoveFile) {
+  write_file("temp file");
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  xpp::fs::remove_file(m_path.c_str()).wait();
+
+  struct stat st;
+  EXPECT_NE(::stat(m_path.c_str(), &st), 0);
+}
+
+TEST_F(FsFileTest, RenameFile) {
+  write_file("original content");
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  std::string new_path = m_path + "_renamed";
+  xpp::fs::rename(m_path.c_str(), new_path.c_str()).wait();
+
+  // Old path should not exist
+  struct stat st;
+  EXPECT_NE(::stat(m_path.c_str(), &st), 0);
+  // New path should exist with correct content
+  EXPECT_EQ(::stat(new_path.c_str(), &st), 0);
+  auto data = xpp::fs::read(new_path.c_str()).wait();
+  ASSERT_EQ(data.size(), 16u);
+  EXPECT_EQ(memcmp(data.data(), "original content", 16), 0);
+
+  unlink(new_path.c_str());
+}
