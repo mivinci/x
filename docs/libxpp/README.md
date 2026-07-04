@@ -10,27 +10,26 @@ C++11 bindings for libx — smart pointers, async primitives, and type utilities
 #include <xpp/option.h>
 #include <xpp/result.h>
 #include <xpp/promise.h>
-using namespace xpp;
 
 // Result<T, E> — explicit error handling, no exceptions
-Result<int, std::string> parse(std::string_view s) {
-    if (s.empty()) return Err("empty input");
-    return Ok(std::stoi(std::string(s)));
+xpp::Result<int, std::string> parse(std::string_view s) {
+    if (s.empty()) return xpp::Err("empty input");
+    return xpp::Ok(std::stoi(std::string(s)));
 }
 
 // Arc<T> — thread-safe shared ownership, sizeof == sizeof(T*)
 // (std::shared_ptr is 2× ptr; Arc is 1× ptr with niche-optimized Option)
-auto config = Arc<Config>::make(args...);
+auto config = xpp::Arc<Config>::make(args...);
 
 // Promise<T> — poll-based async, no executor needed
 // (drives the event loop via wait(); C++20 coroutines optional)
-Promise<Stats> fetch() {
+xpp::Promise<Stats> fetch() {
     auto raw = co_await http_get("/api/stats");
     co_return parse_stats(raw);
 }
 
 // Option<T> — nullptr == None, sizeof == sizeof(T*)
-Option<Arc<Config>> cached = lookup(key);
+xpp::Option<xpp::Arc<Config>> cached = lookup(key);
 if (cached) {
     use(**cached);     // Option → Arc → Config
 }
