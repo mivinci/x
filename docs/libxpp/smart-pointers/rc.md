@@ -212,7 +212,7 @@ public:
 | Weak observer | Weak<T> | weak_ptr<T> | Weak<T> |
 | Cycle-breaking | Explicit via Weak | Explicit via weak_ptr | Explicit via Weak |
 | Custom deleter | No | Yes | No |
-| Covariant | `Rc<Derived>` → `Rc<Base>` (implicit) | aliasing ctor (explicit) | Via trait objects only |
+| Covariant | `Rc<Derived>` → `Rc<Base>` (implicit) | converting ctor (implicit) | Via trait objects only |
 
 ## Implementation Notes
 

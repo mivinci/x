@@ -29,13 +29,101 @@ Rust-inspired smart pointers with `sizeof == sizeof(T*)` guarantees. All are hea
 
 `Rc<Derived>` → `Rc<Base>` and `Arc<Derived>` → `Arc<Base>` work via covariant constructors (copy and move).
 
+## What xpp Has That STL Doesn't
+
+### Niche-Optimized `Option<T>`
+
+The single biggest practical win. In xpp, `Option<Own<T>>`, `Option<Box<T>>`, `Option<Rc<T>>`, `Option<Arc<T>>`, and `Option<NonNull<T>>` all have `sizeof == sizeof(T*)`. The `None` state is encoded via the null pointer — a value that normal construction never produces.
+
+```cpp
+// STL: 16 bytes (8-byte pointer + bool + alignment padding)
+std::optional<std::unique_ptr<int>> parent;
+
+// xpp: 8 bytes — same size as a raw pointer
+Option<Own<Node>> parent;
+```
+
+In tree, graph, or AST data structures where every node has an `Option<parent>` / `Option<child>`, this saves 8+ bytes per field. A million-node tree saves ~8 MB just on the parent edge alone.
+
+**Why STL can't do this:** `std::optional` must be generic over all types, and `std::unique_ptr(nullptr)` is a valid (non-empty) state. xpp's smart pointers have a constructor-level invariant that null is unreachable — the type system guarantees a stored null pointer means `None`.
+
+### Non-Null by Default — `Box<T>`
+
+STL has no equivalent. `std::unique_ptr` default-constructs to null, forcing null checks at every use site. `Box<T>` has **no default constructor** — if you have one, it owns a valid object. The compiler enforces this.
+
+```cpp
+// STL: always defensive
+void process(std::unique_ptr<Widget> w) {
+  if (!w) return;          // ← who knows what the caller passed
+  w->do_thing();
+}
+
+// xpp: type system gives the guarantee
+void process(Box<Widget> w) {
+  w->do_thing();           // ← never null, compiler-checked
+}
+```
+
+Combined with `Option<Box<T>>`, you get explicit opt-in nullability at zero space cost — exactly Rust's model.
+
+### Single-Threaded `Rc<T>` (No Atomic Overhead)
+
+`std::shared_ptr`'s control block is **always** atomic, even when you know you're single-threaded. Every copy and destroy pays the memory barrier. xpp splits this into two types:
+
+- `Rc<T>` — plain `int` refcount, zero atomic overhead, for event-loop or single-thread code
+- `Arc<T>` — atomic refcount, for cross-thread sharing
+
+In the dominant xpp use case (single-thread event loops), `Rc<T>` avoids all `shared_ptr`'s atomic penalties.
+
+### Semantic Layering — Pick the Right Tool
+
+| Need | STL gives you | xpp gives you |
+|---|---|---|
+| Maybe-null, unique ownership | `unique_ptr<T>` | `Own<T>` |
+| **Never-null**, unique ownership | — | `Box<T>` |
+| Maybe-null, shared ownership | `shared_ptr<T>` | `Rc<T>` or `Arc<T>` |
+| Maybe-null, non-owning observer | `weak_ptr<T>` | `Weak<T>` or `ArcWeak<T>` |
+| Never-null, non-owning pointer | raw `T*` | `NonNull<T>` |
+
+`Box<T>` and `NonNull<T>` have no STL counterpart — they encode non-null guarantees in the type system that raw pointers and `unique_ptr` leave to convention.
+
+### Promise Ecosystem Integration
+
+xpp smart pointers compose directly with `Promise<T>` chains — no glue code:
+
+```cpp
+Promise<Own<Data>> fetch() {
+  return Promise<void>::after(100).then([]() {
+    return Own<Data>(new Data{42});  // Own flows through then()
+  });
+}
+
+// Own → Box: take ownership, guarantee non-null downstream
+auto boxed = fetch().wait()
+  .into_nonnull()   // Option<Box<Data>>
+  .unwrap();        // Box<Data>
+```
+
+### Single-Pointer Layout for All Types
+
+All xpp smart pointers are `sizeof(T*)`. `Rc<T>` and `Arc<T>` point directly to a co-located `RcInner { strong, weak, T }` block — single allocation, single pointer. `std::shared_ptr` is two pointers (object + control block), doubling stack/struct footprint.
+
+---
+
 ## Comparison with std
 
 | Feature | xpp | std |
-|---------|-----|-----|
-| `sizeof` | `sizeof(T*)` | `2 * sizeof(T*)` |
-| Control block | Co-located (single alloc) | Separate alloc or intrusive |
-| Custom deleter | No | Yes |
-| `make()` | Single alloc | Single alloc (but 2-block fallback) |
-| `Option<T>` niche | Yes (nullptr = None) | No |
-| Thread-safe variant | `Arc` (separate type) | `shared_ptr` (same type, always atomic) |
+|---|---|---|
+| `sizeof` (unique) | `sizeof(T*)` | `sizeof(T*)` |
+| `sizeof` (shared) | `sizeof(T*)` | `2 × sizeof(T*)` |
+| Non-null default | `Box<T>` | — |
+| Niche Option | Yes (`nullptr = None`) | No |
+| Single-thread shared | `Rc<T>` (no atomics) | `shared_ptr` (always atomic) |
+| Thread-safe shared | `Arc<T>` | `shared_ptr` |
+| Custom deleter | `Box<T, D>` / `Own<T, D>` | `unique_ptr<T, D>` / `shared_ptr<T>` |
+| Covariant upcast | Implicit | Implicit |
+| Weak observer | `Weak<T>` / `ArcWeak<T>` | `weak_ptr<T>` |
+| Promise interop | Native (`.then()`, `into_nonnull()`) | N/A |
+| Control block | Co-located (single alloc) | Separate or intrusive |
+| Allocator support | Internal slab | `shared_ptr` allocator ctor |
+| Header-only | Yes | Yes |
