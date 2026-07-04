@@ -40,7 +40,7 @@ public:
     m_fd->m_read_waiter = std::move(r);
   }
 
-  ~AsyncReadAdapter() = default;
+  ~AsyncReadAdapter()                                   = default;
   AsyncReadAdapter(const AsyncReadAdapter &)            = delete;
   AsyncReadAdapter &operator=(const AsyncReadAdapter &) = delete;
   AsyncReadAdapter(AsyncReadAdapter &&)                 = delete;
@@ -62,7 +62,7 @@ public:
     m_fd->m_write_waiter = std::move(r);
   }
 
-  ~AsyncWriteAdapter() = default;
+  ~AsyncWriteAdapter()                                    = default;
   AsyncWriteAdapter(const AsyncWriteAdapter &)            = delete;
   AsyncWriteAdapter &operator=(const AsyncWriteAdapter &) = delete;
   AsyncWriteAdapter(AsyncWriteAdapter &&)                 = delete;

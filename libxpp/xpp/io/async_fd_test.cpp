@@ -5,11 +5,12 @@
  *
  * async_fd_test.cpp — Tests for xpp::io::AsyncFd.
  */
-#include <cstring>
 #include <fcntl.h>
 #include <sys/socket.h>
-#include <thread>
 #include <unistd.h>
+
+#include <cstring>
+#include <thread>
 
 #include <gtest/gtest.h>
 #include <xpp/io/async_fd.h>
@@ -95,8 +96,8 @@ TEST_F(IoAsyncFdTest, ReadFastPath) {
   xpp::io::AsyncFd fd(sv[0]);
   write(sv[1], "hello", 5);
 
-  char buf[64] = {};
-  ssize_t n = xpp::io::read(fd, buf, sizeof(buf)).wait();
+  char    buf[64] = {};
+  ssize_t n       = xpp::io::read(fd, buf, sizeof(buf)).wait();
   EXPECT_EQ(n, 5);
   buf[n] = '\0';
   EXPECT_STREQ(buf, "hello");
@@ -113,8 +114,8 @@ TEST_F(IoAsyncFdTest, ReadSlowPath) {
     write(sv[1], "deferred", 8);
   });
 
-  char buf[64] = {};
-  ssize_t n = xpp::io::read(fd, buf, sizeof(buf)).wait();
+  char    buf[64] = {};
+  ssize_t n       = xpp::io::read(fd, buf, sizeof(buf)).wait();
   EXPECT_EQ(n, 8);
   buf[n] = '\0';
   EXPECT_STREQ(buf, "deferred");
@@ -133,8 +134,8 @@ TEST_F(IoAsyncFdTest, WriteFastPath) {
   EXPECT_EQ(n, 10);
 
   // Verify on other end
-  char buf[64] = {};
-  ssize_t r = read(sv[1], buf, sizeof(buf));
+  char    buf[64] = {};
+  ssize_t r       = read(sv[1], buf, sizeof(buf));
   EXPECT_EQ(r, 10);
   buf[r] = '\0';
   EXPECT_STREQ(buf, "write test");
@@ -161,8 +162,7 @@ TEST_F(IoAsyncFdTest, WriteSlowPath) {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     // Drain the other end to make sv[0] writable again
     char buf[65536];
-    while (::recv(sv[1], buf, sizeof(buf), MSG_DONTWAIT) > 0) {
-    }
+    while (::recv(sv[1], buf, sizeof(buf), MSG_DONTWAIT) > 0) {}
   });
 
   ssize_t n = xpp::io::write(fd, "ok", 2).wait();
@@ -188,8 +188,8 @@ TEST_F(IoAsyncFdTest, ReadFull) {
     write(sv[1], buf, 50);
   });
 
-  char buf[100] = {};
-  ssize_t n = xpp::io::read_full(fd, buf, 100).wait();
+  char    buf[100] = {};
+  ssize_t n        = xpp::io::read_full(fd, buf, 100).wait();
   EXPECT_EQ(n, 100);
   t.join();
 }
@@ -207,8 +207,8 @@ TEST_F(IoAsyncFdTest, WriteAll) {
   xpp::io::write_all(fd, data, 100).wait();
 
   // Read back from other end
-  char buf[100] = {};
-  size_t total = 0;
+  char   buf[100] = {};
+  size_t total    = 0;
   while (total < 100) {
     ssize_t n = read(sv[1], buf + total, 100 - total);
     if (n <= 0) break;
@@ -225,17 +225,9 @@ TEST_F(IoAsyncFdTest, CloseWakesReadable) {
 
   xpp::io::AsyncFd fd(sv[0]);
 
-  // Start a readable() wait (no data, so it's pending)
-  std::thread t([&fd, &loop]() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    xEventLoopRun(loop, X_RUN_ONCE); // wake the loop so close() can run
-  });
-
-  // Schedule close after 50ms via timer
+  // Schedule close after 50ms via timer — wait() drives the event loop
   xpp::after(50).then([&fd]() { fd.close(); }).wait();
 
-  // The readable() should have been woken by close()
-  t.join();
   SUCCEED();
 }
 
@@ -252,8 +244,8 @@ TEST_F(IoAsyncFdTest, MoveConstruct) {
 
   // b should still work
   write(sv[1], "moved", 5);
-  char buf[64] = {};
-  ssize_t n = xpp::io::read(b, buf, sizeof(buf)).wait();
+  char    buf[64] = {};
+  ssize_t n       = xpp::io::read(b, buf, sizeof(buf)).wait();
   EXPECT_EQ(n, 5);
 }
 

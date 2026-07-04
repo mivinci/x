@@ -22,19 +22,22 @@
 #ifndef XPP_IO_ASYNC_FD_H
 #define XPP_IO_ASYNC_FD_H
 
-#include <cerrno>
-#include <cstddef>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <utility>
 
-#include <x/base/event.h>
-#include <x/base/base.h>
+#include <cerrno>
+#include <cstddef>
+#include <functional>
+#include <memory>
+#include <utility>
 
 #include <xpp/arc.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
+
+#include <x/base/base.h>
+#include <x/base/event.h>
 
 namespace xpp {
 namespace io {
@@ -79,17 +82,21 @@ public:
   /** @brief Deregister from event loop, wake all pending waiters. Does NOT close fd. */
   void close();
 
-  int  fd() const { return m_fd; }
-  bool is_closed() const { return m_fd < 0; }
+  int fd() const {
+    return m_fd;
+  }
+  bool is_closed() const {
+    return m_fd < 0;
+  }
 
 private:
   friend class _::AsyncReadAdapter;
   friend class _::AsyncWriteAdapter;
 
-  int                m_fd = -1;
-  xEventSource       m_src = nullptr;
-  bool               m_readable = false;
-  bool               m_writable = false;
+  int                   m_fd       = -1;
+  xEventSource          m_src      = nullptr;
+  bool                  m_readable = false;
+  bool                  m_writable = false;
   PromiseResolver<void> m_read_waiter;
   PromiseResolver<void> m_write_waiter;
 
@@ -127,8 +134,7 @@ namespace io {
 
 inline AsyncFd::AsyncFd(int fd) : m_fd(fd) {
   if (fd >= 0) {
-    m_src = xEventAdd(fd,
-                      static_cast<xEventMask>(xEvent_Read | xEvent_Write), on_event, this);
+    m_src = xEventAdd(fd, static_cast<xEventMask>(xEvent_Read | xEvent_Write), on_event, this);
   }
 }
 
@@ -138,16 +144,14 @@ inline AsyncFd::~AsyncFd() {
 
 inline AsyncFd::AsyncFd(AsyncFd &&o) noexcept
     : m_fd(o.m_fd), m_src(o.m_src), m_readable(o.m_readable), m_writable(o.m_writable),
-      m_read_waiter(std::move(o.m_read_waiter)),
-      m_write_waiter(std::move(o.m_write_waiter)) {
-  o.m_fd   = -1;
-  o.m_src  = nullptr;
+      m_read_waiter(std::move(o.m_read_waiter)), m_write_waiter(std::move(o.m_write_waiter)) {
+  o.m_fd  = -1;
+  o.m_src = nullptr;
   // Update the event callback's arg pointer to point to us
   // (xEventMod can't change arg, so we need to re-register)
   if (m_src && m_fd >= 0) {
     xEventDel(m_src);
-    m_src = xEventAdd(m_fd,
-                      static_cast<xEventMask>(xEvent_Read | xEvent_Write), on_event, this);
+    m_src = xEventAdd(m_fd, static_cast<xEventMask>(xEvent_Read | xEvent_Write), on_event, this);
   }
 }
 
@@ -160,12 +164,11 @@ inline AsyncFd &AsyncFd::operator=(AsyncFd &&o) noexcept {
     m_writable     = o.m_writable;
     m_read_waiter  = std::move(o.m_read_waiter);
     m_write_waiter = std::move(o.m_write_waiter);
-    o.m_fd   = -1;
-    o.m_src  = nullptr;
+    o.m_fd         = -1;
+    o.m_src        = nullptr;
     if (m_src && m_fd >= 0) {
       xEventDel(m_src);
-      m_src = xEventAdd(m_fd,
-                        static_cast<xEventMask>(xEvent_Read | xEvent_Write), on_event, this);
+      m_src = xEventAdd(m_fd, static_cast<xEventMask>(xEvent_Read | xEvent_Write), on_event, this);
     }
   }
   return *this;
@@ -205,7 +208,7 @@ inline void AsyncFd::on_event(int fd, xEventMask mask, void *arg) {
 
 inline void AsyncFd::wake_read() {
   if (m_read_waiter.is_pending()) {
-    auto r = std::move(m_read_waiter);
+    auto r     = std::move(m_read_waiter);
     m_readable = false;
     r.resolve();
   }
@@ -213,7 +216,7 @@ inline void AsyncFd::wake_read() {
 
 inline void AsyncFd::wake_write() {
   if (m_write_waiter.is_pending()) {
-    auto r = std::move(m_write_waiter);
+    auto r     = std::move(m_write_waiter);
     m_writable = false;
     r.resolve();
   }
@@ -265,39 +268,39 @@ inline Promise<ssize_t> write(AsyncFd &io, const void *buf, size_t len) {
 }
 
 inline Promise<ssize_t> read_full(AsyncFd &io, void *buf, size_t len) {
-  // Use defer to chain reads until full or EOF
-  std::shared_ptr<size_t> total = std::make_shared<size_t>(0);
-  std::shared_ptr<char *> cur = std::make_shared<char *>(static_cast<char *>(buf));
+  auto total = std::make_shared<size_t>(0);
+  auto cur   = std::make_shared<char *>(static_cast<char *>(buf));
+  auto step  = std::make_shared<std::function<Promise<ssize_t>()>>();
 
-  // Recursive: read → check → read again or done
-  std::function<Promise<ssize_t>()> step = [&io, cur, total, len, &step]() -> Promise<ssize_t> {
+  *step = [&io, cur, total, len, step]() -> Promise<ssize_t> {
     if (*total >= len) return xpp::resolve(static_cast<ssize_t>(*total));
-    return read(io, *cur, len - *total).then([&io, cur, total, len, &step](ssize_t n) {
-      if (n <= 0) return xpp::resolve(static_cast<ssize_t>(*total)); // EOF or error
+    return read(io, *cur, len - *total).then([&io, cur, total, len, step](ssize_t n) {
+      if (n <= 0) return xpp::resolve(static_cast<ssize_t>(*total));
       *cur += n;
       *total += static_cast<size_t>(n);
-      return step(); // recurse
+      return (*step)();
     });
   };
 
-  return step();
+  return (*step)();
 }
 
 inline Promise<void> write_all(AsyncFd &io, const void *buf, size_t len) {
-  std::shared_ptr<size_t> total = std::make_shared<size_t>(0);
-  std::shared_ptr<const char *> cur = std::make_shared<const char *>(static_cast<const char *>(buf));
+  auto total = std::make_shared<size_t>(0);
+  auto cur   = std::make_shared<const char *>(static_cast<const char *>(buf));
+  auto step  = std::make_shared<std::function<Promise<void>()>>();
 
-  std::function<Promise<void>()> step = [&io, cur, total, len, &step]() -> Promise<void> {
+  *step = [&io, cur, total, len, step]() -> Promise<void> {
     if (*total >= len) return xpp::yield();
-    return write(io, *cur, len - *total).then([&io, cur, total, len, &step](ssize_t n) {
-      if (n <= 0) return xpp::yield(); // error — stop
+    return write(io, *cur, len - *total).then([&io, cur, total, len, step](ssize_t n) {
+      if (n <= 0) return xpp::yield();
       *cur += n;
       *total += static_cast<size_t>(n);
-      return step();
+      return (*step)();
     });
   };
 
-  return step();
+  return (*step)();
 }
 
 } // namespace io
