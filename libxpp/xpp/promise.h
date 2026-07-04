@@ -82,13 +82,11 @@ template <class T> class Promise {
 public:
   using ValueType = typename FixVoid<T>::Type;
 
-  Promise() : m_node(nullptr), m_arena(nullptr) {}
-  explicit Promise(_::OwnPromiseNode<T> node, Own<_::PromiseArena> arena = nullptr)
-      : m_node(std::move(node)), m_arena(std::move(arena)) {}
-  Promise(Promise &&o) noexcept : m_node(std::move(o.m_node)), m_arena(std::move(o.m_arena)) {}
+  Promise() : m_node(nullptr) {}
+  explicit Promise(_::OwnPromiseNode<T> node) : m_node(std::move(node)) {}
+  Promise(Promise &&o) noexcept : m_node(std::move(o.m_node)) {}
   Promise &operator=(Promise &&o) noexcept {
-    m_node  = std::move(o.m_node);
-    m_arena = std::move(o.m_arena);
+    m_node = std::move(o.m_node);
     return *this;
   }
   Promise(const Promise &)            = delete;
@@ -164,11 +162,6 @@ public:
   }
 
 private:
-  // Declaration order matters: m_arena must be destroyed AFTER m_node
-  // (reverse declaration order = m_node destroyed first, then m_arena).
-  // m_node's destructor runs ~PromiseNode which may read arena memory;
-  // m_arena's destructor frees that memory.
-  Own<_::PromiseArena> m_arena; // null if not part of a .then() chain
   _::OwnPromiseNode<T> m_node;
 
   template <class U> friend class Promise;
@@ -190,20 +183,29 @@ namespace _ {
 
 namespace _chain {
 
+// chain: append a TransformPromiseNode to the predecessor's arena.
+// Uses append_promise which reads the arena from the predecessor's
+// header and transfers ownership to the new node.
 template <class ReducedT, class OutT, class T, class Func>
 typename std::enable_if<std::is_same<OutT, ReducedT>::value, _::OwnPromiseNode<ReducedT>>::type
-chain(_::OwnPromiseNode<T> dep, Func &&func, PromiseArena *arena) {
-  return _::OwnPromiseNode<ReducedT>(_::allocate_promise<TransformPromiseNode<ReducedT, T, Func>>(
-    arena, std::move(dep), std::forward<Func>(func)));
+chain(_::OwnPromiseNode<T> dep, Func &&func) {
+  void *pred = dep.get();
+  return _::OwnPromiseNode<ReducedT>(_::append_promise<TransformPromiseNode<ReducedT, T, Func>>(
+    pred, std::move(dep), std::forward<Func>(func)));
 }
 
 template <class ReducedT, class OutT, class T, class Func>
 typename std::enable_if<!std::is_same<OutT, ReducedT>::value, _::OwnPromiseNode<ReducedT>>::type
-chain(_::OwnPromiseNode<T> dep, Func &&func, PromiseArena *arena) {
-  return _::OwnPromiseNode<ReducedT>(_::allocate_promise<ChainPromiseNode<ReducedT>>(
-    arena, _::OwnPromiseNode<Promise<ReducedT>>(
-             _::allocate_promise<TransformPromiseNode<Promise<ReducedT>, T, Func>>(
-               arena, std::move(dep), std::forward<Func>(func)))));
+chain(_::OwnPromiseNode<T> dep, Func &&func) {
+  void *pred = dep.get();
+  // Inner: TransformPromiseNode<Promise<ReducedT>, T, Func> (appended to dep's arena)
+  auto inner = _::OwnPromiseNode<Promise<ReducedT>>(
+    _::append_promise<TransformPromiseNode<Promise<ReducedT>, T, Func>>(pred, std::move(dep),
+                                                                        std::forward<Func>(func)));
+  // Outer: ChainPromiseNode<ReducedT> (appended to inner's arena)
+  void *inner_pred = inner.get();
+  return _::OwnPromiseNode<ReducedT>(
+    _::append_promise<ChainPromiseNode<ReducedT>>(inner_pred, std::move(inner)));
 }
 
 } // namespace _chain
@@ -221,16 +223,8 @@ auto Promise<T>::then(Func &&func)
   using OutT     = RawU;
 
   _::OwnPromiseNode<T> dep(std::move(m_node));
-
-  // Ensure we have an arena. Reuse existing (from earlier .then() in
-  // the same chain) or create a new one for this chain.
-  if (!m_arena) {
-    m_arena = Own<_::PromiseArena>(new _::PromiseArena());
-  }
-
-  auto node = _::_chain::chain<ReducedT, OutT, T, Func>(std::move(dep), std::forward<Func>(func),
-                                                        m_arena.get());
-  return Promise<ReducedT>(std::move(node), std::move(m_arena));
+  auto node = _::_chain::chain<ReducedT, OutT, T, Func>(std::move(dep), std::forward<Func>(func));
+  return Promise<ReducedT>(std::move(node));
 }
 
 template <class T>
@@ -242,14 +236,9 @@ auto Promise<T>::then(Func &&func)
   using OutT     = RawU;
 
   _::OwnPromiseNode<void> dep(std::move(m_node));
-
-  if (!m_arena) {
-    m_arena = Own<_::PromiseArena>(new _::PromiseArena());
-  }
-
-  auto node = _::_chain::chain<ReducedT, OutT, void, Func>(std::move(dep), std::forward<Func>(func),
-                                                           m_arena.get());
-  return Promise<ReducedT>(std::move(node), std::move(m_arena));
+  auto                    node =
+    _::_chain::chain<ReducedT, OutT, void, Func>(std::move(dep), std::forward<Func>(func));
+  return Promise<ReducedT>(std::move(node));
 }
 
 /* ── Forward declarations ───────────────────────────────────────── */
@@ -297,8 +286,8 @@ template <class T> std::pair<Promise<T>, PromiseResolver<T>> async() {
   using V       = typename FixVoid<T>::Type;
   auto state    = Arc<_::ResolveState<V>>::make();
   auto resolver = PromiseResolver<T>(Arc<_::ResolveState<V>>::downgrade(state));
-  auto promise  = Promise<T>(_::OwnPromiseNode<T>(
-    _::allocate_promise<_::ManualResolveNode<T>>(nullptr, std::move(state))));
+  auto promise  = Promise<T>(
+    _::OwnPromiseNode<T>(_::allocate_promise<_::ManualResolveNode<T>>(nullptr, std::move(state))));
   return {std::move(promise), std::move(resolver)};
 }
 
