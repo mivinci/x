@@ -64,6 +64,7 @@ if (cached) {
 - [Option](option.md) — A value or nothing (Rust Option)
 - [Variant](variant.md) — Type-safe tagged union
 - [Timer](timer.md) — Callback-based timer with pause/resume
+- [Filesystem](fs.md) — Async file I/O (`File`, `stat`, `exists`, `create_dir`, `rename`)
 - [Panic](panic.md) — Assert macros
 - [Compiler Macros](compiler.md) — Attribute/deprecation helpers
 - [Opaque Handle Wrapper](opaque.md) — RAII for `XDEF_HANDLE` typedefs

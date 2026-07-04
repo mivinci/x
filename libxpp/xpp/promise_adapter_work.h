@@ -60,6 +60,41 @@ private:
   xWork m_work;
 };
 
+/* ── WorkAdapter<void, Func> — void specialization ─────────────────── */
+
+template <class Func> class WorkAdapter<void, Func> {
+public:
+  WorkAdapter(PromiseResolver<void> &&r, Func &&fn) : m_ctx(new Ctx{std::move(r), std::move(fn)}) {
+    m_work = xWorkSubmit(
+      nullptr,
+      [](void *a) -> void * {
+        auto *ctx = static_cast<Ctx *>(a);
+        ctx->func();
+        ctx->resolver.resolve();
+        return nullptr;
+      },
+      [](void *a, void *) { delete static_cast<Ctx *>(a); },
+      [](void *a, void *) { delete static_cast<Ctx *>(a); }, m_ctx);
+  }
+
+  ~WorkAdapter() {
+    if (m_work) xWorkCancel(m_work);
+  }
+
+  WorkAdapter(const WorkAdapter &)            = delete;
+  WorkAdapter &operator=(const WorkAdapter &) = delete;
+  WorkAdapter(WorkAdapter &&)                 = delete;
+  WorkAdapter &operator=(WorkAdapter &&)      = delete;
+
+private:
+  struct Ctx {
+    PromiseResolver<void> resolver;
+    Func                  func;
+  };
+  Ctx  *m_ctx;
+  xWork m_work;
+};
+
 } // namespace _
 
 } // namespace xpp

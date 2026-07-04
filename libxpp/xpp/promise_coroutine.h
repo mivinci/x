@@ -251,7 +251,7 @@ template <class T> PromiseAwaiter<T> operator co_await(Promise<T> &&p) {
 
 namespace std {
 
-template <class T> struct coroutine_traits<xpp::Promise<T>> {
+template <class T, class... Args> struct coroutine_traits<xpp::Promise<T>, Args...> {
   using promise_type = xpp::_::CoroutinePromise<T>;
 };
 

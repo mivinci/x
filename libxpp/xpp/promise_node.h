@@ -117,7 +117,7 @@ public:
   Option<OutputType> poll(const PromiseWaker &waker) override {
     auto r = m_dep->poll(waker);
     if (r.is_none()) return none;
-    return Option<OutputType>(::xpp::_voidwrap::call1<U>(m_fn, r.unwrap()));
+    return Option<OutputType>(::xpp::_voidwrap::call1<U>(m_fn, std::move(r).unwrap()));
   }
 
 private:
@@ -136,7 +136,7 @@ public:
   Option<OutputType> poll(const PromiseWaker &waker) override {
     auto r = m_dep->poll(waker);
     if (r.is_none()) return none;
-    r.unwrap(); // consume the Void
+    std::move(r).unwrap(); // consume the Void
     return Option<OutputType>(::xpp::_voidwrap::call<U>(m_fn));
   }
 
@@ -154,7 +154,7 @@ public:
   Option<Void> poll(const PromiseWaker &waker) override {
     auto r = m_dep->poll(waker);
     if (r.is_none()) return none;
-    ::xpp::_voidwrap::call1<void>(m_fn, r.unwrap());
+    ::xpp::_voidwrap::call1<void>(m_fn, std::move(r).unwrap());
     return Option<Void>(Void{});
   }
 
@@ -172,7 +172,7 @@ public:
   Option<Void> poll(const PromiseWaker &waker) override {
     auto r = m_dep->poll(waker);
     if (r.is_none()) return none;
-    r.unwrap();
+    std::move(r).unwrap();
     ::xpp::_voidwrap::call<void>(m_fn);
     return Option<Void>(Void{});
   }
@@ -206,7 +206,7 @@ public:
     }
     auto outer = m_outer->poll(waker);
     if (outer.is_none()) return none;
-    m_inner = std::move(outer.unwrap().m_node);
+    m_inner = std::move(std::move(outer).unwrap().m_node);
     m_outer = nullptr;
     return m_inner->poll(waker);
   }

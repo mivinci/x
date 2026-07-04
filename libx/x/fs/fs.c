@@ -104,6 +104,11 @@ static void *fs_worker(void *arg) {
     r->result = (r->retval < 0) ? xErrno_SysError : xErrno_Ok;
     break;
 
+  case xFsOpRmdir:
+    r->retval = rmdir(r->path);
+    r->result = (r->retval < 0) ? xErrno_SysError : xErrno_Ok;
+    break;
+
   case xFsOpRename:
     npath     = (char *)r->buf; /* buf holds new path for rename */
     r->retval = rename(r->path, npath);
