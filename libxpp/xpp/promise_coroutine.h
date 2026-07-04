@@ -47,10 +47,10 @@ struct AwaitState {
 };
 
 template <class U> struct AwaitStateImpl : AwaitState {
-  Own<PromiseNode<U>> m_node;
-  Option<U>          *m_value_ptr;
+  _::PromiseNodeOwn<U> m_node;
+  Option<U>           *m_value_ptr;
 
-  AwaitStateImpl(Own<PromiseNode<U>> n, Option<U> *vp) : m_node(std::move(n)), m_value_ptr(vp) {}
+  AwaitStateImpl(_::PromiseNodeOwn<U> n, Option<U> *vp) : m_node(std::move(n)), m_value_ptr(vp) {}
 
   bool poll(const PromiseWaker &waker) override {
     auto r = m_node->poll(waker);
@@ -63,10 +63,10 @@ template <class U> struct AwaitStateImpl : AwaitState {
 /* Void specialization: PromiseNode<void> returns Option<Void>,
  * but we just need a "ready" flag, not a value. */
 struct VoidAwaitState : AwaitState {
-  Own<PromiseNode<void>> m_node;
-  bool                  *m_ready_ptr;
+  _::PromiseNodeOwn<void> m_node;
+  bool                   *m_ready_ptr;
 
-  VoidAwaitState(Own<PromiseNode<void>> n, bool *rp) : m_node(std::move(n)), m_ready_ptr(rp) {}
+  VoidAwaitState(_::PromiseNodeOwn<void> n, bool *rp) : m_node(std::move(n)), m_ready_ptr(rp) {}
 
   bool poll(const PromiseWaker &waker) override {
     auto r = m_node->poll(waker);
@@ -110,11 +110,11 @@ public:
     }
   }
 
-  template <class U> void set_await(Own<PromiseNode<U>> node, Option<U> *value_ptr) {
+  template <class U> void set_await(_::PromiseNodeOwn<U> node, Option<U> *value_ptr) {
     m_await_state = Own<AwaitState>(new AwaitStateImpl<U>(std::move(node), value_ptr));
   }
 
-  void set_await_void(Own<PromiseNode<void>> node, bool *ready_ptr) {
+  void set_await_void(_::PromiseNodeOwn<void> node, bool *ready_ptr) {
     m_await_state = Own<AwaitState>(new VoidAwaitState(std::move(node), ready_ptr));
   }
 
@@ -130,10 +130,10 @@ public:
   CoroutinePromiseNode<T> *m_node = nullptr;
 
   Promise<T> get_return_object() {
-    auto *n     = new CoroutinePromiseNode<T>();
+    auto *n     = _::promise_alloc<CoroutinePromiseNode<T>>(nullptr);
     m_node      = n;
     n->m_handle = std::coroutine_handle<CoroutinePromise>::from_promise(*this);
-    return Promise<T>(Own<PromiseNode<T>>(n));
+    return Promise<T>(_::PromiseNodeOwn<T>(n));
   }
 
   std::suspend_always initial_suspend() noexcept {
@@ -165,10 +165,10 @@ public:
   CoroutinePromiseNode<void> *m_node = nullptr;
 
   Promise<void> get_return_object() {
-    auto *n     = new CoroutinePromiseNode<void>();
+    auto *n     = _::promise_alloc<CoroutinePromiseNode<void>>(nullptr);
     m_node      = n;
     n->m_handle = std::coroutine_handle<CoroutinePromise<void>>::from_promise(*this);
-    return Promise<void>(Own<PromiseNode<void>>(n));
+    return Promise<void>(_::PromiseNodeOwn<void>(n));
   }
 
   std::suspend_always initial_suspend() noexcept {

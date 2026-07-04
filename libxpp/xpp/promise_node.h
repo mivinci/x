@@ -22,6 +22,7 @@
 #include <xpp/option.h>
 #include <xpp/own.h>
 #include <xpp/panic.h>
+#include <xpp/promise_alloc.h>
 #include <xpp/promise_waker.h>
 #include <xpp/void.h>
 
@@ -78,6 +79,9 @@ public:
   virtual Option<Void> poll(const PromiseWaker &waker) = 0;
 };
 
+/* ── Convenience typedef: arena-aware Own for PromiseNode ─────────── */
+template <class T> using PromiseNodeOwn = Own<PromiseNode<T>, _::PromiseNodeAllocator>;
+
 /* ── ImmediatePromiseNode ────────────────────────────────────── */
 
 template <class T> class ImmediatePromiseNode final : public PromiseNode<T> {
@@ -107,7 +111,7 @@ template <class U, class T, class Func> class TransformPromiseNode final : publi
 public:
   using OutputType = typename PromiseNode<U>::ValueType;
 
-  TransformPromiseNode(Own<PromiseNode<T>> dep, Func &&func)
+  TransformPromiseNode(_::PromiseNodeOwn<T> dep, Func &&func)
       : m_dep(std::move(dep)), m_fn(std::move(func)) {}
 
   Option<OutputType> poll(const PromiseWaker &waker) override {
@@ -117,8 +121,8 @@ public:
   }
 
 private:
-  Own<PromiseNode<T>> m_dep;
-  Func                m_fn;
+  _::PromiseNodeOwn<T> m_dep;
+  Func                 m_fn;
 };
 
 template <class U, class Func>
@@ -126,7 +130,7 @@ class TransformPromiseNode<U, void, Func> final : public PromiseNode<U> {
 public:
   using OutputType = typename PromiseNode<U>::ValueType;
 
-  TransformPromiseNode(Own<PromiseNode<void>> dep, Func &&func)
+  TransformPromiseNode(_::PromiseNodeOwn<void> dep, Func &&func)
       : m_dep(std::move(dep)), m_fn(std::move(func)) {}
 
   Option<OutputType> poll(const PromiseWaker &waker) override {
@@ -137,14 +141,14 @@ public:
   }
 
 private:
-  Own<PromiseNode<void>> m_dep;
-  Func                   m_fn;
+  _::PromiseNodeOwn<void> m_dep;
+  Func                    m_fn;
 };
 
 template <class T, class Func>
 class TransformPromiseNode<void, T, Func> final : public PromiseNode<void> {
 public:
-  TransformPromiseNode(Own<PromiseNode<T>> dep, Func &&func)
+  TransformPromiseNode(_::PromiseNodeOwn<T> dep, Func &&func)
       : m_dep(std::move(dep)), m_fn(std::move(func)) {}
 
   Option<Void> poll(const PromiseWaker &waker) override {
@@ -155,14 +159,14 @@ public:
   }
 
 private:
-  Own<PromiseNode<T>> m_dep;
-  Func                m_fn;
+  _::PromiseNodeOwn<T> m_dep;
+  Func                 m_fn;
 };
 
 template <class Func>
 class TransformPromiseNode<void, void, Func> final : public PromiseNode<void> {
 public:
-  TransformPromiseNode(Own<PromiseNode<void>> dep, Func &&func)
+  TransformPromiseNode(_::PromiseNodeOwn<void> dep, Func &&func)
       : m_dep(std::move(dep)), m_fn(std::move(func)) {}
 
   Option<Void> poll(const PromiseWaker &waker) override {
@@ -174,8 +178,8 @@ public:
   }
 
 private:
-  Own<PromiseNode<void>> m_dep;
-  Func                   m_fn;
+  _::PromiseNodeOwn<void> m_dep;
+  Func                    m_fn;
 };
 
 /* ── ChainPromiseNode ────────────────────────────────────────────── */
@@ -194,7 +198,7 @@ template <class T> class ChainPromiseNode final : public PromiseNode<T> {
 public:
   using ValueType = typename PromiseNode<T>::ValueType;
 
-  explicit ChainPromiseNode(Own<PromiseNode<Promise<T>>> outer) : m_outer(std::move(outer)) {}
+  explicit ChainPromiseNode(_::PromiseNodeOwn<Promise<T>> outer) : m_outer(std::move(outer)) {}
 
   Option<ValueType> poll(const PromiseWaker &waker) override {
     if (m_inner) {
@@ -208,8 +212,8 @@ public:
   }
 
 private:
-  Own<PromiseNode<Promise<T>>> m_outer;
-  Own<PromiseNode<T>>          m_inner;
+  _::PromiseNodeOwn<Promise<T>> m_outer;
+  _::PromiseNodeOwn<T>          m_inner;
 };
 
 /* ── YieldPromiseNode ────────────────────────────────────────────── */

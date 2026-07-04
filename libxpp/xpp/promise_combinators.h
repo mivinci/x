@@ -35,7 +35,7 @@ namespace xpp {
 
 namespace _ {
 
-template <class U> Own<PromiseNode<U>> _extract_node(Promise<U> &&p) {
+template <class U> _::PromiseNodeOwn<U> _extract_node(Promise<U> &&p) {
   return std::move(p.m_node);
 }
 
@@ -63,7 +63,7 @@ public:
   }
 
 private:
-  std::tuple<Own<PromiseNode<Ts>>...>               m_children;
+  std::tuple<_::PromiseNodeOwn<Ts>...>              m_children;
   std::tuple<Option<typename FixVoid<Ts>::Type>...> m_results;
   size_t                                            m_remaining = N;
 
@@ -114,9 +114,9 @@ public:
   }
 
 private:
-  std::array<Own<PromiseNode<void>>, N> m_children;
-  std::array<bool, N>                   m_done;
-  size_t                                m_remaining;
+  std::array<_::PromiseNodeOwn<void>, N> m_children;
+  std::array<bool, N>                    m_done;
+  size_t                                 m_remaining;
 };
 
 /* ── RacePromiseNode<T, N> ────────────────────────────────────────── */
@@ -146,7 +146,7 @@ public:
   }
 
 private:
-  std::array<Own<PromiseNode<T>>, N> m_children;
+  std::array<_::PromiseNodeOwn<T>, N> m_children;
 };
 
 /* ── RacePromiseNode<Void, N> ─────────────────────────────────────── */
@@ -169,7 +169,7 @@ public:
   }
 
 private:
-  std::array<Own<PromiseNode<void>>, N> m_children;
+  std::array<_::PromiseNodeOwn<void>, N> m_children;
 };
 
 } // namespace _
@@ -195,9 +195,9 @@ template <class... Ts>
 auto all(Promise<Ts>... promises)
   -> std::enable_if_t<(std::is_same<Ts, void>::value && ...), Promise<void>> {
   static_assert(sizeof...(Ts) > 0, "all() requires at least one promise");
-  constexpr size_t N    = sizeof...(Ts);
-  auto            *node = new _::AllVoidPromiseNode<N>(std::move(promises)...);
-  return Promise<void>(Own<_::PromiseNode<void>>(node));
+  constexpr size_t N = sizeof...(Ts);
+  auto *node         = _::promise_alloc<_::AllVoidPromiseNode<N>>(nullptr, std::move(promises)...);
+  return Promise<void>(_::PromiseNodeOwn<void>(node));
 }
 
 template <class... Ts>
@@ -205,9 +205,9 @@ auto all(Promise<Ts>... promises)
   -> std::enable_if_t<!((std::is_same<Ts, void>::value && ...)),
                       Promise<std::tuple<typename FixVoid<Ts>::Type...>>> {
   static_assert(sizeof...(Ts) > 0, "all() requires at least one promise");
-  auto *node = new _::AllTuplePromiseNode<Ts...>(std::move(promises)...);
+  auto *node = _::promise_alloc<_::AllTuplePromiseNode<Ts...>>(nullptr, std::move(promises)...);
   return Promise<std::tuple<typename FixVoid<Ts>::Type...>>(
-    Own<_::PromiseNode<std::tuple<typename FixVoid<Ts>::Type...>>>(node));
+    _::PromiseNodeOwn<std::tuple<typename FixVoid<Ts>::Type...>>(node));
 }
 
 /* ── Public API: race ─────────────────────────────────────────────── */
@@ -227,10 +227,10 @@ template <class T, class... Rest> Promise<T> race(Promise<T> first, Promise<Rest
   static_assert(sizeof...(Rest) >= 0, "race() requires at least one promise");
   static_assert((std::is_same<Rest, T>::value && ...),
                 "race() requires all promises to have the same type");
-  constexpr size_t N = 1 + sizeof...(Rest);
-  auto            *node =
-    new _::RacePromiseNode<typename FixVoid<T>::Type, N>(std::move(first), std::move(rest)...);
-  return Promise<T>(Own<_::PromiseNode<T>>(node));
+  constexpr size_t N    = 1 + sizeof...(Rest);
+  auto            *node = _::promise_alloc<_::RacePromiseNode<typename FixVoid<T>::Type, N>>(
+    nullptr, std::move(first), std::move(rest)...);
+  return Promise<T>(_::PromiseNodeOwn<T>(node));
 }
 
 } // namespace xpp

@@ -24,24 +24,24 @@
 
 ## 3. PromiseNode arena integration
 
-- [ ] 3.1 Add `PromiseArena` typedef (`Arena<256>`) and arena pointer to `PromiseNode` base
-- [ ] 3.2 Add `virtual destroy()` method to `PromiseNode` (for arena-aware destruction without `operator delete`)
-- [ ] 3.3 Add `PromiseDisposer` (or equivalent) that checks `arena.owns(ptr)` before `::operator delete`
-- [ ] 3.4 Update `Own<PromiseNode<T>>` to use `PromiseDisposer` instead of default `delete`
-- [ ] 3.5 Update `.then()` allocation path: try arena bump from predecessor's arena, fall back to `new`
-- [ ] 3.6 Update arena ownership transfer: new tail node takes arena pointer, old node nulls it
-- [ ] 3.7 Update `resolve()` / `async()` / `adapt()` / `work()` / `after()` / `yield()`: first node uses heap (no arena), arena starts at first `.then()`
-- [ ] 3.8 Update `all()` / `race()`: nodes use heap (not part of a `.then()` chain)
-- [ ] 3.9 Update coroutine `CoroutinePromiseNode`: uses heap (coroutine frame is its own allocation)
+- [x] 3.1 Add `PromiseArena` typedef (`Arena<256>`) and `PromiseNodeAllocator` (custom Allocator with header-based routing)
+- [x] 3.2 ~~Add `virtual destroy()` method~~ — not needed; header-based `PromiseNodeAllocator::deallocate` handles routing
+- [x] 3.3 `PromiseNodeAllocator::deallocate` reads arena pointer from 8B header: null=heap (free), non-null=arena (skip)
+- [x] 3.4 `Own<PromiseNode<T>>` → `Own<PromiseNode<T>, PromiseNodeAllocator>` (via `PromiseNodeOwn<T>` typedef)
+- [x] 3.5 `.then()` creates/reuses arena, calls `promise_alloc<T>(arena, ...)` — arena bump or heap fallback
+- [x] 3.6 Arena ownership: `Promise<T>` owns `m_arena`, transfers to child on `.then()`. Declared before `m_node` so destroyed after (reverse declaration order).
+- [x] 3.7 `resolve()` / `async()` / `adapt()` / `work()` / `after()` / `yield()`: first node uses `promise_alloc(nullptr, ...)` (heap, no arena)
+- [x] 3.8 `all()` / `race()`: nodes use `promise_alloc(nullptr, ...)` (heap)
+- [x] 3.9 `CoroutinePromiseNode`: uses `promise_alloc(nullptr, ...)` (heap)
 
 ## 4. PromiseNode tests
 
-- [ ] 4.1 Regression: all existing promise tests pass unchanged
+- [x] 4.1 Regression: all existing promise tests pass unchanged (42+8+17+14 = 81 tests)
 - [ ] 4.2 Arena hit: `.then()` chain of 5+ small nodes uses 1 arena allocation (verify via counting allocator)
 - [ ] 4.3 Arena overflow: chain exceeding 256B falls back to heap, still works
 - [ ] 4.4 Node destruction: arena-owned nodes skip `::operator delete`, heap nodes don't
-- [ ] 4.5 Coroutine: `co_await` chains still work (heap path, no arena)
-- [ ] 4.6 Combinators: `all()` / `race()` still work (heap path)
+- [x] 4.5 Coroutine: `co_await` chains still work (heap path, no arena) — 14 tests pass
+- [x] 4.6 Combinators: `all()` / `race()` still work (heap path) — 17 tests pass
 
 ## 5. Docs
 
