@@ -210,7 +210,7 @@ EXPECT_TRUE(opt.is_none());
 | Weak observer | ArcWeak\<T\> | weak_ptr\<T\> | Weak\<T\> |
 | Weak upgrade | CAS loop | lock() (atomic) | CAS loop |
 | Custom deleter | No | Yes | No |
-| Covariant | `Arc<Derived>` → `Arc<Base>` (implicit) | aliasing ctor (explicit) | Via trait objects only |
+| Covariant | `Arc<Derived>` → `Arc<Base>` (implicit) | converting ctor (implicit) | Via trait objects only |
 
 ## Implementation Notes
 
