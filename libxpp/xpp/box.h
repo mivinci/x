@@ -28,56 +28,12 @@
 #include <utility>
 
 #include <xpp/allocator.h>
+#include <xpp/compressed_pair.h>
 #include <xpp/nonnull.h>
 #include <xpp/option.h>
 #include <xpp/panic.h>
 
 namespace xpp {
-namespace _ {
-
-/**
- * @brief T* + Alloc pair with empty-base optimization for empty Allocs.
- *
- * Two specializations keyed on `is_empty<A> && !is_final<A>`:
- *   - empty + non-final → inherit privately from A, sizeof == sizeof(T*)
- *   - otherwise         → store A as a member, sizeof == sizeof(T*) + sizeof(A)
- *
- * Mirrors the strategy used by libc++ / libstdc++ / MSVC STL inside
- * std::unique_ptr.
- */
-template <class T, class A, bool Empty = std::is_empty<A>::value && !IsFinal<A>::value>
-struct CompressedPair {
-  T *p;
-  A  a;
-
-  CompressedPair() noexcept(std::is_nothrow_default_constructible<A>::value) : p(nullptr), a() {}
-  CompressedPair(T *p_, A a_) noexcept(std::is_nothrow_move_constructible<A>::value)
-      : p(p_), a(std::move(a_)) {}
-
-  A &allocator() noexcept {
-    return a;
-  }
-  const A &allocator() const noexcept {
-    return a;
-  }
-};
-
-template <class T, class A> struct CompressedPair<T, A, true> : private A {
-  T *p;
-
-  CompressedPair() noexcept(std::is_nothrow_default_constructible<A>::value) : A(), p(nullptr) {}
-  CompressedPair(T *p_, A a_) noexcept(std::is_nothrow_move_constructible<A>::value)
-      : A(std::move(a_)), p(p_) {}
-
-  A &allocator() noexcept {
-    return *this;
-  }
-  const A &allocator() const noexcept {
-    return *this;
-  }
-};
-
-} // namespace _
 
 /**
  * @brief A non-null owning pointer to T with a custom Alloc.
@@ -98,7 +54,7 @@ template <class T, class A> struct CompressedPair<T, A, true> : private A {
  *               The Alloc is stored via CompressedPair with EBO when empty.
  */
 template <class T, class Alloc = GlobalAllocator> class Box {
-  using Storage = _::CompressedPair<T, Alloc>;
+  using Storage = _::CompressedPair<T *, Alloc>;
 
 public:
   using element_type   = T;
@@ -132,9 +88,9 @@ public:
   Box &operator=(Box &&o) noexcept {
     if (this != &o) {
       reset_internal();
-      m_storage.p       = o.m_storage.p;
+      m_storage.p           = o.m_storage.p;
       m_storage.allocator() = std::move(o.m_storage.allocator());
-      o.m_storage.p     = nullptr;
+      o.m_storage.p         = nullptr;
     }
     return *this;
   }
@@ -232,14 +188,15 @@ private:
  *   - && overload       → fn receives Box<T, A>&& (consumes)
  */
 template <class T, class Alloc> class Option<Box<T, Alloc>> {
-  using Storage = _::CompressedPair<T, Alloc>;
+  using Storage = _::CompressedPair<T *, Alloc>;
 
 public:
   using value_type = Box<T, Alloc>;
 
   Option() noexcept : m_storage() {}
   Option(None) noexcept : m_storage() {}
-  Option(Box<T, Alloc> &&u) noexcept : m_storage(u.m_storage.p, std::move(u.m_storage.allocator())) {
+  Option(Box<T, Alloc> &&u) noexcept
+      : m_storage(u.m_storage.p, std::move(u.m_storage.allocator())) {
     u.m_storage.p = nullptr;
   }
 
@@ -270,9 +227,9 @@ public:
   Option &operator=(Option &&o) noexcept {
     if (this != &o) {
       reset_internal();
-      m_storage.p       = o.m_storage.p;
+      m_storage.p           = o.m_storage.p;
       m_storage.allocator() = std::move(o.m_storage.allocator());
-      o.m_storage.p     = nullptr;
+      o.m_storage.p         = nullptr;
     }
     return *this;
   }
