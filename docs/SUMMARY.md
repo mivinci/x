@@ -67,6 +67,7 @@
     - [Rc\<T\> & Weak\<T\>](libxpp/smart-pointers/rc.md)
     - [Arc\<T\> & ArcWeak\<T\>](libxpp/smart-pointers/arc.md)
     - [NonNull\<T\>](libxpp/smart-pointers/nonnull.md)
+  - [Allocator](libxpp/allocator.md)  
   - [Result\<T, E\>](libxpp/result.md)
   - [Option\<T\>](libxpp/option.md)
   - [Variant](libxpp/variant.md)

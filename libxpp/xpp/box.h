@@ -24,7 +24,6 @@
 #ifndef XPP_BOX_H
 #define XPP_BOX_H
 
-#include <memory>
 #include <type_traits>
 #include <utility>
 

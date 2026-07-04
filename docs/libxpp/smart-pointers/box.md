@@ -2,19 +2,19 @@
 
 ## Introduction
 
-`box.h` provides `Box<T, Deleter>`, a non-null owning smart pointer with a Rust-style API. Unlike `Own<T>` which is nullable, `Box<T>` is **guaranteed non-null by construction** — no default constructor, no `reset()`, no null state.
+`box.h` provides `Box<T, Alloc>`, a non-null owning smart pointer with a Rust-style API. Unlike `Own<T>` which is nullable, `Box<T>` is **guaranteed non-null by construction** — no default constructor, no `reset()`, no null state.
 
-A partial specialization `Option<Box<T, Deleter>>` enables niche optimization: `nullptr` encodes `None`, so `sizeof(Option<Box<T>>) == sizeof(T*)` — matching Rust's `Option<Box<T>>`.
+A partial specialization `Option<Box<T, Alloc>>` enables niche optimization: `nullptr` encodes `None`, so `sizeof(Option<Box<T>>) == sizeof(T*)` — matching Rust's `Option<Box<T>>`.
 
 ## Design Philosophy
 
 1. **Non-null at the type level.** `Box<T>` deletes the default constructor. Construction from a null raw pointer panics in debug. This eliminates an entire class of null-dereference bugs.
 
-2. **EBO via CompressedPair.** `CompressedPair<T, D>` uses private inheritance for empty deleters to achieve zero storage overhead — `sizeof(Box<T, default_delete>) == sizeof(T*)`.
+2. **EBO via CompressedPair.** `CompressedPair<T, A>` uses private inheritance for empty allocators to achieve zero storage overhead — `sizeof(Box<T, GlobalAllocator>) == sizeof(T*)`.
 
 3. **Niche optimization for Option<Box\<T\>\>.** The `Option<Box<T>>` specialization stores a single `CompressedPair`; `nullptr` means `None`. No bool tag, no wasted bytes — matches Rust exactly.
 
-4. **Covariant construction.** `Box<Derived, E>` implicitly moves into `Box<Base, D>` (and `Option<Box<Base, D>>`) when the pointer and deleter are convertible — matching `std::unique_ptr`'s behavior.
+4. **Covariant construction.** `Box<Derived, A>` implicitly moves into `Box<Base, A>` (and `Option<Box<Base, A>>`) when the pointer and allocator are convertible — matching `std::unique_ptr`'s behavior.
 
 5. **Move-only with a "husk" state.** Post-move, the source holds `nullptr` internally. This violates the public invariant but is hidden — the only valid operation on a moved-from `Box` is destruction (which guards on null). This matches `std::unique_ptr`'s post-move contract.
 
@@ -32,7 +32,7 @@ graph TD
 
     subgraph "Storage"
         CP["CompressedPair&lt;T*, D&gt;"]
-        EBO["Empty deleter → inherit<br/>Stateful → member"]
+        EBO["Empty allocator → inherit<br/>Stateful → member"]
     end
 
     subgraph "Related Types"
@@ -54,22 +54,22 @@ graph TD
 
 ## API Reference
 
-### Box\<T, Deleter\>
+### Box\<T, Alloc\>
 
 | Member | Description |
 |---|---|
-| `static from_raw(T*, Deleter)` | Wrap raw pointer. Debug-asserts non-null. |
-| `static try_from_raw(T*, Deleter)` | Checked: returns `Option<Box>` (`None` if null). |
+| `static from_raw(T*, Alloc)` | Wrap raw pointer. Debug-asserts non-null. |
+| `static try_from_raw(T*, Alloc)` | Checked: returns `Option<Box>` (`None` if null). |
 | `T* get()` | Raw pointer access. |
 | `T& operator*()` | Dereference (SFINAE-removed for `T = void`). |
 | `T* operator->()` | Member access (SFINAE-removed for `T = void`). |
-| `Deleter& get_deleter()` | Access the deleter. |
+| `Alloc& get_allocator()` | Access the allocator. |
 | `NonNull<T> as_nonnull()` | Non-owning non-null view. |
 | `T* into_raw() &&` | Relinquish ownership (consuming, rvalue only). |
 
 Deleted: default ctor, copy ctor, copy assignment.
 
-### Option\<Box\<T, Deleter\>\>
+### Option\<Box\<T, Alloc\>\>
 
 Asymmetric `unwrap()`: `const&` returns `T*` (borrow), `&&` returns `Box<T>` (consume). Combinators pass `NonNull<T>` to callbacks on `const&` and `Box<T>&&` on `&&`.
 
@@ -117,16 +117,16 @@ auto doubled = std::move(maybe_box)
     .unwrap_or(0);
 ```
 
-### Custom deleter
+### Custom allocator
 
 ```cpp
-struct FreeDeleter {
+struct FreeAlloc {
     void operator()(void* p) const noexcept { free(p); }
 };
 void* buf = malloc(4096);
-auto box = xpp::Box<void, FreeDeleter>::from_raw(
-    buf, FreeDeleter{});
-// sizeof(Box<void, FreeDeleter>) == sizeof(void*)  (FreeDeleter is empty → EBO)
+auto box = xpp::Box<void, FreeAlloc>::from_raw(
+    buf, FreeAlloc{});
+// sizeof(Box<void, FreeAlloc>) == sizeof(void*)  (FreeAlloc is empty → EBO)
 ```
 
 ## Compile-Time Size Guarantees
@@ -140,20 +140,20 @@ static_assert(sizeof(Option<Box<int>>) == sizeof(int*));
 
 | Feature | xpp::Box\<T\> | std::unique_ptr\<T\> | Rust Box\<T\> |
 |---|---|---|---|
-| sizeof | `sizeof(T*)` | `sizeof(T*)` (default deleter) | `sizeof(T*)` |
+| sizeof | `sizeof(T*)` | `sizeof(T*)` (default allocator) | `sizeof(T*)` |
 | Non-null | Guaranteed (no default ctor) | Nullable (default ctor) | Guaranteed |
 | Move-only | Yes | Yes | Yes |
-| Custom deleter | Template parameter | Template parameter | `GlobalAlloc` |
+| Custom allocator | Template parameter | Template parameter | `GlobalAlloc` |
 | Covariant | `Box<Derived>` → `Box<Base>` (implicit) | `unique_ptr<Derived>` → `unique_ptr<Base>` | Via `DerefMut` trait |
 | Niche Option | Yes (`Option<Box<T>> = ptr`) | No | `Option<Box<T>> = ptr` |
-| EBO | Yes (`CompressedPair`) | Via empty-base optimization | N/A (no custom deleter) |
+| EBO | Yes (`CompressedPair`) | Via empty-base optimization | N/A (no custom allocator) |
 | Post-move | `nullptr` husk (dtor guards) | `nullptr` (dtor guards) | Consumed (no husk) |
 
 ## Implementation Notes
 
 ### CompressedPair
 
-Two specializations based on whether the deleter is empty and non-final:
+Two specializations based on whether the allocator is empty and non-final:
 
 ```cpp
 // Empty + non-final → inherit privately (EBO)
@@ -173,13 +173,13 @@ template <class T, class D> struct CompressedPair<T, D, false> {
 ### Option\<Box\> Niche Optimization
 
 ```cpp
-template <class T, class Deleter>
-class Option<Box<T, Deleter>> {
-    CompressedPair<T, Deleter> m_storage;
+template <class T, class Alloc>
+class Option<Box<T, Alloc>> {
+    CompressedPair<T, Alloc> m_storage;
 };
 ```
 
-`Option<Box<T>>` stores the same `CompressedPair<T*, Deleter>` as `Box<T>`. `nullptr` in `m_storage.p` represents `None`. Since `Box` guarantees non-null, `nullptr` is free to repurpose. No bool tag — `sizeof(Option<Box<int>>) == sizeof(int*)`.
+`Option<Box<T>>` stores the same `CompressedPair<T*, Alloc>` as `Box<T>`. `nullptr` in `m_storage.p` represents `None`. Since `Box` guarantees non-null, `nullptr` is free to repurpose. No bool tag — `sizeof(Option<Box<int>>) == sizeof(int*)`.
 
 The asymmetric `unwrap()` is necessary because `Box` is move-only: `const&` cannot move out, so it returns `T*` (a borrow). `&&` consumes the Option and returns `Box<T>` by move.
 
@@ -189,7 +189,7 @@ After `Box(Box&&)` or `Option<Box>(Box&&)`, the source's `m_storage.p` is set to
 
 ```cpp
 ~Box() {
-    if (m_storage.p) m_storage.deleter()(m_storage.p);
+    if (m_storage.p) m_storage.allocator()(m_storage.p);
 }
 ```
 

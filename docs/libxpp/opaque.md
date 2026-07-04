@@ -5,17 +5,17 @@
 `opaque.h` provides a single type alias:
 
 ```cpp
-template <class D>
-using OwnedOpaquePointer = Own<void, D>;
+template <class A>
+using OwnedOpaquePointer = Own<void, A>;
 ```
 
-libx's opaque handles are all `typedef void* xFoo` (via `XDEF_HANDLE`). Wrapping them with `Own<void, CustomDeleter>` is correct but exposes `void` at every use site. `OwnedOpaquePointer` hides `void` behind a name that communicates intent: "I own an opaque pointer."
+libx's opaque handles are all `typedef void* xFoo` (via `XDEF_HANDLE`). Wrapping them with `Own<void, A>` is correct but exposes `void` at every use site. `OwnedOpaquePointer` hides `void` behind a name that communicates intent: "I own an opaque pointer."
 
 ## Usage
 
 ```cpp
 struct EventLoopDestroy {
-    void operator()(void* h) const noexcept {
+    void deallocate(void* h, xpp::Layout) const noexcept {
         xEventLoopDestroy(static_cast<xEventLoop>(h));
     }
 };
@@ -26,4 +26,4 @@ class EventLoop {
 };
 ```
 
-The deleter must have `void operator()(void*) const noexcept`. It typically casts to the correct handle type and calls the corresponding `xXxxDestroy` function. EBO applies — if the deleter is stateless, `sizeof(OwnedOpaquePointer<D>) == sizeof(void*)`.
+The allocator only needs a `deallocate(void*, Layout)` method — `allocate` is never called because handles come from the C API (e.g. `xEventLoopCreate`), not from the allocator. It typically casts to the correct handle type and calls the corresponding `xXxxDestroy` function. EBO applies — if the allocator is stateless, `sizeof(OwnedOpaquePointer<A>) == sizeof(void*)`.
