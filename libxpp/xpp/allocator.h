@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstring>
 #include <new>
+#include <type_traits>
 
 #include <xpp/result.h>
 #include <xpp/span.h>
@@ -109,6 +110,61 @@ Result<Span<uint8_t>, AllocError> default_shrink(const A &alloc, void *ptr, Layo
   alloc.deallocate(ptr, old_l);
   return r;
 }
+
+namespace _ {
+
+/* ── IsFinal — C++11/14 portable is_final ─────────────────────────── */
+// std::is_final is C++14. On C++11 toolchains we fall back to the
+// __is_final compiler intrinsic (clang, gcc 4.7+, MSVC) which the
+// stdlib's own is_final wraps; on truly ancient toolchains we
+// degrade to "assume not final", which at worst forces the
+// member-storage specialization for an EBO-eligible allocator (a
+// size-not-correctness issue).
+#if __cplusplus >= 201402L
+template <class D> struct IsFinal : std::is_final<D> {};
+#elif defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+template <class D> struct IsFinal {
+  static constexpr bool value = __is_final(D);
+};
+#else
+template <class D> struct IsFinal {
+  static constexpr bool value = false;
+};
+#endif
+
+/* ── FirstIsAlloc — SFINAE helper for make() ──────────────────────── */
+// True iff the first arg in Args... is convertible to Alloc.
+// Used to disambiguate make(alloc, args...) from make(args...).
+template <class Alloc, class... Args>
+struct FirstIsAlloc : std::false_type {}; // empty pack → false
+
+template <class Alloc, class First, class... Rest>
+struct FirstIsAlloc<Alloc, First, Rest...>
+    : std::integral_constant<bool,
+                             std::is_convertible<typename std::decay<First>::type, Alloc>::value> {
+};
+
+/* ── destroy_and_dealloc — helper for Box/Own dtors ───────────────── */
+// Calls ~T() (if T is not void) then alloc.deallocate(ptr, Layout::of<T>()).
+// For T = void, skips the destructor and uses Layout{0, 1} as a sentinel
+// (GlobalAllocator::deallocate ignores the layout for the actual free).
+template <class T, class Alloc>
+inline void destroy_and_dealloc(T *ptr, Alloc &alloc, std::false_type /*is_void*/) noexcept {
+  ptr->~T();
+  alloc.deallocate(ptr, Layout::of<T>());
+}
+
+template <class T, class Alloc>
+inline void destroy_and_dealloc(T *ptr, Alloc &alloc, std::true_type /*is_void*/) noexcept {
+  // void has no destructor; use sentinel layout.
+  alloc.deallocate(ptr, Layout{0, 1});
+}
+
+template <class T, class Alloc> inline void destroy_and_dealloc(T *ptr, Alloc &alloc) noexcept {
+  destroy_and_dealloc<T, Alloc>(ptr, alloc, std::is_void<T>{});
+}
+
+} // namespace _
 
 } // namespace xpp
 

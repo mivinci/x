@@ -3,19 +3,19 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * own.h - Own<T, Deleter>: a nullable owning smart pointer with Rust-style
- *        / std::unique_ptr-style API.
+ * own.h - Own<T, Alloc>: a nullable owning smart pointer with
+ *         Rust-style / std::unique_ptr-style API.
  *
- * Storage is Option<Box<T, Deleter>> directly, so:
- *   sizeof(Own<T>) == sizeof(T*)              (default_delete is empty → EBO)
- *   sizeof(Own<T, StatefulD>) == sizeof(T*) + sizeof(StatefulD)
+ * Storage is Option<Box<T, Alloc>> directly, so:
+ *   sizeof(Own<T>)          == sizeof(T*)              (GlobalAllocator is empty → EBO)
+ *   sizeof(Own<T, StatefulA>) == sizeof(T*) + sizeof(StatefulA)
  *
  * Relationship to Box<T>:
  *   - Own<T>          — may be null. Default ctor → null. reset()/release()/take().
  *                       operator* and operator-> debug-assert on null.
- *   - Box<T>   — type-level non-null. No reset, no default ctor, no null state.
+ *   - Box<T>          — type-level non-null. No reset, no default ctor, no null state.
  *   - Bridge:
- *       std::move(own).into_nonnull()           -> Option<Box<T, D>>
+ *       std::move(own).into_nonnull()           -> Option<Box<T, A>>
  *       Own<T>(std::move(opt_box))             <- adopt back from Option
  *
  * Choose Own<T> when you want C++/Rust-idiomatic ownership (operator*, reset,
@@ -32,6 +32,7 @@
 #include <type_traits>
 #include <utility>
 
+#include <xpp/allocator.h>
 #include <xpp/box.h>
 #include <xpp/option.h>
 #include <xpp/panic.h>
@@ -42,20 +43,20 @@ namespace xpp {
  * @brief Nullable owning smart pointer. Rust/std::unique_ptr-style API.
  *
  * Move-only. Exception-free destructor. Holds at most one heap-allocated T,
- * disposed via Deleter on destruction or reset.
+ * disposed via Alloc on destruction or reset.
  *
- * @tparam T        Pointee type. T = void supported (operator*, ->
- *                  SFINAE-removed).
- * @tparam Deleter  Function-object-like type called on the held pointer
- *                  when non-null. Defaults to std::default_delete<T>.
+ * @tparam T     Pointee type. T = void supported (operator*, ->
+ *               SFINAE-removed).
+ * @tparam Alloc Allocator used for deallocation. Defaults to
+ *               GlobalAllocator (empty, EBO → sizeof(Own<T>) == sizeof(T*)).
  */
-template <class T, class Deleter = std::default_delete<T>> class Own {
-  using Inner = Option<Box<T, Deleter>>;
+template <class T, class Alloc = GlobalAllocator> class Own {
+  using Inner = Option<Box<T, Alloc>>;
 
 public:
-  using element_type = T;
-  using deleter_type = Deleter;
-  using pointer      = T *;
+  using element_type   = T;
+  using allocator_type = Alloc;
+  using pointer        = T *;
 
   /** @brief Default ctor. Constructs an empty (null) Own. */
   Own() noexcept = default;
@@ -68,37 +69,31 @@ public:
    *
    * If `p` is null, the resulting Own is empty. Otherwise it owns `p`.
    */
-  explicit Own(T *p) noexcept : m_inner(Box<T, Deleter>::try_from_raw(p)) {}
+  explicit Own(T *p) noexcept : m_inner(Box<T, Alloc>::try_from_raw(p)) {}
 
-  /** @brief Take ownership of a raw pointer with a custom deleter instance. */
-  Own(T *p, Deleter d) noexcept : m_inner(Box<T, Deleter>::try_from_raw(p, std::move(d))) {}
+  /** @brief Take ownership of a raw pointer with a custom allocator instance. */
+  Own(T *p, Alloc a) noexcept : m_inner(Box<T, Alloc>::try_from_raw(p, std::move(a))) {}
 
   /** @brief Adopt an existing Box (always non-empty). */
-  Own(Box<T, Deleter> &&nn) noexcept : m_inner(std::move(nn)) {}
+  Own(Box<T, Alloc> &&nn) noexcept : m_inner(std::move(nn)) {}
 
   /** @brief Adopt from Option<Box>. Empty iff the Option is None. */
-  Own(Option<Box<T, Deleter>> &&opt) noexcept : m_inner(std::move(opt)) {}
+  Own(Option<Box<T, Alloc>> &&opt) noexcept : m_inner(std::move(opt)) {}
 
-  /** @brief Covariant: adopt Box<Derived, E>. */
-  template <class U, class E,
-            class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
-                                            !std::is_same<U, T>::value &&
-                                            std::is_convertible<E &&, Deleter>::value>::type>
-  Own(Box<U, E> &&nn) noexcept : m_inner(std::move(nn)) {}
+  /** @brief Covariant: adopt Box<U, Alloc>. */
+  template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
+                                                     !std::is_same<U, T>::value>::type>
+  Own(Box<U, Alloc> &&nn) noexcept : m_inner(std::move(nn)) {}
 
-  /** @brief Covariant: adopt Option<Box<Derived, E>>. */
-  template <class U, class E,
-            class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
-                                            !std::is_same<U, T>::value &&
-                                            std::is_convertible<E &&, Deleter>::value>::type>
-  Own(Option<Box<U, E>> &&opt) noexcept : m_inner(std::move(opt)) {}
+  /** @brief Covariant: adopt Option<Box<U, Alloc>>. */
+  template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
+                                                     !std::is_same<U, T>::value>::type>
+  Own(Option<Box<U, Alloc>> &&opt) noexcept : m_inner(std::move(opt)) {}
 
-  /** @brief Covariant: Own<Derived, E> → Own<Base, D>. */
-  template <class U, class E,
-            class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
-                                            !std::is_same<U, T>::value &&
-                                            std::is_convertible<E &&, Deleter>::value>::type>
-  Own(Own<U, E> &&other) noexcept : m_inner(std::move(other.m_inner)) {}
+  /** @brief Covariant: Own<U, Alloc> → Own<T, Alloc>. */
+  template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
+                                                     !std::is_same<U, T>::value>::type>
+  Own(Own<U, Alloc> &&other) noexcept : m_inner(std::move(other.m_inner)) {}
 
   Own(const Own &)            = delete;
   Own &operator=(const Own &) = delete;
@@ -116,7 +111,7 @@ public:
 
   /** @brief Replace held pointer. Old object (if any) is deleted. */
   void reset(T *p = nullptr) noexcept {
-    m_inner = Box<T, Deleter>::try_from_raw(p);
+    m_inner = Box<T, Alloc>::try_from_raw(p);
   }
 
   /**
@@ -172,9 +167,10 @@ public:
    * @brief Consume into Option<Box>. Bridges to the Rust-style API.
    *
    * If the Own was empty, returns None. Otherwise Some(Box). To
-   * inspect or take the deleter, do `std::move(own).into_nonnull().unwrap().get_deleter()`.
+   * inspect or take the allocator, do
+   * `std::move(own).into_nonnull().unwrap().get_allocator()`.
    */
-  Option<Box<T, Deleter>> into_nonnull() && noexcept {
+  Option<Box<T, Alloc>> into_nonnull() && noexcept {
     return std::move(m_inner);
   }
 
@@ -188,7 +184,7 @@ private:
 /* ── Compile-time size guarantees ────────────────────────────────────── */
 
 static_assert(sizeof(Own<int>) == sizeof(int *),
-              "Own<T, default_delete> must be sizeof(T*) via niche-optimized Option storage");
+              "Own<T, GlobalAllocator> must be sizeof(T*) via niche-optimized Option storage");
 
 } // namespace xpp
 

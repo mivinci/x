@@ -3,18 +3,17 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * box.h - Box<T, Deleter>: a guaranteed-non-null
- *                 owning smart pointer (move-only RAII), plus a
- *                 niche-optimized Option<Box<T, D>>.
+ * box.h - Box<T, Alloc>: a guaranteed-non-null owning smart pointer
+ *         (move-only RAII), plus a niche-optimized Option<Box<T, A>>.
  *
- * sizeof(Box<T>)         == sizeof(T*)   (default_delete is empty → EBO)
+ * sizeof(Box<T>)         == sizeof(T*)   (GlobalAllocator is empty → EBO)
  * sizeof(Option<Box<T>>) == sizeof(T*)   ← matches Rust's Option<Box<T>>
  *
- * For stateful Deleters, sizeof grows by sizeof(Deleter) (rounded for
+ * For stateful Allocs, sizeof grows by sizeof(Alloc) (rounded for
  * alignment), matching std::unique_ptr's storage strategy.
  *
- * The "moved-from" state of Box technically holds a null
- * pointer, violating the public invariant. This is treated as a private
+ * The "moved-from" state of Box technically holds a null pointer,
+ * violating the public invariant. This is treated as a private
  * implementation detail visible only to the destructor (which guards
  * on null). Calling get() / operator* / operator-> on a moved-from
  * value is undefined — see std::unique_ptr's analogous contract.
@@ -29,6 +28,7 @@
 #include <type_traits>
 #include <utility>
 
+#include <xpp/allocator.h>
 #include <xpp/nonnull.h>
 #include <xpp/option.h>
 #include <xpp/panic.h>
@@ -37,63 +37,43 @@ namespace xpp {
 namespace _ {
 
 /**
- * @brief T* + Deleter pair with empty-base optimization for empty Deleters.
+ * @brief T* + Alloc pair with empty-base optimization for empty Allocs.
  *
- * Two specializations keyed on `is_empty<D> && !is_final<D>`:
- *   - empty + non-final → inherit privately from D, sizeof == sizeof(T*)
- *   - otherwise         → store D as a member, sizeof == sizeof(T*) + sizeof(D)
+ * Two specializations keyed on `is_empty<A> && !is_final<A>`:
+ *   - empty + non-final → inherit privately from A, sizeof == sizeof(T*)
+ *   - otherwise         → store A as a member, sizeof == sizeof(T*) + sizeof(A)
  *
  * Mirrors the strategy used by libc++ / libstdc++ / MSVC STL inside
  * std::unique_ptr.
  */
-// std::is_final is C++14. On C++11 toolchains we fall back to the
-// __is_final compiler intrinsic (clang, gcc 4.7+, MSVC) which the
-// stdlib's own is_final wraps; on truly ancient toolchains we
-// degrade to "assume not final", which at worst forces the
-// member-storage specialization for an EBO-eligible deleter (a
-// size-not-correctness issue).
-namespace _ {
-#if __cplusplus >= 201402L
-template <class D> struct IsFinal : std::is_final<D> {};
-#elif defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
-template <class D> struct IsFinal {
-  static constexpr bool value = __is_final(D);
-};
-#else
-template <class D> struct IsFinal {
-  static constexpr bool value = false;
-};
-#endif
-} // namespace _
-
-template <class T, class D, bool Empty = std::is_empty<D>::value && !_::IsFinal<D>::value>
+template <class T, class A, bool Empty = std::is_empty<A>::value && !IsFinal<A>::value>
 struct CompressedPair {
   T *p;
-  D  d;
+  A  a;
 
-  CompressedPair() noexcept(std::is_nothrow_default_constructible<D>::value) : p(nullptr), d() {}
-  CompressedPair(T *p_, D d_) noexcept(std::is_nothrow_move_constructible<D>::value)
-      : p(p_), d(std::move(d_)) {}
+  CompressedPair() noexcept(std::is_nothrow_default_constructible<A>::value) : p(nullptr), a() {}
+  CompressedPair(T *p_, A a_) noexcept(std::is_nothrow_move_constructible<A>::value)
+      : p(p_), a(std::move(a_)) {}
 
-  D &deleter() noexcept {
-    return d;
+  A &alloc() noexcept {
+    return a;
   }
-  const D &deleter() const noexcept {
-    return d;
+  const A &alloc() const noexcept {
+    return a;
   }
 };
 
-template <class T, class D> struct CompressedPair<T, D, true> : private D {
+template <class T, class A> struct CompressedPair<T, A, true> : private A {
   T *p;
 
-  CompressedPair() noexcept(std::is_nothrow_default_constructible<D>::value) : D(), p(nullptr) {}
-  CompressedPair(T *p_, D d_) noexcept(std::is_nothrow_move_constructible<D>::value)
-      : D(std::move(d_)), p(p_) {}
+  CompressedPair() noexcept(std::is_nothrow_default_constructible<A>::value) : A(), p(nullptr) {}
+  CompressedPair(T *p_, A a_) noexcept(std::is_nothrow_move_constructible<A>::value)
+      : A(std::move(a_)), p(p_) {}
 
-  D &deleter() noexcept {
+  A &alloc() noexcept {
     return *this;
   }
-  const D &deleter() const noexcept {
+  const A &alloc() const noexcept {
     return *this;
   }
 };
@@ -101,63 +81,61 @@ template <class T, class D> struct CompressedPair<T, D, true> : private D {
 } // namespace _
 
 /**
- * @brief A non-null owning pointer to T with a custom Deleter.
+ * @brief A non-null owning pointer to T with a custom Alloc.
  *
  * Semantically equivalent to a std::unique_ptr<T, D> that is never null.
  * Move-only. No reset (would imply nullable storage).
  *
  * Construction:
- *   - from_raw(T*, D = D{})       — mirrors unsafe Box::from_raw (debug-checked)
- *   - try_from_raw(T*, D = D{})  — checked, returns Option<Box>
+ *   - from_raw(T*, A = A{})       — mirrors unsafe Box::from_raw (debug-checked)
+ *   - try_from_raw(T*, A = A{})   — checked, returns Option<Box>
  *
  * Also supports Box::into_raw() (consuming), mirroring Rust's Box::into_raw.
  *
- * @tparam T        Pointee type. T = void supported (operator*, ->
- *                  SFINAE-removed).
- * @tparam Deleter  Function-object-like type called on the held pointer
- *                  in the destructor. Defaults to std::default_delete<T>.
+ * @tparam T     Pointee type. T = void supported (operator*, ->
+ *               SFINAE-removed).
+ * @tparam Alloc Allocator used for deallocation. Defaults to
+ *               GlobalAllocator (empty, EBO → sizeof(Box<T>) == sizeof(T*)).
+ *               The Alloc is stored via CompressedPair with EBO when empty.
  */
-template <class T, class Deleter = std::default_delete<T>> class Box {
-  using Storage = _::CompressedPair<T, Deleter>;
+template <class T, class Alloc = GlobalAllocator> class Box {
+  using Storage = _::CompressedPair<T, Alloc>;
 
 public:
-  using element_type = T;
-  using deleter_type = Deleter;
-  using pointer      = T *;
+  using element_type   = T;
+  using allocator_type = Alloc;
+  using pointer        = T *;
 
   Box()                       = delete;
   Box(const Box &)            = delete;
   Box &operator=(const Box &) = delete;
 
   /** @brief Move ctor. Source becomes a "destruction-only" husk. */
-  Box(Box &&o) noexcept : m_storage(o.m_storage.p, std::move(o.m_storage.deleter())) {
+  Box(Box &&o) noexcept : m_storage(o.m_storage.p, std::move(o.m_storage.alloc())) {
     o.m_storage.p = nullptr;
   }
 
   /**
-   * @brief Covariant move ctor: Box<Derived, E> → Box<Base, D>.
+   * @brief Covariant move ctor: Box<U, Alloc> → Box<T, Alloc>.
    *
-   * Mirrors std::unique_ptr<U, E> → std::unique_ptr<T, D>: enabled when U*
-   * is convertible to T* and E&& is convertible to D. This covers the
-   * common case `default_delete<Derived>` → `default_delete<Base>`.
+   * Same Alloc required — different Allocs would have different
+   * CompressedPair layouts. Enabled when U* is convertible to T*.
    */
-  template <class U, class E,
-            class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
-                                            !std::is_same<U, T>::value &&
-                                            std::is_convertible<E &&, Deleter>::value>::type>
-  Box(Box<U, E> &&o) noexcept
+  template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
+                                                     !std::is_same<U, T>::value>::type>
+  Box(Box<U, Alloc> &&o) noexcept
       : m_storage(static_cast<T *>(o.m_storage.p),
-                  static_cast<Deleter>(std::move(o.m_storage.deleter()))) {
+                  static_cast<Alloc>(std::move(o.m_storage.alloc()))) {
     o.m_storage.p = nullptr;
   }
 
-  /** @brief Move assignment. Old target is deleted; source becomes husk. */
+  /** @brief Move assignment. Old target is destroyed; source becomes husk. */
   Box &operator=(Box &&o) noexcept {
     if (this != &o) {
       reset_internal();
-      m_storage.p         = o.m_storage.p;
-      m_storage.deleter() = std::move(o.m_storage.deleter());
-      o.m_storage.p       = nullptr;
+      m_storage.p       = o.m_storage.p;
+      m_storage.alloc() = std::move(o.m_storage.alloc());
+      o.m_storage.p     = nullptr;
     }
     return *this;
   }
@@ -167,13 +145,13 @@ public:
   }
 
   /** @brief Wrap a raw pointer; caller asserts non-null (mirrors unsafe Box::from_raw). */
-  static Box from_raw(T *p, Deleter d = Deleter{}) noexcept {
+  static Box from_raw(T *p, Alloc a = Alloc{}) noexcept {
     XPP_DEBUG_ASSERT(p != nullptr, "Box::from_raw: pointer is null");
-    return Box(p, std::move(d), _PrivateTag{});
+    return Box(p, std::move(a), _PrivateTag{});
   }
 
   /** @brief Checked factory. Returns None if p is null. */
-  static Option<Box> try_from_raw(T *p, Deleter d = Deleter{}) noexcept;
+  static Option<Box> try_from_raw(T *p, Alloc a = Alloc{}) noexcept;
 
   T *get() const noexcept {
     return m_storage.p;
@@ -189,11 +167,11 @@ public:
     return m_storage.p;
   }
 
-  Deleter &get_deleter() noexcept {
-    return m_storage.deleter();
+  Alloc &get_allocator() noexcept {
+    return m_storage.alloc();
   }
-  const Deleter &get_deleter() const noexcept {
-    return m_storage.deleter();
+  const Alloc &get_allocator() const noexcept {
+    return m_storage.alloc();
   }
 
   /** @brief Borrow as a non-owning NonNull view. */
@@ -215,11 +193,11 @@ public:
 
 private:
   struct _PrivateTag {};
-  Box(T *p, Deleter d, _PrivateTag) noexcept : m_storage(p, std::move(d)) {}
+  Box(T *p, Alloc a, _PrivateTag) noexcept : m_storage(p, std::move(a)) {}
 
   void reset_internal() noexcept {
     if (m_storage.p) {
-      m_storage.deleter()(m_storage.p);
+      _::destroy_and_dealloc(m_storage.p, m_storage.alloc());
       m_storage.p = nullptr;
     }
   }
@@ -233,72 +211,69 @@ private:
   template <class> friend class Option;
   // Allow covariant ctor to access another instantiation's storage.
   template <class, class> friend class Box;
+  // Allow Own to reach into Box storage.
+  template <class, class> friend class Own;
 };
 
 /**
- * @brief Niche-optimized Option<Box<T, D>>. Storage is the same
+ * @brief Niche-optimized Option<Box<T, A>>. Storage is the same
  *        pair as Box itself; nullptr ↔ None.
  *
- * Move-only (mirrors stored type). The destructor invokes the deleter
+ * Move-only (mirrors stored type). The destructor invokes the alloc
  * iff the storage pointer is non-null.
  *
  * unwrap() is asymmetric:
  *   - const &  → returns T* (a non-owning borrow). Cannot return owning
  *                Box (move-only) and cannot return a reference
  *                because no owning value lives in storage.
- *   - &&       → returns Box<T, D> by move (consumes).
+ *   - &&       → returns Box<T, A> by move (consumes).
  *
  * Combinators map() / and_then() / filter() / inspect():
  *   - const & overload  → fn receives NonNull<T> (non-owning view)
- *   - && overload       → fn receives Box<T, D>&& (consumes)
+ *   - && overload       → fn receives Box<T, A>&& (consumes)
  */
-template <class T, class Deleter> class Option<Box<T, Deleter>> {
-  using Storage = _::CompressedPair<T, Deleter>;
+template <class T, class Alloc> class Option<Box<T, Alloc>> {
+  using Storage = _::CompressedPair<T, Alloc>;
 
 public:
-  using value_type = Box<T, Deleter>;
+  using value_type = Box<T, Alloc>;
 
   Option() noexcept : m_storage() {}
   Option(None) noexcept : m_storage() {}
-  Option(Box<T, Deleter> &&u) noexcept
-      : m_storage(u.m_storage.p, std::move(u.m_storage.deleter())) {
+  Option(Box<T, Alloc> &&u) noexcept : m_storage(u.m_storage.p, std::move(u.m_storage.alloc())) {
     u.m_storage.p = nullptr;
   }
 
-  /** @brief Covariant: adopt Box<Derived, E>. */
-  template <class U, class E,
-            class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
-                                            !std::is_same<U, T>::value &&
-                                            std::is_convertible<E &&, Deleter>::value>::type>
-  Option(Box<U, E> &&u) noexcept
+  /** @brief Covariant: adopt Box<U, Alloc>. */
+  template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
+                                                     !std::is_same<U, T>::value>::type>
+  Option(Box<U, Alloc> &&u) noexcept
       : m_storage(static_cast<T *>(u.m_storage.p),
-                  static_cast<Deleter>(std::move(u.m_storage.deleter()))) {
+                  static_cast<Alloc>(std::move(u.m_storage.alloc()))) {
     u.m_storage.p = nullptr;
   }
 
   Option(const Option &)            = delete;
   Option &operator=(const Option &) = delete;
 
-  Option(Option &&o) noexcept : m_storage(o.m_storage.p, std::move(o.m_storage.deleter())) {
+  Option(Option &&o) noexcept : m_storage(o.m_storage.p, std::move(o.m_storage.alloc())) {
     o.m_storage.p = nullptr;
   }
 
-  /** @brief Covariant: adopt Option<Box<Derived, E>>. */
-  template <class U, class E,
-            class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
-                                            !std::is_same<U, T>::value &&
-                                            std::is_convertible<E &&, Deleter>::value>::type>
-  Option(Option<Box<U, E>> &&o) noexcept
+  /** @brief Covariant: adopt Option<Box<U, Alloc>>. */
+  template <class U, class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
+                                                     !std::is_same<U, T>::value>::type>
+  Option(Option<Box<U, Alloc>> &&o) noexcept
       : m_storage(static_cast<T *>(o.m_storage.p),
-                  static_cast<Deleter>(std::move(o.m_storage.deleter()))) {
+                  static_cast<Alloc>(std::move(o.m_storage.alloc()))) {
     o.m_storage.p = nullptr;
   }
   Option &operator=(Option &&o) noexcept {
     if (this != &o) {
       reset_internal();
-      m_storage.p         = o.m_storage.p;
-      m_storage.deleter() = std::move(o.m_storage.deleter());
-      o.m_storage.p       = nullptr;
+      m_storage.p       = o.m_storage.p;
+      m_storage.alloc() = std::move(o.m_storage.alloc());
+      o.m_storage.p     = nullptr;
     }
     return *this;
   }
@@ -327,7 +302,7 @@ public:
     XPP_ASSERT(m_storage.p != nullptr, "unwrap() on None Option");
     return m_storage.p;
   }
-  Box<T, Deleter> unwrap() && {
+  Box<T, Alloc> unwrap() && {
     XPP_ASSERT(m_storage.p != nullptr, "unwrap() on None Option");
     return take_owned();
   }
@@ -336,12 +311,12 @@ public:
     XPP_DEBUG_ASSERT(m_storage.p, "internal: Option must be Some");
     return m_storage.p;
   }
-  Box<T, Deleter> unwrap_unchecked() && noexcept {
+  Box<T, Alloc> unwrap_unchecked() && noexcept {
     XPP_DEBUG_ASSERT(m_storage.p, "internal: Option must be Some");
     return take_owned();
   }
 
-  Box<T, Deleter> unwrap_or(Box<T, Deleter> &&fallback) && {
+  Box<T, Alloc> unwrap_or(Box<T, Alloc> &&fallback) && {
     if (m_storage.p) return take_owned();
     return std::move(fallback);
   }
@@ -354,7 +329,7 @@ public:
     XPP_ASSERT(m_storage.p != nullptr, "expect: %s", msg);
     return m_storage.p;
   }
-  Box<T, Deleter> expect(const char *msg) && {
+  Box<T, Alloc> expect(const char *msg) && {
     XPP_ASSERT(m_storage.p != nullptr, "expect: %s", msg);
     return take_owned();
   }
@@ -367,18 +342,18 @@ public:
     return m_storage.p ? Option<U>(fn(NonNull<T>::new_unchecked(m_storage.p))) : Option<U>(none);
   }
   template <class Func>
-  auto map(Func &&fn) && -> Option<decltype(fn(std::declval<Box<T, Deleter> &&>()))> {
-    using U = decltype(fn(std::declval<Box<T, Deleter> &&>()));
+  auto map(Func &&fn) && -> Option<decltype(fn(std::declval<Box<T, Alloc> &&>()))> {
+    using U = decltype(fn(std::declval<Box<T, Alloc> &&>()));
     if (!m_storage.p) return Option<U>(none);
-    Box<T, Deleter> owned = take_owned();
+    Box<T, Alloc> owned = take_owned();
     return Option<U>(fn(std::move(owned)));
   }
 
   template <class Func>
-  auto and_then(Func &&fn) && -> decltype(fn(std::declval<Box<T, Deleter> &&>())) {
-    using R = decltype(fn(std::declval<Box<T, Deleter> &&>()));
+  auto and_then(Func &&fn) && -> decltype(fn(std::declval<Box<T, Alloc> &&>())) {
+    using R = decltype(fn(std::declval<Box<T, Alloc> &&>()));
     if (!m_storage.p) return R(none);
-    Box<T, Deleter> owned = take_owned();
+    Box<T, Alloc> owned = take_owned();
     return fn(std::move(owned));
   }
 
@@ -387,7 +362,7 @@ public:
     return fn();
   }
 
-  template <class Func> Box<T, Deleter> unwrap_or_else(Func &&fn) && {
+  template <class Func> Box<T, Alloc> unwrap_or_else(Func &&fn) && {
     if (m_storage.p) return take_owned();
     return fn();
   }
@@ -412,15 +387,15 @@ public:
 private:
   void reset_internal() noexcept {
     if (m_storage.p) {
-      m_storage.deleter()(m_storage.p);
+      _::destroy_and_dealloc(m_storage.p, m_storage.alloc());
       m_storage.p = nullptr;
     }
   }
 
   /** Move ownership out of storage; storage left empty. Caller has checked p != null. */
-  Box<T, Deleter> take_owned() noexcept {
-    Box<T, Deleter> r = Box<T, Deleter>::from_raw(m_storage.p, std::move(m_storage.deleter()));
-    m_storage.p       = nullptr;
+  Box<T, Alloc> take_owned() noexcept {
+    Box<T, Alloc> r = Box<T, Alloc>::from_raw(m_storage.p, std::move(m_storage.alloc()));
+    m_storage.p     = nullptr;
     return r;
   }
 
@@ -430,19 +405,20 @@ private:
   template <class> friend class Option;
 };
 
-/* ── Box<T, D>::from definition ─────────────────────────────── */
+/* ── Box<T, A>::from definition ─────────────────────────────── */
 
-template <class T, class D> inline Option<Box<T, D>> Box<T, D>::try_from_raw(T *p, D d) noexcept {
-  if (!p) return Option<Box<T, D>>(none);
-  return Option<Box<T, D>>(Box<T, D>(p, std::move(d), _PrivateTag{}));
+template <class T, class Alloc>
+inline Option<Box<T, Alloc>> Box<T, Alloc>::try_from_raw(T *p, Alloc a) noexcept {
+  if (!p) return Option<Box<T, Alloc>>(none);
+  return Option<Box<T, Alloc>>(Box<T, Alloc>(p, std::move(a), _PrivateTag{}));
 }
 
 /* ── Compile-time size guarantees ────────────────────────────────────── */
 
 static_assert(sizeof(Box<int>) == sizeof(int *),
-              "Box<T, default_delete> must be sizeof(T*) via EBO");
+              "Box<T, GlobalAllocator> must be sizeof(T*) via EBO");
 static_assert(sizeof(Option<Box<int>>) == sizeof(int *),
-              "Option<Box<T, default_delete>> niche broken");
+              "Option<Box<T, GlobalAllocator>> niche broken");
 
 } // namespace xpp
 

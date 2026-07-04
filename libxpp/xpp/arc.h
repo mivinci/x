@@ -173,37 +173,6 @@ template <class T, class Alloc = GlobalAllocator> class ArcWeak;
 
 namespace _ {
 
-/* ── IsFinal — C++11/14 portable is_final ─────────────────────────── */
-// std::is_final is C++14. On C++11 toolchains we fall back to the
-// __is_final compiler intrinsic (clang, gcc 4.7+, MSVC) which the
-// stdlib's own is_final wraps; on truly ancient toolchains we
-// degrade to "assume not final", which at worst forces the
-// member-storage specialization for an EBO-eligible allocator (a
-// size-not-correctness issue).
-#if __cplusplus >= 201402L
-template <class D> struct IsFinal : std::is_final<D> {};
-#elif defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
-template <class D> struct IsFinal {
-  static constexpr bool value = __is_final(D);
-};
-#else
-template <class D> struct IsFinal {
-  static constexpr bool value = false;
-};
-#endif
-
-/* ── FirstIsAlloc — SFINAE helper for make() ──────────────────────── */
-// True iff the first arg in Args... is convertible to Alloc.
-// Used to disambiguate make(alloc, args...) from make(args...).
-template <class Alloc, class... Args>
-struct FirstIsAlloc : std::false_type {}; // empty pack → false
-
-template <class Alloc, class First, class... Rest>
-struct FirstIsAlloc<Alloc, First, Rest...>
-    : std::integral_constant<bool,
-                             std::is_convertible<typename std::decay<First>::type, Alloc>::value> {
-};
-
 /* ── ArcInner — control block + value, with EBO on empty Alloc ────── */
 /**
  * @brief Atomic counterpart of RcInner. Same layout strategy, but

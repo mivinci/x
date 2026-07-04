@@ -20,11 +20,11 @@
 
 ## 3. Migrate Rc
 
-- [ ] 3.1 Add `Alloc` template parameter to `Rc<T, Alloc = GlobalAllocator>` (same pattern as Arc)
-- [ ] 3.2 Update `RcInner<T, Alloc>`, `rc_dec_strong`, `rc_dec_weak_and_maybe_dealloc`
-- [ ] 3.3 Update `Rc::make()` — same SFINAE pattern as Arc
-- [ ] 3.4 Update `Weak<T, Alloc>` — same Alloc parameter
-- [ ] 3.5 Update `Option<Rc<T, Alloc>>` niche specialization
+- [x] 3.1 Add `Alloc` template parameter to `Rc<T, Alloc = GlobalAllocator>` (same pattern as Arc)
+- [x] 3.2 Update `RcInner<T, Alloc>`, `rc_dec_strong`, `rc_dec_weak_and_maybe_dealloc`
+- [x] 3.3 Update `Rc::make()` — same SFINAE pattern as Arc
+- [x] 3.4 Update `Weak<T, Alloc>` — same Alloc parameter
+- [x] 3.5 Update `Option<Rc<T, Alloc>>` niche specialization (always works — sizeof(Rc) == sizeof(T*))
 
 ## 4. Migrate Own (Deleter → Alloc)
 
