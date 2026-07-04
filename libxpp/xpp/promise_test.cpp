@@ -630,10 +630,10 @@ TEST(PromiseTest, ArenaOverflowLargeCaptures) {
   buf4[0]       = 4;
 
   int result = xpp::resolve(0)
-                 .then([buf1](int x) { return x + (int)buf1[0]; })
-                 .then([buf2](int x) { return x + (int)buf2[0]; })
-                 .then([buf3](int x) { return x + (int)buf3[0]; })
-                 .then([buf4](int x) { return x + (int)buf4[0]; })
+                 .then([buf1](int x) { return x + static_cast<int>(buf1[0]); })
+                 .then([buf2](int x) { return x + static_cast<int>(buf2[0]); })
+                 .then([buf3](int x) { return x + static_cast<int>(buf3[0]); })
+                 .then([buf4](int x) { return x + static_cast<int>(buf4[0]); })
                  .wait();
   EXPECT_EQ(result, 10); // 0 + 1 + 2 + 3 + 4
 }
@@ -661,11 +661,11 @@ TEST(PromiseTest, ArenaDestructionRoutingManyChains) {
     char big[64] = {};
     big[0]       = (char)i;
     auto p       = xpp::resolve(0)
-               .then([big](int x) { return x + (int)big[0]; })
-               .then([big](int x) { return x + (int)big[0]; })
-               .then([big](int x) { return x + (int)big[0]; })
-               .then([big](int x) { return x + (int)big[0]; })
-               .then([big](int x) { return x + (int)big[0]; });
+               .then([big](int x) { return x + static_cast<int>(big[0]); })
+               .then([big](int x) { return x + static_cast<int>(big[0]); })
+               .then([big](int x) { return x + static_cast<int>(big[0]); })
+               .then([big](int x) { return x + static_cast<int>(big[0]); })
+               .then([big](int x) { return x + static_cast<int>(big[0]); });
     // p destroyed — mix of arena and heap nodes.
   }
 
