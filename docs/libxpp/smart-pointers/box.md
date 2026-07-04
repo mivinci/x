@@ -57,7 +57,7 @@ graph TD
 ### Box\<T, Alloc\>
 
 | Member | Description |
-|---|---|
+| --- | --- |
 | `static from_raw(T*, Alloc)` | Wrap raw pointer. Debug-asserts non-null. |
 | `static try_from_raw(T*, Alloc)` | Checked: returns `Option<Box>` (`None` if null). |
 | `T* get()` | Raw pointer access. |
@@ -74,7 +74,7 @@ Deleted: default ctor, copy ctor, copy assignment.
 Asymmetric `unwrap()`: `const&` returns `T*` (borrow), `&&` returns `Box<T>` (consume). Combinators pass `NonNull<T>` to callbacks on `const&` and `Box<T>&&` on `&&`.
 
 | Member | Returns `const&` | Returns `&&` |
-|---|---|---|
+| --- | --- | --- |
 | `unwrap()` | `T*` | `Box<T>` |
 | `unwrap_unchecked()` | `T*` | `Box<T>` |
 | `map(fn)` | `Option<U>` | `Option<U>` |
@@ -139,7 +139,7 @@ static_assert(sizeof(Option<Box<int>>) == sizeof(int*));
 ## Comparison
 
 | Feature | xpp::Box\<T\> | std::unique_ptr\<T\> | Rust Box\<T\> |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | sizeof | `sizeof(T*)` | `sizeof(T*)` (default allocator) | `sizeof(T*)` |
 | Non-null | Guaranteed (no default ctor) | Nullable (default ctor) | Guaranteed |
 | Move-only | Yes | Yes | Yes |

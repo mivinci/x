@@ -54,10 +54,10 @@ struct CompressedPair {
   CompressedPair(T *p_, A a_) noexcept(std::is_nothrow_move_constructible<A>::value)
       : p(p_), a(std::move(a_)) {}
 
-  A &alloc() noexcept {
+  A &allocator() noexcept {
     return a;
   }
-  const A &alloc() const noexcept {
+  const A &allocator() const noexcept {
     return a;
   }
 };
@@ -69,10 +69,10 @@ template <class T, class A> struct CompressedPair<T, A, true> : private A {
   CompressedPair(T *p_, A a_) noexcept(std::is_nothrow_move_constructible<A>::value)
       : A(std::move(a_)), p(p_) {}
 
-  A &alloc() noexcept {
+  A &allocator() noexcept {
     return *this;
   }
-  const A &alloc() const noexcept {
+  const A &allocator() const noexcept {
     return *this;
   }
 };
@@ -110,7 +110,7 @@ public:
   Box &operator=(const Box &) = delete;
 
   /** @brief Move ctor. Source becomes a "destruction-only" husk. */
-  Box(Box &&o) noexcept : m_storage(o.m_storage.p, std::move(o.m_storage.alloc())) {
+  Box(Box &&o) noexcept : m_storage(o.m_storage.p, std::move(o.m_storage.allocator())) {
     o.m_storage.p = nullptr;
   }
 
@@ -124,7 +124,7 @@ public:
                                                      !std::is_same<U, T>::value>::type>
   Box(Box<U, Alloc> &&o) noexcept
       : m_storage(static_cast<T *>(o.m_storage.p),
-                  static_cast<Alloc>(std::move(o.m_storage.alloc()))) {
+                  static_cast<Alloc>(std::move(o.m_storage.allocator()))) {
     o.m_storage.p = nullptr;
   }
 
@@ -133,7 +133,7 @@ public:
     if (this != &o) {
       reset_internal();
       m_storage.p       = o.m_storage.p;
-      m_storage.alloc() = std::move(o.m_storage.alloc());
+      m_storage.allocator() = std::move(o.m_storage.allocator());
       o.m_storage.p     = nullptr;
     }
     return *this;
@@ -166,11 +166,11 @@ public:
     return m_storage.p;
   }
 
-  Alloc &get_allocator() noexcept {
-    return m_storage.alloc();
+  Alloc &allocator() noexcept {
+    return m_storage.allocator();
   }
-  const Alloc &get_allocator() const noexcept {
-    return m_storage.alloc();
+  const Alloc &allocator() const noexcept {
+    return m_storage.allocator();
   }
 
   /** @brief Borrow as a non-owning NonNull view. */
@@ -196,7 +196,7 @@ private:
 
   void reset_internal() noexcept {
     if (m_storage.p) {
-      _::destroy_and_dealloc(m_storage.p, m_storage.alloc());
+      _::destroy_and_dealloc(m_storage.p, m_storage.allocator());
       m_storage.p = nullptr;
     }
   }
@@ -239,7 +239,7 @@ public:
 
   Option() noexcept : m_storage() {}
   Option(None) noexcept : m_storage() {}
-  Option(Box<T, Alloc> &&u) noexcept : m_storage(u.m_storage.p, std::move(u.m_storage.alloc())) {
+  Option(Box<T, Alloc> &&u) noexcept : m_storage(u.m_storage.p, std::move(u.m_storage.allocator())) {
     u.m_storage.p = nullptr;
   }
 
@@ -248,14 +248,14 @@ public:
                                                      !std::is_same<U, T>::value>::type>
   Option(Box<U, Alloc> &&u) noexcept
       : m_storage(static_cast<T *>(u.m_storage.p),
-                  static_cast<Alloc>(std::move(u.m_storage.alloc()))) {
+                  static_cast<Alloc>(std::move(u.m_storage.allocator()))) {
     u.m_storage.p = nullptr;
   }
 
   Option(const Option &)            = delete;
   Option &operator=(const Option &) = delete;
 
-  Option(Option &&o) noexcept : m_storage(o.m_storage.p, std::move(o.m_storage.alloc())) {
+  Option(Option &&o) noexcept : m_storage(o.m_storage.p, std::move(o.m_storage.allocator())) {
     o.m_storage.p = nullptr;
   }
 
@@ -271,7 +271,7 @@ public:
     if (this != &o) {
       reset_internal();
       m_storage.p       = o.m_storage.p;
-      m_storage.alloc() = std::move(o.m_storage.alloc());
+      m_storage.allocator() = std::move(o.m_storage.allocator());
       o.m_storage.p     = nullptr;
     }
     return *this;
@@ -386,14 +386,14 @@ public:
 private:
   void reset_internal() noexcept {
     if (m_storage.p) {
-      _::destroy_and_dealloc(m_storage.p, m_storage.alloc());
+      _::destroy_and_dealloc(m_storage.p, m_storage.allocator());
       m_storage.p = nullptr;
     }
   }
 
   /** Move ownership out of storage; storage left empty. Caller has checked p != null. */
   Box<T, Alloc> take_owned() noexcept {
-    Box<T, Alloc> r = Box<T, Alloc>::from_raw(m_storage.p, std::move(m_storage.alloc()));
+    Box<T, Alloc> r = Box<T, Alloc>::from_raw(m_storage.p, std::move(m_storage.allocator()));
     m_storage.p     = nullptr;
     return r;
   }
