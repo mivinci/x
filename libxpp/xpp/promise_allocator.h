@@ -3,10 +3,10 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * promise_alloc.h — Internal: arena-aware allocation for PromiseNode.
+ * allocate_promise.h — Internal: arena-aware allocation for PromiseNode.
  *
  * KJ-style explicit arena passing: no thread-local, no guard. All
- * PromiseNode allocations go through promise_alloc(), which adds an
+ * PromiseNode allocations go through allocate_promise(), which adds an
  * 8-byte header storing the arena pointer:
  *
  *   Layout: [arena_ptr (8B)][node data]
@@ -30,7 +30,6 @@
 #define XPP_PROMISE_ALLOC_H
 
 #include <cstddef>
-#include <new>
 #include <utility>
 
 #include <xpp/allocator.h>
@@ -52,7 +51,7 @@ static const size_t k_promise_header = alignof(std::max_align_t); // 16 on most 
 class PromiseNodeAllocator {
 public:
   Result<Span<uint8_t>, AllocError> allocate(Layout layout) const {
-    // Never called through Own — nodes are created via promise_alloc().
+    // Never called through Own — nodes are created via allocate_promise().
     return GlobalAllocator{}.allocate(layout);
   }
 
@@ -68,7 +67,7 @@ public:
   }
 };
 
-/* ── promise_alloc: arena-aware node construction ─────────────────── */
+/* ── allocate_promise: arena-aware node construction ─────────────────── */
 // Always allocates with an 8-byte header. If arena is non-null and
 // has room: bump-allocate in arena, header = arena pointer. Otherwise:
 // heap new, header = nullptr.
@@ -76,7 +75,7 @@ public:
 // All PromiseNode creation must go through this function (or the
 // convenience wrappers below) so deallocate can uniformly read the
 // header.
-template <class T, class... Args> T *promise_alloc(PromiseArena *arena, Args &&...args) {
+template <class T, class... Args> T *allocate_promise(PromiseArena *arena, Args &&...args) {
   const size_t total = k_promise_header + sizeof(T);
   void        *mem;
 

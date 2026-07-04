@@ -97,6 +97,33 @@ static Promise<int> slow_coro() {
   co_return 42;
 }
 
+/* ── return_void() coverage ─────────────────────── */
+
+/// Coroutine with no explicit co_return — compiler injects return_void().
+static Promise<void> implicit_return_void() {
+  // Fall off the end: return_void() called implicitly.
+}
+
+/// Void coroutine with explicit co_return (branch A).
+static Promise<void> return_void_explicit() {
+  co_return;
+}
+
+/// Void coroutine that co_awaits yield() then co_returns — return_void()
+/// called after an intermediate suspension, verifying m_done/m_result
+/// are set correctly regardless of prior await state.
+static Promise<void> return_void_after_yield() {
+  co_await yield();
+  co_return;
+}
+
+/// Void coroutine used in a .then() chain — verifies return_void()
+/// properly sets m_done so the downstream transform node can consume the Void.
+static Promise<std::string> void_coro_then_chain() {
+  co_await simple_void();
+  co_return "after_void";
+}
+
 /* ───────────────────── Tests ───────────────────── */
 
 TEST(PromiseCoroutineTest, SimpleReturn) {
@@ -116,6 +143,42 @@ TEST(PromiseCoroutineTest, ReturnVoid) {
   WaitScope scope(loop);
   simple_void().wait();
   SUCCEED();
+}
+
+/* ── return_void specific tests ────────────────── */
+
+TEST(PromiseCoroutineTest, ImplicitReturnVoid) {
+  // Coroutine with no co_return — falls off the end, compiler emits return_void().
+  EventLoop loop;
+  WaitScope scope(loop);
+  implicit_return_void().wait();
+  SUCCEED();
+}
+
+TEST(PromiseCoroutineTest, ReturnVoidAfterYield) {
+  // return_void() called after co_await yield() — verifies m_done/m_result
+  // are set correctly even when the coroutine has prior await state.
+  EventLoop loop;
+  WaitScope scope(loop);
+  return_void_after_yield().wait();
+  SUCCEED();
+}
+
+TEST(PromiseCoroutineTest, VoidCoroutineThenChain) {
+  // Chain a .then() on a void coroutine — verifies return_void() sets m_done/m_result
+  // so that TransformPromiseNode<void, void, Func>::poll() can consume the Void.
+  EventLoop loop;
+  WaitScope scope(loop);
+  bool  flag = false;
+  simple_void().then([&flag] { flag = true; }).wait();
+  EXPECT_TRUE(flag);
+}
+
+TEST(PromiseCoroutineTest, VoidCoroutineCoAwaitInChain) {
+  // Co_await a void coroutine from within another coroutine, then chain further.
+  EventLoop loop;
+  WaitScope scope(loop);
+  EXPECT_EQ(void_coro_then_chain().wait(), "after_void");
 }
 
 TEST(PromiseCoroutineTest, AwaitResolve) {

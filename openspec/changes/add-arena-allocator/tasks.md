@@ -27,12 +27,12 @@
 - [x] 3.1 Add `PromiseArena` typedef (`Arena<256>`) and `PromiseNodeAllocator` (custom Allocator with header-based routing)
 - [x] 3.2 ~~Add `virtual destroy()` method~~ — not needed; header-based `PromiseNodeAllocator::deallocate` handles routing
 - [x] 3.3 `PromiseNodeAllocator::deallocate` reads arena pointer from 8B header: null=heap (free), non-null=arena (skip)
-- [x] 3.4 `Own<PromiseNode<T>>` → `Own<PromiseNode<T>, PromiseNodeAllocator>` (via `PromiseNodeOwn<T>` typedef)
-- [x] 3.5 `.then()` creates/reuses arena, calls `promise_alloc<T>(arena, ...)` — arena bump or heap fallback
+- [x] 3.4 `Own<PromiseNode<T>>` → `Own<PromiseNode<T>, PromiseNodeAllocator>` (via `OwnPromiseNode<T>` typedef)
+- [x] 3.5 `.then()` creates/reuses arena, calls `allocate_promise<T>(arena, ...)` — arena bump or heap fallback
 - [x] 3.6 Arena ownership: `Promise<T>` owns `m_arena`, transfers to child on `.then()`. Declared before `m_node` so destroyed after (reverse declaration order).
-- [x] 3.7 `resolve()` / `async()` / `adapt()` / `work()` / `after()` / `yield()`: first node uses `promise_alloc(nullptr, ...)` (heap, no arena)
-- [x] 3.8 `all()` / `race()`: nodes use `promise_alloc(nullptr, ...)` (heap)
-- [x] 3.9 `CoroutinePromiseNode`: uses `promise_alloc(nullptr, ...)` (heap)
+- [x] 3.7 `resolve()` / `async()` / `adapt()` / `work()` / `after()` / `yield()`: first node uses `allocate_promise(nullptr, ...)` (heap, no arena)
+- [x] 3.8 `all()` / `race()`: nodes use `allocate_promise(nullptr, ...)` (heap)
+- [x] 3.9 `CoroutinePromiseNode`: uses `allocate_promise(nullptr, ...)` (heap)
 
 ## 4. PromiseNode tests
 
