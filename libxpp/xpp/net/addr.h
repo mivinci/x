@@ -265,7 +265,7 @@ public:
 
   inline Option<Ipv4Addr> to_ipv4() const noexcept {
     if (!is_ipv4_mapped()) return none;
-    return Some(Ipv4Addr::from(m_octets[12], m_octets[13], m_octets[14], m_octets[15]));
+    return some(Ipv4Addr::from(m_octets[12], m_octets[13], m_octets[14], m_octets[15]));
   }
 
   inline std::string to_string() const {
@@ -363,11 +363,11 @@ public:
   }
 
   Option<Ipv4Addr> ipv4() const {
-    if (is_ipv4()) return Some(m_data.get_unchecked<Ipv4Addr>());
+    if (is_ipv4()) return some(m_data.get_unchecked<Ipv4Addr>());
     return none;
   }
   Option<Ipv6Addr> ipv6() const {
-    if (is_ipv6()) return Some(m_data.get_unchecked<Ipv6Addr>());
+    if (is_ipv6()) return some(m_data.get_unchecked<Ipv6Addr>());
     return none;
   }
 
@@ -630,11 +630,11 @@ public:
   inline uint16_t port() const;
 
   Option<SocketAddrV4> v4() const {
-    if (is_ipv4()) return Some(m_data.get_unchecked<SocketAddrV4>());
+    if (is_ipv4()) return some(m_data.get_unchecked<SocketAddrV4>());
     return none;
   }
   Option<SocketAddrV6> v6() const {
-    if (is_ipv6()) return Some(m_data.get_unchecked<SocketAddrV6>());
+    if (is_ipv6()) return some(m_data.get_unchecked<SocketAddrV6>());
     return none;
   }
 
@@ -675,12 +675,12 @@ inline Option<SocketAddr> SocketAddr::from_sockaddr(const struct sockaddr *sa, s
   if (sa->sa_family == AF_INET && len >= sizeof(struct sockaddr_in)) {
     auto          *in = reinterpret_cast<const struct sockaddr_in *>(sa);
     const uint8_t *p  = reinterpret_cast<const uint8_t *>(&in->sin_addr);
-    return Some(SocketAddr::from(
+    return some(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::from(p[0], p[1], p[2], p[3]), ntohs(in->sin_port))));
   }
   if (sa->sa_family == AF_INET6 && len >= sizeof(struct sockaddr_in6)) {
     auto *in6 = reinterpret_cast<const struct sockaddr_in6 *>(sa);
-    return Some(SocketAddr::from(SocketAddrV6::from(
+    return some(SocketAddr::from(SocketAddrV6::from(
       Ipv6Addr::from(
         static_cast<uint16_t>((in6->sin6_addr.s6_addr[0] << 8) | in6->sin6_addr.s6_addr[1]),
         static_cast<uint16_t>((in6->sin6_addr.s6_addr[2] << 8) | in6->sin6_addr.s6_addr[3]),

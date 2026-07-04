@@ -77,7 +77,7 @@ classDiagram
 | `Option<T> o(none);` | Empty (None) |
 | `Option<T> o(v);` | Holds copy of `v` |
 | `Option<T> o(std::move(v));` | Holds moved `v` |
-| `auto o = Some(v);` | Deduces `Option<decay_t<T>>` |
+| `auto o = some(v);` | Deduces `Option<decay_t<T>>` |
 | `o = none;` | Clears held value |
 
 ### Observers

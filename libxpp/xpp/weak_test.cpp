@@ -9,7 +9,7 @@
  *   - default ctor → null Weak, upgrade returns None
  *   - construction from Rc → weak count bumped, strong unchanged
  *   - copy / move / assignment semantics
- *   - upgrade() while strong > 0 → Some(Rc), strong bumped
+ *   - upgrade() while strong > 0 → some(Rc), strong bumped
  *   - upgrade() after every strong dropped → None, inner survives
  *   - Last Weak dropping when no strong → inner deallocated
  *   - Rc::downgrade(&r) equivalence with Weak(r)

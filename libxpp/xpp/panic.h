@@ -21,9 +21,9 @@
 #include <cstdarg>
 #include <cstdlib>
 
-#include <x/base/log.h>
-
 #include <xpp/compiler.h>
+
+#include <x/base/log.h>
 
 namespace xpp {
 namespace _ {
@@ -45,7 +45,8 @@ XPP_NORETURN
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((format(printf, 1, 2)))
 #endif
-inline void do_panic(const char *fmt, ...) {
+inline void
+do_panic(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   xLogV(/*fatal=*/true, fmt, ap);

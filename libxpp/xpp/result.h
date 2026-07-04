@@ -192,7 +192,7 @@ public:
   }
 
   /**
-   * @brief Consume this Result; return Some(value) if Ok, None if Err.
+   * @brief Consume this Result; return some(value) if Ok, None if Err.
    *
    * Mirrors Rust's Result::ok(). Discards the error on Err. Must be
    * called on an rvalue:
@@ -209,7 +209,7 @@ public:
   }
 
   /**
-   * @brief Consume this Result; return Some(error) if Err, None if Ok.
+   * @brief Consume this Result; return some(error) if Err, None if Ok.
    *
    * Mirrors Rust's Result::err(). Discards the value on Ok. See ok()
    * for usage notes.
@@ -282,9 +282,9 @@ public:
    * Mirrors Rust's Result::transpose. Only callable when T is some
    * Option<U>; SFINAE removes this overload otherwise.
    *
-   *   Ok(Some(x)) -> Some(Ok(x))
+   *   Ok(some(x)) -> some(Ok(x))
    *   Ok(None)    -> None
-   *   Err(e)      -> Some(Err(e))
+   *   Err(e)      -> some(Err(e))
    *
    * Consumes *this. Use as: auto out = std::move(r).transpose();
    *
@@ -294,11 +294,11 @@ public:
   Option<Result<typename U::value_type, E>> transpose() && {
     using Inner = typename U::value_type;
     if (is_err()) {
-      return Some(Result<Inner, E>(xpp::err, std::move(*this).unwrap_err()));
+      return some(Result<Inner, E>(xpp::err, std::move(*this).unwrap_err()));
     }
     Option<Inner> inner = std::move(*this).unwrap();
     if (inner.is_none()) return none;
-    return Some(Result<Inner, E>(xpp::ok, std::move(inner).unwrap()));
+    return some(Result<Inner, E>(xpp::ok, std::move(inner).unwrap()));
   }
 
   /**
@@ -497,7 +497,7 @@ public:
   }
 
   /**
-   * @brief Consume this Result; return Some(error) if Err, None if Ok.
+   * @brief Consume this Result; return some(error) if Err, None if Ok.
    *
    * Mirrors Rust's Result::err(). Must be called on an rvalue:
    *

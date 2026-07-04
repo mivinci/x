@@ -5,9 +5,9 @@ Foundation libraries for C and C++ — event loop, async I/O, and Rust-style C++
 ## Libraries
 
 | Library | Language | Description |
-|---------|----------|-------------|
+| --------- | ---------- | ------------- |
 | **[libx](libx/README.md)** | C99 | Event loop, timers, async I/O, HTTP, WebSocket, WebRTC, DNS |
-| **[libxpp](libxpp/promise.md)** | C++17 | Rust-style bindings on top of libx: `Promise<T>`, `Timer`, `Own<T>`, `Option<T>` |
+| **[libxpp](libxpp/promise.md)** | C++11 | Rust-style bindings on top of libx: `Promise<T>`, `Timer`, `Own<T>`, `Option<T>` |
 
 ## Quick start
 

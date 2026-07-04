@@ -114,16 +114,16 @@ TEST(OptionTest, RvalueConstruct) {
 }
 
 TEST(OptionTest, SomeFactoryDeducesType) {
-  auto o = xpp::Some(42);
+  auto o = xpp::some(42);
   static_assert(std::is_same<decltype(o), xpp::Option<int>>::value,
-                "Some(int) must deduce Option<int>");
+                "some(int) must deduce Option<int>");
   EXPECT_EQ(o.unwrap(), 42);
 }
 
 TEST(OptionTest, SomeFactoryMovesRvalue) {
-  auto o = xpp::Some(std::string("hello"));
+  auto o = xpp::some(std::string("hello"));
   static_assert(std::is_same<decltype(o), xpp::Option<std::string>>::value,
-                "Some(string&&) must deduce Option<string>");
+                "some(string&&) must deduce Option<string>");
   EXPECT_EQ(o.unwrap(), "hello");
 }
 
