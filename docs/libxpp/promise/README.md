@@ -8,7 +8,7 @@
 
 The core API (`.then()`, `.wait()`, `resolve()`, `all()`, `race()`) is C++11. C++20 is required only for `co_await` / `co_return`.
 
-No separate runtime is needed — `wait()` drives the event loop directly.
+The event loop handles I/O and timers directly — no background scheduler is needed. `wait()` drives the event loop on the calling thread.
 
 ```cpp
 xpp::EventLoop loop;
