@@ -325,6 +325,23 @@ public:
   }
 };
 
+/// Adapter for rmdir → resolves void
+class FsRmdirAdapter : public FsAdapterBase {
+private:
+  PromiseResolver<void> m_resolver;
+
+public:
+  FsRmdirAdapter(PromiseResolver<void> r, const char *path) : m_resolver(std::move(r)) {
+    m_req.op   = xFsOpRmdir;
+    m_req.path = path;
+    xFsReqSubmit(&m_req);
+  }
+  void on_complete() override {
+    m_done = true;
+    m_resolver.resolve();
+  }
+};
+
 } // namespace _
 
 /* ── Implementation ────────────────────────────────────────────────── */
@@ -478,9 +495,7 @@ inline Promise<void> remove_file(const char *path) {
 }
 
 inline Promise<void> remove_dir(const char *path) {
-  // libx has no xFsOpRmdir — offload to thread pool directly.
-  std::string p = path;
-  return xpp::work([p = std::move(p)] { ::rmdir(p.c_str()); });
+  return xpp::adapt<void, _::FsRmdirAdapter>(path);
 }
 
 inline Promise<void> rename(const char *old_path, const char *new_path) {

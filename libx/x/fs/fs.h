@@ -22,7 +22,7 @@ XDEF_HANDLE(xFile);
 
 /** Filesystem operation type. */
 XDEF_ENUM(xFsOp){
-  xFsOpOpen, xFsOpClose, xFsOpRead, xFsOpWrite, xFsOpStat, xFsOpMkdir, xFsOpUnlink, xFsOpRename,
+  xFsOpOpen, xFsOpClose, xFsOpRead, xFsOpWrite, xFsOpStat, xFsOpMkdir, xFsOpRmdir, xFsOpUnlink, xFsOpRename,
 };
 
 /** Stat result. */
