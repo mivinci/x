@@ -66,7 +66,7 @@
  *   sharing a single Rc<T> (or its Weak<T>) across threads is UB.
  *   For thread-safe shared ownership use Arc<T> in xpp/arc.h.
  *
- * C++11-compatible. Header-only. Trivially nothing — Rc carries
+ * C++17-compatible. Header-only. Trivially nothing — Rc carries
  * non-trivial copy/destroy semantics that ref-count the inner.
  */
 

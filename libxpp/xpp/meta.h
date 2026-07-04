@@ -7,7 +7,7 @@
  *          C++11 toolchains. Naming follows the STL convention
  *          (snake_case, matching std::is_final etc.).
  *
- * C++11-compatible. Header-only.
+ * C++17-compatible. Header-only.
  */
 
 #ifndef XPP_META_H

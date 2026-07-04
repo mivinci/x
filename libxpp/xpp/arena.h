@@ -17,7 +17,7 @@
  * No destructor tracking — caller is responsible for ~T().
  * No chunk-list growth — allocate() returns nullptr on overflow.
  *
- * C++11-compatible. Header-only.
+ * C++17-compatible. Header-only.
  */
 
 #ifndef XPP_ARENA_H

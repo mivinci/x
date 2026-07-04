@@ -18,7 +18,7 @@
  * on null). Calling get() / operator* / operator-> on a moved-from
  * value is undefined — see std::unique_ptr's analogous contract.
  *
- * C++11-compatible. Header-only. No reset() — the type cannot be null.
+ * C++17-compatible. Header-only. No reset() — the type cannot be null.
  */
 
 #ifndef XPP_BOX_H

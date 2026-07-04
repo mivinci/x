@@ -15,7 +15,7 @@
  *
  * GlobalAllocator is the default — empty class, EBO-eligible.
  *
- * C++11-compatible. Header-only.
+ * C++17-compatible. Header-only.
  */
 #ifndef XPP_ALLOCATOR_H
 #define XPP_ALLOCATOR_H

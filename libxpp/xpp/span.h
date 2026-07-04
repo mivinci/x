@@ -10,7 +10,7 @@
  *
  * sizeof(Span<T>) == sizeof(T*) + sizeof(size_t)
  *
- * C++11-compatible. Header-only.
+ * C++17-compatible. Header-only.
  */
 
 #ifndef XPP_SPAN_H

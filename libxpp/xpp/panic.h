@@ -12,7 +12,7 @@
  * recoverable errors, use Result<T, E> instead — panics are for bugs,
  * not for runtime conditions the caller is expected to handle.
  *
- * C++11-compatible.
+ * C++17-compatible.
  */
 
 #ifndef XPP_PANIC_H

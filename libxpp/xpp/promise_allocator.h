@@ -21,7 +21,7 @@
  *
  * Promise<T> has no m_arena — sizeof(Promise<T>) == sizeof(ptr) == 8.
  *
- * C++11-compatible. Header-only. Internal — not part of public API.
+ * C++17-compatible. Header-only. Internal — not part of public API.
  */
 
 #ifndef XPP_PROMISE_ALLOC_H

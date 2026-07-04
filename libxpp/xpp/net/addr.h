@@ -169,6 +169,10 @@ private:
   constexpr Ipv4Addr() noexcept : m_addr(0) {}
 };
 
+inline constexpr Ipv4Addr Ipv4Addr::LOCALHOST   = Ipv4Addr::from(127, 0, 0, 1);
+inline constexpr Ipv4Addr Ipv4Addr::UNSPECIFIED = Ipv4Addr::from(0, 0, 0, 0);
+inline constexpr Ipv4Addr Ipv4Addr::BROADCAST   = Ipv4Addr::from(255, 255, 255, 255);
+
 /* ── Ipv6Addr ──────────────────────────────────────────────────────── */
 
 class Ipv6Addr {
@@ -293,11 +297,10 @@ private:
   friend class Ipv4Addr;
 };
 
-/* ── Ipv4Addr deferred methods ─────────────────────────────────────── */
+inline constexpr Ipv6Addr Ipv6Addr::LOCALHOST   = Ipv6Addr::from(0, 0, 0, 0, 0, 0, 0, 1);
+inline constexpr Ipv6Addr Ipv6Addr::UNSPECIFIED = Ipv6Addr::from(0, 0, 0, 0, 0, 0, 0, 0);
 
-inline const Ipv4Addr Ipv4Addr::LOCALHOST   = Ipv4Addr::from(127, 0, 0, 1);
-inline const Ipv4Addr Ipv4Addr::UNSPECIFIED = Ipv4Addr::from(0, 0, 0, 0);
-inline const Ipv4Addr Ipv4Addr::BROADCAST   = Ipv4Addr::from(255, 255, 255, 255);
+/* ── Ipv4Addr deferred methods ─────────────────────────────────────── */
 
 inline Ipv6Addr Ipv4Addr::to_ipv6_mapped() const noexcept {
   return Ipv6Addr::from(0, 0, 0, 0, 0, 0xFFFF, static_cast<uint16_t>(m_addr >> 16),
@@ -308,9 +311,6 @@ inline Ipv6Addr Ipv4Addr::to_ipv6_compatible() const noexcept {
   return Ipv6Addr::from(0, 0, 0, 0, 0, 0, static_cast<uint16_t>(m_addr >> 16),
                         static_cast<uint16_t>(m_addr));
 }
-
-inline const Ipv6Addr Ipv6Addr::LOCALHOST   = Ipv6Addr::from(0, 0, 0, 0, 0, 0, 0, 1);
-inline const Ipv6Addr Ipv6Addr::UNSPECIFIED = Ipv6Addr::from(0, 0, 0, 0, 0, 0, 0, 0);
 
 /* ── IpAddr ────────────────────────────────────────────────────────── */
 

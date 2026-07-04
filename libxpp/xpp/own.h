@@ -22,7 +22,7 @@
  * if(o)). Choose Box<T> + Option when you want type-level guarantees
  * and Rust-style combinators.
  *
- * C++11-compatible. Header-only.
+ * C++17-compatible. Header-only.
  */
 
 #ifndef XPP_OWN_H
