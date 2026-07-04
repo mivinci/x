@@ -39,8 +39,7 @@ struct Layout {
   size_t size;
   size_t align;
 
-  template <class T>
-  static Layout of() {
+  template <class T> static Layout of() {
     return Layout{sizeof(T), alignof(T)};
   }
 
@@ -60,19 +59,19 @@ struct Layout {
 /* ── GlobalAllocator ─────────────────────────────────────────────── */
 
 struct GlobalAllocator {
-  Result<Span<uint8_t>, AllocError> allocate(Layout layout) {
+  Result<Span<uint8_t>, AllocError> allocate(Layout layout) const {
 #if __cplusplus >= 201703L || (defined(_MSC_VER) && _MSVC_LANG >= 201703L)
-    void *p = ::operator new(layout.size, std::align_val_t(layout.align),
-                             std::nothrow);
+    void *p = ::operator new(layout.size, std::align_val_t(layout.align), std::nothrow);
 #else
     (void)layout.align;
     void *p = ::operator new(layout.size, std::nothrow);
 #endif
     if (!p) return Result<Span<uint8_t>, AllocError>(err, AllocError{});
-    return Result<Span<uint8_t>, AllocError>(ok, Span<uint8_t>(static_cast<uint8_t*>(p), layout.size));
+    return Result<Span<uint8_t>, AllocError>(ok,
+                                             Span<uint8_t>(static_cast<uint8_t *>(p), layout.size));
   }
 
-  void deallocate(void *ptr, Layout layout) {
+  void deallocate(void *ptr, Layout layout) const {
     (void)layout;
 #if __cplusplus >= 201703L || (defined(_MSC_VER) && _MSVC_LANG >= 201703L)
     ::operator delete(ptr, layout.size, std::align_val_t(layout.align));
@@ -92,8 +91,8 @@ struct GlobalAllocator {
  */
 
 template <class A>
-Result<Span<uint8_t>, AllocError> default_grow(A &alloc, void *ptr,
-                                           Layout old_l, Layout new_l) {
+Result<Span<uint8_t>, AllocError> default_grow(const A &alloc, void *ptr, Layout old_l,
+                                               Layout new_l) {
   auto r = alloc.allocate(new_l);
   if (r.is_err()) return r;
   std::memcpy(r.unwrap().data(), ptr, old_l.size);
@@ -102,8 +101,8 @@ Result<Span<uint8_t>, AllocError> default_grow(A &alloc, void *ptr,
 }
 
 template <class A>
-Result<Span<uint8_t>, AllocError> default_shrink(A &alloc, void *ptr,
-                                             Layout old_l, Layout new_l) {
+Result<Span<uint8_t>, AllocError> default_shrink(const A &alloc, void *ptr, Layout old_l,
+                                                 Layout new_l) {
   auto r = alloc.allocate(new_l);
   if (r.is_err()) return r;
   std::memcpy(r.unwrap().data(), ptr, new_l.size);
@@ -111,6 +110,6 @@ Result<Span<uint8_t>, AllocError> default_shrink(A &alloc, void *ptr,
   return r;
 }
 
-}  // namespace xpp
+} // namespace xpp
 
-#endif  // XPP_ALLOCATOR_H
+#endif // XPP_ALLOCATOR_H
