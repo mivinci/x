@@ -178,8 +178,10 @@ platform_draw(handle.get());
 | Nullable | Yes (default) | Yes (default) | Yes (via Option) |
 | Move-only | Yes | Yes | Yes |
 | Release/take | `take()` / `release()` | `release()` | `Option::take` + `Box::into_raw` |
-| Custom allocator | Template parameter (`Allocator`) | Template parameter (`Deleter`) | `Box<T, Allocator>` where A: Allocator |
-| Covariant | `Own<Derived, A>` → `Own<Base, A>` | `unique_ptr<Derived>` → `unique_ptr<Base>` | Via trait objects only |
+| Custom allocator | `Allocator` template param | `Deleter` template param | `A: Allocator` |
+| Allocator storage | `CompressedPair` (EBO when empty) | EBO (empty-base optimization) | In `Box` (ZST = 0 bytes) |
+| Deallocation | `~T()` + `alloc.deallocate()` (separated) | `deleter(ptr)` (single call) | `drop` + `dealloc` |
+| Covariant | `Own<Derived, A>` → `Own<Base, A>` (same A) | `unique_ptr<Derived, D>` → `unique_ptr<Base, D>` | Via trait objects only |
 | Into Rust path | `into_nonnull() -> Option<Box<T>>` | N/A | Built-in |
 | Void support | Yes (SFINAE on `*` / `->`) | Yes (specialization) | `Box<dyn Any>` |
 | Size (default) | `sizeof(T*)` | `sizeof(T*)` | `sizeof(T*)` |

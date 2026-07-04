@@ -124,7 +124,8 @@ All xpp smart pointers are `sizeof(T*)`. `Rc<T>` and `Arc<T>` point directly to 
 | Niche Option | Yes (`nullptr = None`) | No |
 | Single-thread shared | `Rc<T>` (no atomics) | `shared_ptr` (always atomic) |
 | Thread-safe shared | `Arc<T>` | `shared_ptr` |
-| Custom allocator | Yes (`Allocator` template param, EBO when empty) | `std::pmr` (type-erased, vtable ptr) |
+| Custom allocator | Yes (`Allocator` template param, compile-time) | `std::pmr` (type-erased, runtime) |
+| Allocator storage | Control block (Arc/Rc) or `CompressedPair` (Own/Box), EBO when empty | vtable ptr in control block (always) |
 | Deallocation | `~T()` + `alloc.deallocate()` (separated) | `deleter(ptr)` (single call) |
 | Covariant upcast | Implicit (same `Allocator`) | Implicit |
 | Weak observer | `Weak<T>` / `ArcWeak<T>` | `weak_ptr<T>` |

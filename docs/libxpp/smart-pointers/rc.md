@@ -212,8 +212,10 @@ public:
 | Niche Option | Yes (Option<Rc<T>> = ptr) | No | Yes (Option<Rc<T>> = ptr) |
 | Weak observer | Weak<T> | weak_ptr<T> | Weak<T> |
 | Cycle-breaking | Explicit via Weak | Explicit via weak_ptr | Explicit via Weak |
-| Custom deleter | No | Yes | No |
-| Covariant | `Rc<Derived>` → `Rc<Base>` (implicit) | converting ctor (implicit) | Via trait objects only |
+| Custom allocator | Yes (`Allocator` template param, in RcInner) | Yes (`std::pmr`, type-erased in ctrl block) | Yes (`A: Allocator`, in RcBox) |
+| Allocator overhead | 0 bytes when empty (EBO) | 1 vtable ptr (always) | 0 bytes when ZST |
+| Deallocation | `~T()` + `alloc.deallocate()` | `deleter(ptr)` (single call) | `drop` + `dealloc` |
+| Covariant | `Rc<Derived, A>` → `Rc<Base, A>` (same A) | converting ctor (implicit) | Via trait objects only |
 
 ## Implementation Notes
 

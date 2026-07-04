@@ -140,13 +140,15 @@ static_assert(sizeof(Option<Box<int>>) == sizeof(int*));
 
 | Feature | xpp::Box\<T\> | std::unique_ptr\<T\> | Rust Box\<T\> |
 | --- | --- | --- | --- |
-| sizeof | `sizeof(T*)` | `sizeof(T*)` (default allocator) | `sizeof(T*)` |
+| sizeof | `sizeof(T*)` | `sizeof(T*)` (default deleter) | `sizeof(T*)` |
 | Non-null | Guaranteed (no default ctor) | Nullable (default ctor) | Guaranteed |
 | Move-only | Yes | Yes | Yes |
-| Custom allocator | Template parameter | Template parameter | `GlobalAlloc` |
-| Covariant | `Box<Derived>` → `Box<Base>` (implicit) | `unique_ptr<Derived>` → `unique_ptr<Base>` | Via `DerefMut` trait |
+| Custom allocator | `Allocator` template param | `Deleter` template param | `A: Allocator` |
+| Allocator storage | `CompressedPair` (EBO when empty) | EBO (empty-base optimization) | In `Box` (ZST = 0 bytes) |
+| Deallocation | `~T()` + `alloc.deallocate()` (separated) | `deleter(ptr)` (single call) | `drop` + `dealloc` |
+| Covariant | `Box<Derived, A>` → `Box<Base, A>` (same A) | `unique_ptr<Derived, D>` → `unique_ptr<Base, D>` | Via `DerefMut` trait |
 | Niche Option | Yes (`Option<Box<T>> = ptr`) | No | `Option<Box<T>> = ptr` |
-| EBO | Yes (`CompressedPair`) | Via empty-base optimization | N/A (no custom allocator) |
+| EBO | Yes (`CompressedPair`) | Via empty-base optimization | N/A (ZST, no EBO needed) |
 | Post-move | `nullptr` husk (dtor guards) | `nullptr` (dtor guards) | Consumed (no husk) |
 
 ## Implementation Notes

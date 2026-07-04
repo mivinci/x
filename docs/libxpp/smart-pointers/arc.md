@@ -211,7 +211,9 @@ EXPECT_TRUE(opt.is_none());
 | Niche Option | Yes | No | Yes |
 | Weak observer | ArcWeak\<T\> | weak_ptr\<T\> | Weak\<T\> |
 | Weak upgrade | CAS loop | lock() (atomic) | CAS loop |
-| Custom allocator | Yes (`Allocator` template param) | Yes (`std::pmr`) | Yes (`A: Allocator`) |
+| Custom allocator | Yes (`Allocator` template param, in ArcInner) | Yes (`std::pmr`, type-erased in ctrl block) | Yes (`A: Allocator`, in ArcInner) |
+| Allocator overhead | 0 bytes when empty (EBO) | 1 vtable ptr (always) | 0 bytes when ZST |
+| Deallocation | `~T()` + `alloc.deallocate()` (separated) | `deleter(ptr)` (single call) | `drop` + `dealloc` |
 | Covariant | `Arc<Derived, A>` → `Arc<Base, A>` (implicit, same A) | converting ctor (implicit) | Via trait objects only |
 
 ## Implementation Notes
