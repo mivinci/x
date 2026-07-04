@@ -77,3 +77,4 @@
   - [Opaque Handle Wrapper](libxpp/opaque.md)
   - [Timer](libxpp/timer.md)
   - [Filesystem](libxpp/fs.md)
+  - [I/O](libxpp/io.md)
