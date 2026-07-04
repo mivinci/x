@@ -35,7 +35,7 @@ ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
 
 ## Architecture
 
-```
+```text
 read(io, buf, len)
     │
     ├── recv(fd, buf, len) → n >= 0
@@ -51,7 +51,7 @@ read(io, buf, len)
                                     └── .then(recv) retries
 ```
 
-```
+```text
 AsyncFd (per-fd, registered once)
 ├── xEventSource (persistent, edge-triggered, Read|Write)
 ├── bool m_readable / m_writable
@@ -66,7 +66,7 @@ AsyncFd (per-fd, registered once)
 ### AsyncFd
 
 | Method | Returns | Description |
-|--------|---------|-------------|
+| -------- | --------- | ------------- |
 | `AsyncFd(fd)` | | Register fd with event loop (edge-triggered, Read\|Write) |
 | `readable()` | `Promise<void>` | Resolve when fd is readable. Immediate if already ready |
 | `writable()` | `Promise<void>` | Resolve when fd is writable. Immediate if already ready |
@@ -77,7 +77,7 @@ AsyncFd (per-fd, registered once)
 ### Free functions
 
 | Function | Returns | Description |
-|----------|---------|-------------|
+| ---------- | --------- | ------------- |
 | `read(io, buf, len)` | `Promise<ssize_t>` | Async recv. Fast path: try immediately. EAGAIN: wait readable |
 | `write(io, buf, len)` | `Promise<ssize_t>` | Async send. Same fast/slow pattern |
 | `read_full(io, buf, len)` | `Promise<ssize_t>` | Read exactly len bytes (loops). Returns bytes read |
@@ -127,14 +127,14 @@ io.close(); // any pending readable()/writable() resolves immediately
 
 ## Comparison
 
-| Feature | `xpp::io::AsyncFd` | tokio `PollEvented` / `IoSource` | moo `PollEvented` |
-|---------|---------------------|-----------------------------------|---------------------|
-| Registration | once (persistent) | once (persistent) | once (persistent) |
-| Readiness tracking | `bool` (single-thread) | `atomic` + mutex | `atomic` + mutex |
-| Wait mechanism | `PromiseResolver` (Adapter) | `Waker` (custom PromiseNode) | `Waker` (custom PromiseNode) |
-| Thread safety | single-thread | multi-thread | multi-thread |
-| Fast path | try syscall, zero overhead | try syscall, zero overhead | try syscall, zero overhead |
-| fd ownership | caller owns | caller owns | caller owns |
+| Feature | `xpp::io::AsyncFd` | tokio `PollEvented` / `IoSource` |
+| --------- | --------------------- | ----------------------------------- |
+| Registration | once (persistent) | once (persistent) |
+| Readiness tracking | `bool` (single-thread) | `atomic` + mutex |
+| Wait mechanism | `PromiseResolver` (Adapter) | `Waker` (custom PromiseNode) |
+| Thread safety | single-thread | multi-thread |
+| Fast path | try syscall, zero overhead | try syscall, zero overhead |
+| fd ownership | caller owns | caller owns |
 
 ## Implementation Notes
 
@@ -147,6 +147,7 @@ If `on_event` fires while a `PromiseResolver` is stored in `m_read_waiter`, the 
 ### PromiseResolver safety
 
 `PromiseResolver<void>` holds `ArcWeak<ResolveState>`. If the Promise is destroyed before the event fires:
+
 1. `AdapterPromiseNode` destroyed → `Arc<ResolveState>` dropped
 2. `on_event` fires → `m_read_waiter.resolve()` → `ArcWeak::upgrade()` fails → no-op
 3. No use-after-free
