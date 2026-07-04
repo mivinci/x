@@ -66,8 +66,8 @@
 
 ## 8. Docs
 
-- [ ] 8.1 Create `docs/libxpp/allocator.md` — Allocator protocol, GlobalAllocator, custom allocator examples
-- [ ] 8.2 Update `docs/libxpp/smart-pointers/README.md` — add Alloc parameter to table
-- [ ] 8.3 Update `docs/libxpp/smart-pointers/arc.md` — Alloc parameter, make() with allocator
-- [ ] 8.4 Update `docs/libxpp/smart-pointers/own.md` — Deleter → Alloc migration
-- [ ] 8.5 Update `docs/SUMMARY.md` — add allocator page
+- [x] 8.1 Create `docs/libxpp/allocator.md` — Allocator protocol, GlobalAllocator, custom allocator examples
+- [x] 8.2 Update `docs/libxpp/smart-pointers/README.md` — add Alloc parameter to table
+- [x] 8.3 Update `docs/libxpp/smart-pointers/arc.md` — Alloc parameter, make() with allocator
+- [x] 8.4 Update `docs/libxpp/smart-pointers/own.md` — Deleter → Alloc migration
+- [x] 8.5 Update `docs/SUMMARY.md` — add allocator page
