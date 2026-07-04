@@ -4,7 +4,9 @@
 
 ## Introduction
 
-`Promise<T>` provides a type-safe async programming system within the libx event loop. It models the Rust `Future` trait in C++17: a deferred value is polled until it resolves, transformations are chained without nesting, and resolution can cross thread boundaries without a mutex.
+`Promise<T>` provides a type-safe async programming system within the libx event loop. It combines the poll-based model from Rust's `Future` trait with the node-hierarchy and per-chain arena allocation from KJ (Cap'n Proto), plus native C++20 coroutine support — `Promise<T>` itself is the coroutine return type, with no separate `Task<T>`.
+
+The core API (`.then()`, `.wait()`, `resolve()`, `all()`, `race()`) is C++11. C++20 is required only for `co_await` / `co_return`.
 
 No separate runtime is needed — `wait()` drives the event loop directly.
 
@@ -18,6 +20,15 @@ int result = xpp::resolve(10)
 // result == 20
 ```
 
+C++20 coroutines work too — `co_await` drives the same poll mechanism:
+
+```cpp
+xpp::Promise<int> compute() {
+    int x = co_await fetch_value();   // poll-based, same node tree
+    co_return x * 2;
+}
+```
+
 ## Design Philosophy
 
 1. **One-Shot Polling** — `poll()` returns `Option<T>`: `Some(value)` = ready, `None` = pending. No separate `take()`.
@@ -26,6 +37,9 @@ int result = xpp::resolve(10)
 4. **Lock-Free Cross-Thread Resolve** — `PromiseResolver` holds `ArcWeak`; `resolve()` silently drops if Promise is destroyed.
 5. **Void-Aware Templates** — `Void` + `FixVoid<T>` maps `void → Void` for uniform generic code.
 6. **Nested `wait()` Is Safe** — `WaitScope` owns the loop binding; nested `Run` calls don't unbind it.
+7. **Per-Chain Arena** — `.then()` chains bump-allocate nodes in a shared 256-byte arena, reducing malloc calls from O(N) to O(1) per chain. Overflow nodes fall back to heap transparently.
+8. **Coroutine-Native** — `Promise<T>` is both a poll-based node container and a C++20 coroutine return type. `co_await` drives the same `poll()` mechanism as `.then()`.
+9. **Adapter Pattern** — External async operations (timers, thread pool, custom I/O) bridge into the poll world via `AdapterPromiseNode` + `PromiseResolver`.
 
 ## Architecture
 
@@ -37,6 +51,7 @@ graph TD
         WAIT[".wait()"]
         ASYNC["async&lt;T&gt;()"]
         PRR["PromiseResolver&lt;T&gt;"]
+        CORO["co_await / co_return"]
     end
 
     subgraph "PromiseNode Hierarchy"
@@ -46,11 +61,13 @@ graph TD
         CHAINP["ChainPromiseNode"]
         ADAPT["AdapterPromiseNode&lt;T, Adapter&gt;"]
         MANUAL["ManualResolveNode&lt;T&gt;"]
+        COROP["CoroutinePromiseNode&lt;T&gt;"]
     end
 
     subgraph "Shared State"
         RS["ResolveState&lt;T&gt;<br/>Arc / ArcWeak"]
         AW["AtomicPromiseWaker"]
+        ARENA["PromiseArena (256B)<br/>per-chain bump allocator"]
     end
 
     PR --> IMM
@@ -60,11 +77,18 @@ graph TD
     ASYNC --> PRR
     PRR --> RS
     ADAPT --> RS
+    CORO --> COROP
     WAIT --> BASE
+    BASE --> AW
+    RS --> AW
+    TRANS -.->|arena-allocated| ARENA
+    CHAINP -.->|arena-allocated| ARENA
 
     style WAIT fill:#4a90d9,color:#fff
     style RS fill:#e91e63,color:#fff
     style ADAPT fill:#50b86c,color:#fff
+    style ARENA fill:#f5a623,color:#fff
+    style CORO fill:#9b59b6,color:#fff
 ```
 
 ## Topics
@@ -82,17 +106,18 @@ graph TD
 
 | Member | Description |
 | -------- | ------------- |
-| `auto then(Func fn)` | Chain transform (auto-flattens) |
+| `auto then(Func fn)` | Chain transform. If `fn` returns `Promise<U>`, auto-flattens to `Promise<U>` |
 | `Promise<void> discard()` | Drop value, return `Promise<void>` |
-| `T wait()` | Block + drive event loop. Consumes promise |
+| `T wait()` | Block + drive event loop. Moves node out of promise (promise left empty) |
 | `operator co_await()` | (C++20 only) Await in coroutine. Rvalue-qualified |
-| `operator bool()` | True if non-empty |
+| `operator bool()` | True if non-empty (holds a node) |
 
 ### PromiseResolver\<T\>
 
 | Member | Description |
 | -------- | ------------- |
-| `void resolve(T v)` | Fulfill. Thread-safe. Silently drops if Promise destroyed |
+| `void resolve(T v)` | Fulfill with value. Thread-safe. Silently drops if Promise destroyed |
+| `void resolve()` | (void specialization) Fulfill with no value |
 | `bool is_pending()` | True if Promise alive and unresolved |
 
 ### Free Functions

@@ -53,6 +53,7 @@ if (cached) {
   - [C++20 Coroutines](promise/coroutine.md) — `co_await`/`co_return`
   - [Internals](promise/internals.md) — PromiseNode hierarchy, poll-based model
 - [Allocator](allocator.md) — Allocator protocol, GlobalAllocator, custom allocators
+- [Arena](arena.md) — Bump allocator for short-lived objects (`Arena<N>`)
 - [Smart Pointers](smart-pointers/README.md) — `Own`, `Box`, `Rc`/`Weak`, `Arc`/`ArcWeak`, `NonNull`
   - [Own](smart-pointers/own.md) — Nullable unique ownership
   - [Box](smart-pointers/box.md) — Non-null unique ownership
