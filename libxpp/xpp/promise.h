@@ -145,7 +145,7 @@ public:
     while (true) {
       Option<ValueType> result = m_node->poll(waker);
       if (result.is_some()) {
-        return result.unwrap();
+        return std::move(result).unwrap();
       }
       // Pending — run one loop iteration per try. X_RUN_ONCE returns
       // after processing one batch of events (timers, I/O, done queue),
