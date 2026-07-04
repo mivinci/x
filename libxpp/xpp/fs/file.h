@@ -158,6 +158,7 @@ protected:
 };
 
 class FsOpenAdapter : public FsAdapterBase {
+private:
   PromiseResolver<File> m_resolver;
 
 public:
@@ -180,6 +181,7 @@ public:
 };
 
 class FsReadAdapter : public FsAdapterBase {
+private:
   PromiseResolver<ssize_t> m_resolver;
 
 public:
@@ -203,6 +205,7 @@ public:
 };
 
 class FsWriteAdapter : public FsAdapterBase {
+private:
   PromiseResolver<ssize_t> m_resolver;
 
 public:
@@ -226,6 +229,7 @@ public:
 };
 
 class FsCloseAdapter : public FsAdapterBase {
+private:
   PromiseResolver<void> m_resolver;
 
 public:
@@ -241,6 +245,7 @@ public:
 };
 
 class FsStatAdapter : public FsAdapterBase {
+private:
   PromiseResolver<Stat> m_resolver;
 
 public:
