@@ -7,7 +7,6 @@
  */
 #include <cstddef>
 #include <string>
-#include <type_traits>
 
 #include <gtest/gtest.h>
 #include <xpp/arena.h>
