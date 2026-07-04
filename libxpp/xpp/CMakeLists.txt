@@ -1,19 +1,16 @@
-# xpp — C++ binding core + submodules
+# xpp — C++ binding core + submodules (header-only)
 
 file(GLOB_RECURSE XPP_HEADERS "*.h")
-file(GLOB_RECURSE XPP_SOURCES "*.cpp")
-list(FILTER XPP_SOURCES EXCLUDE REGEX "_test")
 
-# ── Single library target ───────────────────────────────────────────
-add_library(xpp_core ${XPP_SOURCES} ${XPP_HEADERS})
-set_target_properties(xpp_core PROPERTIES FOLDER "libxpp")
-
-target_include_directories(xpp_core PUBLIC
+# ── Header-only library target ──────────────────────────────────────
+add_library(xpp_core INTERFACE)
+target_include_directories(xpp_core INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/.."
   "${CMAKE_CURRENT_SOURCE_DIR}"
 )
-target_compile_features(xpp_core PUBLIC cxx_std_17)
-target_link_libraries(xpp_core PUBLIC xbase xlog)
+target_compile_features(xpp_core INTERFACE cxx_std_17)
+# event.h / timer.h / promise.h include libx headers; link for their users.
+target_link_libraries(xpp_core INTERFACE xbase xlog)
 
 # ── Tests ────────────────────────────────────────────────────────────
 option(XPP_BUILD_TESTS "Build libxpp tests" ${X_BUILD_TESTS})

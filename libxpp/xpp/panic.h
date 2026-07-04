@@ -8,14 +8,8 @@
  * Provides XPP_PANIC / XPP_ASSERT / XPP_DEBUG_ASSERT macros for reporting
  * unrecoverable contract violations (e.g. unwrap() on a None Option).
  *
- * Panics print the message and terminate the process. Where the panic
- * is routed (stderr only, an installed log callback, with or without a
- * backtrace) is the linked panic implementation's choice — see
- * panic.cpp for the current routing. The header itself stays free of
- * any logging-library dependency so consumers don't transitively
- * acquire one from a primitive type's `unwrap()` call site.
- *
- * For recoverable errors, use Result<T, E> instead — panics are for bugs,
+ * Panics print the message to stderr and terminate the process. For
+ * recoverable errors, use Result<T, E> instead — panics are for bugs,
  * not for runtime conditions the caller is expected to handle.
  *
  * C++11-compatible.
@@ -23,6 +17,10 @@
 
 #ifndef XPP_PANIC_H
 #define XPP_PANIC_H
+
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
 
 #include <xpp/compiler.h>
 
@@ -32,14 +30,12 @@ namespace _ {
 /**
  * @brief Dispatch a panic message and terminate the process.
  *
- * Defined out-of-line in panic.cpp so the routing dependency (today
- * the libx xLog channel) doesn't leak into every TU that uses
- * XPP_PANIC / XPP_ASSERT through a header. Never returns.
+ * Defined inline in the header so xpp stays header-only. Routes to
+ * vfprintf(stderr) + std::abort() — no external logging dependency.
+ * The XPP_PANIC / XPP_ASSERT macros prepend "panic at __FILE__:__LINE__: "
+ * so file/line capture happens for free at every call site.
  *
- * Prefer the XPP_PANIC / XPP_ASSERT macros over calling this directly;
- * they prepend a "panic at __FILE__:__LINE__: " prefix to the format
- * string at the call site, so file/line capture happens for free.
- *
+ * Prefer the XPP_PANIC / XPP_ASSERT macros over calling this directly.
  * The printf-format attribute (where supported) lets the compiler
  * type-check the fmt/args pairing at every macro use site.
  */
@@ -47,7 +43,14 @@ XPP_NORETURN
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((format(printf, 1, 2)))
 #endif
-void do_panic(const char *fmt, ...);
+inline void do_panic(const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  vfprintf(stderr, fmt, ap);
+  va_end(ap);
+  fputc('\n', stderr);
+  std::abort();
+}
 
 } // namespace _
 } // namespace xpp
