@@ -28,7 +28,6 @@
 #ifndef XPP_OWN_H
 #define XPP_OWN_H
 
-#include <memory>
 #include <type_traits>
 #include <utility>
 

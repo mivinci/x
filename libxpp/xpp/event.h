@@ -101,9 +101,10 @@ public:
   }
 
 private:
-  /// Deleter: calls xEventLoopDestroy.
+  /// Allocator: calls xEventLoopDestroy on deallocate.
+  /// (allocate is never called — handles come from xEventLoopCreate.)
   struct Destroy {
-    void operator()(void *p) const noexcept {
+    void deallocate(void *p, xpp::Layout) const noexcept {
       xEventLoopDestroy(static_cast<xEventLoop>(p));
     }
   };
