@@ -127,6 +127,7 @@ private:
 /* ── Free functions ────────────────────────────────────────────────── */
 
 Promise<Stat>                 stat(const char *path);
+Promise<bool>                 exists(const char *path);
 Promise<std::vector<uint8_t>> read(const char *path);
 Promise<void>                 write(const char *path, const void *buf, size_t len);
 Promise<void>                 create_dir(const char *path, int mode = 0755);
@@ -472,6 +473,10 @@ inline Promise<void> File::write_all(const void *buf, size_t len) {
 
 inline Promise<Stat> stat(const char *path) {
   return xpp::adapt<Stat, _::FsStatAdapter>(path);
+}
+
+inline Promise<bool> exists(const char *path) {
+  return stat(path).then([](Stat s) { return s.size >= 0; });
 }
 
 inline Promise<std::vector<uint8_t>> read(const char *path) {

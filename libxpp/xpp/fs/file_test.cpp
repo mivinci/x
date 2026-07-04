@@ -300,3 +300,29 @@ TEST_F(FsFileTest, RenameFile) {
 
   unlink(new_path.c_str());
 }
+
+/* ── exists ────────────────────────────────────────────────────────── */
+
+TEST_F(FsFileTest, ExistsOnPresentFile) {
+  write_file("exists test");
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+  EXPECT_TRUE(xpp::fs::exists(m_path.c_str()).wait());
+}
+
+TEST_F(FsFileTest, ExistsOnMissingFile) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+  EXPECT_FALSE(xpp::fs::exists("/nonexistent/path/file.txt").wait());
+}
+
+TEST_F(FsFileTest, ExistsOnDirectory) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  std::string dir = m_path + "_exists_dir";
+  xpp::fs::create_dir(dir.c_str()).wait();
+  EXPECT_TRUE(xpp::fs::exists(dir.c_str()).wait());
+  xpp::fs::remove_dir(dir.c_str()).wait();
+  EXPECT_FALSE(xpp::fs::exists(dir.c_str()).wait());
+}
