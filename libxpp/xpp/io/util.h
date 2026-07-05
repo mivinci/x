@@ -19,7 +19,8 @@
 #include <sys/types.h>
 
 #include <cstddef>
-#include <cstdint>
+
+#include <concepts>
 #include <vector>
 
 #include <xpp/promise.h>
@@ -30,14 +31,31 @@ namespace xpp {
 namespace io {
 
 /**
+ * @brief Concept: R has read(void*, size_t) returning an awaitable type.
+ *
+ * Satisfied by TcpStream, fs::File (cursor mode), and user-defined
+ * types matching the signature. Used as a template constraint to
+ * produce clear compile-time errors when the type is wrong.
+ */
+template <class R>
+concept AsyncReader = requires(R &r, void *buf, size_t len) {
+  { r.read(buf, len) };
+};
+
+/**
+ * @brief Concept: W has write(const void*, size_t) returning an awaitable type.
+ */
+template <class W>
+concept AsyncWriter = requires(W &w, const void *buf, size_t len) {
+  { w.write(buf, len) };
+};
+
+/**
  * @brief Read the entire byte stream into a vector.
  *
- * Duck-typed: R must have read(void*, size_t) → Promise<ssize_t>.
- * Stops when read returns ≤ 0 (EOF or error). Uses an 8KB stack buffer.
- *
- * @tparam R Reader type (e.g., TcpStream, fs::File)
+ * @tparam R Reader type satisfying AsyncReader (e.g., TcpStream, fs::File)
  */
-template <class R> Promise<std::vector<uint8_t>> read_all(R &reader) {
+template <AsyncReader R> Promise<std::vector<uint8_t>> read_all(R &reader) {
   std::vector<uint8_t> result;
   uint8_t              buf[8192];
   while (true) {
@@ -51,14 +69,10 @@ template <class R> Promise<std::vector<uint8_t>> read_all(R &reader) {
 /**
  * @brief Copy all bytes from reader to writer.
  *
- * Duck-typed: R must have read(void*, size_t) → Promise<ssize_t>,
- * W must have write(const void*, size_t) → Promise<ssize_t>.
- * Uses an 8KB stack buffer.
- *
- * @tparam R Reader type
- * @tparam W Writer type
+ * @tparam R Reader type satisfying AsyncReader
+ * @tparam W Writer type satisfying AsyncWriter
  */
-template <class R, class W> Promise<void> copy(R &reader, W &writer) {
+template <AsyncReader R, AsyncWriter W> Promise<void> copy(R &reader, W &writer) {
   uint8_t buf[8192];
   while (true) {
     ssize_t n = co_await reader.read(buf, sizeof(buf));
