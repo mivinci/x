@@ -6,8 +6,9 @@
  * tcp.h - xpp::net::TcpConn and TcpListener: Promise-based async TCP.
  *
  * TcpConn wraps xTcpConn + AsyncFd. recv/send use io::read/write
- * (fast-path syscall + EAGAIN readiness wait). connect() and accept()
- * use adapt() — callback → PromiseResolver.
+ * (fast-path syscall + EAGAIN readiness wait). accept() uses
+ * adapt(); connect() uses async() + self-delete (xTcpConnect has no
+ * cancel API, adapter must outlive the Promise).
  *
  * C++11-compatible. Header-only.
  */
@@ -58,12 +59,13 @@ class TcpConnectAdapter;
  */
 class TcpConn {
 public:
-  /** @brief Async connect (no TLS). Resolves to TcpConn (or fd == -1 on error). */
-  static Promise<TcpConn> connect(const char *host, uint16_t port,
-                                  Option<const TlsContext &> tls = none);
+  /** @brief Async connect. Resolves to Ok(TcpConn) on success, Err(io::Error) on failure. */
+  static Promise<io::Result<TcpConn>> connect(const char *host, uint16_t port,
+                                              Option<const TlsContext &> tls = none);
 
   /** @brief Async connect by SocketAddr (skips DNS). */
-  static Promise<TcpConn> connect(SocketAddr addr, Option<const TlsContext &> tls = none);
+  static Promise<io::Result<TcpConn>> connect(SocketAddr addr,
+                                              Option<const TlsContext &> tls = none);
 
   TcpConn() = default;
   TcpConn(TcpConn &&o) noexcept : m_conn(o.m_conn), m_async(std::move(o.m_async)) {
@@ -133,8 +135,8 @@ private:
   io::AsyncFd m_async{-1};
 
   /** @brief Low-level connect using a raw xTcpConnectConf (escape hatch). */
-  static Promise<TcpConn> connect_with_conf(const char *host, uint16_t port,
-                                            const xTcpConnectConf *conf);
+  static Promise<io::Result<TcpConn>> connect_with_conf(const char *host, uint16_t port,
+                                                        const xTcpConnectConf *conf);
 
   explicit TcpConn(xTcpConn conn) : m_conn(conn) {
     int fd = fd_from_conn(conn);
@@ -234,11 +236,14 @@ public:
 
   ~TcpListener() = default;
 
-  /** @brief Accept next connection. Resolves when a peer connects. */
-  Promise<TcpConn> accept() {
+  /** @brief Accept next connection. Resolves to Ok(TcpConn) when a peer connects,
+   *          or Err(io::Error) on failure / listener closed. */
+  Promise<io::Result<TcpConn>> accept() {
     Impl *impl = m_impl.as_deref();
-    if (!impl || !impl->listener) return xpp::resolve(TcpConn());
-    return xpp::adapt<TcpConn, _::TcpAcceptAdapter>(impl);
+    if (!impl || !impl->listener)
+      return xpp::resolve(
+        io::Result<TcpConn>(xpp::err, io::Error::from_kind(io::ErrorKind::Other)));
+    return xpp::adapt<io::Result<TcpConn>, _::TcpAcceptAdapter>(impl);
   }
 
   bool is_open() const {
@@ -252,8 +257,8 @@ private:
   // State lives on the heap so the libx callback's void* arg stays stable
   // across TcpListener moves. ~Impl destroys the listener handle.
   struct Impl {
-    xTcpListener             listener = nullptr;
-    PromiseResolver<TcpConn> pending;
+    xTcpListener                     listener = nullptr;
+    PromiseResolver<io::Result<TcpConn>> pending;
 
     ~Impl() {
       if (listener) xTcpListenerDestroy(listener);
@@ -268,7 +273,11 @@ private:
     auto *impl = static_cast<Impl *>(arg);
     if (impl->pending.is_pending()) {
       auto r = std::move(impl->pending);
-      r.resolve(TcpConn(conn));
+      if (conn) {
+        r.resolve(io::Result<TcpConn>(xpp::ok, TcpConn(conn)));
+      } else {
+        r.resolve(io::Result<TcpConn>(xpp::err, io::Error::from_kind(io::ErrorKind::Other)));
+      }
     } else {
       // No one waiting — close the connection
       xTcpConnClose(conn);
@@ -286,12 +295,12 @@ namespace _ {
 /// TCP connect adapter
 class TcpConnectAdapter {
 private:
-  PromiseResolver<TcpConn> m_resolver;
-  xTcpConnectConf          m_conf{};
-  std::string              m_host;
+  PromiseResolver<io::Result<TcpConn>> m_resolver;
+  xTcpConnectConf                      m_conf{};
+  std::string                          m_host;
 
 public:
-  TcpConnectAdapter(PromiseResolver<TcpConn> r, const char *host, uint16_t port,
+  TcpConnectAdapter(PromiseResolver<io::Result<TcpConn>> r, const char *host, uint16_t port,
                     const xTcpConnectConf *conf)
       : m_resolver(std::move(r)), m_host(host) {
     if (conf) m_conf = *conf;
@@ -313,9 +322,10 @@ private:
   static void on_connect(xTcpConn conn, xErrno err, void *arg) {
     auto *self = static_cast<TcpConnectAdapter *>(arg);
     if (conn && err == xErrno_Ok) {
-      self->m_resolver.resolve(TcpConn(conn));
+      self->m_resolver.resolve(io::Result<TcpConn>(xpp::ok, TcpConn(conn)));
     } else {
-      self->m_resolver.resolve(TcpConn()); // empty = error
+      self->m_resolver.resolve(
+        io::Result<TcpConn>(xpp::err, io::Error::from_xerrno(err)));
     }
     delete self; // self-delete — adapter lifetime ends here
   }
@@ -327,7 +337,8 @@ private:
   TcpListener::Impl *m_impl;
 
 public:
-  TcpAcceptAdapter(PromiseResolver<TcpConn> r, TcpListener::Impl *impl) : m_impl(impl) {
+  TcpAcceptAdapter(PromiseResolver<io::Result<TcpConn>> r, TcpListener::Impl *impl)
+      : m_impl(impl) {
     m_impl->pending = std::move(r);
   }
 
@@ -344,19 +355,20 @@ public:
 
 /* ── Implementations ──────────────────────────────────────────────── */
 
-inline Promise<TcpConn> TcpConn::connect_with_conf(const char *host, uint16_t port,
-                                                   const xTcpConnectConf *conf) {
+inline Promise<io::Result<TcpConn>> TcpConn::connect_with_conf(const char *host,
+                                                                 uint16_t port,
+                                                                 const xTcpConnectConf *conf) {
   // TcpConnectAdapter self-deletes in its callback — xTcpConnect has no
   // cancel API, so the adapter must outlive the Promise. If the Promise is
   // dropped first, the callback still fires and resolves to a no-op via
   // ArcWeak. Connect timeout (default 10s) bounds the leak.
-  auto pr = xpp::async<TcpConn>();
+  auto pr = xpp::async<io::Result<TcpConn>>();
   new _::TcpConnectAdapter(std::move(pr.second), host, port, conf);
   return std::move(pr.first);
 }
 
-inline Promise<TcpConn> TcpConn::connect(const char *host, uint16_t port,
-                                         Option<const TlsContext &> tls) {
+inline Promise<io::Result<TcpConn>> TcpConn::connect(const char *host, uint16_t port,
+                                                     Option<const TlsContext &> tls) {
   xTcpConnectConf conf{};
   if (tls.is_some() && tls.unwrap().is_valid()) {
     conf.tls_ctx = tls.unwrap().raw();
@@ -364,7 +376,8 @@ inline Promise<TcpConn> TcpConn::connect(const char *host, uint16_t port,
   return connect_with_conf(host, port, &conf);
 }
 
-inline Promise<TcpConn> TcpConn::connect(SocketAddr addr, Option<const TlsContext &> tls) {
+inline Promise<io::Result<TcpConn>> TcpConn::connect(SocketAddr addr,
+                                                     Option<const TlsContext &> tls) {
   // Pass the IP string directly — xTcpConnect parses literal IPs without DNS.
   std::string ip = addr.ip().to_string();
   return connect(ip.c_str(), addr.port(), tls);
