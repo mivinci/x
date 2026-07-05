@@ -16,6 +16,7 @@
 #define XPP_SYNC_MPSC_H
 
 #include <cstddef>
+#include <deque>
 #include <utility>
 
 #include <xpp/loom/internal.h>
@@ -165,6 +166,115 @@ template <class T> std::pair<Sender<T>, Receiver<T>> channel(size_t cap) {
   auto [tx, rx] = list::channel<T>(cap);
   auto chan      = Shared<typename Sender<T>::Chan>::make(std::move(tx), std::move(rx));
   return {Sender<T>(chan), Receiver<T>(std::move(chan))};
+}
+
+// ── Unbounded channel ───────────────────────────────────────────────
+
+namespace _ {
+
+template <class T> struct ChanUnbounded {
+  std::deque<T>               m_buf;
+  xpp::loom::_::Mutex         m_mutex;
+  PromiseResolver<void>       m_read_waiter;
+  xpp::loom::_::Atomic<size_t> m_sender_count{1};
+  xpp::loom::_::Atomic<bool>   m_closed{false};
+};
+
+} // namespace _
+
+template <class T> class ReceiverUnbounded;
+
+template <class T> class SenderUnbounded {
+public:
+  SenderUnbounded(SenderUnbounded &&) noexcept = default;
+  SenderUnbounded &operator=(SenderUnbounded &&) noexcept = default;
+  SenderUnbounded(const SenderUnbounded &o) : m_chan(o.m_chan) { if(m_chan) m_chan->m_sender_count.fetch_add(1); }
+  SenderUnbounded &operator=(const SenderUnbounded &o) { if(this!=&o){drop();m_chan=o.m_chan;if(m_chan)m_chan->m_sender_count.fetch_add(1);}return*this;}
+  ~SenderUnbounded() { drop(); }
+
+  void send(T value) {
+    if (!m_chan) return;
+    {
+      xpp::loom::_::Lock lock(m_chan->m_mutex);
+      if (m_chan->m_closed.load(std::memory_order_acquire)) return;
+      m_chan->m_buf.push_back(std::move(value));
+    }
+    if (m_chan->m_read_waiter.is_pending()) {
+      auto w = std::move(m_chan->m_read_waiter);
+      w.resolve();
+    }
+  }
+
+  bool try_send(T value) {
+    if (!m_chan) return false;
+    xpp::loom::_::Lock lock(m_chan->m_mutex);
+    if (m_chan->m_closed.load(std::memory_order_acquire)) return false;
+    m_chan->m_buf.push_back(std::move(value));
+    return true;
+  }
+
+  void close() {
+    if (!m_chan) return;
+    {
+      xpp::loom::_::Lock lock(m_chan->m_mutex);
+      m_chan->m_closed.store(true, std::memory_order_release);
+    }
+    if (m_chan->m_read_waiter.is_pending()) {
+      auto w = std::move(m_chan->m_read_waiter);
+      w.resolve();
+    }
+  }
+
+private:
+  template <class U> friend class ReceiverUnbounded;
+  template <class U> friend std::pair<SenderUnbounded<U>, ReceiverUnbounded<U>> unbounded_channel();
+  Shared<_::ChanUnbounded<T>> m_chan;
+  explicit SenderUnbounded(Shared<_::ChanUnbounded<T>> c) : m_chan(std::move(c)) {}
+  void drop() { if(!m_chan)return; if(m_chan->m_sender_count.fetch_sub(1,std::memory_order_acq_rel)==1) close(); }
+};
+
+template <class T> class ReceiverUnbounded {
+public:
+  ReceiverUnbounded(ReceiverUnbounded &&) noexcept = default;
+  ReceiverUnbounded &operator=(ReceiverUnbounded &&) noexcept = default;
+
+  Promise<Option<T>> recv() {
+    if (!m_chan) co_return none;
+
+    while (true) {
+      {
+        xpp::loom::_::Lock lock(m_chan->m_mutex);
+        if (m_chan->m_closed.load(std::memory_order_acquire) && m_chan->m_buf.empty()) co_return none;
+        if (!m_chan->m_buf.empty()) {
+          T val = std::move(m_chan->m_buf.front());
+          m_chan->m_buf.pop_front();
+          co_return xpp::some(std::move(val));
+        }
+      }
+      auto pr = xpp::async<void>();
+      m_chan->m_read_waiter = std::move(pr.second);
+      co_await std::move(pr.first);
+    }
+  }
+
+  Option<T> try_recv() {
+    if (!m_chan) return none;
+    xpp::loom::_::Lock lock(m_chan->m_mutex);
+    if (m_chan->m_buf.empty()) return none;
+    T val = std::move(m_chan->m_buf.front());
+    m_chan->m_buf.pop_front();
+    return xpp::some(std::move(val));
+  }
+
+private:
+  template <class U> friend std::pair<SenderUnbounded<U>, ReceiverUnbounded<U>> unbounded_channel();
+  Shared<_::ChanUnbounded<T>> m_chan;
+  explicit ReceiverUnbounded(Shared<_::ChanUnbounded<T>> c) : m_chan(std::move(c)) {}
+};
+
+template <class T> std::pair<SenderUnbounded<T>, ReceiverUnbounded<T>> unbounded_channel() {
+  auto chan = Shared<_::ChanUnbounded<T>>::make();
+  return {SenderUnbounded<T>(chan), ReceiverUnbounded<T>(std::move(chan))};
 }
 
 } // namespace mpsc
