@@ -170,15 +170,15 @@ template <class T> std::pair<Sender<T>, Receiver<T>> channel(size_t cap) {
 
 // ── Unbounded channel ───────────────────────────────────────────────
 
-template <class T> class ReceiverUnbounded;
+template <class T> class UnboundedReceiver;
 
-template <class T> class SenderUnbounded {
+template <class T> class UnboundedSender {
 public:
-  SenderUnbounded(SenderUnbounded &&) noexcept = default;
-  SenderUnbounded &operator=(SenderUnbounded &&) noexcept = default;
-  SenderUnbounded(const SenderUnbounded &) = default;
-  SenderUnbounded &operator=(const SenderUnbounded &) = default;
-  ~SenderUnbounded() { drop(); }
+  UnboundedSender(UnboundedSender &&) noexcept = default;
+  UnboundedSender &operator=(UnboundedSender &&) noexcept = default;
+  UnboundedSender(const UnboundedSender &) = default;
+  UnboundedSender &operator=(const UnboundedSender &) = default;
+  ~UnboundedSender() { drop(); }
 
   // Send never blocks — always succeeds (unbounded).
   void send(T value) {
@@ -206,8 +206,8 @@ public:
   }
 
 private:
-  template <class U> friend class ReceiverUnbounded;
-  template <class U> friend std::pair<SenderUnbounded<U>, ReceiverUnbounded<U>> channel();
+  template <class U> friend class UnboundedReceiver;
+  template <class U> friend std::pair<UnboundedSender<U>, UnboundedReceiver<U>> channel();
   struct Chan {
     list::UnboundedTx<T>         m_tx;
     list::UnboundedRx<T>         m_rx;
@@ -218,14 +218,14 @@ private:
         : m_tx(std::move(tx)), m_rx(std::move(rx)) {}
   };
   Shared<Chan> m_chan;
-  explicit SenderUnbounded(Shared<Chan> c) : m_chan(std::move(c)) {}
+  explicit UnboundedSender(Shared<Chan> c) : m_chan(std::move(c)) {}
   void drop() { if(!m_chan)return; if(m_chan->m_sender_count.fetch_sub(1)==1)close(); }
 };
 
-template <class T> class ReceiverUnbounded {
+template <class T> class UnboundedReceiver {
 public:
-  ReceiverUnbounded(ReceiverUnbounded &&) noexcept = default;
-  ReceiverUnbounded &operator=(ReceiverUnbounded &&) noexcept = default;
+  UnboundedReceiver(UnboundedReceiver &&) noexcept = default;
+  UnboundedReceiver &operator=(UnboundedReceiver &&) noexcept = default;
 
   Promise<Option<T>> recv() {
     if (!m_chan) co_return none;
@@ -245,17 +245,17 @@ public:
   Option<T> try_recv() { return m_chan ? m_chan->m_rx.try_pop() : xpp::none; }
 
 private:
-  template <class U> friend std::pair<SenderUnbounded<U>, ReceiverUnbounded<U>> channel();
-  using Chan    = typename SenderUnbounded<T>::Chan;
+  template <class U> friend std::pair<UnboundedSender<U>, UnboundedReceiver<U>> channel();
+  using Chan    = typename UnboundedSender<T>::Chan;
   Shared<Chan> m_chan;
-  explicit ReceiverUnbounded(Shared<Chan> c) : m_chan(std::move(c)) {}
+  explicit UnboundedReceiver(Shared<Chan> c) : m_chan(std::move(c)) {}
   bool m_closed() const { return m_chan->m_closed.load(std::memory_order_acquire); }
 };
 
-template <class T> std::pair<SenderUnbounded<T>, ReceiverUnbounded<T>> channel() {
+template <class T> std::pair<UnboundedSender<T>, UnboundedReceiver<T>> channel() {
   auto [tx, rx] = list::unbounded_channel<T>();
-  auto chan = Shared<typename SenderUnbounded<T>::Chan>::make(std::move(tx), std::move(rx));
-  return {SenderUnbounded<T>(chan), ReceiverUnbounded<T>(std::move(chan))};
+  auto chan = Shared<typename UnboundedSender<T>::Chan>::make(std::move(tx), std::move(rx));
+  return {UnboundedSender<T>(chan), UnboundedReceiver<T>(std::move(chan))};
 }
 
 } // namespace mpsc
