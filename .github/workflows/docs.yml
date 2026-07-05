@@ -38,17 +38,17 @@ jobs:
       - name: Install doxygen
         run: sudo apt-get install -y doxygen
 
-      - name: Generate API docs (libx)
-        run: cd docs && doxygen Doxyfile.libx
-
-      - name: Generate API docs (libxpp)
-        run: cd docs && doxygen Doxyfile.xpp
-
       - name: Build docs
         run: |
           cd docs
           mdbook-mermaid install .
           mdbook build
+
+      - name: Generate API docs
+        run: |
+          cd docs
+          doxygen Doxyfile.libx
+          doxygen Doxyfile.xpp
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
