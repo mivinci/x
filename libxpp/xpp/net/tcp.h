@@ -32,13 +32,13 @@
 #include <xpp/io/async_fd.h>
 #include <xpp/io/error.h>
 #include <xpp/net/addr.h>
+#include <xpp/shared.h>
 #include <xpp/net/dns.h>
 #include <xpp/net/tls.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
 #include <xpp/rc.h>
 #include <xpp/result.h>
-#include <xpp/shared.h>
 
 #include <x/base/error.h>
 #include <x/base/event.h>
@@ -53,8 +53,6 @@ namespace net {
 namespace _ {
 class TcpConnectAdapter;
 }
-class ReadHalf;
-class WriteHalf;
 
 /**
  * @brief RAII async TCP connection.
@@ -72,11 +70,21 @@ public:
   static Promise<io::Result<TcpStream>> connect(SocketAddr                 addr,
                                                 Option<const TlsContext &> tls = none);
 
-  TcpStream()                                 = default;
-  TcpStream(TcpStream &&) noexcept            = default;
-  TcpStream &operator=(TcpStream &&) noexcept = default;
-  TcpStream(const TcpStream &)                = delete;
-  TcpStream &operator=(const TcpStream &)     = delete;
+  TcpStream() = default;
+  TcpStream(TcpStream &&o) noexcept : m_conn(o.m_conn), m_async(std::move(o.m_async)) {
+    o.m_conn = nullptr;
+  }
+  TcpStream &operator=(TcpStream &&o) noexcept {
+    if (this != &o) {
+      close();
+      m_conn   = o.m_conn;
+      m_async  = std::move(o.m_async);
+      o.m_conn = nullptr;
+    }
+    return *this;
+  }
+  TcpStream(const TcpStream &)            = delete;
+  TcpStream &operator=(const TcpStream &) = delete;
 
   ~TcpStream() {
     close();
@@ -84,182 +92,164 @@ public:
 
   /** @brief Async read via AsyncFd. */
   Promise<ssize_t> read(void *buf, size_t len) {
-    if (!impl()->async_fd.is_closed()) return io::read(impl()->async_fd, buf, len);
+    if (!m_async.is_closed()) return io::read(m_async, buf, len);
     return xpp::resolve(static_cast<ssize_t>(-1));
   }
 
   /** @brief Async write via AsyncFd. */
   Promise<ssize_t> write(const void *buf, size_t len) {
-    if (!impl()->async_fd.is_closed()) return io::write(impl()->async_fd, buf, len);
+    if (!m_async.is_closed()) return io::write(m_async, buf, len);
     return xpp::resolve(static_cast<ssize_t>(-1));
   }
 
   /** @brief Synchronous non-blocking read. Returns -1 with errno=EAGAIN if no data. */
   ssize_t try_read(void *buf, size_t len) {
-    if (impl()->async_fd.is_closed()) return -1;
-    return ::read(impl()->async_fd.fd(), buf, len);
+    if (m_async.is_closed()) return -1;
+    return ::read(m_async.fd(), buf, len);
   }
 
   /** @brief Synchronous non-blocking write. Returns -1 with errno=EAGAIN if buffer full. */
   ssize_t try_write(const void *buf, size_t len) {
-    if (impl()->async_fd.is_closed()) return -1;
-    return ::write(impl()->async_fd.fd(), buf, len);
+    if (m_async.is_closed()) return -1;
+    return ::write(m_async.fd(), buf, len);
   }
 
   /** @brief Wait for readability (forward to AsyncFd). */
   Promise<void> readable() {
-    return impl()->async_fd.readable();
+    return m_async.readable();
   }
 
   /** @brief Wait for writability (forward to AsyncFd). */
   Promise<void> writable() {
-    return impl()->async_fd.writable();
+    return m_async.writable();
   }
 
   /** @brief Peek without consuming. Same fast-path + EAGAIN pattern as read. */
   Promise<ssize_t> peek(void *buf, size_t len) {
-    if (impl()->async_fd.is_closed()) return xpp::resolve(static_cast<ssize_t>(-1));
-    int     fd = impl()->async_fd.fd();
+    if (m_async.is_closed()) return xpp::resolve(static_cast<ssize_t>(-1));
+    int     fd = m_async.fd();
     ssize_t n  = ::recv(fd, buf, len, MSG_PEEK);
     if (n >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) return xpp::resolve(n);
-    return impl()->async_fd.readable().then(
-      [fd, buf, len] { return ::recv(fd, buf, len, MSG_PEEK); });
+    return m_async.readable().then([fd, buf, len] { return ::recv(fd, buf, len, MSG_PEEK); });
   }
 
   /** @brief Get and clear the pending socket error (SO_ERROR). Returns 0 if no error. */
   int take_error() {
-    if (impl()->async_fd.is_closed()) return -1;
+    if (m_async.is_closed()) return -1;
     int       err = 0;
     socklen_t len = sizeof(err);
-    getsockopt(impl()->async_fd.fd(), SOL_SOCKET, SO_ERROR, &err, &len);
+    getsockopt(m_async.fd(), SOL_SOCKET, SO_ERROR, &err, &len);
     return err;
   }
 
   /** @brief Get TCP_NODELAY. */
   io::Result<bool> nodelay() const {
-    if (impl()->async_fd.is_closed())
+    if (m_async.is_closed())
       return io::Result<bool>(xpp::err, io::Error::from_kind(io::ErrorKind::Other));
     int       val = 0;
     socklen_t len = sizeof(val);
-    if (getsockopt(impl()->async_fd.fd(), IPPROTO_TCP, TCP_NODELAY, &val, &len) != 0)
+    if (getsockopt(m_async.fd(), IPPROTO_TCP, TCP_NODELAY, &val, &len) != 0)
       return io::Result<bool>(xpp::err, io::Error::from_errno(errno));
     return io::Result<bool>(xpp::ok, val != 0);
   }
 
   /** @brief Set TCP_NODELAY. Returns Ok(true) on success. */
   io::Result<bool> set_nodelay(bool enable) {
-    if (impl()->async_fd.is_closed())
+    if (m_async.is_closed())
       return io::Result<bool>(xpp::err, io::Error::from_kind(io::ErrorKind::Other));
     int val = enable ? 1 : 0;
-    if (setsockopt(impl()->async_fd.fd(), IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) != 0)
+    if (setsockopt(m_async.fd(), IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) != 0)
       return io::Result<bool>(xpp::err, io::Error::from_errno(errno));
     return io::Result<bool>(xpp::ok, true);
   }
 
   /** @brief Get IP_TTL. */
   io::Result<uint32_t> ttl() const {
-    if (impl()->async_fd.is_closed())
+    if (m_async.is_closed())
       return io::Result<uint32_t>(xpp::err, io::Error::from_kind(io::ErrorKind::Other));
     uint32_t  val = 0;
     socklen_t len = sizeof(val);
-    if (getsockopt(impl()->async_fd.fd(), IPPROTO_IP, IP_TTL, &val, &len) != 0)
+    if (getsockopt(m_async.fd(), IPPROTO_IP, IP_TTL, &val, &len) != 0)
       return io::Result<uint32_t>(xpp::err, io::Error::from_errno(errno));
     return io::Result<uint32_t>(xpp::ok, val);
   }
 
   /** @brief Set IP_TTL. Returns Ok(true) on success. */
   io::Result<bool> set_ttl(uint32_t ttl) {
-    if (impl()->async_fd.is_closed())
+    if (m_async.is_closed())
       return io::Result<bool>(xpp::err, io::Error::from_kind(io::ErrorKind::Other));
-    if (setsockopt(impl()->async_fd.fd(), IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) != 0)
+    if (setsockopt(m_async.fd(), IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) != 0)
       return io::Result<bool>(xpp::err, io::Error::from_errno(errno));
     return io::Result<bool>(xpp::ok, true);
   }
 
   /** @brief Get SO_LINGER seconds, or -1 if disabled. */
   io::Result<int32_t> linger() const {
-    if (impl()->async_fd.is_closed())
+    if (m_async.is_closed())
       return io::Result<int32_t>(xpp::err, io::Error::from_kind(io::ErrorKind::Other));
     struct linger lng = {};
     socklen_t     len = sizeof(lng);
-    if (getsockopt(impl()->async_fd.fd(), SOL_SOCKET, SO_LINGER, &lng, &len) != 0)
+    if (getsockopt(m_async.fd(), SOL_SOCKET, SO_LINGER, &lng, &len) != 0)
       return io::Result<int32_t>(xpp::err, io::Error::from_errno(errno));
     return io::Result<int32_t>(xpp::ok, lng.l_onoff ? lng.l_linger : -1);
   }
 
   /** @brief Set SO_LINGER seconds. Pass -1 to disable. */
   io::Result<bool> set_linger(int32_t seconds) {
-    if (impl()->async_fd.is_closed())
+    if (m_async.is_closed())
       return io::Result<bool>(xpp::err, io::Error::from_kind(io::ErrorKind::Other));
     struct linger lng;
     lng.l_onoff  = seconds >= 0 ? 1 : 0;
     lng.l_linger = seconds >= 0 ? seconds : 0;
-    if (setsockopt(impl()->async_fd.fd(), SOL_SOCKET, SO_LINGER, &lng, sizeof(lng)) != 0)
+    if (setsockopt(m_async.fd(), SOL_SOCKET, SO_LINGER, &lng, sizeof(lng)) != 0)
       return io::Result<bool>(xpp::err, io::Error::from_errno(errno));
     return io::Result<bool>(xpp::ok, true);
   }
 
-  /** @brief Split into independent read/write halves (shared ownership). */
-  std::pair<ReadHalf, WriteHalf> split();
-
   /** @brief Close and release resources. */
   void close() {
-    m_impl = none;
+    m_async.close(); // deregister from event loop, wake waiters
+    if (m_conn) {
+      xTcpConnClose(m_conn);
+      m_conn = nullptr;
+    }
   }
 
   int fd() const {
-    return impl()->async_fd.fd();
+    return m_async.fd();
   }
   bool is_open() const {
-    return impl()->conn != nullptr;
+    return m_conn != nullptr;
   }
 
   /** @brief Get peer address. */
   Option<SocketAddr> peer_addr() const {
-    if (!impl()->conn) return none;
-    return _::peername(impl()->async_fd.fd());
+    if (!m_conn) return none;
+    return _::peername(m_async.fd());
   }
 
   /** @brief Get local address. */
   Option<SocketAddr> local_addr() const {
-    if (!impl()->conn) return none;
-    return _::sockname(impl()->async_fd.fd());
+    if (!m_conn) return none;
+    return _::sockname(m_async.fd());
   }
 
 private:
   friend class _::TcpConnectAdapter;
   friend class TcpListener;
-  friend class ReadHalf;
-  friend class WriteHalf;
 
-  struct Impl {
-    xTcpConn    conn = nullptr;
-    io::AsyncFd async_fd{-1};
-    ~Impl() {
-      if (conn) xTcpConnClose(conn);
-    }
-  };
-  Option<Shared<Impl>> m_impl;
-
-  Impl *impl() const {
-    return const_cast<Impl *>(m_impl.as_deref());
-  }
-  Impl *impl() {
-    return m_impl.as_deref();
-  }
+  xTcpConn    m_conn = nullptr;
+  io::AsyncFd m_async{-1};
 
   /** @brief Low-level connect using a raw xTcpConnectConf (escape hatch). */
   static Promise<io::Result<TcpStream>> connect_with_conf(const char *host, uint16_t port,
                                                           const xTcpConnectConf *conf);
 
-  explicit TcpStream(xTcpConn c) {
-    int fd = fd_from_conn(c);
+  explicit TcpStream(xTcpConn conn) : m_conn(conn) {
+    int fd = fd_from_conn(conn);
     if (fd >= 0) {
-      auto i  = Shared<Impl>::make();
-      i->conn = c;
       io::_::set_nonblocking(fd);
-      i->async_fd = io::AsyncFd(fd);
-      m_impl      = some(std::move(i));
+      m_async = io::AsyncFd(fd);
     }
   }
 
@@ -269,55 +259,6 @@ private:
     return sock ? xSocketFd(sock) : -1;
   }
 };
-/* ── ReadHalf / WriteHalf ─────────────────────────────────────────── */
-
-class ReadHalf {
-public:
-  ReadHalf()                                = default;
-  ReadHalf(ReadHalf &&) noexcept            = default;
-  ReadHalf &operator=(ReadHalf &&) noexcept = default;
-
-  Promise<ssize_t> read(void *buf, size_t len) {
-    auto *i = m_impl.as_deref();
-    if (!i || i->async_fd.is_closed()) return xpp::resolve(static_cast<ssize_t>(-1));
-    return io::read(i->async_fd, buf, len);
-  }
-
-private:
-  friend class TcpStream;
-  Option<Shared<TcpStream::Impl>> m_impl;
-  explicit ReadHalf(Shared<TcpStream::Impl> impl) : m_impl(some(std::move(impl))) {}
-};
-
-class WriteHalf {
-public:
-  WriteHalf()                                 = default;
-  WriteHalf(WriteHalf &&) noexcept            = default;
-  WriteHalf &operator=(WriteHalf &&) noexcept = default;
-
-  Promise<ssize_t> write(const void *buf, size_t len) {
-    auto *i = m_impl.as_deref();
-    if (!i || i->async_fd.is_closed()) return xpp::resolve(static_cast<ssize_t>(-1));
-    return io::write(i->async_fd, buf, len);
-  }
-  Promise<void> flush() {
-    return xpp::yield();
-  }
-
-private:
-  friend class TcpStream;
-  Option<Shared<TcpStream::Impl>> m_impl;
-  explicit WriteHalf(Shared<TcpStream::Impl> impl) : m_impl(some(std::move(impl))) {}
-};
-
-/* ── TcpStream::split ────────────────────────────────────────────── */
-
-std::pair<ReadHalf, WriteHalf> TcpStream::split() {
-  if (m_impl.is_none()) return {};
-  auto impl = std::move(m_impl).unwrap();
-  m_impl    = some(impl.clone());
-  return std::make_pair(ReadHalf(impl), WriteHalf(std::move(m_impl).unwrap()));
-}
 
 /* ── TcpListener ──────────────────────────────────────────────────── */
 
