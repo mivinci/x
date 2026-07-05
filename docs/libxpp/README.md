@@ -69,4 +69,4 @@ if (cached) {
 - [Net](net/README.md) — Async TCP/UDP/DNS/URL/TLS (`TcpStream`, `TcpListener`, `UdpSocket`, `lookup_host`, `Url`, `TlsContext`)
 - [Panic](panic.md) — Assert macros
 - [Compiler Macros](compiler.md) — Attribute/deprecation helpers
-- [Opaque Handle Wrapper](opaque.md) — RAII for `XDEF_HANDLE` typedefs
+- [Opaque Handle Wrapper](handle.md) — RAII for `XDEF_HANDLE` typedefs

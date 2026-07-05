@@ -74,7 +74,7 @@
   - [Variant](libxpp/variant.md)
   - [Panic](libxpp/panic.md)
   - [Compiler Macros](libxpp/compiler.md)
-  - [Opaque Handle Wrapper](libxpp/opaque.md)
+  - [Opaque Handle Wrapper](libxpp/handle.md)
   - [Timer](libxpp/timer.md)
   - [Filesystem](libxpp/fs.md)
   - [I/O](libxpp/io/README.md)

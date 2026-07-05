@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include <xpp/handle.h>
 #include <xpp/io/async_fd.h>
 #include <xpp/io/error.h>
 #include <xpp/net/addr.h>
@@ -49,6 +50,12 @@ namespace xpp {
 namespace net {
 
 /* ── TcpStream ───────────────────────────────────────────────────────── */
+
+struct TcpConnDeleter {
+  void deallocate(void *p, Layout) const noexcept {
+    if (p) xTcpConnClose(static_cast<xTcpConn>(p));
+  }
+};
 
 namespace _ {
 class TcpConnectAdapter;
@@ -71,15 +78,15 @@ public:
                                                 Option<const TlsContext &> tls = none);
 
   TcpStream() = default;
-  TcpStream(TcpStream &&o) noexcept : m_conn(o.m_conn), m_async(std::move(o.m_async)) {
-    o.m_conn = nullptr;
+  TcpStream(TcpStream &&o) noexcept : m_conn(std::move(o.m_conn)), m_async(std::move(o.m_async)) {
+    
   }
   TcpStream &operator=(TcpStream &&o) noexcept {
     if (this != &o) {
       close();
-      m_conn   = o.m_conn;
+      m_conn  = std::move(o.m_conn);
       m_async  = std::move(o.m_async);
-      o.m_conn = nullptr;
+      
     }
     return *this;
   }
@@ -209,28 +216,25 @@ public:
   /** @brief Close and release resources. */
   void close() {
     m_async.close(); // deregister from event loop, wake waiters
-    if (m_conn) {
-      xTcpConnClose(m_conn);
-      m_conn = nullptr;
-    }
+    m_conn = {};
   }
 
   int fd() const {
     return m_async.fd();
   }
   bool is_open() const {
-    return m_conn != nullptr;
+    return m_conn.get() != nullptr;
   }
 
   /** @brief Get peer address. */
   Option<SocketAddr> peer_addr() const {
-    if (!m_conn) return none;
+    if (!m_conn.get()) return none;
     return _::peername(m_async.fd());
   }
 
   /** @brief Get local address. */
   Option<SocketAddr> local_addr() const {
-    if (!m_conn) return none;
+    if (!m_conn.get()) return none;
     return _::sockname(m_async.fd());
   }
 
@@ -238,7 +242,7 @@ private:
   friend class _::TcpConnectAdapter;
   friend class TcpListener;
 
-  xTcpConn    m_conn = nullptr;
+  OwnedHandle<TcpConnDeleter> m_conn;
   io::AsyncFd m_async{-1};
 
   /** @brief Low-level connect using a raw xTcpConnectConf (escape hatch). */
