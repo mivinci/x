@@ -374,6 +374,7 @@ public:
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
     return &m_inner->value;
   }
+  explicit operator bool() const noexcept { return m_inner != nullptr; }
   T *get() const noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
     return &m_inner->value;
@@ -557,6 +558,18 @@ public:
     _::ArcInner<T, Allocator> *tmp = m_inner;
     m_inner                        = o.m_inner;
     o.m_inner                      = tmp;
+  }
+
+  /**
+   * @brief Pointer to the dereferenced value, or nullptr if None.
+   *
+   * Non-consuming peek — the Arc's refcount is unchanged.
+   */
+  T *as_deref() noexcept {
+    return m_inner ? &m_inner->value : nullptr;
+  }
+  const T *as_deref() const noexcept {
+    return m_inner ? &m_inner->value : nullptr;
   }
 
 private:

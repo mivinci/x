@@ -2,6 +2,8 @@
 
 file(GLOB_RECURSE XPP_HEADERS "*.h")
 
+option(XPP_MT "Enable multi-threading support (Shared→Arc, atomic channel ops)" ON)
+
 # ── Header-only library target ──────────────────────────────────────
 add_library(xpp INTERFACE)
 target_include_directories(xpp INTERFACE
@@ -11,6 +13,9 @@ target_include_directories(xpp INTERFACE
 target_compile_features(xpp INTERFACE cxx_std_11)
 # event.h / timer.h / promise.h / fs/file.h / net/tcp.h include libx headers; link for their users.
 target_link_libraries(xpp INTERFACE xbase xlog xfs xnet)
+if(XPP_MT)
+  target_compile_definitions(xpp INTERFACE XPP_MT)
+endif()
 
 # ── Tests ────────────────────────────────────────────────────────────
 option(XPP_BUILD_TESTS "Build libxpp tests" ${X_BUILD_TESTS})
@@ -44,8 +49,21 @@ if(XPP_BUILD_TESTS)
        test_name STREQUAL "join_test" OR
        test_name STREQUAL "split_test" OR
        test_name STREQUAL "oneshot_test" OR
-       test_name STREQUAL "mpsc_test")
+       test_name STREQUAL "mpsc_test" OR
+       test_name STREQUAL "notify_test" OR
+       test_name STREQUAL "broadcast_test" OR
+       test_name STREQUAL "watch_test")
       target_compile_features(${test_name} PRIVATE cxx_std_20)
+      if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
+        target_compile_options(${test_name} PRIVATE -fcoroutines)
+      endif()
+    endif()
+    # Multi-threaded test: C++20 + pthread
+    if(test_name MATCHES "_mt_test")
+      target_compile_features(${test_name} PRIVATE cxx_std_20)
+      set(THREADS_PREFER_PTHREAD_FLAG ON)
+      find_package(Threads REQUIRED)
+      target_link_libraries(${test_name} PRIVATE Threads::Threads)
       if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
         target_compile_options(${test_name} PRIVATE -fcoroutines)
       endif()
