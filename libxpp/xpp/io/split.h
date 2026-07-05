@@ -58,8 +58,8 @@ private:
 };
 
 template <AsyncReadWriter T> std::pair<ReadHalf<T>, WriteHalf<T>> split(T stream) {
-  auto s  = Shared<T>::make(std::move(stream));
-  auto rh = ReadHalf<T>(s);
+  auto s = Shared<T>::make(std::move(stream));
+  auto rh = ReadHalf<T>(s);  // copy first (refcount +1)
   auto wh = WriteHalf<T>(std::move(s));
   return std::make_pair(std::move(rh), std::move(wh));
 }
