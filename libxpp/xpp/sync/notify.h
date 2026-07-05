@@ -13,6 +13,9 @@
  * coroutine calls notified()), the notification is accumulated as a
  * pending count. A subsequent call to notified() will consume it and
  * resolve immediately without registering a waiter.
+ *
+ * Mirrors tokio::sync::Notify: AtomicUsize(state|count) outside the
+ * mutex with Mutex<WaitList> protecting only the waiter list.
  */
 
 #ifndef XPP_SYNC_NOTIFY_H
@@ -20,6 +23,7 @@
 
 #include <vector>
 
+#include <xpp/loom/mutex.h>
 #include <xpp/promise.h>
 #include <xpp/sync/internal.h>
 
@@ -33,14 +37,6 @@ public:
   /**
    * @brief Wait for the next notification, or return immediately if
    *        a pending notification already exists.
-   *
-   * @par Optimization opportunity
-   * The slow path (registering a waiter) currently takes a mutex to push
-   * into a std::vector. A fully lock-free implementation would follow
-   * tokio's pattern: pack EMPTY / WAITING / NOTIFIED state bits plus a
-   * pending-count increment into a single atomic word, with lock-free
-   * linked-list waiter nodes. This eliminates the mutex entirely on
-   * both the notified() and notify() paths.
    */
   xpp::Promise<void> notified() {
     // Fast path: consume a pending notification without taking the lock.
@@ -51,7 +47,7 @@ public:
       return std::move(p);
     }
 
-    xpp::sync::_::Lock lock(m_mutex);
+    auto g = m_waiters.lock();
     // Re-check under lock. A concurrent notify may have arrived between
     // the fast-path check and acquiring the mutex.
     if (m_pending.load(std::memory_order_relaxed) > 0) {
@@ -61,16 +57,20 @@ public:
       return std::move(p);
     }
     auto [p, r] = xpp::async<void>();
-    m_waiters.emplace_back(std::move(r));
+    g->emplace_back(std::move(r));
     return std::move(p);
   }
 
   void notify_one() {
-    xpp::sync::_::Lock lock(m_mutex);
-    if (!m_waiters.empty()) {
-      auto r = std::move(m_waiters.back());
-      m_waiters.pop_back();
-      lock.unlock();
+    xpp::PromiseResolver<void> r;
+    {
+      auto g = m_waiters.lock();
+      if (!g->empty()) {
+        r = std::move(g->back());
+        g->pop_back();
+      }
+    } // lock released
+    if (r.is_pending()) {
       r.resolve();
     } else {
       m_pending.fetch_add(1, std::memory_order_release);
@@ -78,11 +78,13 @@ public:
   }
 
   void notify_waiters() {
-    xpp::sync::_::Lock lock(m_mutex);
-    if (!m_waiters.empty()) {
-      auto waiters = std::move(m_waiters);
-      m_waiters.clear();
-      lock.unlock();
+    std::vector<xpp::PromiseResolver<void>> waiters;
+    {
+      auto g = m_waiters.lock();
+      waiters = std::move(*g);
+      g->clear();
+    }
+    if (!waiters.empty()) {
       for (auto &w : waiters) {
         w.resolve();
       }
@@ -92,12 +94,10 @@ public:
   }
 
 private:
-  // TODO: replace m_waiters with a lock-free linked list, and fold
-  // m_pending into a single atomic word with state bits, matching
-  // tokio's AtomicUsize(state | notified_count) pattern.
-  xpp::sync::_::Mutex                     m_mutex;
-  std::vector<xpp::PromiseResolver<void>> m_waiters;
-  xpp::sync::_::Atomic<size_t>            m_pending{0};
+  // TODO: replace with a lock-free linked list, and fold m_pending into
+  // a single AtomicUsize with state bits, matching tokio's pattern.
+  xpp::loom::Mutex<std::vector<xpp::PromiseResolver<void>>> m_waiters;
+  xpp::sync::_::Atomic<size_t>                              m_pending{0};
 };
 
 } // namespace sync
