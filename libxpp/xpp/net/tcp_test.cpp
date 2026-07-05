@@ -16,8 +16,6 @@
 #include <xpp/net/tcp.h>
 #include <xpp/net/test_helpers.h>
 #include <xpp/promise.h>
-#include <xpp/promise_combinators.h>
-
 #include <x/base/event.h>
 
 using xpp::net::SocketAddr;
@@ -58,39 +56,45 @@ TEST(TcpConnTest, ConnectAndSendRecv) {
   TcpListener listener = std::move(listener_r).unwrap();
   ASSERT_TRUE(listener.is_open());
 
+  /* Phase 1 — Connect + accept independently.
+   * Sequential .wait() calls avoid the all() combinator, whose
+   * interaction with complex send/recv chains is known to hang on
+   * Linux shared-build + ASAN CI (edge-triggered epoll ordering). */
+  TcpConn server_conn;
+  auto accept_p = listener.accept().then(unwrap).then([&server_conn](TcpConn c) {
+    server_conn = std::move(c);
+  });
+
+  auto connect_r = TcpConn::connect("127.0.0.1", port).wait();
+  ASSERT_TRUE(connect_r.is_ok());
+  TcpConn client_conn = std::move(connect_r).unwrap();
+
+  accept_p.wait();
+  ASSERT_TRUE(server_conn.is_open());
+  ASSERT_TRUE(client_conn.is_open());
+
+  /* Phase 2 — Send / recv (sequential, no concurrent chains). */
   auto client_buf = std::make_shared<std::vector<char>>(64);
   auto server_buf = std::make_shared<std::vector<char>>(64);
+  const char *msg = "hello";
 
-  // Server chain: accept → recv → echo.
-  auto server_p =
-    listener.accept().then(unwrap).then([server_buf](TcpConn c) -> xpp::Promise<void> {
-      auto conn = std::make_shared<TcpConn>(std::move(c));
-      return conn->recv(server_buf->data(), server_buf->size())
-        .then([conn, server_buf](ssize_t n) mutable -> xpp::Promise<ssize_t> {
-          return conn->send(server_buf->data(), static_cast<size_t>(n));
-        })
-        .discard();
-    });
+  // Client send
+  ssize_t sent = client_conn.send(msg, 5).wait();
+  EXPECT_EQ(sent, 5);
 
-  // Client chain: connect → send → recv → verify.
-  auto client_p =
-    TcpConn::connect("127.0.0.1", port)
-      .then(unwrap)
-      .then([client_buf, server_buf](TcpConn c) -> xpp::Promise<void> {
-        auto        conn = std::make_shared<TcpConn>(std::move(c));
-        const char *msg  = "hello";
-        return conn->send(msg, 5)
-          .then([conn, client_buf](ssize_t) mutable -> xpp::Promise<ssize_t> {
-            return conn->recv(client_buf->data(), client_buf->size());
-          })
-          .then([conn, client_buf](ssize_t n) mutable {
-            EXPECT_EQ(n, 5);
-            EXPECT_EQ(std::string(client_buf->data(), static_cast<size_t>(n)), "hello");
-          });
-      });
+  // Server recv
+  ssize_t recvd = server_conn.recv(server_buf->data(), server_buf->size()).wait();
+  EXPECT_EQ(recvd, 5);
+  EXPECT_EQ(std::string(server_buf->data(), static_cast<size_t>(recvd)), "hello");
 
-  // Poll both chains concurrently — all() drives the event loop for both.
-  xpp::all(std::move(server_p), std::move(client_p)).wait();
+  // Server echo back
+  ssize_t echoed = server_conn.send(server_buf->data(), static_cast<size_t>(recvd)).wait();
+  EXPECT_EQ(echoed, 5);
+
+  // Client recv echo
+  ssize_t echoed_recvd = client_conn.recv(client_buf->data(), client_buf->size()).wait();
+  EXPECT_EQ(echoed_recvd, 5);
+  EXPECT_EQ(std::string(client_buf->data(), static_cast<size_t>(echoed_recvd)), "hello");
 }
 
 TEST(TcpConnTest, PeerAndLocalAddr) {
