@@ -21,7 +21,7 @@
 #include <xpp/promise.h>
 #include <xpp/result.h>
 #include <xpp/shared.h>
-#include <xpp/sync/internal.h>
+#include <xpp/loom/internal.h>
 #include <xpp/sync/notify.h>
 
 namespace xpp {
@@ -37,17 +37,17 @@ template <class T> struct Channel {
   size_t                     m_cap;
   size_t                     m_head              = 0;
   size_t                     m_tail              = 0;
-  sync::_::Atomic<size_t>    m_sender_count{1};
-  sync::_::Atomic<bool>      m_closed{false};
-  sync::_::Mutex             m_mutex;
+  xpp::loom::_::Atomic<size_t>    m_sender_count{1};
+  xpp::loom::_::Atomic<bool>      m_closed{false};
+  xpp::loom::_::Mutex             m_mutex;
   xpp::sync::Notify          m_notify;
 
   // Count of active receivers (used by send() return value).
-  sync::_::Atomic<size_t>    m_receiver_count{1};
+  xpp::loom::_::Atomic<size_t>    m_receiver_count{1};
 
   explicit Channel(size_t cap) : m_buf(new T[cap]), m_cap(cap) {}
   ~Channel() {
-    sync::_::Lock lock(m_mutex);
+    xpp::loom::_::Lock lock(m_mutex);
     // Destroy any remaining values in the buffer.
     while (m_head != m_tail) {
       m_buf[m_head].~T();
@@ -125,7 +125,7 @@ public:
     auto *ch = m_chan.get();
     if (!ch) co_return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
 
-    xpp::sync::_::Lock lock(ch->m_mutex);
+    xpp::loom::_::Lock lock(ch->m_mutex);
 
     if (ch->m_closed.load(std::memory_order_acquire))
       co_return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
@@ -156,7 +156,7 @@ public:
     auto *ch = m_chan.get();
     if (!ch) return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
 
-    xpp::sync::_::Lock lock(ch->m_mutex);
+    xpp::loom::_::Lock lock(ch->m_mutex);
 
     if (ch->m_closed.load(std::memory_order_acquire))
       return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
@@ -222,7 +222,7 @@ private:
 
   void close_channel(_::Channel<T> *ch) {
     {
-      xpp::sync::_::Lock lock(ch->m_mutex);
+      xpp::loom::_::Lock lock(ch->m_mutex);
       if (ch->m_closed.load(std::memory_order_acquire)) return;
       ch->m_closed.store(true, std::memory_order_release);
     }

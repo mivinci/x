@@ -23,7 +23,7 @@
 #include <xpp/promise.h>
 #include <xpp/result.h>
 #include <xpp/shared.h>
-#include <xpp/sync/internal.h>
+#include <xpp/loom/internal.h>
 
 #if XPP_HAS_COROUTINES
 
@@ -38,17 +38,17 @@ template <class T> struct Channel {
   T           *m_buf;
   size_t       m_cap;
   size_t       m_rpos = 0;
-  sync::_::Atomic<size_t> m_wpos{0};
-  sync::_::Atomic<size_t> m_count{0};
-  sync::_::Atomic<bool>   m_closed{false};
-  sync::_::Atomic<size_t> m_sender_count{1};
-  sync::_::Mutex          m_mutex;
+  xpp::loom::_::Atomic<size_t> m_wpos{0};
+  xpp::loom::_::Atomic<size_t> m_count{0};
+  xpp::loom::_::Atomic<bool>   m_closed{false};
+  xpp::loom::_::Atomic<size_t> m_sender_count{1};
+  xpp::loom::_::Mutex          m_mutex;
   PromiseResolver<void> m_read_waiter;
   PromiseResolver<void> m_write_waiter;
 
   explicit Channel(size_t cap) : m_buf(new T[cap]), m_cap(cap) {}
   ~Channel() {
-    sync::_::Lock lock(m_mutex);
+    xpp::loom::_::Lock lock(m_mutex);
     // clang-format off
     while (m_count--) m_buf[m_rpos++].~T();
     // clang-format on
@@ -137,7 +137,7 @@ public:
     auto *ch = m_chan.get();
     if (!ch) co_return;
 
-    xpp::sync::_::Lock lock(ch->m_mutex);
+    xpp::loom::_::Lock lock(ch->m_mutex);
     if (ch->m_closed.load(std::memory_order_acquire)) co_return;
 
     while (ch->m_count.load(std::memory_order_acquire) >= ch->m_cap) {
@@ -145,7 +145,7 @@ public:
       ch->m_write_waiter = std::move(w.second);
       lock.unlock();
       co_await std::move(w.first);
-      lock = xpp::sync::_::Lock(ch->m_mutex);
+      lock = xpp::loom::_::Lock(ch->m_mutex);
       if (ch->m_closed.load(std::memory_order_acquire)) co_return;
     }
 
@@ -168,7 +168,7 @@ public:
     auto *ch = m_chan.get();
     if (!ch) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
 
-    xpp::sync::_::Lock lock(ch->m_mutex);
+    xpp::loom::_::Lock lock(ch->m_mutex);
     if (ch->m_closed.load(std::memory_order_acquire))
       return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
 
@@ -217,7 +217,7 @@ private:
 
   void close_channel(_::Channel<T> *ch) {
     {
-      xpp::sync::_::Lock lock(ch->m_mutex);
+      xpp::loom::_::Lock lock(ch->m_mutex);
       if (ch->m_closed.load(std::memory_order_acquire)) return;
       ch->m_closed.store(true, std::memory_order_release);
     }

@@ -25,7 +25,7 @@
 
 #include <xpp/loom/mutex.h>
 #include <xpp/promise.h>
-#include <xpp/sync/internal.h>
+#include <xpp/loom/internal.h>
 
 namespace xpp {
 namespace sync {
@@ -97,7 +97,7 @@ private:
   // TODO: replace with a lock-free linked list, and fold m_pending into
   // a single AtomicUsize with state bits, matching tokio's pattern.
   xpp::loom::Mutex<std::vector<xpp::PromiseResolver<void>>> m_waiters;
-  xpp::sync::_::Atomic<size_t>                              m_pending{0};
+  xpp::loom::_::Atomic<size_t>                              m_pending{0};
 };
 
 } // namespace sync

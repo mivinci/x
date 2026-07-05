@@ -34,9 +34,9 @@ namespace _ {
 
 template <class T> struct Value {
   T                           m_value;
-  sync::_::Atomic<uint64_t>   m_version{0};
-  sync::_::Atomic<uint64_t>   m_receiver_count{1};
-  sync::_::Atomic<bool>       m_closed{false};
+  xpp::loom::_::Atomic<uint64_t>   m_version{0};
+  xpp::loom::_::Atomic<uint64_t>   m_receiver_count{1};
+  xpp::loom::_::Atomic<bool>       m_closed{false};
 
   template <typename... Args>
   explicit Value(Args &&...args) : m_value(std::forward<Args>(args)...) {}
@@ -145,7 +145,7 @@ private:
   template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(const U &);
   struct State {
     xpp::loom::Mutex<_::Value<T>> m_value;
-    sync::_::Atomic<uint64_t>     m_sender_count{1};
+    xpp::loom::_::Atomic<uint64_t>     m_sender_count{1};
     Notify                       m_notify;
     explicit State(const T &init) : m_value(init) {}
   };
