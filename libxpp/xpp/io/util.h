@@ -52,6 +52,13 @@ concept AsyncWriter = requires(W &w, const void *buf, size_t len) {
   { w.write(buf, len) };
 };
 
+namespace _ {
+
+/** @brief Default buffer size for I/O utilities (8KB, matches Rust). */
+constexpr size_t kBufSize = 8192;
+
+} // namespace _
+
 /**
  * @brief Read the entire byte stream into a vector.
  *

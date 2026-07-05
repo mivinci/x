@@ -52,13 +52,13 @@ public:
    */
   Promise<ssize_t> write(const void *buf, size_t len) {
     // Large write: flush + bypass
-    if (len >= io::_::kBufSize) {
+    if (len >= _::kBufSize) {
       co_await flush();
       co_return co_await m_writer.write(buf, len);
     }
 
     // Would overflow: flush first
-    if (m_pos + len > io::_::kBufSize) {
+    if (m_pos + len > _::kBufSize) {
       co_await flush();
     }
 
@@ -89,7 +89,7 @@ public:
 
 private:
   W       m_writer;
-  uint8_t m_buf[io::_::kBufSize];
+  uint8_t m_buf[_::kBufSize];
   size_t  m_pos = 0;
 };
 

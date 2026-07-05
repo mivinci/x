@@ -60,12 +60,12 @@ public:
     m_filled = 0;
 
     // Large read: bypass buffer
-    if (len >= io::_::kBufSize) {
+    if (len >= _::kBufSize) {
       co_return co_await m_reader.read(buf, len);
     }
 
     // Refill buffer
-    ssize_t n = co_await m_reader.read(m_buf, io::_::kBufSize);
+    ssize_t n = co_await m_reader.read(m_buf, _::kBufSize);
     if (n <= 0) co_return n;
     m_filled = static_cast<size_t>(n);
 
@@ -85,7 +85,7 @@ public:
 
 private:
   R       m_reader;
-  uint8_t m_buf[io::_::kBufSize];
+  uint8_t m_buf[_::kBufSize];
   size_t  m_pos    = 0;
   size_t  m_filled = 0;
 };
