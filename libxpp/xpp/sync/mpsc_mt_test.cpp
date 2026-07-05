@@ -165,4 +165,32 @@ TEST(MpscMtTest, MultiProducerThreads) {
   t3.join();
 }
 
+// ── Unbounded channel cross-thread ──────────────────────────────────
+
+TEST(MpscMtTest, UnboundedCrossThread) {
+  auto [tx, rx] = channel<int>(); // unbounded
+
+  std::thread worker([&tx] {
+    for (int i = 1; i <= 5; ++i) {
+      EXPECT_TRUE(tx.try_send(i));
+    }
+    tx.close();
+  });
+
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  auto recver = [&]() -> Promise<void> {
+    for (int i = 1; i <= 5; ++i) {
+      auto v = co_await rx.recv();
+      EXPECT_TRUE(v.is_some());
+      EXPECT_EQ(v.unwrap(), i);
+    }
+    EXPECT_TRUE((co_await rx.recv()).is_none());
+    co_return;
+  };
+  recver().wait();
+  worker.join();
+}
+
 #endif // XPP_MT

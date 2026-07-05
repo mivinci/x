@@ -97,9 +97,14 @@ public:
    * ensures the consumer never observes a partially-written value.
    */
   bool try_push(T value) {
+    // Atomically claim a capacity slot. If the old count was at or above
+    // capacity, the buffer is full and we undo the claim.
     auto *c = m_core.get();
-    size_t c0 = c->m_count.load(std::memory_order_acquire);
-    if (c0 >= c->m_cap) return false;
+    size_t c0 = c->m_count.fetch_add(1, std::memory_order_acquire);
+    if (c0 >= c->m_cap) {
+      c->m_count.fetch_sub(1, std::memory_order_relaxed);
+      return false;
+    }
 
     size_t w   = c->m_wpos.fetch_add(1, std::memory_order_acq_rel);
     size_t idx = w % c->m_cap;
@@ -107,7 +112,6 @@ public:
     auto &s  = c->m_buf[idx];
     s.data   = std::move(value);
     s.ready.store(true, std::memory_order_release);
-    c->m_count.fetch_add(1, std::memory_order_release);
     return true;
   }
 

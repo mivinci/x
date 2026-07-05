@@ -199,7 +199,13 @@ public:
 
     while (true) {
       auto v = m_chan->m_rx.try_pop();
-      if (v.is_some()) co_return xpp::some(std::move(v).unwrap());
+      if (v.is_some()) {
+        if (m_chan->m_write_waiter.is_pending()) {
+          auto w = std::move(m_chan->m_write_waiter);
+          w.resolve();
+        }
+        co_return xpp::some(std::move(v).unwrap());
+      }
 
       if (m_closed() && m_chan->m_rx.empty()) co_return none;
 
@@ -218,8 +224,13 @@ public:
     if (!m_chan) return err(TryRecvError::Closed);
 
     auto v = m_chan->m_rx.try_pop();
-    if (v.is_some()) return ok(std::move(v).unwrap());
-
+    if (v.is_some()) {
+      if (m_chan->m_write_waiter.is_pending()) {
+        auto w = std::move(m_chan->m_write_waiter);
+        w.resolve();
+      }
+      return ok(std::move(v).unwrap());
+    }
     return err(m_closed() ? TryRecvError::Closed : TryRecvError::Empty);
   }
 
@@ -318,6 +329,7 @@ private:
     list::UnboundedTx<T>          m_tx;
     list::UnboundedRx<T>          m_rx;
     PromiseResolver<void>         m_read_waiter;
+    PromiseResolver<void>         m_write_waiter; // unused (unbounded never blocks on full)
     xpp::loom::_::Atomic<size_t>  m_sender_count{1};
     xpp::loom::_::Atomic<bool>    m_closed{false};
     Chan(list::UnboundedTx<T> tx, list::UnboundedRx<T> rx)
@@ -350,7 +362,13 @@ public:
 
     while (true) {
       auto v = m_chan->m_rx.try_pop();
-      if (v.is_some()) co_return xpp::some(std::move(v).unwrap());
+      if (v.is_some()) {
+        if (m_chan->m_write_waiter.is_pending()) {
+          auto w = std::move(m_chan->m_write_waiter);
+          w.resolve();
+        }
+        co_return xpp::some(std::move(v).unwrap());
+      }
 
       if (m_closed() && m_chan->m_rx.empty()) co_return none;
 
