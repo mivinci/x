@@ -21,7 +21,7 @@ co_await reader.read(buf, 8);   // returns 0 (EOF)
 
 ## How it works
 
-```
+```text
 simplex(4096)
 ├── ring buffer (4096 bytes)
 ├── SimplexReader → reads from buffer, returns 0 on EOF

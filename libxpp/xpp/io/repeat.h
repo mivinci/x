@@ -21,14 +21,17 @@ namespace xpp {
 namespace io {
 
 /** @brief Infinite repeater: read() always returns the same byte. Never EOF. */
-struct Repeat {
-  uint8_t             m_byte;
+class Repeat {
+public:
   explicit Repeat(uint8_t b) : m_byte(b) {}
 
   Promise<ssize_t> read(void *buf, size_t len) {
     std::memset(buf, m_byte, len);
     return xpp::resolve(static_cast<ssize_t>(len));
   }
+
+private:
+  uint8_t m_byte;
 };
 
 inline Repeat repeat(uint8_t byte = 0) { return Repeat{byte}; }
