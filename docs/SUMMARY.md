@@ -80,6 +80,7 @@
   - [I/O](libxpp/io/README.md)
     - [AsyncFd](libxpp/io/async_fd.md)
     - [I/O Error](libxpp/io/error.md)
+    - [Utilities](libxpp/io/util.md)
   - [Net](libxpp/net/README.md)
     - [TCP](libxpp/net/tcp.md)
     - [UDP](libxpp/net/udp.md)
