@@ -20,7 +20,6 @@
 
 #include <cstddef>
 
-#include <concepts>
 #include <vector>
 
 #include <xpp/promise.h>
