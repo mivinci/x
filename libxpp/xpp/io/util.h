@@ -19,7 +19,6 @@
 #include <sys/types.h>
 
 #include <cstddef>
-
 #include <vector>
 
 #include <xpp/promise.h>
@@ -28,6 +27,10 @@
 
 namespace xpp {
 namespace io {
+
+/**
+ * @brief Default buffer size for I/O utilities (8KB, matches Rust).
+ */
 
 /**
  * @brief Concept: R has read(void*, size_t) returning an awaitable type.
