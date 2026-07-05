@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * tcp_test.cpp — Tests for xpp::net::TcpConn and TcpListener.
+ * tcp_test.cpp — Tests for xpp::net::TcpStream and TcpListener.
  */
 
 #include <cstring>
@@ -16,31 +16,23 @@
 #include <xpp/net/tcp.h>
 #include <xpp/net/test_helpers.h>
 #include <xpp/promise.h>
+
 #include <x/base/event.h>
 
 using xpp::net::SocketAddr;
-using xpp::net::TcpConn;
 using xpp::net::TcpListener;
-
-using CRes = xpp::io::Result<TcpConn>;
+using xpp::net::TcpStream;
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
 
-using namespace std::placeholders; // NOLINT
-
-static TcpConn unwrap(CRes r) {
-  EXPECT_TRUE(r.is_ok());
-  return std::move(r).unwrap();
-}
-
-/* ── TcpConn ──────────────────────────────────────────────────────── */
+/* ── TcpStream ──────────────────────────────────────────────────────── */
 
 TEST(TcpConnTest, ConnectFailure) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
   // Port 1 on loopback: ECONNREFUSED (no listener, port < 1024 needs root)
-  auto result = TcpConn::connect("127.0.0.1", 1).wait();
+  auto result = TcpStream::connect("127.0.0.1", 1).wait();
   ASSERT_TRUE(result.is_err());
 }
 
@@ -60,39 +52,38 @@ TEST(TcpConnTest, ConnectAndSendRecv) {
    * Sequential .wait() calls avoid the all() combinator, whose
    * interaction with complex send/recv chains is known to hang on
    * Linux shared-build + ASAN CI (edge-triggered epoll ordering). */
-  TcpConn server_conn;
-  auto accept_p = listener.accept().then(unwrap).then([&server_conn](TcpConn c) {
-    server_conn = std::move(c);
-  });
+  TcpStream server_conn;
+  auto      accept_p =
+    listener.accept().then([&server_conn](auto p) { server_conn = std::move(p.first); });
 
-  auto connect_r = TcpConn::connect("127.0.0.1", port).wait();
+  auto connect_r = TcpStream::connect("127.0.0.1", port).wait();
   ASSERT_TRUE(connect_r.is_ok());
-  TcpConn client_conn = std::move(connect_r).unwrap();
+  TcpStream client_conn = std::move(connect_r).unwrap();
 
   accept_p.wait();
   ASSERT_TRUE(server_conn.is_open());
   ASSERT_TRUE(client_conn.is_open());
 
   /* Phase 2 — Send / recv (sequential, no concurrent chains). */
-  auto client_buf = std::make_shared<std::vector<char>>(64);
-  auto server_buf = std::make_shared<std::vector<char>>(64);
-  const char *msg = "hello";
+  auto        client_buf = std::make_shared<std::vector<char>>(64);
+  auto        server_buf = std::make_shared<std::vector<char>>(64);
+  const char *msg        = "hello";
 
   // Client send
-  ssize_t sent = client_conn.send(msg, 5).wait();
+  ssize_t sent = client_conn.write(msg, 5).wait();
   EXPECT_EQ(sent, 5);
 
   // Server recv
-  ssize_t recvd = server_conn.recv(server_buf->data(), server_buf->size()).wait();
+  ssize_t recvd = server_conn.read(server_buf->data(), server_buf->size()).wait();
   EXPECT_EQ(recvd, 5);
   EXPECT_EQ(std::string(server_buf->data(), static_cast<size_t>(recvd)), "hello");
 
   // Server echo back
-  ssize_t echoed = server_conn.send(server_buf->data(), static_cast<size_t>(recvd)).wait();
+  ssize_t echoed = server_conn.write(server_buf->data(), static_cast<size_t>(recvd)).wait();
   EXPECT_EQ(echoed, 5);
 
   // Client recv echo
-  ssize_t echoed_recvd = client_conn.recv(client_buf->data(), client_buf->size()).wait();
+  ssize_t echoed_recvd = client_conn.read(client_buf->data(), client_buf->size()).wait();
   EXPECT_EQ(echoed_recvd, 5);
   EXPECT_EQ(std::string(client_buf->data(), static_cast<size_t>(echoed_recvd)), "hello");
 }
@@ -110,14 +101,13 @@ TEST(TcpConnTest, PeerAndLocalAddr) {
   ASSERT_TRUE(listener.is_open());
 
   xpp::Option<SocketAddr> server_peer;
-  auto accept_p = listener.accept().then(unwrap).then([&server_peer](TcpConn c) {
-    server_peer = c.peer_addr();
-  });
+  auto accept_p = listener.accept().then([&server_peer](auto p) { server_peer = p.second; });
 
-  TcpConn client;
-  auto connect_p = TcpConn::connect("127.0.0.1", port)
-    .then(unwrap)
-    .then([&client](TcpConn c) { client = std::move(c); });
+  TcpStream client;
+  auto      connect_p = TcpStream::connect("127.0.0.1", port).then([&client](auto r) {
+    ASSERT_TRUE(r.is_ok());
+    client = std::move(r).unwrap();
+  });
 
   connect_p.wait();
   accept_p.wait();
@@ -148,11 +138,9 @@ TEST(TcpListenerTest, BindAndAccept) {
   ASSERT_TRUE(listener.is_open());
 
   bool accepted = false;
-  auto accept_p = listener.accept()
-    .then(unwrap)
-    .then([&accepted](TcpConn c) { accepted = c.is_open(); });
+  auto accept_p = listener.accept().then([&accepted](auto p) { accepted = p.first.is_open(); });
 
-  auto connect_p = TcpConn::connect("127.0.0.1", port).then([](CRes) {});
+  auto connect_p = TcpStream::connect("127.0.0.1", port).then([](auto) {});
 
   connect_p.wait();
   accept_p.wait();
@@ -174,16 +162,16 @@ TEST(TcpListenerTest, SequentialAccept) {
   int accept_count = 0;
 
   // First accept + connect
-  auto p1 = listener.accept().then(unwrap).then([&accept_count](TcpConn) { accept_count++; });
-  auto c1 = TcpConn::connect("127.0.0.1", port);
-  c1.then([](CRes) {}).wait();
+  auto p1 = listener.accept().then([&accept_count](auto) { accept_count++; });
+  auto c1 = TcpStream::connect("127.0.0.1", port);
+  c1.then([](auto) {}).wait();
   p1.wait();
   ASSERT_EQ(accept_count, 1);
 
   // Second accept + connect
-  auto p2 = listener.accept().then(unwrap).then([&accept_count](TcpConn) { accept_count++; });
-  auto c2 = TcpConn::connect("127.0.0.1", port);
-  c2.then([](CRes) {}).wait();
+  auto p2 = listener.accept().then([&accept_count](auto) { accept_count++; });
+  auto c2 = TcpStream::connect("127.0.0.1", port);
+  c2.then([](auto) {}).wait();
   p2.wait();
   EXPECT_EQ(accept_count, 2);
 }

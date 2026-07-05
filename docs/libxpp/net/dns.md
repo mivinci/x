@@ -35,7 +35,7 @@ Resolves to an empty vector on failure (hostname not found, DNS error, etc.).
 ```cpp
 auto addrs = xpp::net::lookup_host("example.com").wait();
 if (!addrs.empty()) {
-    auto conn = xpp::net::TcpConn::connect(addrs[0]).wait();
+    auto conn = xpp::net::TcpStream::connect(addrs[0]).wait();
 }
 ```
 
@@ -44,8 +44,8 @@ if (!addrs.empty()) {
 ```cpp
 // lookup_host returns a Promise — chain it with .then()
 xpp::net::lookup_host("example.com").then([](std::vector<xpp::net::SocketAddr> addrs) {
-    if (addrs.empty()) return xpp::resolve(xpp::net::TcpConn());
-    return xpp::net::TcpConn::connect(addrs[0]);
+    if (addrs.empty()) return xpp::resolve(xpp::net::TcpStream());
+    return xpp::net::TcpStream::connect(addrs[0]);
 }).wait();
 ```
 
@@ -60,8 +60,8 @@ xpp::Promise<void> connect_to(const char *hostname) {
         printf("host not found\n");
         co_return;
     }
-    auto conn = co_await xpp::net::TcpConn::connect(addrs[0]);
-    co_await conn.send("ping", 4);
+    auto conn = co_await xpp::net::TcpStream::connect(addrs[0]);
+    co_await conn.write("ping", 4);
 }
 ```
 

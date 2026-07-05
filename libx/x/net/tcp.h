@@ -266,4 +266,15 @@ XCAPI(xTcpListener) xTcpListenerCreate(const char *host, uint16_t port,
  */
 XCAPI(void) xTcpListenerDestroy(xTcpListener listener);
 
+/**
+ * @brief Get the listening socket of a TCP listener.
+ *
+ * Returns the underlying xSocket handle used for accepting connections.
+ * Safe to call with NULL (returns NULL).
+ *
+ * @param listener  Listener handle, or NULL.
+ * @return          The listening socket, or NULL.
+ */
+XCAPI(xSocket) xTcpListenerSocket(xTcpListener listener);
+
 #endif /* XNET_TCP_H */

@@ -2,13 +2,13 @@
 
 ## Introduction
 
-`xpp::net::TlsConfig` and `TlsContext` provide RAII TLS configuration. Pass a `TlsContext` to `TcpConn::connect()` to enable TLS — the handshake is transparent.
+`xpp::net::TlsConfig` and `TlsContext` provide RAII TLS configuration. Pass a `TlsContext` to `TcpStream::connect()` to enable TLS — the handshake is transparent.
 
 ```cpp
 #include <xpp/net/tls.h>
 
 xpp::net::TlsContext ctx(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpConn::connect("example.com", 443, ctx).wait();
+auto conn = xpp::net::TcpStream::connect("example.com", 443, ctx).wait();
 ```
 
 ## API Reference
@@ -59,7 +59,7 @@ conf.with_ca("/custom/ca.pem").with_alpn({"h2", "http/1.1"});
 
 `TlsContext` calls `xTlsCtxCreate` in its constructor and `xTlsCtxDestroy` in its destructor. The mode (client or server) is determined automatically by libx: if both `cert` and `key` are set, server mode; otherwise client mode.
 
-When passed to `TcpConn::connect()`, the `xTlsCtx` handle is set in `xTcpConnectConf::tls_ctx`. libx's `xTcpConnect` does the TLS handshake transparently — the resulting `TcpConn` encrypts/decrypts via `recv`/`send` as usual.
+When passed to `TcpStream::connect()`, the `xTlsCtx` handle is set in `xTcpConnectConf::tls_ctx`. libx's `xTcpConnect` does the TLS handshake transparently — the resulting `TcpStream` encrypts/decrypts via `recv`/`send` as usual.
 
 ## Usage Examples
 
@@ -67,8 +67,8 @@ When passed to `TcpConn::connect()`, the `xTlsCtx` handle is set in `xTcpConnect
 
 ```cpp
 xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpConn::connect("example.com", 443, tls).wait();
-conn.send("GET / HTTP/1.0\r\n\r\n", 18).wait();
+auto conn = xpp::net::TcpStream::connect("example.com", 443, tls).wait();
+conn.write("GET / HTTP/1.0\r\n\r\n", 18).wait();
 ```
 
 ### Server with certificate
@@ -104,12 +104,12 @@ xpp::net::TlsContext client_tls(client_conf);
 ```cpp
 xpp::Promise<void> https_fetch() {
     xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-    auto conn = co_await xpp::net::TcpConn::connect("example.com", 443, tls);
+    auto conn = co_await xpp::net::TcpStream::connect("example.com", 443, tls);
 
-    co_await conn.send("GET / HTTP/1.0\r\nHost: example.com\r\n\r\n", 40);
+    co_await conn.write("GET / HTTP/1.0\r\nHost: example.com\r\n\r\n", 40);
 
     char buf[4096];
-    ssize_t n = co_await conn.recv(buf, sizeof(buf));
+    ssize_t n = co_await conn.read(buf, sizeof(buf));
     printf("%.*s\n", (int)n, buf);
 }
 ```
@@ -119,11 +119,11 @@ xpp::Promise<void> https_fetch() {
 ```cpp
 xpp::Promise<void> connect_or_fallback() {
     xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-    auto conn = co_await xpp::net::TcpConn::connect("example.com", 443, tls);
+    auto conn = co_await xpp::net::TcpStream::connect("example.com", 443, tls);
     if (!conn.is_open()) {
         // connect failed — try fallback
         co_return;
     }
-    co_await conn.send("hello", 5);
+    co_await conn.write("hello", 5);
 }
 ```
