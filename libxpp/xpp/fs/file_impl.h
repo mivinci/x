@@ -18,6 +18,7 @@ namespace fs {
 
 /* ── File methods ──────────────────────────────────────────────────── */
 
+/** @brief Synchronously close (used by destructor and move-assignment). */
 inline void File::close_sync() {
   if (m_open && m_fd >= 0) {
     xFsReq req{};
@@ -30,22 +31,27 @@ inline void File::close_sync() {
   m_open = false;
 }
 
+/** @brief Default-open for reading (O_RDONLY, default mode). */
 inline Promise<File> File::open(const char *path) {
   return File::open(path, O_RDONLY, 0);
 }
 
+/** @brief Open a file via the FsOpenAdapter. */
 inline Promise<File> File::open(const char *path, int flags, int mode) {
   return xpp::adapt<File, _::FsOpenAdapter>(path, flags, mode);
 }
 
+/** @brief Create a file via O_WRONLY|O_CREAT|O_TRUNC. */
 inline Promise<File> File::create(const char *path, int mode) {
   return File::open(path, O_WRONLY | O_CREAT | O_TRUNC, mode);
 }
 
+/** @brief Wrap a raw file descriptor. */
 inline File File::from_raw_fd(int fd) {
   return File(fd);
 }
 
+/** @brief Cursor-based read via FsReadAdapter. */
 inline Promise<ssize_t> File::read(void *buf, size_t len) {
   off_t off = m_cursor;
   if (!m_open) return xpp::resolve(static_cast<ssize_t>(-1));
@@ -57,6 +63,7 @@ inline Promise<ssize_t> File::read(void *buf, size_t len) {
     });
 }
 
+/** @brief Cursor-based write via FsWriteAdapter. */
 inline Promise<ssize_t> File::write(const void *buf, size_t len) {
   off_t off = m_cursor;
   if (!m_open) return xpp::resolve(static_cast<ssize_t>(-1));
@@ -68,16 +75,19 @@ inline Promise<ssize_t> File::write(const void *buf, size_t len) {
     });
 }
 
+/** @brief Offset-based read via FsReadAdapter. */
 inline Promise<ssize_t> File::read(void *buf, size_t len, off_t offset) {
   return xpp::adapt<ssize_t, _::FsReadAdapter>(reinterpret_cast<xFile>(static_cast<intptr_t>(m_fd)),
                                                buf, len, offset);
 }
 
+/** @brief Offset-based write via FsWriteAdapter. */
 inline Promise<ssize_t> File::write(const void *buf, size_t len, off_t offset) {
   return xpp::adapt<ssize_t, _::FsWriteAdapter>(
     reinterpret_cast<xFile>(static_cast<intptr_t>(m_fd)), buf, len, offset);
 }
 
+/** @brief Async close via FsCloseAdapter. */
 inline Promise<void> File::close() {
   if (!m_open) return xpp::yield();
   auto p =
@@ -87,12 +97,14 @@ inline Promise<void> File::close() {
   return p;
 }
 
+/** @brief fsync the file via worker thread. */
 inline Promise<void> File::sync_all() {
   if (m_fd < 0) return xpp::yield();
   int fd = m_fd;
   return xpp::work([fd] { ::fsync(fd); });
 }
 
+/** @brief fstat the file via worker thread. */
 inline Promise<Stat> File::stat() {
   if (m_fd < 0) return xpp::resolve(Stat{-1, 0, 0, 0});
   int fd = m_fd;
@@ -106,6 +118,7 @@ inline Promise<Stat> File::stat() {
   });
 }
 
+/** @brief Read the entire file into a byte vector using worker-thread pread loop. */
 inline Promise<std::vector<uint8_t>> File::read_all() {
   if (m_fd < 0) return xpp::resolve(std::vector<uint8_t>{});
   int fd = m_fd;
@@ -127,6 +140,7 @@ inline Promise<std::vector<uint8_t>> File::read_all() {
   });
 }
 
+/** @brief Read the entire file into a string using worker-thread pread loop. */
 inline Promise<std::string> File::read_to_string() {
   if (m_fd < 0) return xpp::resolve(std::string{});
   int fd = m_fd;
@@ -148,6 +162,7 @@ inline Promise<std::string> File::read_to_string() {
   });
 }
 
+/** @brief Write all data via worker-thread pwrite loop. */
 inline Promise<void> File::write_all(const void *buf, size_t len) {
   if (m_fd < 0) return xpp::yield();
   int                  fd = m_fd;
@@ -165,14 +180,17 @@ inline Promise<void> File::write_all(const void *buf, size_t len) {
 
 /* ── Free functions ────────────────────────────────────────────────── */
 
+/** @brief Stat a path via FsStatAdapter. */
 inline Promise<Stat> stat(const char *path) {
   return xpp::adapt<Stat, _::FsStatAdapter>(path);
 }
 
+/** @brief Check if a path exists by stat'ing it. */
 inline Promise<bool> exists(const char *path) {
   return stat(path).then([](Stat s) { return s.size >= 0; });
 }
 
+/** @brief Open and read an entire file into a byte vector. */
 inline Promise<std::vector<uint8_t>> read(const char *path) {
   return File::open(path).then([](File f) {
     return f.read_all().then(
@@ -180,23 +198,28 @@ inline Promise<std::vector<uint8_t>> read(const char *path) {
   });
 }
 
+/** @brief Create a file and write the buffer, then close. */
 inline Promise<void> write(const char *path, const void *buf, size_t len) {
   return File::create(path).then(
     [buf, len](File f) { return f.write_all(buf, len).then([f = std::move(f)] {}); });
 }
 
+/** @brief Create a directory via FsMkdirAdapter. */
 inline Promise<void> create_dir(const char *path, int mode) {
   return xpp::adapt<void, _::FsMkdirAdapter>(path, mode);
 }
 
+/** @brief Unlink a file via FsUnlinkAdapter. */
 inline Promise<void> remove_file(const char *path) {
   return xpp::adapt<void, _::FsUnlinkAdapter>(path);
 }
 
+/** @brief Remove a directory via FsRmdirAdapter. */
 inline Promise<void> remove_dir(const char *path) {
   return xpp::adapt<void, _::FsRmdirAdapter>(path);
 }
 
+/** @brief Rename a file or directory via FsRenameAdapter. */
 inline Promise<void> rename(const char *old_path, const char *new_path) {
   return xpp::adapt<void, _::FsRenameAdapter>(old_path, new_path);
 }

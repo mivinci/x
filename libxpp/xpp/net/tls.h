@@ -111,6 +111,7 @@ public:
 
   /* ── Setters (builder) ─────────────────────────────────────────── */
 
+  /** @brief Set the certificate (PEM) file path. */
   TlsConfig &with_cert(const char *path) & {
     m_cert      = path ? path : "";
     m_conf.cert = m_cert.c_str();
@@ -120,6 +121,7 @@ public:
     with_cert(path);
     return std::move(*this);
   }
+  /** @brief Set the private key (PEM) file path. */
   TlsConfig &with_key(const char *path) & {
     m_key      = path ? path : "";
     m_conf.key = m_key.c_str();
@@ -129,6 +131,7 @@ public:
     with_key(path);
     return std::move(*this);
   }
+  /** @brief Set the CA certificate (PEM) file path. */
   TlsConfig &with_ca(const char *path) & {
     m_ca      = path ? path : "";
     m_conf.ca = m_ca.c_str();
@@ -138,6 +141,7 @@ public:
     with_ca(path);
     return std::move(*this);
   }
+  /** @brief Set the password for the private key. */
   TlsConfig &with_key_password(const char *password) & {
     m_key_password      = password ? password : "";
     m_conf.key_password = m_key_password.c_str();
@@ -147,6 +151,7 @@ public:
     with_key_password(password);
     return std::move(*this);
   }
+  /** @brief Set ALPN protocol list (e.g. {"h2", "http/1.1"}). */
   TlsConfig &with_alpn(const std::vector<std::string> &protocols) & {
     m_alpn = protocols;
     rebuild_alpn_ptrs();
@@ -156,6 +161,7 @@ public:
     with_alpn(protocols);
     return std::move(*this);
   }
+  /** @brief Skip peer certificate verification (e.g. for self-signed certs). */
   TlsConfig &with_skip_verify(bool skip) & {
     m_conf.skip_verify = skip ? 1 : 0;
     return *this;
@@ -167,21 +173,27 @@ public:
 
   /* ── Accessors ─────────────────────────────────────────────────── */
 
+  /** @brief Raw xTlsConf pointer (valid for the lifetime of this TlsConfig). */
   const xTlsConf *raw() const {
     return &m_conf;
   }
+  /** @brief Certificate file path (may be null). */
   const char *cert() const {
     return m_conf.cert;
   }
+  /** @brief Private key file path (may be null). */
   const char *key() const {
     return m_conf.key;
   }
+  /** @brief CA certificate file path (may be null). */
   const char *ca() const {
     return m_conf.ca;
   }
+  /** @brief Key password (may be null). */
   const char *key_password() const {
     return m_conf.key_password;
   }
+  /** @brief Whether verification is skipped. */
   bool skip_verify() const {
     return m_conf.skip_verify != 0;
   }
@@ -262,9 +274,11 @@ public:
   xTlsCtx raw() const {
     return m_ctx;
   }
+  /** @brief Returns true if the context was created successfully. */
   bool is_valid() const {
     return m_ctx != nullptr;
   }
+  /** @brief Same as is_valid(). */
   explicit operator bool() const {
     return is_valid();
   }

@@ -3,10 +3,6 @@
 [Introduction](README.md)
 
 ---
-- [API Reference]()
-  - [libx](api/x/html/index.html)
-  - [libxpp](api/xpp/html/index.html)
----
 
 - [libx](libx/README.md)
   - [base — Core Primitives](libx/base/README.md)
@@ -55,7 +51,6 @@
   - [p2p — P2P Connectivity](libx/p2p/README.md)
     - [ICE Agent](libx/p2p/ice.md)
     - [Peer Connection](libx/p2p/pc.md)
-
 - [libxpp](libxpp/README.md)
   - [Allocator](libxpp/allocator.md)
   - [Arena](libxpp/arena.md)
@@ -96,9 +91,16 @@
     - [Repeat](libxpp/io/repeat.md)
     - [Join](libxpp/io/join.md)
     - [Split](libxpp/io/split.md)
-  - [Net](libxpp/net/README.md)
+  - [Network](libxpp/net/README.md)
     - [TCP](libxpp/net/tcp.md)
     - [UDP](libxpp/net/udp.md)
     - [DNS](libxpp/net/dns.md)
     - [URL](libxpp/net/url.md)
     - [TLS](libxpp/net/tls.md)
+
+---
+
+# API Reference
+
+- [libx](api/x/html/index.html)
+- [libxpp](api/xpp/html/index.html)

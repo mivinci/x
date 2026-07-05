@@ -29,10 +29,6 @@ namespace xpp {
 namespace io {
 
 /**
- * @brief Default buffer size for I/O utilities (8KB, matches Rust).
- */
-
-/**
  * @brief Concept: R has read(void*, size_t) returning an awaitable type.
  *
  * Satisfied by TcpStream, fs::File (cursor mode), and user-defined
@@ -52,6 +48,7 @@ concept AsyncWriter = requires(W &w, const void *buf, size_t len) {
   { w.write(buf, len) };
 };
 
+/** @brief Concept: T satisfies both AsyncReader and AsyncWriter. */
 template <class T>
 concept AsyncReadWriter = AsyncReader<T> && AsyncWriter<T>;
 

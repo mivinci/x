@@ -62,10 +62,10 @@ tmp
 docs/mermaid.min.js
 docs/mermaid-init.js
 
-# Benchmark results
+# CTest output
+Testing/
 bench_results
 *.pem
 build-bench
 openspec
-docs/book/api/
 docs/api/

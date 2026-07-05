@@ -47,8 +47,14 @@ jobs:
       - name: Generate API docs
         run: |
           cd docs
+          mkdir -p ../book/api/x ../book/api/xpp
           doxygen Doxyfile.libx
-          doxygen Doxyfile.xpp
+          doxygen Doxyfile.libxpp
+
+      - name: Fix doxygen template spacing
+        run: |
+          cd book
+          find api -name '*.html' ! -name '*_source.html' -print0 | xargs -0 perl -pi -e 's/&lt; /&lt;/g; s/ &gt;/&gt;/g'
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

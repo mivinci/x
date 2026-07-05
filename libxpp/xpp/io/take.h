@@ -42,6 +42,9 @@ namespace io {
  */
 template <AsyncReader R> class Take {
 public:
+  /** @brief Wrap a reader with a byte limit.
+   *  @param reader Inner reader (moved in).
+   *  @param limit Maximum total bytes to read before returning EOF. */
   Take(R reader, size_t limit) : m_reader(std::move(reader)), m_remaining(limit) {}
 
   Take(Take &&) noexcept            = default;
