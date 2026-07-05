@@ -461,6 +461,7 @@ xTcpConnWriter
 xTcpConnect
 xTcpListenerCreate
 xTcpListenerDestroy
+xTcpListenerSocket
 xThreadCreate
 xThreadJoin
 xTimerStart
