@@ -75,8 +75,15 @@ public:
     }
     if (!arena) {
       // Heap-allocated: free the whole block (header + node).
+      // Use plain ::operator delete(void*) — NOT the sized/alignment-aware
+      // overload — because the Layout passed by destroy_and_dealloc may
+      // correspond to the base class PromiseNode<T> rather than the actual
+      // derived type (ImmediatePromiseNode, CoroutinePromiseNode, etc.).
+      // allocate_promise always uses ::operator new(size_t), so the
+      // matching deallocation is ::operator delete(void*).
       void *raw = static_cast<char *>(ptr) - kPromiseNodeHeaderSize;
-      GlobalAllocator{}.deallocate(raw, Layout{layout.size + kPromiseNodeHeaderSize, layout.align});
+      (void)layout;
+      ::operator delete(raw);
     }
     // Arena-allocated (non-owner): skip. Arena freed by the tail node.
   }
