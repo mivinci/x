@@ -52,6 +52,9 @@ concept AsyncWriter = requires(W &w, const void *buf, size_t len) {
   { w.write(buf, len) };
 };
 
+template <class T>
+concept AsyncReadWriter = AsyncReader<T> && AsyncWriter<T>;
+
 namespace _ {
 
 /** @brief Default buffer size for I/O utilities (8KB, matches Rust). */
