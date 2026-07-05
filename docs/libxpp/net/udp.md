@@ -25,8 +25,25 @@ auto result = server.recv_from(buf, sizeof(buf)).wait();
 | -------- | --------- | ------------- |
 | `bind(SocketAddr)` | `Promise<io::Result<UdpSocket>>` | Async bind (sync impl, resolves immediately) |
 | `bind("host:port")` | `Promise<io::Result<UdpSocket>>` | Async bind with DNS for hostnames |
+| `connect(addr)` | `xErrno` | Connect to peer (enables recv/send) |
+| `recv(buf, len)` | `Promise<ssize_t>` | Connected-mode recv |
+| `send(buf, len)` | `Promise<ssize_t>` | Connected-mode send |
 | `recv_from(buf, len)` | `Promise<pair<ssize_t, SocketAddr>>` | Receive datagram + peer |
 | `send_to(buf, len, target)` | `Promise<ssize_t>` | Send datagram to target |
+| `try_recv(buf, len)` | `ssize_t` | Sync non-blocking recv |
+| `try_send(buf, len)` | `ssize_t` | Sync non-blocking send |
+| `try_recv_from(buf, len)` | `pair<ssize_t, Option<Addr>>` | Sync non-blocking recvfrom |
+| `try_send_to(buf, len, target)` | `ssize_t` | Sync non-blocking sendto |
+| `peek(buf, len)` | `Promise<ssize_t>` | Read without consuming (MSG_PEEK) |
+| `peek_from(buf, len)` | `Promise<pair<ssize_t, Addr>>` | Peek + sender address |
+| `readable()` | `Promise<void>` | Wait for readability |
+| `writable()` | `Promise<void>` | Wait for writability |
+| `take_error()` | `int` | Get & clear SO_ERROR |
+| `broadcast()` | `io::Result<bool>` | Get SO_BROADCAST |
+| `set_broadcast(bool)` | `io::Result<bool>` | Set SO_BROADCAST |
+| `ttl()` | `io::Result<uint32_t>` | Get IP_TTL |
+| `set_ttl(uint32_t)` | `io::Result<bool>` | Set IP_TTL |
+| `peer_addr()` | `Option<SocketAddr>` | Connected peer address |
 | `local_addr()` | `Option<SocketAddr>` | Bound address |
 | `close()` | `void` | Close + deregister |
 | `is_open()` | `bool` | Socket is active |

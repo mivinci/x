@@ -118,9 +118,11 @@ Single-operation I/O (read, write, open, close) goes through `xFsReqSubmit` — 
 | `open(path, flags, mode)` | `Promise<File>` | Open with custom flags |
 | `create(path, mode)` | `Promise<File>` | Create/truncate write-only |
 | `from_raw_fd(fd)` | `File` | Take ownership of existing fd |
-| `read(buf, len, offset)` | `Promise<ssize_t>` | Read at offset (C-style buffer) |
+| `read(buf, len)` | `Promise<ssize_t>` | Read from cursor (auto-advance) |
+| `read(buf, len, offset)` | `Promise<ssize_t>` | Read at offset (pread, cursor unchanged) |
 | `read(Span<uint8_t>, offset)` | `Promise<ssize_t>` | Read at offset (Span overload) |
-| `write(buf, len, offset)` | `Promise<ssize_t>` | Write at offset (C-style) |
+| `write(buf, len)` | `Promise<ssize_t>` | Write at cursor (auto-advance) |
+| `write(buf, len, offset)` | `Promise<ssize_t>` | Write at offset (pwrite, cursor unchanged) |
 | `write(Span<const uint8_t>, offset)` | `Promise<ssize_t>` | Write at offset (Span) |
 | `write(string, offset)` | `Promise<ssize_t>` | Write string at offset |
 | `close()` | `Promise<void>` | Async close |

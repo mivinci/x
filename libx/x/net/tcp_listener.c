@@ -353,6 +353,11 @@ xTcpListener xTcpListenerCreate(const char *host, uint16_t port, const xTcpListe
   return (xTcpListener)l;
 }
 
+xSocket xTcpListenerSocket(xTcpListener listener) {
+  if (!listener) return NULL;
+  return ((xTcpListener_ *)listener)->listen_sock;
+}
+
 void xTcpListenerDestroy(xTcpListener listener) {
   if (!listener) return;
   xTcpListener_ *l = (xTcpListener_ *)listener;

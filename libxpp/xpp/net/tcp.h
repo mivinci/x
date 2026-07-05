@@ -3,9 +3,9 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * tcp.h - xpp::net::TcpConn and TcpListener: Promise-based async TCP.
+ * tcp.h - xpp::net::TcpStream and TcpListener: Promise-based async TCP.
  *
- * TcpConn wraps xTcpConn + AsyncFd. recv/send use io::read/write
+ * TcpStream wraps xTcpConn + AsyncFd. recv/send use io::read/write
  * (fast-path syscall + EAGAIN readiness wait). accept() uses
  * adapt(); connect() uses async() + self-delete (xTcpConnect has no
  * cancel API, adapter must outlive the Promise).
@@ -17,6 +17,8 @@
 #define XPP_NET_TCP_H
 
 #include <fcntl.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -27,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include <xpp/handle.h>
 #include <xpp/io/async_fd.h>
 #include <xpp/io/error.h>
 #include <xpp/net/addr.h>
@@ -36,6 +39,7 @@
 #include <xpp/promise.h>
 #include <xpp/rc.h>
 #include <xpp/result.h>
+#include <xpp/shared.h>
 
 #include <x/base/error.h>
 #include <x/base/event.h>
@@ -45,7 +49,7 @@
 namespace xpp {
 namespace net {
 
-/* ── TcpConn ───────────────────────────────────────────────────────── */
+/* ── TcpStream ───────────────────────────────────────────────────────── */
 
 namespace _ {
 class TcpConnectAdapter;
@@ -57,73 +61,171 @@ class TcpConnectAdapter;
  * Wraps xTcpConn. I/O via AsyncFd (non-blocking, event-driven).
  * Destructor closes the connection.
  */
-class TcpConn {
+class TcpStream {
 public:
-  /** @brief Async connect. Resolves to Ok(TcpConn) on success, Err(io::Error) on failure. */
-  static Promise<io::Result<TcpConn>> connect(const char *host, uint16_t port,
-                                              Option<const TlsContext &> tls = none);
+  /** @brief Async connect. Resolves to Ok(TcpStream) on success, Err(io::Error) on failure. */
+  static Promise<io::Result<TcpStream>> connect(const char *host, uint16_t port,
+                                                Option<const TlsContext &> tls = none);
 
   /** @brief Async connect by SocketAddr (skips DNS). */
-  static Promise<io::Result<TcpConn>> connect(SocketAddr addr,
-                                              Option<const TlsContext &> tls = none);
+  static Promise<io::Result<TcpStream>> connect(SocketAddr                 addr,
+                                                Option<const TlsContext &> tls = none);
 
-  TcpConn() = default;
-  TcpConn(TcpConn &&o) noexcept : m_conn(o.m_conn), m_async(std::move(o.m_async)) {
-    o.m_conn = nullptr;
-  }
-  TcpConn &operator=(TcpConn &&o) noexcept {
+  TcpStream() = default;
+  TcpStream(TcpStream &&o) noexcept : m_conn(std::move(o.m_conn)), m_async(std::move(o.m_async)) {}
+  TcpStream &operator=(TcpStream &&o) noexcept {
     if (this != &o) {
       close();
-      m_conn   = o.m_conn;
-      m_async  = std::move(o.m_async);
-      o.m_conn = nullptr;
+      m_conn  = std::move(o.m_conn);
+      m_async = std::move(o.m_async);
     }
     return *this;
   }
-  TcpConn(const TcpConn &)            = delete;
-  TcpConn &operator=(const TcpConn &) = delete;
+  TcpStream(const TcpStream &)            = delete;
+  TcpStream &operator=(const TcpStream &) = delete;
 
-  ~TcpConn() {
+  ~TcpStream() {
     close();
   }
 
   /** @brief Async read via AsyncFd. */
-  Promise<ssize_t> recv(void *buf, size_t len) {
+  Promise<ssize_t> read(void *buf, size_t len) {
     if (!m_async.is_closed()) return io::read(m_async, buf, len);
     return xpp::resolve(static_cast<ssize_t>(-1));
   }
 
   /** @brief Async write via AsyncFd. */
-  Promise<ssize_t> send(const void *buf, size_t len) {
+  Promise<ssize_t> write(const void *buf, size_t len) {
     if (!m_async.is_closed()) return io::write(m_async, buf, len);
     return xpp::resolve(static_cast<ssize_t>(-1));
+  }
+
+  /** @brief Synchronous non-blocking read. Returns -1 with errno=EAGAIN if no data. */
+  ssize_t try_read(void *buf, size_t len) {
+    if (m_async.is_closed()) return -1;
+    return ::read(m_async.fd(), buf, len);
+  }
+
+  /** @brief Synchronous non-blocking write. Returns -1 with errno=EAGAIN if buffer full. */
+  ssize_t try_write(const void *buf, size_t len) {
+    if (m_async.is_closed()) return -1;
+    return ::write(m_async.fd(), buf, len);
+  }
+
+  /** @brief Wait for readability (forward to AsyncFd). */
+  Promise<void> readable() {
+    return m_async.readable();
+  }
+
+  /** @brief Wait for writability (forward to AsyncFd). */
+  Promise<void> writable() {
+    return m_async.writable();
+  }
+
+  /** @brief Peek without consuming. Same fast-path + EAGAIN pattern as read. */
+  Promise<ssize_t> peek(void *buf, size_t len) {
+    if (m_async.is_closed()) return xpp::resolve(static_cast<ssize_t>(-1));
+    int     fd = m_async.fd();
+    ssize_t n  = ::recv(fd, buf, len, MSG_PEEK);
+    if (n >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) return xpp::resolve(n);
+    return m_async.readable().then([fd, buf, len] { return ::recv(fd, buf, len, MSG_PEEK); });
+  }
+
+  /** @brief Get and clear the pending socket error (SO_ERROR). Returns 0 if no error. */
+  int take_error() {
+    if (m_async.is_closed()) return -1;
+    int       err = 0;
+    socklen_t len = sizeof(err);
+    getsockopt(m_async.fd(), SOL_SOCKET, SO_ERROR, &err, &len);
+    return err;
+  }
+
+  /** @brief Get TCP_NODELAY. */
+  io::Result<bool> nodelay() const {
+    if (m_async.is_closed())
+      return io::Result<bool>(xpp::err, io::Error::from_kind(io::ErrorKind::Other));
+    int       val = 0;
+    socklen_t len = sizeof(val);
+    if (getsockopt(m_async.fd(), IPPROTO_TCP, TCP_NODELAY, &val, &len) != 0)
+      return io::Result<bool>(xpp::err, io::Error::from_errno(errno));
+    return io::Result<bool>(xpp::ok, val != 0);
+  }
+
+  /** @brief Set TCP_NODELAY. Returns Ok(true) on success. */
+  io::Result<bool> set_nodelay(bool enable) {
+    if (m_async.is_closed())
+      return io::Result<bool>(xpp::err, io::Error::from_kind(io::ErrorKind::Other));
+    int val = enable ? 1 : 0;
+    if (setsockopt(m_async.fd(), IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) != 0)
+      return io::Result<bool>(xpp::err, io::Error::from_errno(errno));
+    return io::Result<bool>(xpp::ok, true);
+  }
+
+  /** @brief Get IP_TTL. */
+  io::Result<uint32_t> ttl() const {
+    if (m_async.is_closed())
+      return io::Result<uint32_t>(xpp::err, io::Error::from_kind(io::ErrorKind::Other));
+    uint32_t  val = 0;
+    socklen_t len = sizeof(val);
+    if (getsockopt(m_async.fd(), IPPROTO_IP, IP_TTL, &val, &len) != 0)
+      return io::Result<uint32_t>(xpp::err, io::Error::from_errno(errno));
+    return io::Result<uint32_t>(xpp::ok, val);
+  }
+
+  /** @brief Set IP_TTL. Returns Ok(true) on success. */
+  io::Result<bool> set_ttl(uint32_t ttl) {
+    if (m_async.is_closed())
+      return io::Result<bool>(xpp::err, io::Error::from_kind(io::ErrorKind::Other));
+    if (setsockopt(m_async.fd(), IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) != 0)
+      return io::Result<bool>(xpp::err, io::Error::from_errno(errno));
+    return io::Result<bool>(xpp::ok, true);
+  }
+
+  /** @brief Get SO_LINGER seconds, or -1 if disabled. */
+  io::Result<int32_t> linger() const {
+    if (m_async.is_closed())
+      return io::Result<int32_t>(xpp::err, io::Error::from_kind(io::ErrorKind::Other));
+    struct linger lng = {};
+    socklen_t     len = sizeof(lng);
+    if (getsockopt(m_async.fd(), SOL_SOCKET, SO_LINGER, &lng, &len) != 0)
+      return io::Result<int32_t>(xpp::err, io::Error::from_errno(errno));
+    return io::Result<int32_t>(xpp::ok, lng.l_onoff ? lng.l_linger : -1);
+  }
+
+  /** @brief Set SO_LINGER seconds. Pass -1 to disable. */
+  io::Result<bool> set_linger(int32_t seconds) {
+    if (m_async.is_closed())
+      return io::Result<bool>(xpp::err, io::Error::from_kind(io::ErrorKind::Other));
+    struct linger lng;
+    lng.l_onoff  = seconds >= 0 ? 1 : 0;
+    lng.l_linger = seconds >= 0 ? seconds : 0;
+    if (setsockopt(m_async.fd(), SOL_SOCKET, SO_LINGER, &lng, sizeof(lng)) != 0)
+      return io::Result<bool>(xpp::err, io::Error::from_errno(errno));
+    return io::Result<bool>(xpp::ok, true);
   }
 
   /** @brief Close and release resources. */
   void close() {
     m_async.close(); // deregister from event loop, wake waiters
-    if (m_conn) {
-      xTcpConnClose(m_conn);
-      m_conn = nullptr;
-    }
+    m_conn = {};
   }
 
   int fd() const {
     return m_async.fd();
   }
   bool is_open() const {
-    return m_conn != nullptr;
+    return m_conn.get() != nullptr;
   }
 
   /** @brief Get peer address. */
   Option<SocketAddr> peer_addr() const {
-    if (!m_conn) return none;
+    if (!m_conn.get()) return none;
     return _::peername(m_async.fd());
   }
 
   /** @brief Get local address. */
   Option<SocketAddr> local_addr() const {
-    if (!m_conn) return none;
+    if (!m_conn.get()) return none;
     return _::sockname(m_async.fd());
   }
 
@@ -131,14 +233,19 @@ private:
   friend class _::TcpConnectAdapter;
   friend class TcpListener;
 
-  xTcpConn    m_conn = nullptr;
-  io::AsyncFd m_async{-1};
+  struct Destroy {
+    void deallocate(void *p, Layout) const noexcept {
+      if (p) xTcpConnClose(static_cast<xTcpConn>(p));
+    }
+  };
+  OwnedHandle<Destroy> m_conn;
+  io::AsyncFd          m_async{-1};
 
   /** @brief Low-level connect using a raw xTcpConnectConf (escape hatch). */
-  static Promise<io::Result<TcpConn>> connect_with_conf(const char *host, uint16_t port,
-                                                        const xTcpConnectConf *conf);
+  static Promise<io::Result<TcpStream>> connect_with_conf(const char *host, uint16_t port,
+                                                          const xTcpConnectConf *conf);
 
-  explicit TcpConn(xTcpConn conn) : m_conn(conn) {
+  explicit TcpStream(xTcpConn conn) : m_conn(conn) {
     int fd = fd_from_conn(conn);
     if (fd >= 0) {
       io::_::set_nonblocking(fd);
@@ -162,13 +269,13 @@ class TcpAcceptAdapter;
 /**
  * @brief RAII async TCP listener.
  *
- * Wraps xTcpListener. accept() returns Promise<TcpConn> via adapt().
+ * Wraps xTcpListener. accept() returns Promise<TcpStream> via adapt().
  *
  * The underlying state (listener handle + pending resolver) lives in an
- * Rc<Impl> rather than directly in TcpListener because libx's
+ * Shared<Impl> rather than directly in TcpListener because libx's
  * xTcpListenerCreate stores a raw `void* arg` pointer for the accept
  * callback. That pointer must remain stable for the listener's lifetime,
- * but TcpListener itself is movable (returned from bind()). Rc<Impl>
+ * but TcpListener itself is movable (returned from bind()). Shared<Impl>
  * heap-allocates the state at a fixed address; moving TcpListener only
  * moves the Rc handle (a pointer), not the Impl. Single-threaded, so
  * Rc (not Arc) is correct — no atomic overhead.
@@ -182,10 +289,11 @@ public:
    * Returns Err(io::Error) on failure.
    */
   static Promise<io::Result<TcpListener>> bind(SocketAddr addr) {
-    auto        impl = Rc<Impl>::make();
+    auto        impl = Shared<Impl>::make();
     std::string ip   = addr.ip().to_string();
-    impl->listener   = xTcpListenerCreate(ip.c_str(), addr.port(), nullptr, on_accept, impl.get());
-    if (!impl->listener) {
+    impl->listener   = OwnedHandle<Impl::Destroy>(
+      xTcpListenerCreate(ip.c_str(), addr.port(), nullptr, on_accept, impl.get()));
+    if (!impl->listener.get()) {
       return xpp::resolve(
         io::Result<TcpListener>(xpp::err, io::Error::from_kind(io::ErrorKind::Other)));
     }
@@ -236,19 +344,26 @@ public:
 
   ~TcpListener() = default;
 
-  /** @brief Accept next connection. Resolves to Ok(TcpConn) when a peer connects,
-   *          or Err(io::Error) on failure / listener closed. */
-  Promise<io::Result<TcpConn>> accept() {
+  /** @brief Accept next connection. Resolves to {TcpStream, SocketAddr} when a peer connects. */
+  Promise<std::pair<TcpStream, SocketAddr>> accept() {
     Impl *impl = m_impl.as_deref();
-    if (!impl || !impl->listener)
-      return xpp::resolve(
-        io::Result<TcpConn>(xpp::err, io::Error::from_kind(io::ErrorKind::Other)));
-    return xpp::adapt<io::Result<TcpConn>, _::TcpAcceptAdapter>(impl);
+    if (!impl || !impl->listener.get())
+      return xpp::resolve(std::make_pair(TcpStream(), SocketAddr::unspecified()));
+    return xpp::adapt<std::pair<TcpStream, SocketAddr>, _::TcpAcceptAdapter>(impl);
   }
 
   bool is_open() const {
     const Impl *impl = m_impl.as_deref();
-    return impl && impl->listener;
+    return impl && impl->listener.get();
+  }
+
+  /** @brief Get the address this listener is bound to. */
+  Option<SocketAddr> local_addr() const {
+    const Impl *impl = m_impl.as_deref();
+    if (!impl || !impl->listener.get()) return none;
+    xSocket sock = xTcpListenerSocket(static_cast<xTcpListener>(impl->listener.get()));
+    if (!sock) return none;
+    return _::sockname(xSocketFd(sock));
   }
 
 private:
@@ -257,30 +372,29 @@ private:
   // State lives on the heap so the libx callback's void* arg stays stable
   // across TcpListener moves. ~Impl destroys the listener handle.
   struct Impl {
-    xTcpListener                     listener = nullptr;
-    PromiseResolver<io::Result<TcpConn>> pending;
-
-    ~Impl() {
-      if (listener) xTcpListenerDestroy(listener);
-    }
+    struct Destroy {
+      void deallocate(void *p, Layout) const noexcept {
+        if (p) xTcpListenerDestroy(static_cast<xTcpListener>(p));
+      }
+    };
+    OwnedHandle<Destroy>                              listener;
+    PromiseResolver<std::pair<TcpStream, SocketAddr>> pending;
   };
-  Option<Rc<Impl>> m_impl;
+  Option<Shared<Impl>> m_impl;
 
-  explicit TcpListener(Rc<Impl> impl) : m_impl(some(std::move(impl))) {}
+  explicit TcpListener(Shared<Impl> impl) : m_impl(some(std::move(impl))) {}
 
-  static void on_accept(xTcpListener, xTcpConn conn, const struct sockaddr *, socklen_t,
+  static void on_accept(xTcpListener, xTcpConn conn, const struct sockaddr *sa, socklen_t slen,
                         void *arg) {
     auto *impl = static_cast<Impl *>(arg);
     if (impl->pending.is_pending()) {
-      auto r = std::move(impl->pending);
-      if (conn) {
-        r.resolve(io::Result<TcpConn>(xpp::ok, TcpConn(conn)));
-      } else {
-        r.resolve(io::Result<TcpConn>(xpp::err, io::Error::from_kind(io::ErrorKind::Other)));
-      }
+      auto r    = std::move(impl->pending);
+      auto addr = SocketAddr::from_sockaddr(sa, slen);
+      r.resolve(std::make_pair(TcpStream(conn), addr.is_some() ? std::move(addr).unwrap()
+                                                               : SocketAddr::unspecified()));
     } else {
       // No one waiting — close the connection
-      xTcpConnClose(conn);
+      if (conn) xTcpConnClose(conn);
     }
   }
 };
@@ -295,12 +409,12 @@ namespace _ {
 /// TCP connect adapter
 class TcpConnectAdapter {
 private:
-  PromiseResolver<io::Result<TcpConn>> m_resolver;
-  xTcpConnectConf                      m_conf{};
-  std::string                          m_host;
+  PromiseResolver<io::Result<TcpStream>> m_resolver;
+  xTcpConnectConf                        m_conf{};
+  std::string                            m_host;
 
 public:
-  TcpConnectAdapter(PromiseResolver<io::Result<TcpConn>> r, const char *host, uint16_t port,
+  TcpConnectAdapter(PromiseResolver<io::Result<TcpStream>> r, const char *host, uint16_t port,
                     const xTcpConnectConf *conf)
       : m_resolver(std::move(r)), m_host(host) {
     if (conf) m_conf = *conf;
@@ -322,10 +436,9 @@ private:
   static void on_connect(xTcpConn conn, xErrno err, void *arg) {
     auto *self = static_cast<TcpConnectAdapter *>(arg);
     if (conn && err == xErrno_Ok) {
-      self->m_resolver.resolve(io::Result<TcpConn>(xpp::ok, TcpConn(conn)));
+      self->m_resolver.resolve(io::Result<TcpStream>(xpp::ok, TcpStream(conn)));
     } else {
-      self->m_resolver.resolve(
-        io::Result<TcpConn>(xpp::err, io::Error::from_xerrno(err)));
+      self->m_resolver.resolve(io::Result<TcpStream>(xpp::err, io::Error::from_xerrno(err)));
     }
     delete self; // self-delete — adapter lifetime ends here
   }
@@ -337,7 +450,7 @@ private:
   TcpListener::Impl *m_impl;
 
 public:
-  TcpAcceptAdapter(PromiseResolver<io::Result<TcpConn>> r, TcpListener::Impl *impl)
+  TcpAcceptAdapter(PromiseResolver<std::pair<TcpStream, SocketAddr>> r, TcpListener::Impl *impl)
       : m_impl(impl) {
     m_impl->pending = std::move(r);
   }
@@ -355,20 +468,19 @@ public:
 
 /* ── Implementations ──────────────────────────────────────────────── */
 
-inline Promise<io::Result<TcpConn>> TcpConn::connect_with_conf(const char *host,
-                                                                 uint16_t port,
-                                                                 const xTcpConnectConf *conf) {
+inline Promise<io::Result<TcpStream>> TcpStream::connect_with_conf(const char *host, uint16_t port,
+                                                                   const xTcpConnectConf *conf) {
   // TcpConnectAdapter self-deletes in its callback — xTcpConnect has no
   // cancel API, so the adapter must outlive the Promise. If the Promise is
   // dropped first, the callback still fires and resolves to a no-op via
   // ArcWeak. Connect timeout (default 10s) bounds the leak.
-  auto pr = xpp::async<io::Result<TcpConn>>();
+  auto pr = xpp::async<io::Result<TcpStream>>();
   new _::TcpConnectAdapter(std::move(pr.second), host, port, conf);
   return std::move(pr.first);
 }
 
-inline Promise<io::Result<TcpConn>> TcpConn::connect(const char *host, uint16_t port,
-                                                     Option<const TlsContext &> tls) {
+inline Promise<io::Result<TcpStream>> TcpStream::connect(const char *host, uint16_t port,
+                                                         Option<const TlsContext &> tls) {
   xTcpConnectConf conf{};
   if (tls.is_some() && tls.unwrap().is_valid()) {
     conf.tls_ctx = tls.unwrap().raw();
@@ -376,8 +488,8 @@ inline Promise<io::Result<TcpConn>> TcpConn::connect(const char *host, uint16_t 
   return connect_with_conf(host, port, &conf);
 }
 
-inline Promise<io::Result<TcpConn>> TcpConn::connect(SocketAddr addr,
-                                                     Option<const TlsContext &> tls) {
+inline Promise<io::Result<TcpStream>> TcpStream::connect(SocketAddr                 addr,
+                                                         Option<const TlsContext &> tls) {
   // Pass the IP string directly — xTcpConnect parses literal IPs without DNS.
   std::string ip = addr.ip().to_string();
   return connect(ip.c_str(), addr.port(), tls);

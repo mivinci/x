@@ -46,6 +46,28 @@ inline File File::from_raw_fd(int fd) {
   return File(fd);
 }
 
+inline Promise<ssize_t> File::read(void *buf, size_t len) {
+  off_t off = m_cursor;
+  if (!m_open) return xpp::resolve(static_cast<ssize_t>(-1));
+  return xpp::adapt<ssize_t, _::FsReadAdapter>(reinterpret_cast<xFile>(static_cast<intptr_t>(m_fd)),
+                                               buf, len, off)
+    .then([this, len](ssize_t n) {
+      if (n > 0) m_cursor += n;
+      return n;
+    });
+}
+
+inline Promise<ssize_t> File::write(const void *buf, size_t len) {
+  off_t off = m_cursor;
+  if (!m_open) return xpp::resolve(static_cast<ssize_t>(-1));
+  return xpp::adapt<ssize_t, _::FsWriteAdapter>(
+           reinterpret_cast<xFile>(static_cast<intptr_t>(m_fd)), buf, len, off)
+    .then([this, len](ssize_t n) {
+      if (n > 0) m_cursor += n;
+      return n;
+    });
+}
+
 inline Promise<ssize_t> File::read(void *buf, size_t len, off_t offset) {
   return xpp::adapt<ssize_t, _::FsReadAdapter>(reinterpret_cast<xFile>(static_cast<intptr_t>(m_fd)),
                                                buf, len, offset);

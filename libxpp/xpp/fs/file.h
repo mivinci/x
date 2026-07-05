@@ -61,17 +61,20 @@ public:
   static File          from_raw_fd(int fd);
 
   File() = default;
-  File(File &&o) noexcept : m_fd(o.m_fd), m_open(o.m_open) {
-    o.m_fd   = -1;
-    o.m_open = false;
+  File(File &&o) noexcept : m_fd(o.m_fd), m_open(o.m_open), m_cursor(o.m_cursor) {
+    o.m_fd     = -1;
+    o.m_open   = false;
+    o.m_cursor = 0;
   }
   File &operator=(File &&o) noexcept {
     if (this != &o) {
       close_sync();
-      m_fd     = o.m_fd;
-      m_open   = o.m_open;
-      o.m_fd   = -1;
-      o.m_open = false;
+      m_fd       = o.m_fd;
+      m_open     = o.m_open;
+      m_cursor   = o.m_cursor;
+      o.m_fd     = -1;
+      o.m_open   = false;
+      o.m_cursor = 0;
     }
     return *this;
   }
@@ -81,6 +84,12 @@ public:
   ~File() {
     close_sync();
   }
+
+  /** @brief Read from cursor (auto-advancing). */
+  Promise<ssize_t> read(void *buf, size_t len);
+
+  /** @brief Write at cursor (auto-advancing). */
+  Promise<ssize_t> write(const void *buf, size_t len);
 
   Promise<ssize_t> read(void *buf, size_t len, off_t offset);
   Promise<ssize_t> read(Span<uint8_t> buf, off_t offset) {
@@ -114,8 +123,9 @@ public:
   }
 
 private:
-  int  m_fd   = -1;
-  bool m_open = false;
+  int   m_fd     = -1;
+  bool  m_open   = false;
+  off_t m_cursor = 0;
 
   explicit File(int fd) : m_fd(fd), m_open(fd >= 0) {}
   void close_sync();

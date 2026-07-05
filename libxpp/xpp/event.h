@@ -23,7 +23,7 @@
 #ifndef XPP_EVENT_H
 #define XPP_EVENT_H
 
-#include <xpp/opaque.h>
+#include <xpp/handle.h>
 
 #include <x/base/event.h>
 
@@ -109,7 +109,7 @@ private:
     }
   };
 
-  OwnedOpaquePointer<Destroy> m_loop;
+  OwnedHandle<Destroy> m_loop;
 };
 
 /**

@@ -15,6 +15,9 @@ Rust-inspired smart pointers with `sizeof == sizeof(T*)` guarantees. All are hea
 | [`Arc<T, Allocator>`](arc.md) | Shared | Yes (atomic) | `arc.h` |
 | [`ArcWeak<T, Allocator>`](arc.md) | Weak observer for `Arc` | Yes (atomic) | `arc.h` |
 | [`NonNull<T>`](nonnull.md) | Non-owning, non-null | No | `nonnull.h` |
+| [`Shared<T>`](shared.md) | Shared (cond. thread-safe) | With `XPP_MT` | `shared.h` |
+
+`Shared<T>` is a compile-time alias: defaults to `Rc<T>` (single-threaded, no atomic overhead), switches to `Arc<T>` with `-DXPP_MT`.
 
 All owning types default to [`GlobalAllocator`](../allocator.md) and
 accept a custom `Allocator` template parameter. Empty allocators (like

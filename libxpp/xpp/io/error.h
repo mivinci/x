@@ -144,7 +144,7 @@ inline int32_t encode_xerrno(xErrno e) noexcept {
   return k_xerrno_flag | static_cast<int32_t>(e);
 }
 inline bool is_xerrno(int32_t code) noexcept {
-  return (code & k_xerrno_flag) != 0;
+  return code > 0 && (code & k_xerrno_flag) != 0;
 }
 inline bool is_errno(int32_t code) noexcept {
   return code > 0 && !is_xerrno(code);
