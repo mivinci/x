@@ -28,7 +28,7 @@ co_await buf.flush();
 
 ## How it works
 
-```
+```text
 write(buf, len)
     │
     ├── len ≥ 8KB? → flush pending + co_await inner.write(buf, len)

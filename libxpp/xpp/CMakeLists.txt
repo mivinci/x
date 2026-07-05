@@ -32,5 +32,17 @@ if(XPP_BUILD_TESTS)
         target_compile_options(${test_name} PRIVATE -fcoroutines)
       endif()
     endif()
+
+    # Tests that use co_await (C++20) but don't have "coroutine" in the filename
+    if(test_name STREQUAL "util_test" OR
+       test_name STREQUAL "buf_reader_test" OR
+       test_name STREQUAL "buf_writer_test" OR
+       test_name STREQUAL "take_test" OR
+       test_name STREQUAL "sink_test")
+      target_compile_features(${test_name} PRIVATE cxx_std_20)
+      if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
+        target_compile_options(${test_name} PRIVATE -fcoroutines)
+      endif()
+    endif()
   endforeach()
 endif()

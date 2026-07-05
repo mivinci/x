@@ -27,4 +27,7 @@ ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
 
 - [Utilities](util.md) — `read_all` and `copy`: duck-typed template functions. C++20 coroutine loops with 8KB stack buffers.
 - [BufReader](buf_reader.md) — `BufReader<R>`: buffered async reader. Reduces per-call Promise overhead for small reads.
-- [BufWriter](buf_writer.md) — `BufWriter<W>`: buffered async writer. Coalesces small writes, explicit `flush()`.
+- [BufWriter](buf_writer.md)
+- [Take](take.md)
+- [Empty](empty.md)
+- [Sink](sink.md) — `BufWriter<W>`: buffered async writer. Coalesces small writes, explicit `flush()`.

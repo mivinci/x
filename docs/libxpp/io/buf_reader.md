@@ -23,7 +23,7 @@ co_await buf.read(&c, 1);  // copies from buffer
 
 ## How it works
 
-```
+```text
 read(buf, len)
     │
     ├── buffer has data? → memcpy from m_buf, advance m_pos
