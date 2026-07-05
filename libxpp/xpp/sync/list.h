@@ -114,6 +114,96 @@ template <class T> std::pair<Tx<T>, Rx<T>> channel(size_t cap) {
   return {Tx<T>(core), Rx<T>(std::move(core))};
 }
 
+// ── Unbounded (linked-list) Core ─────────────────────────────────────
+
+template <class T> class UnboundedRx;
+
+template <class T> struct UnboundedCore {
+  struct Node {
+    Node *volatile next = nullptr;
+    T      data;
+
+    explicit Node(T v) : data(std::move(v)) {}
+  };
+
+  loom::_::Atomic<Node *> m_head{nullptr};
+  loom::_::Atomic<Node *> m_tail{nullptr};
+
+  ~UnboundedCore() {
+    Node *n = m_head.load(std::memory_order_relaxed);
+    while (n) {
+      Node *next = n->next;
+      delete n;
+      n = next;
+    }
+  }
+};
+
+template <class T> class UnboundedTx {
+public:
+  UnboundedTx(const UnboundedTx &) = default;
+  UnboundedTx &operator=(const UnboundedTx &) = default;
+  UnboundedTx(UnboundedTx &&) noexcept = default;
+  UnboundedTx &operator=(UnboundedTx &&) noexcept = default;
+
+  void push(T value) {
+    auto *node = new typename UnboundedCore<T>::Node(std::move(value));
+    node->next = nullptr;
+
+    auto *old_tail = m_core->m_tail.exchange(node, std::memory_order_acq_rel);
+    if (old_tail) {
+      old_tail->next = node;
+    } else {
+      m_core->m_head.store(node, std::memory_order_release);
+    }
+  }
+
+private:
+  template <class U> friend std::pair<UnboundedTx<U>, UnboundedRx<U>> unbounded_channel();
+  Shared<UnboundedCore<T>> m_core;
+  explicit UnboundedTx(Shared<UnboundedCore<T>> c) : m_core(std::move(c)) {}
+};
+
+template <class T> class UnboundedRx {
+public:
+  UnboundedRx(const UnboundedRx &) = delete;
+  UnboundedRx &operator=(const UnboundedRx &) = delete;
+  UnboundedRx(UnboundedRx &&) noexcept = default;
+  UnboundedRx &operator=(UnboundedRx &&) noexcept = default;
+
+  xpp::Option<T> try_pop() {
+    auto *head = m_core->m_head.load(std::memory_order_acquire);
+    if (!head) return xpp::none;
+
+    auto *next = head->next;
+    if (!next) {
+      auto *expected = head;
+      if (!m_core->m_tail.compare_exchange_strong(expected, nullptr, std::memory_order_release)) {
+        while (!(next = head->next)) {}
+      }
+      m_core->m_head.store(next, std::memory_order_release);
+    } else {
+      m_core->m_head.store(next, std::memory_order_release);
+    }
+
+    T val = std::move(head->data);
+    delete head;
+    return xpp::some(std::move(val));
+  }
+
+  bool empty() const { return m_core->m_head.load(std::memory_order_acquire) == nullptr; }
+
+private:
+  template <class U> friend std::pair<UnboundedTx<U>, UnboundedRx<U>> unbounded_channel();
+  Shared<UnboundedCore<T>> m_core;
+  explicit UnboundedRx(Shared<UnboundedCore<T>> c) : m_core(std::move(c)) {}
+};
+
+template <class T> std::pair<UnboundedTx<T>, UnboundedRx<T>> unbounded_channel() {
+  auto core = Shared<UnboundedCore<T>>::make();
+  return {UnboundedTx<T>(core), UnboundedRx<T>(std::move(core))};
+}
+
 } // namespace list
 } // namespace sync
 } // namespace xpp

@@ -170,35 +170,20 @@ template <class T> std::pair<Sender<T>, Receiver<T>> channel(size_t cap) {
 
 // ── Unbounded channel ───────────────────────────────────────────────
 
-namespace _ {
-
-template <class T> struct ChanUnbounded {
-  std::deque<T>               m_buf;
-  xpp::loom::_::Mutex         m_mutex;
-  PromiseResolver<void>       m_read_waiter;
-  xpp::loom::_::Atomic<size_t> m_sender_count{1};
-  xpp::loom::_::Atomic<bool>   m_closed{false};
-};
-
-} // namespace _
-
 template <class T> class ReceiverUnbounded;
 
 template <class T> class SenderUnbounded {
 public:
   SenderUnbounded(SenderUnbounded &&) noexcept = default;
   SenderUnbounded &operator=(SenderUnbounded &&) noexcept = default;
-  SenderUnbounded(const SenderUnbounded &o) : m_chan(o.m_chan) { if(m_chan) m_chan->m_sender_count.fetch_add(1); }
-  SenderUnbounded &operator=(const SenderUnbounded &o) { if(this!=&o){drop();m_chan=o.m_chan;if(m_chan)m_chan->m_sender_count.fetch_add(1);}return*this;}
+  SenderUnbounded(const SenderUnbounded &) = default;
+  SenderUnbounded &operator=(const SenderUnbounded &) = default;
   ~SenderUnbounded() { drop(); }
 
+  // Send never blocks — always succeeds (unbounded).
   void send(T value) {
     if (!m_chan) return;
-    {
-      xpp::loom::_::Lock lock(m_chan->m_mutex);
-      if (m_chan->m_closed.load(std::memory_order_acquire)) return;
-      m_chan->m_buf.push_back(std::move(value));
-    }
+    m_chan->m_tx.push(std::move(value));
     if (m_chan->m_read_waiter.is_pending()) {
       auto w = std::move(m_chan->m_read_waiter);
       w.resolve();
@@ -207,18 +192,13 @@ public:
 
   bool try_send(T value) {
     if (!m_chan) return false;
-    xpp::loom::_::Lock lock(m_chan->m_mutex);
-    if (m_chan->m_closed.load(std::memory_order_acquire)) return false;
-    m_chan->m_buf.push_back(std::move(value));
+    m_chan->m_tx.push(std::move(value));
     return true;
   }
 
   void close() {
     if (!m_chan) return;
-    {
-      xpp::loom::_::Lock lock(m_chan->m_mutex);
-      m_chan->m_closed.store(true, std::memory_order_release);
-    }
+    m_chan->m_closed.store(true, std::memory_order_release);
     if (m_chan->m_read_waiter.is_pending()) {
       auto w = std::move(m_chan->m_read_waiter);
       w.resolve();
@@ -227,10 +207,19 @@ public:
 
 private:
   template <class U> friend class ReceiverUnbounded;
-  template <class U> friend std::pair<SenderUnbounded<U>, ReceiverUnbounded<U>> unbounded_channel();
-  Shared<_::ChanUnbounded<T>> m_chan;
-  explicit SenderUnbounded(Shared<_::ChanUnbounded<T>> c) : m_chan(std::move(c)) {}
-  void drop() { if(!m_chan)return; if(m_chan->m_sender_count.fetch_sub(1,std::memory_order_acq_rel)==1) close(); }
+  template <class U> friend std::pair<SenderUnbounded<U>, ReceiverUnbounded<U>> channel();
+  struct Chan {
+    list::UnboundedTx<T>         m_tx;
+    list::UnboundedRx<T>         m_rx;
+    PromiseResolver<void>        m_read_waiter;
+    xpp::loom::_::Atomic<size_t> m_sender_count{1};
+    xpp::loom::_::Atomic<bool>   m_closed{false};
+    Chan(list::UnboundedTx<T> tx, list::UnboundedRx<T> rx)
+        : m_tx(std::move(tx)), m_rx(std::move(rx)) {}
+  };
+  Shared<Chan> m_chan;
+  explicit SenderUnbounded(Shared<Chan> c) : m_chan(std::move(c)) {}
+  void drop() { if(!m_chan)return; if(m_chan->m_sender_count.fetch_sub(1)==1)close(); }
 };
 
 template <class T> class ReceiverUnbounded {
@@ -242,38 +231,30 @@ public:
     if (!m_chan) co_return none;
 
     while (true) {
-      {
-        xpp::loom::_::Lock lock(m_chan->m_mutex);
-        if (m_chan->m_closed.load(std::memory_order_acquire) && m_chan->m_buf.empty()) co_return none;
-        if (!m_chan->m_buf.empty()) {
-          T val = std::move(m_chan->m_buf.front());
-          m_chan->m_buf.pop_front();
-          co_return xpp::some(std::move(val));
-        }
-      }
+      auto v = m_chan->m_rx.try_pop();
+      if (v.is_some()) co_return xpp::some(std::move(v).unwrap());
+
+      if (m_closed() && m_chan->m_rx.empty()) co_return none;
+
       auto pr = xpp::async<void>();
       m_chan->m_read_waiter = std::move(pr.second);
       co_await std::move(pr.first);
     }
   }
 
-  Option<T> try_recv() {
-    if (!m_chan) return none;
-    xpp::loom::_::Lock lock(m_chan->m_mutex);
-    if (m_chan->m_buf.empty()) return none;
-    T val = std::move(m_chan->m_buf.front());
-    m_chan->m_buf.pop_front();
-    return xpp::some(std::move(val));
-  }
+  Option<T> try_recv() { return m_chan ? m_chan->m_rx.try_pop() : xpp::none; }
 
 private:
-  template <class U> friend std::pair<SenderUnbounded<U>, ReceiverUnbounded<U>> unbounded_channel();
-  Shared<_::ChanUnbounded<T>> m_chan;
-  explicit ReceiverUnbounded(Shared<_::ChanUnbounded<T>> c) : m_chan(std::move(c)) {}
+  template <class U> friend std::pair<SenderUnbounded<U>, ReceiverUnbounded<U>> channel();
+  using Chan    = typename SenderUnbounded<T>::Chan;
+  Shared<Chan> m_chan;
+  explicit ReceiverUnbounded(Shared<Chan> c) : m_chan(std::move(c)) {}
+  bool m_closed() const { return m_chan->m_closed.load(std::memory_order_acquire); }
 };
 
-template <class T> std::pair<SenderUnbounded<T>, ReceiverUnbounded<T>> unbounded_channel() {
-  auto chan = Shared<_::ChanUnbounded<T>>::make();
+template <class T> std::pair<SenderUnbounded<T>, ReceiverUnbounded<T>> channel() {
+  auto [tx, rx] = list::unbounded_channel<T>();
+  auto chan = Shared<typename SenderUnbounded<T>::Chan>::make(std::move(tx), std::move(rx));
   return {SenderUnbounded<T>(chan), ReceiverUnbounded<T>(std::move(chan))};
 }
 
