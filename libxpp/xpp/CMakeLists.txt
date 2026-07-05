@@ -39,7 +39,8 @@ if(XPP_BUILD_TESTS)
        test_name STREQUAL "buf_writer_test" OR
        test_name STREQUAL "take_test" OR
        test_name STREQUAL "sink_test" OR
-       test_name STREQUAL "duplex_test")
+       test_name STREQUAL "duplex_test" OR
+       test_name STREQUAL "simplex_test")
       target_compile_features(${test_name} PRIVATE cxx_std_20)
       if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
         target_compile_options(${test_name} PRIVATE -fcoroutines)

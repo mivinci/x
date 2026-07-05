@@ -87,6 +87,7 @@
     - [Empty](libxpp/io/empty.md)
     - [Sink](libxpp/io/sink.md)
     - [Duplex](libxpp/io/duplex.md)
+    - [Simplex](libxpp/io/simplex.md)
   - [Net](libxpp/net/README.md)
     - [TCP](libxpp/net/tcp.md)
     - [UDP](libxpp/net/udp.md)

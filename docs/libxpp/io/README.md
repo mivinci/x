@@ -31,4 +31,5 @@ ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
 - [Take](take.md)
 - [Empty](empty.md)
 - [Sink](sink.md)
-- [Duplex](duplex.md) — `BufWriter<W>`: buffered async writer. Coalesces small writes, explicit `flush()`.
+- [Duplex](duplex.md)
+- [Simplex](simplex.md) — `BufWriter<W>`: buffered async writer. Coalesces small writes, explicit `flush()`.
