@@ -26,3 +26,5 @@ ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
 - [I/O Error](error.md) — `io::Error`: niche-optimized (4-byte) error type with `ErrorKind`, `raw_os_error()`, `raw_xerrno()`. Mirrors Rust's `std::io::Error`.
 
 - [Utilities](util.md) — `read_all` and `copy`: duck-typed template functions. C++20 coroutine loops with 8KB stack buffers.
+- [BufReader](buf_reader.md) — `BufReader<R>`: buffered async reader. Reduces per-call Promise overhead for small reads.
+- [BufWriter](buf_writer.md) — `BufWriter<W>`: buffered async writer. Coalesces small writes, explicit `flush()`.

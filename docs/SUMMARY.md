@@ -81,6 +81,8 @@
     - [AsyncFd](libxpp/io/async_fd.md)
     - [I/O Error](libxpp/io/error.md)
     - [Utilities](libxpp/io/util.md)
+    - [BufReader](libxpp/io/buf_reader.md)
+    - [BufWriter](libxpp/io/buf_writer.md)
   - [Net](libxpp/net/README.md)
     - [TCP](libxpp/net/tcp.md)
     - [UDP](libxpp/net/udp.md)
