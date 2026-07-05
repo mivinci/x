@@ -11,8 +11,9 @@
 #ifndef XPP_IO_REPEAT_H
 #define XPP_IO_REPEAT_H
 
-#include <cstddef>
 #include <sys/types.h>
+
+#include <cstddef>
 #include <cstring>
 
 #include <xpp/promise.h>
@@ -34,7 +35,9 @@ private:
   uint8_t m_byte;
 };
 
-inline Repeat repeat(uint8_t byte = 0) { return Repeat{byte}; }
+inline Repeat repeat(uint8_t byte = 0) {
+  return Repeat{byte};
+}
 
 } // namespace io
 } // namespace xpp

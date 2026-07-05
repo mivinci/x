@@ -16,6 +16,7 @@
 #define XPP_IO_JOIN_H
 
 #include <sys/types.h>
+
 #include <utility>
 
 #include <xpp/promise.h>
@@ -23,8 +24,7 @@
 namespace xpp {
 namespace io {
 
-template <class R, class W>
-class Join {
+template <class R, class W> class Join {
 public:
   Join(R reader, W writer) : m_reader(std::move(reader)), m_writer(std::move(writer)) {}
 
@@ -41,8 +41,12 @@ public:
     return m_writer.write(buf, len);
   }
 
-  Promise<void> flush() { return m_writer.flush(); }
-  void close() { m_writer.close(); }
+  Promise<void> flush() {
+    return m_writer.flush();
+  }
+  void close() {
+    m_writer.close();
+  }
 
 private:
   R m_reader;
@@ -50,8 +54,7 @@ private:
 };
 
 /** @brief Join a reader and writer into a single bidirectional type. */
-template <class R, class W>
-Join<R, W> join(R reader, W writer) {
+template <class R, class W> Join<R, W> join(R reader, W writer) {
   return Join<R, W>(std::move(reader), std::move(writer));
 }
 
