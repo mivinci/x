@@ -33,13 +33,13 @@
 #include <xpp/io/async_fd.h>
 #include <xpp/io/error.h>
 #include <xpp/net/addr.h>
-#include <xpp/shared.h>
 #include <xpp/net/dns.h>
 #include <xpp/net/tls.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
 #include <xpp/rc.h>
 #include <xpp/result.h>
+#include <xpp/shared.h>
 
 #include <x/base/error.h>
 #include <x/base/event.h>
@@ -50,12 +50,6 @@ namespace xpp {
 namespace net {
 
 /* ── TcpStream ───────────────────────────────────────────────────────── */
-
-struct TcpConnDeleter {
-  void deallocate(void *p, Layout) const noexcept {
-    if (p) xTcpConnClose(static_cast<xTcpConn>(p));
-  }
-};
 
 namespace _ {
 class TcpConnectAdapter;
@@ -78,15 +72,12 @@ public:
                                                 Option<const TlsContext &> tls = none);
 
   TcpStream() = default;
-  TcpStream(TcpStream &&o) noexcept : m_conn(std::move(o.m_conn)), m_async(std::move(o.m_async)) {
-    
-  }
+  TcpStream(TcpStream &&o) noexcept : m_conn(std::move(o.m_conn)), m_async(std::move(o.m_async)) {}
   TcpStream &operator=(TcpStream &&o) noexcept {
     if (this != &o) {
       close();
       m_conn  = std::move(o.m_conn);
-      m_async  = std::move(o.m_async);
-      
+      m_async = std::move(o.m_async);
     }
     return *this;
   }
@@ -242,8 +233,13 @@ private:
   friend class _::TcpConnectAdapter;
   friend class TcpListener;
 
-  OwnedHandle<TcpConnDeleter> m_conn;
-  io::AsyncFd m_async{-1};
+  struct Destroy {
+    void deallocate(void *p, Layout) const noexcept {
+      if (p) xTcpConnClose(static_cast<xTcpConn>(p));
+    }
+  };
+  OwnedHandle<Destroy> m_conn;
+  io::AsyncFd          m_async{-1};
 
   /** @brief Low-level connect using a raw xTcpConnectConf (escape hatch). */
   static Promise<io::Result<TcpStream>> connect_with_conf(const char *host, uint16_t port,
