@@ -51,3 +51,4 @@ namespace xpp {
 template <class Deleter> using OwnedHandle = Own<void, Deleter>;
 
 } // namespace xpp
+#endif // XPP_HANDLE_H
