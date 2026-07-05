@@ -328,13 +328,19 @@ private:
 };
 
 /**
- * @brief Construct an Option with a value.
+ * @brief Tag for constructing an Option with a value.
  *
- * Usage: auto o = Some(42);  // Option<int>
+ * Usage: auto o = some(42);  // Option<int>
  */
-template <class T> Option<typename std::decay<T>::type> Some(T &&val) {
-  return Option<typename std::decay<T>::type>(std::forward<T>(val));
-}
+struct Some {
+  explicit Some() = default;
+
+  template <class T> Option<typename std::decay<T>::type> operator()(T &&val) const {
+    return Option<typename std::decay<T>::type>(std::forward<T>(val));
+  }
+};
+
+constexpr Some some{};
 
 /* ── Option<T&> specialization ─────────────────────────────────────── */
 

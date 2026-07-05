@@ -11,7 +11,7 @@
  * race(Promise<T>, Promise<T>...) resolves with the first ready promise,
  * discarding all others. Homogeneous types only.
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 #ifndef XPP_PROMISE_COMBINATORS_H
 #define XPP_PROMISE_COMBINATORS_H

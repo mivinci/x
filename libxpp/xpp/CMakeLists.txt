@@ -3,14 +3,14 @@
 file(GLOB_RECURSE XPP_HEADERS "*.h")
 
 # ── Header-only library target ──────────────────────────────────────
-add_library(xpp_core INTERFACE)
-target_include_directories(xpp_core INTERFACE
+add_library(xpp INTERFACE)
+target_include_directories(xpp INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/.."
   "${CMAKE_CURRENT_SOURCE_DIR}"
 )
-target_compile_features(xpp_core INTERFACE cxx_std_17)
-# event.h / timer.h / promise.h / fs/file.h include libx headers; link for their users.
-target_link_libraries(xpp_core INTERFACE xbase xlog xfs)
+target_compile_features(xpp INTERFACE cxx_std_11)
+# event.h / timer.h / promise.h / fs/file.h / net/tcp.h include libx headers; link for their users.
+target_link_libraries(xpp INTERFACE xbase xlog xfs xnet)
 
 # ── Tests ────────────────────────────────────────────────────────────
 option(XPP_BUILD_TESTS "Build libxpp tests" ${X_BUILD_TESTS})
@@ -19,7 +19,7 @@ if(XPP_BUILD_TESTS)
   foreach(test_src ${XPP_TEST_SOURCES})
     get_filename_component(test_name ${test_src} NAME_WE)
     add_executable(${test_name} ${test_src})
-    target_link_libraries(${test_name} PRIVATE xpp_core GTest::gtest_main)
+    target_link_libraries(${test_name} PRIVATE xpp GTest::gtest_main)
     set_target_properties(${test_name} PROPERTIES FOLDER "libxpp")
     add_test(NAME ${test_name} COMMAND ${test_name})
     set_tests_properties(${test_name} PROPERTIES LABELS "xpp")

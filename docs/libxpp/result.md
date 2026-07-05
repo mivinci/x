@@ -203,9 +203,9 @@ write_result
 
 ```cpp
 // lookup() returns Option<int> wrapped in Result: Result<Option<int>, E>
-auto found = xpp::ok(xpp::Some(42));  // Result<Option<int>, E>
+auto found = xpp::ok(xpp::some(42));  // Result<Option<int>, E>
 auto transposed = std::move(found).transpose();  // Option<Result<int, E>>
-// transposed == Some(Ok(42))
+// transposed == some(Ok(42))
 
 auto not_found = xpp::ok(xpp::Option<int>(xpp::none));
 auto transposed2 = std::move(not_found).transpose();

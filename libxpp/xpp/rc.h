@@ -501,6 +501,20 @@ public:
     return m_inner != nullptr;
   }
 
+  /**
+   * @brief Pointer to the dereferenced value, or nullptr if None.
+   *
+   * Non-consuming peek (unlike unwrap). The Rc's refcount is unchanged.
+   * Mirrors Rust's Option::as_deref() — goes through Rc's Deref to
+   * return T* directly (not Rc<T>*).
+   */
+  T *as_deref() noexcept {
+    return m_inner ? &m_inner->value : nullptr;
+  }
+  const T *as_deref() const noexcept {
+    return m_inner ? &m_inner->value : nullptr;
+  }
+
   Rc<T, Allocator> unwrap() && {
     XPP_ASSERT(m_inner != nullptr, "unwrap() on None Option");
     _::RcInner<T, Allocator> *taken = m_inner;

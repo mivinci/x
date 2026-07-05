@@ -66,3 +66,4 @@ docs/mermaid-init.js
 bench_results
 *.pem
 build-bench
+openspec

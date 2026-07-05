@@ -1,0 +1,26 @@
+# I/O
+
+## Introduction
+
+`xpp::io` provides reactive async I/O for non-blocking file descriptors, plus a structured error type shared across all I/O modules (net, fs, etc.).
+
+```cpp
+#include <xpp/io/async_fd.h>
+#include <xpp/io/error.h>
+
+xpp::EventLoop loop;
+xpp::WaitScope scope(loop);
+
+int sv[2];
+socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, sv);
+xpp::io::AsyncFd io(sv[0]);
+
+write(sv[1], "hello", 5);
+char buf[64] = {};
+ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
+```
+
+## Modules
+
+- [AsyncFd](async_fd.md) — Reactive I/O wrapper: register fd once, `readable()`/`writable()` as `Promise<void>`, fast-path `read()`/`write()`.
+- [I/O Error](error.md) — `io::Error`: niche-optimized (4-byte) error type with `ErrorKind`, `raw_os_error()`, `raw_xerrno()`. Mirrors Rust's `std::io::Error`.

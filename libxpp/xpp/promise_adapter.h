@@ -10,7 +10,7 @@
  *
  * Specific adapters (TimerAdapter, WorkAdapter) are in separate headers.
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 #ifndef XPP_PROMISE_ADAPTER_H
 #define XPP_PROMISE_ADAPTER_H

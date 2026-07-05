@@ -237,7 +237,7 @@ xpp::fs::File::open("input.txt")
 | Error | negative ssize_t | `Result<T, io::Error>` | stream state bits |
 | Directory ops | `create_dir` / `remove_dir` / `rename` | `tokio::fs::create_dir` etc. | `std::filesystem` |
 | Compose with async | `.then()` / `co_await` / `all()` / `race()` | `.await` / `tokio::join!` / `tokio::select!` | N/A |
-| C++ standard | C++17 | N/A | C++11 |
+| C++ standard | C++11 | N/A | C++11 |
 
 ## Implementation Notes
 

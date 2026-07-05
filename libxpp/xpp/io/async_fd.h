@@ -15,12 +15,13 @@
  * Single-threaded. When multi-threaded scheduler is added, upgrade to
  * atomic<uint8_t> + mutex<Waiters> + double-check-under-lock.
  *
- * C++17-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 
 #ifndef XPP_IO_ASYNC_FD_H
 #define XPP_IO_ASYNC_FD_H
 
+#include <fcntl.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -37,7 +38,23 @@
 namespace xpp {
 namespace io {
 
-/* ── AsyncFd ───────────────────────────────────────────────────────── */
+namespace _ {
+
+/** @brief Set fd to non-blocking + close-on-exec. Returns 0 on success, -1 on error. */
+inline int set_nonblocking(int fd) noexcept {
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0) return -1;
+  if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return -1;
+#ifdef FD_CLOEXEC
+  int fdflags = fcntl(fd, F_GETFD, 0);
+  if (fdflags >= 0) fcntl(fd, F_SETFD, fdflags | FD_CLOEXEC);
+#endif
+  return 0;
+}
+
+} // namespace _
+
+/* ── AsyncFd ─────────���─────────────────────────────────────────────── */
 
 namespace _ {
 class AsyncReadAdapter;

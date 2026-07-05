@@ -65,7 +65,8 @@ if (cached) {
 - [Variant](variant.md) — Type-safe tagged union
 - [Timer](timer.md) — Callback-based timer with pause/resume
 - [Filesystem](fs.md) — Async file I/O (`File`, `stat`, `exists`, `create_dir`, `rename`)
-- [I/O](io.md) — Reactive async I/O for non-blocking fds (`AsyncFd`, `read`, `write`)
+- [I/O](io/README.md) — Reactive async I/O for non-blocking fds (`AsyncFd`, `read`, `write`, `Error`)
+- [Net](net/README.md) — Async TCP/UDP/DNS/URL/TLS (`TcpConn`, `TcpListener`, `UdpSocket`, `lookup_host`, `Url`, `TlsContext`)
 - [Panic](panic.md) — Assert macros
 - [Compiler Macros](compiler.md) — Attribute/deprecation helpers
 - [Opaque Handle Wrapper](opaque.md) — RAII for `XDEF_HANDLE` typedefs

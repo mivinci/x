@@ -171,7 +171,7 @@ TEST(PromiseCoroutineTest, VoidCoroutineThenChain) {
   // so that TransformPromiseNode<void, void, Func>::poll() can consume the Void.
   EventLoop loop;
   WaitScope scope(loop);
-  bool  flag = false;
+  bool      flag = false;
   simple_void().then([&flag] { flag = true; }).wait();
   EXPECT_TRUE(flag);
 }
