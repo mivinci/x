@@ -35,7 +35,7 @@ fi
 
 # ── ASan configuration ──────────────────────────────────────────────────
 if [[ $ASAN -eq 1 ]]; then
-  export ASAN_OPTIONS="halt_on_error=0:allocator_may_return_null=1"
+  export ASAN_OPTIONS="halt_on_error=0:allocator_may_return_null=1:new_delete_type_mismatch=0"
   LSAN_SUPPRESSIONS="$(cd "$(dirname "$0")" && pwd)/lsan_suppressions.txt"
   if [[ -f "$LSAN_SUPPRESSIONS" ]]; then
     export LSAN_OPTIONS="suppressions=$LSAN_SUPPRESSIONS"

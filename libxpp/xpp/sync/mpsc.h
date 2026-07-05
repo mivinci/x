@@ -50,14 +50,14 @@ template <class T> class Sender {
 public:
   Sender(Sender &&) noexcept            = default;
   Sender &operator=(Sender &&) noexcept = default;
-  Sender(const Sender &o) : m_ch(o.m_ch) {}
+  Sender(const Sender &o) : m_chan(o.m_chan) {}
   Sender &operator=(const Sender &o) {
-    m_ch = o.m_ch;
+    m_chan = o.m_chan;
     return *this;
   }
 
   Promise<void> send(T value) {
-    auto *ch = m_ch.get();
+    auto *ch = m_chan.get();
     if (!ch || ch->m_closed) co_return;
 
     while (ch->m_count >= ch->m_cap) {
@@ -78,7 +78,7 @@ public:
   }
 
   void close() {
-    auto *ch = m_ch.get();
+    auto *ch = m_chan.get();
     if (!ch || ch->m_closed) return;
     ch->m_closed = true;
     if (ch->m_read_waiter.is_pending()) {
@@ -93,8 +93,8 @@ public:
 
 private:
   template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
-  Shared<_::Channel<T>>                                       m_ch;
-  explicit Sender(Shared<_::Channel<T>> c) : m_ch(std::move(c)) {}
+  Shared<_::Channel<T>>                                       m_chan;
+  explicit Sender(Shared<_::Channel<T>> c) : m_chan(std::move(c)) {}
 };
 
 template <class T> class Receiver {
@@ -103,7 +103,7 @@ public:
   Receiver &operator=(Receiver &&) noexcept = default;
 
   Promise<Option<T>> recv() {
-    auto *ch = m_ch.get();
+    auto *ch = m_chan.get();
     if (!ch) co_return none;
 
     while (ch->m_count == 0) {
@@ -127,8 +127,8 @@ public:
 
 private:
   template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
-  Shared<_::Channel<T>>                                       m_ch;
-  explicit Receiver(Shared<_::Channel<T>> c) : m_ch(std::move(c)) {}
+  Shared<_::Channel<T>>                                       m_chan;
+  explicit Receiver(Shared<_::Channel<T>> c) : m_chan(std::move(c)) {}
 };
 
 template <class T> std::pair<Sender<T>, Receiver<T>> channel(size_t cap) {
