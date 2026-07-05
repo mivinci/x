@@ -291,8 +291,9 @@ public:
   static Promise<io::Result<TcpListener>> bind(SocketAddr addr) {
     auto        impl = Shared<Impl>::make();
     std::string ip   = addr.ip().to_string();
-    impl->listener   = xTcpListenerCreate(ip.c_str(), addr.port(), nullptr, on_accept, impl.get());
-    if (!impl->listener) {
+    impl->listener   = OwnedHandle<Impl::Destroy>(
+      xTcpListenerCreate(ip.c_str(), addr.port(), nullptr, on_accept, impl.get()));
+    if (!impl->listener.get()) {
       return xpp::resolve(
         io::Result<TcpListener>(xpp::err, io::Error::from_kind(io::ErrorKind::Other)));
     }
@@ -346,21 +347,21 @@ public:
   /** @brief Accept next connection. Resolves to {TcpStream, SocketAddr} when a peer connects. */
   Promise<std::pair<TcpStream, SocketAddr>> accept() {
     Impl *impl = m_impl.as_deref();
-    if (!impl || !impl->listener)
+    if (!impl || !impl->listener.get())
       return xpp::resolve(std::make_pair(TcpStream(), SocketAddr::unspecified()));
     return xpp::adapt<std::pair<TcpStream, SocketAddr>, _::TcpAcceptAdapter>(impl);
   }
 
   bool is_open() const {
     const Impl *impl = m_impl.as_deref();
-    return impl && impl->listener;
+    return impl && impl->listener.get();
   }
 
   /** @brief Get the address this listener is bound to. */
   Option<SocketAddr> local_addr() const {
     const Impl *impl = m_impl.as_deref();
-    if (!impl || !impl->listener) return none;
-    xSocket sock = xTcpListenerSocket(impl->listener);
+    if (!impl || !impl->listener.get()) return none;
+    xSocket sock = xTcpListenerSocket(static_cast<xTcpListener>(impl->listener.get()));
     if (!sock) return none;
     return _::sockname(xSocketFd(sock));
   }
@@ -371,12 +372,13 @@ private:
   // State lives on the heap so the libx callback's void* arg stays stable
   // across TcpListener moves. ~Impl destroys the listener handle.
   struct Impl {
-    xTcpListener                                      listener = nullptr;
+    struct Destroy {
+      void deallocate(void *p, Layout) const noexcept {
+        if (p) xTcpListenerDestroy(static_cast<xTcpListener>(p));
+      }
+    };
+    OwnedHandle<Destroy>                              listener;
     PromiseResolver<std::pair<TcpStream, SocketAddr>> pending;
-
-    ~Impl() {
-      if (listener) xTcpListenerDestroy(listener);
-    }
   };
   Option<Shared<Impl>> m_impl;
 
