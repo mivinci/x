@@ -65,6 +65,7 @@
   - [Option](libxpp/option.md)
   - [Variant](libxpp/variant.md)
   - [Opaque Handle Wrapper](libxpp/handle.md)
+  - [Shared](libxpp/shared.md)
   - [Compiler Macros](libxpp/compiler.md)
   - [Panic](libxpp/panic.md)
   - [EventLoop & WaitScope](libxpp/event.md)
