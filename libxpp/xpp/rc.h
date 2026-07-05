@@ -313,6 +313,7 @@ public:
     return &m_inner->value;
   }
 
+  explicit operator bool() const noexcept { return m_inner != nullptr; }
   T *get() const noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
     return &m_inner->value;
