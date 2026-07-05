@@ -89,6 +89,7 @@
     - [Duplex](libxpp/io/duplex.md)
     - [Simplex](libxpp/io/simplex.md)
     - [Repeat](libxpp/io/repeat.md)
+    - [Join](libxpp/io/join.md)
   - [Net](libxpp/net/README.md)
     - [TCP](libxpp/net/tcp.md)
     - [UDP](libxpp/net/udp.md)
