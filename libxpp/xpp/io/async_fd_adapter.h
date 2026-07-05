@@ -23,6 +23,7 @@ namespace _ {
 
 /* ── AsyncReadAdapter ──────────────────────────────────────────────── */
 
+/** @brief Adapter that stores a PromiseResolver in AsyncFd and resolves it when the fd becomes readable. */
 class AsyncReadAdapter {
 private:
   AsyncFd *m_fd;
@@ -49,6 +50,7 @@ public:
 
 /* ── AsyncWriteAdapter ─────────────────────────────────────────────── */
 
+/** @brief Adapter that stores a PromiseResolver in AsyncFd and resolves it when the fd becomes writable. */
 class AsyncWriteAdapter {
 private:
   AsyncFd *m_fd;

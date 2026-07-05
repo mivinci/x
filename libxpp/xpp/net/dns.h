@@ -57,6 +57,7 @@ inline Option<SocketAddr> peername(int fd) noexcept {
 
 /* ── HostPort ─────────────────────────────────────────────────────── */
 
+/** @brief A hostname/port pair: (hostname, port_number). */
 using HostPort = std::pair<std::string, uint16_t>;
 
 /**
@@ -104,7 +105,7 @@ Promise<std::vector<SocketAddr>> lookup_host(const char *hostname);
 
 namespace _ {
 
-/// DNS resolve adapter
+/// DNS resolve adapter — bridges xDnsResolve to PromiseResolver.
 class LookupHostAdapter {
 private:
   PromiseResolver<std::vector<SocketAddr>> m_resolver;
@@ -112,6 +113,7 @@ private:
   xDnsQuery                                m_query = nullptr;
 
 public:
+  /** @brief Start a DNS resolution for the given hostname. */
   LookupHostAdapter(PromiseResolver<std::vector<SocketAddr>> r, const char *hostname)
       : m_resolver(std::move(r)), m_host(hostname) {
     m_query = xDnsResolve(m_host.c_str(), nullptr, nullptr, on_resolve, this);

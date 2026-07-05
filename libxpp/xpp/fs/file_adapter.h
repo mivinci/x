@@ -23,6 +23,7 @@ namespace _ {
 
 /* ── FsAdapterBase ─────────────────────────────────────────────────── */
 
+/** @brief Base class for all FsAdapters — manages xFsReq lifecycle and callback. */
 class FsAdapterBase {
 protected:
   xFsReq m_req{};
@@ -49,6 +50,7 @@ protected:
 
 /* ── Typed adapters ────────────────────────────────────────────────── */
 
+/** @brief Adapter for xFsOpOpen — opens a file and resolves a File handle. */
 class FsOpenAdapter : public FsAdapterBase {
 private:
   PromiseResolver<File> m_resolver;
@@ -72,6 +74,7 @@ public:
   }
 };
 
+/** @brief Adapter for xFsOpRead — preads bytes and resolves the count. */
 class FsReadAdapter : public FsAdapterBase {
 private:
   PromiseResolver<ssize_t> m_resolver;
@@ -96,6 +99,7 @@ public:
   }
 };
 
+/** @brief Adapter for xFsOpWrite — pwrites bytes and resolves the count. */
 class FsWriteAdapter : public FsAdapterBase {
 private:
   PromiseResolver<ssize_t> m_resolver;
@@ -120,6 +124,7 @@ public:
   }
 };
 
+/** @brief Adapter for xFsOpClose — closes a file descriptor. */
 class FsCloseAdapter : public FsAdapterBase {
 private:
   PromiseResolver<void> m_resolver;
@@ -136,6 +141,7 @@ public:
   }
 };
 
+/** @brief Adapter for xFsOpStat — retrieves file metadata. */
 class FsStatAdapter : public FsAdapterBase {
 private:
   PromiseResolver<Stat> m_resolver;
@@ -157,6 +163,7 @@ public:
   }
 };
 
+/** @brief Adapter for xFsOpMkdir — creates a directory. */
 class FsMkdirAdapter : public FsAdapterBase {
 private:
   PromiseResolver<void> m_resolver;
@@ -174,6 +181,7 @@ public:
   }
 };
 
+/** @brief Adapter for xFsOpUnlink — removes a file. */
 class FsUnlinkAdapter : public FsAdapterBase {
 private:
   PromiseResolver<void> m_resolver;
@@ -190,6 +198,7 @@ public:
   }
 };
 
+/** @brief Adapter for xFsOpRename — renames a file or directory. */
 class FsRenameAdapter : public FsAdapterBase {
 private:
   PromiseResolver<void> m_resolver;
@@ -210,6 +219,7 @@ public:
   }
 };
 
+/** @brief Adapter for xFsOpRmdir — removes an empty directory. */
 class FsRmdirAdapter : public FsAdapterBase {
 private:
   PromiseResolver<void> m_resolver;

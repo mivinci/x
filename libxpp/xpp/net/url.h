@@ -41,6 +41,7 @@ enum class UrlParseError : uint8_t {
   InvalidFormat, ///< Not a valid URL (missing scheme, host, or malformed).
 };
 
+/** @brief Return a human-readable description of a UrlParseError. */
 inline const char *url_error_message(UrlParseError e) noexcept {
   switch (e) {
   case UrlParseError::Empty:
@@ -108,24 +109,31 @@ public:
 
   /* ── Accessors ─────────────────────────────────────────────────── */
 
+  /** @brief URL scheme (e.g. "https"). */
   std::string scheme() const {
     return str(m_url.scheme, m_url.scheme_len);
   }
+  /** @brief User info (e.g. "user:pass"). */
   std::string userinfo() const {
     return str(m_url.userinfo, m_url.userinfo_len);
   }
+  /** @brief Hostname. */
   std::string host() const {
     return str(m_url.host, m_url.host_len);
   }
+  /** @brief Port as a string (e.g. "443"). */
   std::string port() const {
     return str(m_url.port, m_url.port_len);
   }
+  /** @brief URL path (e.g. "/api/v1"). */
   std::string path() const {
     return str(m_url.path, m_url.path_len);
   }
+  /** @brief Query string without '?' (e.g. "key=val"). */
   std::string query() const {
     return str(m_url.query, m_url.query_len);
   }
+  /** @brief Fragment without '#' (e.g. "section1"). */
   std::string fragment() const {
     return str(m_url.fragment, m_url.fragment_len);
   }

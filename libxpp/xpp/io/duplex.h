@@ -78,7 +78,10 @@ public:
 
   ~DuplexStream() = default;
 
-  /** @brief Read data written by the other side. Suspends when empty. */
+  /** @brief Read data written by the other side. Suspends when empty.
+   *  @param buf Destination buffer.
+   *  @param len Maximum bytes to read.
+   *  @return Promise resolving to bytes read (0 = EOF on close, -1 on error). */
   Promise<ssize_t> read(void *buf, size_t len) {
     auto *d = m_dup.get();
     if (!d) co_return static_cast<ssize_t>(-1);
@@ -115,7 +118,10 @@ public:
     co_return static_cast<ssize_t>(n);
   }
 
-  /** @brief Write data readable by the other side. Suspends when full. */
+  /** @brief Write data readable by the other side. Suspends when full.
+   *  @param buf Source buffer.
+   *  @param len Bytes to write.
+   *  @return Promise resolving to bytes written (should equal len, -1 on error). */
   Promise<ssize_t> write(const void *buf, size_t len) {
     auto *d = m_dup.get();
     if (!d) co_return static_cast<ssize_t>(-1);
@@ -154,6 +160,8 @@ public:
     co_return static_cast<ssize_t>(len);
   }
 
+  /** @brief No-op flush (duplex streams are always "flushed" on write).
+   *  @return Resolved promise. */
   Promise<void> flush() {
     co_return;
   }

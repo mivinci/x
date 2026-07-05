@@ -33,24 +33,32 @@ namespace io {
 
 namespace _ {
 
+/** @brief Shared ring buffer backing a simplex pipe. */
 struct SimplexBuf {
-  std::vector<uint8_t>  buf;
-  size_t                rpos   = 0;
-  size_t                wpos   = 0;
-  size_t                count  = 0;
-  bool                  closed = false;
-  PromiseResolver<void> read_waiter;
-  PromiseResolver<void> write_waiter;
+  std::vector<uint8_t>  buf;          ///< Underlying byte storage.
+  size_t                rpos   = 0;   ///< Next read position (circular).
+  size_t                wpos   = 0;   ///< Next write position (circular).
+  size_t                count  = 0;   ///< Bytes currently buffered.
+  bool                  closed = false; ///< Whether the write end is closed.
+  PromiseResolver<void> read_waiter;  ///< Resolves when data is available.
+  PromiseResolver<void> write_waiter; ///< Resolves when space is available.
 
+  /** @brief Construct a buffer of the given size. */
   explicit SimplexBuf(size_t size) : buf(size) {}
 };
 
 } // namespace _
 
+/** @brief Forward declaration of the simplex write half. */
 class SimplexWriter; // forward
 
+/** @brief Read half of a simplex pipe. Reads data written by SimplexWriter. */
 class SimplexReader {
 public:
+  /** @brief Read up to len bytes into buf. Suspends when empty until data arrives.
+   *  @param buf Destination buffer.
+   *  @param len Maximum bytes to read.
+   *  @return Promise resolving to bytes read (0 = EOF on close, -1 on error). */
   Promise<ssize_t> read(void *buf, size_t len) {
     auto *d = m_dup.get();
     if (!d) co_return static_cast<ssize_t>(-1);
@@ -91,8 +99,13 @@ private:
   explicit SimplexReader(Arc<_::SimplexBuf> dup) : m_dup(std::move(dup)) {}
 };
 
+/** @brief Write half of a simplex pipe. Data written becomes readable by SimplexReader. */
 class SimplexWriter {
 public:
+  /** @brief Write up to len bytes from buf. Suspends when the buffer is full.
+   *  @param buf Source buffer.
+   *  @param len Bytes to write.
+   *  @return Promise resolving to bytes written (0 if len is 0, -1 on error). */
   Promise<ssize_t> write(const void *buf, size_t len) {
     auto *d = m_dup.get();
     if (!d) co_return static_cast<ssize_t>(-1);
@@ -126,10 +139,12 @@ public:
     co_return static_cast<ssize_t>(len);
   }
 
+  /** @brief No-op flush (simplex buffers are always "flushed" on write). */
   Promise<void> flush() {
     co_return;
   }
 
+  /** @brief Close the write end, waking blocked readers. Readers see EOF (0). */
   void close() {
     auto *d = m_dup.get();
     if (!d || d->closed) return;
@@ -151,6 +166,9 @@ private:
   explicit SimplexWriter(Arc<_::SimplexBuf> dup) : m_dup(std::move(dup)) {}
 };
 
+/** @brief Create a pair of connected SimplexReader/SimplexWriter with the given buffer size.
+ *  @param size Size of the internal ring buffer in bytes.
+ *  @return A pair of (reader, writer) that share a single ring buffer. */
 inline std::pair<SimplexReader, SimplexWriter> simplex(size_t size) {
   auto dup = Arc<_::SimplexBuf>::make(size);
   return {SimplexReader(dup), SimplexWriter(std::move(dup))};
