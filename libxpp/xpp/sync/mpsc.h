@@ -79,8 +79,17 @@ template <class T> class Sender {
 public:
   Sender(Sender &&) noexcept = default;
   Sender &operator=(Sender &&) noexcept = default;
-  Sender(const Sender &) = default;
-  Sender &operator=(const Sender &) = default;
+  Sender(const Sender &o) : m_chan(o.m_chan) {
+    if (m_chan) m_chan->m_sender_count.fetch_add(1, std::memory_order_relaxed);
+  }
+  Sender &operator=(const Sender &o) {
+    if (this != &o) {
+      drop();
+      m_chan = o.m_chan;
+      if (m_chan) m_chan->m_sender_count.fetch_add(1, std::memory_order_relaxed);
+    }
+    return *this;
+  }
   ~Sender() { drop(); }
 
   /**
