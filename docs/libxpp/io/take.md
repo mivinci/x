@@ -21,7 +21,7 @@ auto data = co_await xpp::io::read_all(body);
 
 ## How it works
 
-```
+```cpp
 Take<R> { m_reader, m_remaining }
 
 read(buf, len):
