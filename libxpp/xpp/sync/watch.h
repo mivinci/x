@@ -46,12 +46,24 @@ template <class T> struct Value {
 
 // ── Error types ──────────────────────────────────────────────────────
 
+/**
+ * @brief Error returned by Sender::send().
+ *
+ * Indicates that the send failed — typically because all receivers
+ * had already been dropped when send() was called.
+ *
+ * @tparam T The value type of the channel.
+ */
 template <typename T> struct SendError {
-  enum Kind { NoReceiver };
-  Kind kind;
-  T    value;
+  /** The error kind. */
+  enum Kind {
+    NoReceiver ///< All receivers have been dropped; no one will see the value.
+  };
+  Kind kind;  ///< The kind of error that occurred.
+  T    value; ///< The value that was being sent, returned to the caller.
 };
 
+/** @brief Empty error type for Receiver::changed(). Indicates the channel is closed. */
 struct RecvError {};
 
 /**
@@ -67,7 +79,9 @@ public:
   Ref(const Ref &) = delete;
   Ref &operator=(const Ref &) = delete;
 
+  /** @brief Dereference the read guard to access the borrowed value. */
   const T &operator*() const noexcept { return (*m_guard).m_value; }
+  /** @brief Arrow operator for direct member access on the borrowed value. */
   const T *operator->() const noexcept { return &(*m_guard).m_value; }
 
   explicit Ref(xpp::loom::MutexGuard<_::Value<T>> g) : m_guard(std::move(g)) {}
@@ -126,12 +140,36 @@ public:
   /// Lock and peek the current value.
   Ref<T> borrow() { return Ref<T>(m_state->m_value.lock()); }
 
+  /**
+   * @brief Create a new Receiver subscribed to this channel.
+   *
+   * The new receiver sees the current value immediately and starts
+   * tracking from the current version.
+   *
+   * @return A new Receiver<T> bound to the same shared state.
+   */
   Receiver<T> subscribe();
 
+  /**
+   * @brief Number of active receivers.
+   *
+   * @return The current receiver count.
+   */
   size_t receiver_count() const { return m_state ? m_state->m_value.lock()->m_receiver_count.load(std::memory_order_relaxed) : 0; }
 
+  /**
+   * @brief Check whether the channel has been closed.
+   *
+   * @return true if the last Sender has been dropped.
+   */
   bool is_closed() const { return m_state && m_state->m_value.lock()->m_closed.load(std::memory_order_acquire); }
 
+  /**
+   * @brief Await until all receivers are dropped.
+   *
+   * Resolves when the receiver count drops to zero or the channel
+   * is closed. Useful for graceful shutdown.
+   */
   xpp::Promise<void> closed() {
     if (!m_state || m_state->m_value.lock()->m_receiver_count.load(std::memory_order_acquire) == 0) co_return;
     while (m_state->m_value.lock()->m_receiver_count.load(std::memory_order_acquire) > 0) {
@@ -246,6 +284,16 @@ template <class T> Receiver<T> Sender<T>::subscribe() {
   return rx;
 }
 
+/**
+ * @brief Create a new watch channel initialized with the given value.
+ *
+ * Each send() replaces the stored value and increments a version counter.
+ * Receivers independently track which version they've last seen.
+ *
+ * @tparam T The value type. Must be copy-constructible for the initial value.
+ * @param init The initial value placed into the channel.
+ * @return A pair of Sender<T> (cloneable) and Receiver<T> (move-only).
+ */
 template <class T> std::pair<Sender<T>, Receiver<T>> channel(const T &init) {
   auto s  = Shared<typename Sender<T>::State>::make(init);
   return {Sender<T>(s), Receiver<T>(std::move(s))};

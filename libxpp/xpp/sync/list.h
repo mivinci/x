@@ -3,9 +3,18 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * list.h - xpp::sync::list: lock-free bounded MPSC ring buffer.
+ * list.h - xpp::sync::list: lock-free MPSC queues.
  *
- * Stores values inline. send() is lock-free (fetch_add). recv() is SP.
+ * Bounded variant (channel(cap)):
+ *   Pre-allocated ring buffer. push() is lock-free via fetch_add(CAS).
+ *   Values stored inline, zero per-push allocation.
+ *
+ * Unbounded variant (unbounded_channel()):
+ *   Lock-free linked list. push() is lock-free via XCHG on tail.
+ *   Each push heap-allocates a Node; each pop deletes it.
+ *
+ * Both are the data-path backends for xpp::sync::mpsc, which adds
+ * coroutine suspension on empty/full conditions.
  */
 
 #ifndef XPP_SYNC_LIST_H
@@ -22,28 +31,54 @@ namespace xpp {
 namespace sync {
 namespace list {
 
+// ── Forward declarations ────────────────────────────────────────────
+
 template <class T> class Rx;
+template <class T> class UnboundedRx;
+
+// ── Bounded (ring-buffer) Core ──────────────────────────────────────
 
 namespace _ {
 
+/**
+ * @brief Internal state for the bounded lock-free ring buffer.
+ *
+ * Pre-allocates `cap` slots. Each slot has a `ready` flag so the
+ * consumer never reads half-written data from a concurrent producer.
+ *
+ * @tparam T The value type stored in each slot.
+ */
 template <class T> struct Core {
   struct Slot {
-    loom::_::Atomic<bool> ready{false};
+    loom::_::Atomic<bool> ready{false}; ///< Set by producer when write completes.
     T                     data;
     Slot() = default;
   };
 
-  Slot                   *m_buf;
-  size_t                  m_cap;
-  loom::_::Atomic<size_t> m_wpos{0};
-  loom::_::Atomic<size_t> m_count{0};
+  Slot                   *m_buf;   ///< Pre-allocated slot array.
+  size_t                  m_cap;   ///< Maximum number of in-flight values.
+  loom::_::Atomic<size_t> m_wpos{0}; ///< Next write position (CAS'd by producers).
+  loom::_::Atomic<size_t> m_count{0}; ///< Number of values currently in the buffer.
 
+  /** @brief Allocate and default-construct `cap` slots. */
   Core(size_t cap) : m_buf(new Slot[cap]), m_cap(cap) {}
   ~Core() { delete[] m_buf; }
 };
 
 } // namespace _
 
+// ── Bounded Tx (multi-producer sender) ──────────────────────────────
+
+/**
+ * @brief Lock-free sender for the bounded MPSC ring buffer.
+ *
+ * Cloneable via Shared<Core>. Multiple instances can call try_push()
+ * concurrently — the underlying fetch_add on m_wpos is lock-free.
+ *
+ * @tparam T The value type.
+ *
+ * @see Rx, channel(size_t)
+ */
 template <class T> class Tx {
 public:
   Tx(const Tx &) = default;
@@ -51,6 +86,16 @@ public:
   Tx(Tx &&) noexcept = default;
   Tx &operator=(Tx &&) noexcept = default;
 
+  /**
+   * @brief Try to push a value into the buffer.
+   *
+   * @param value The value to enqueue (moved in on success).
+   * @return `true` if the value was enqueued, `false` if the buffer
+   *         is full (m_count >= m_cap).
+   *
+   * Lock-free via fetch_add on m_wpos. A `ready` flag per slot
+   * ensures the consumer never observes a partially-written value.
+   */
   bool try_push(T value) {
     auto *c = m_core.get();
     size_t c0 = c->m_count.load(std::memory_order_acquire);
@@ -66,7 +111,10 @@ public:
     return true;
   }
 
+  /** @brief Maximum capacity. */
   size_t capacity() const { return m_core->m_cap; }
+
+  /** @brief Current number of buffered values. */
   size_t count() const { return m_core->m_count.load(std::memory_order_acquire); }
 
 private:
@@ -75,6 +123,18 @@ private:
   explicit Tx(Shared<_::Core<T>> c) : m_core(std::move(c)) {}
 };
 
+// ── Bounded Rx (single-consumer receiver) ───────────────────────────
+
+/**
+ * @brief Single-consumer receiver for the bounded MPSC ring buffer.
+ *
+ * Not thread-safe — only one thread may call try_pop() at a time.
+ * This matches the MPSC contract: multi-producer, *single*-consumer.
+ *
+ * @tparam T The value type.
+ *
+ * @see Tx, channel(size_t)
+ */
 template <class T> class Rx {
 public:
   Rx(const Rx &) = delete;
@@ -82,6 +142,15 @@ public:
   Rx(Rx &&) noexcept = default;
   Rx &operator=(Rx &&) noexcept = default;
 
+  /**
+   * @brief Try to pop a value from the buffer.
+   *
+   * @return The value if available, `none` if the buffer is empty.
+   *
+   * Spins briefly on the slot's `ready` flag if a producer has claimed
+   * the slot but not yet finished writing. The spin is bounded because
+   * writes are just a move + store.
+   */
   xpp::Option<T> try_pop() {
     auto *c = m_core.get();
     if (c->m_count.load(std::memory_order_acquire) == 0)
@@ -100,6 +169,7 @@ public:
     return xpp::some(std::move(val));
   }
 
+  /** @brief True if no values are currently buffered. */
   bool empty() const { return m_core->m_count.load(std::memory_order_acquire) == 0; }
 
 private:
@@ -109,6 +179,15 @@ private:
   explicit Rx(Shared<_::Core<T>> c) : m_core(std::move(c)) {}
 };
 
+/**
+ * @brief Create a bounded lock-free MPSC ring buffer.
+ *
+ * Pre-allocates `cap` slots. Values are stored inline — no heap
+ * allocation per push/pop.
+ *
+ * @param cap Maximum capacity.
+ * @return A pair of Tx<T> (cloneable) and Rx<T> (move-only).
+ */
 template <class T> std::pair<Tx<T>, Rx<T>> channel(size_t cap) {
   auto core = Shared<_::Core<T>>::make(cap);
   return {Tx<T>(core), Rx<T>(std::move(core))};
@@ -116,18 +195,25 @@ template <class T> std::pair<Tx<T>, Rx<T>> channel(size_t cap) {
 
 // ── Unbounded (linked-list) Core ─────────────────────────────────────
 
-template <class T> class UnboundedRx;
-
+/**
+ * @brief Internal state for the unbounded lock-free linked list.
+ *
+ * Each push heap-allocates a Node. Nodes are freed by pop().
+ * The list uses the Dmitry Vyukov MPSC algorithm: producers XCHG
+ * on the tail pointer, consumer reads and advances head.
+ *
+ * @tparam T The value type.
+ */
 template <class T> struct UnboundedCore {
   struct Node {
-    Node *volatile next = nullptr;
-    T      data;
+    Node *volatile next = nullptr; ///< Next node in the list.
+    T      data;                   ///< Stored value.
 
     explicit Node(T v) : data(std::move(v)) {}
   };
 
-  loom::_::Atomic<Node *> m_head{nullptr};
-  loom::_::Atomic<Node *> m_tail{nullptr};
+  loom::_::Atomic<Node *> m_head{nullptr}; ///< First node (consumer reads).
+  loom::_::Atomic<Node *> m_tail{nullptr}; ///< Last node (producers append).
 
   ~UnboundedCore() {
     Node *n = m_head.load(std::memory_order_relaxed);
@@ -139,6 +225,18 @@ template <class T> struct UnboundedCore {
   }
 };
 
+// ── Unbounded Tx (multi-producer sender) ────────────────────────────
+
+/**
+ * @brief Lock-free sender for the unbounded MPSC linked list.
+ *
+ * Cloneable via Shared<Core>. push() always succeeds (heap-allocates
+ * a Node per value). There is no capacity limit — push never blocks.
+ *
+ * @tparam T The value type.
+ *
+ * @see UnboundedRx, unbounded_channel()
+ */
 template <class T> class UnboundedTx {
 public:
   UnboundedTx(const UnboundedTx &) = default;
@@ -146,6 +244,14 @@ public:
   UnboundedTx(UnboundedTx &&) noexcept = default;
   UnboundedTx &operator=(UnboundedTx &&) noexcept = default;
 
+  /**
+   * @brief Push a value onto the list.
+   *
+   * Always succeeds (heap-allocates a Node). Lock-free: uses atomic
+   * XCHG on the tail pointer, then links the previous node.
+   *
+   * @param value The value to enqueue.
+   */
   void push(T value) {
     auto *node = new typename UnboundedCore<T>::Node(std::move(value));
     node->next = nullptr;
@@ -164,6 +270,18 @@ private:
   explicit UnboundedTx(Shared<UnboundedCore<T>> c) : m_core(std::move(c)) {}
 };
 
+// ── Unbounded Rx (single-consumer receiver) ─────────────────────────
+
+/**
+ * @brief Single-consumer receiver for the unbounded MPSC linked list.
+ *
+ * Not thread-safe — only one thread may call try_pop() at a time.
+ * Each pop deletes the consumed node.
+ *
+ * @tparam T The value type.
+ *
+ * @see UnboundedTx, unbounded_channel()
+ */
 template <class T> class UnboundedRx {
 public:
   UnboundedRx(const UnboundedRx &) = delete;
@@ -171,6 +289,14 @@ public:
   UnboundedRx(UnboundedRx &&) noexcept = default;
   UnboundedRx &operator=(UnboundedRx &&) noexcept = default;
 
+  /**
+   * @brief Try to pop a value from the list.
+   *
+   * @return The value if available, `none` if the list is empty.
+   *
+   * Uses the Vyukov single-consumer pop: loads head, handles the
+   * single-node (head == tail) and multi-node cases with CAS on tail.
+   */
   xpp::Option<T> try_pop() {
     auto *head = m_core->m_head.load(std::memory_order_acquire);
     if (!head) return xpp::none;
@@ -191,6 +317,7 @@ public:
     return xpp::some(std::move(val));
   }
 
+  /** @brief True if the list has no nodes. */
   bool empty() const { return m_core->m_head.load(std::memory_order_acquire) == nullptr; }
 
 private:
@@ -199,6 +326,14 @@ private:
   explicit UnboundedRx(Shared<UnboundedCore<T>> c) : m_core(std::move(c)) {}
 };
 
+/**
+ * @brief Create an unbounded lock-free MPSC linked list.
+ *
+ * Each push heap-allocates a Node; each pop deletes it.
+ * No capacity limit — push never blocks (limited only by memory).
+ *
+ * @return A pair of UnboundedTx<T> (cloneable) and UnboundedRx<T> (move-only).
+ */
 template <class T> std::pair<UnboundedTx<T>, UnboundedRx<T>> unbounded_channel() {
   auto core = Shared<UnboundedCore<T>>::make();
   return {UnboundedTx<T>(core), UnboundedRx<T>(std::move(core))};
@@ -208,4 +343,4 @@ template <class T> std::pair<UnboundedTx<T>, UnboundedRx<T>> unbounded_channel()
 } // namespace sync
 } // namespace xpp
 
-#endif
+#endif // XPP_SYNC_LIST_H

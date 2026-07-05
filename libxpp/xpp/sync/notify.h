@@ -30,6 +30,19 @@
 namespace xpp {
 namespace sync {
 
+/**
+ * @brief Reusable, multi-waiter notification primitive.
+ *
+ * A low-level synchronization primitive used to wake one or more
+ * coroutines waiting on a condition. Notify accumulates pending
+ * notifications when no waiters are registered, so a subsequent
+ * notified() call will resolve immediately.
+ *
+ * Mirrors the design of tokio::sync::Notify: an AtomicUsize for
+ * the pending count and a Mutex-protected wait list.
+ *
+ * @see xpp::sync::broadcast::Receiver::recv(), xpp::sync::watch::Receiver::changed()
+ */
 class Notify {
 public:
   Notify() = default;
@@ -61,6 +74,14 @@ public:
     return std::move(p);
   }
 
+  /**
+   * @brief Wake exactly one waiting coroutine, or accumulate a pending
+   *        notification if none are waiting.
+   *
+   * At most one waiter is released. If no waiters are registered, the
+   * notification is stored as a pending count so the next notified()
+   * caller resolves immediately.
+   */
   void notify_one() {
     xpp::PromiseResolver<void> r;
     {
@@ -77,6 +98,13 @@ public:
     }
   }
 
+  /**
+   * @brief Wake all currently waiting coroutines.
+   *
+   * Every registered waiter is released. If no waiters are registered,
+   * a pending notification is accumulated instead so the next
+   * notified() call resolves immediately.
+   */
   void notify_waiters() {
     std::vector<xpp::PromiseResolver<void>> waiters;
     {

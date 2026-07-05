@@ -126,7 +126,7 @@ TEST(MpscMtTest, TrySendRecvWorkerThread) {
 // ── Multiple producers (worker threads), single consumer (coroutine) ─
 
 TEST(MpscMtTest, MultiProducerThreads) {
-  auto [tx, rx] = channel<int>(32);
+  auto [tx, rx] = channel<int>(64); // large enough for 3×10
 
   std::thread t1([tx]() mutable {
     for (int i = 0; i < 10; ++i) {

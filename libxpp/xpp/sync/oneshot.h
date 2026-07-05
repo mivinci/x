@@ -37,6 +37,11 @@ template <class T> class Sender {
   PromiseResolver<T> m_resolver;
 
 public:
+  /**
+   * @brief Construct a Sender from a PromiseResolver.
+   *
+   * @param r The resolver obtained from the channel() factory.
+   */
   explicit Sender(PromiseResolver<T> r) : m_resolver(std::move(r)) {}
 
   /**
@@ -67,6 +72,11 @@ template <class T> class Receiver {
   Promise<T> m_p;
 
 public:
+  /**
+   * @brief Construct a Receiver from a Promise.
+   *
+   * @param p The promise obtained from the channel() factory.
+   */
   explicit Receiver(Promise<T> p) : m_p(std::move(p)) {}
 
   /**

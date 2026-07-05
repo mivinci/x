@@ -61,21 +61,45 @@ template <class T> struct Channel {
 
 // ── Error types ──────────────────────────────────────────────────────
 
+/**
+ * @brief Error returned by Sender::send() and Sender::try_send().
+ *
+ * Contains the original value on failure so the caller can decide
+ * what to do with it.
+ *
+ * @tparam T The value type of the channel.
+ */
 template <typename T> struct SendError {
-  enum Kind { NoReceiver };
-  Kind kind;
-  T    value;
+  /** The error kind. */
+  enum Kind {
+    NoReceiver ///< All receivers have been dropped; no one will see the value.
+  };
+  Kind kind;  ///< The kind of error that occurred.
+  T    value; ///< The value that was being sent, returned to the caller.
 };
 
+/**
+ * @brief Error returned by Receiver::recv().
+ *
+ * Indicates that the receiver could not get a value — either because
+ * it lagged behind (sender evicted unread values) or the channel is
+ * closed and empty.
+ */
 enum class RecvError {
-  Lagged,  // Receiver missed values; position auto-reset to m_head.
-  Closed,  // All senders dropped and buffer empty.
+  Lagged, ///< Receiver missed values; read position auto-resets to head.
+  Closed, ///< All senders dropped and buffer is empty.
 };
 
+/**
+ * @brief Error returned by Receiver::try_recv().
+ *
+ * A non-blocking variant of RecvError. Includes an Empty variant
+ * for the case where a value is not yet available.
+ */
 enum class TryRecvError {
-  Empty,
-  Closed,
-  Lagged,
+  Empty,  ///< No value available yet; try again later.
+  Closed, ///< All senders dropped and buffer is empty.
+  Lagged, ///< Receiver missed values; read position auto-resets to head.
 };
 
 template <class T> class Receiver;
@@ -246,6 +270,16 @@ public:
     m_chan->m_receiver_count.fetch_sub(1, std::memory_order_relaxed);
   }
 
+  /**
+   * @brief Await the next value from the channel.
+   *
+   * Suspends the coroutine until a value is available or the channel
+   * is closed. If the receiver has fallen behind (sender evicted values
+   * this receiver hasn't read yet), returns Lagged and auto-resets to
+   * the current head.
+   *
+   * @return Ok(T) with the next value, or Err(RecvError) on failure.
+   */
   xpp::Promise<xpp::Result<T, RecvError>> recv() {
     auto *ch = m_chan.get();
     if (!ch) co_return xpp::err(RecvError::Closed);
