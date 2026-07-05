@@ -67,3 +67,4 @@ bench_results
 *.pem
 build-bench
 openspec
+docs/book/api/
