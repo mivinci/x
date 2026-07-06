@@ -26,7 +26,7 @@ xpp::Promise<void> do_read_all_tcp() {
   TcpListener listener = std::move(listener_r).unwrap();
 
   auto server = listener.accept();
-  auto client = xpp::net::TcpStream::connect("127.0.0.1", port);
+  auto client = xpp::net::TcpStream::connect(("127.0.0.1:" + std::to_string(port)).c_str());
 
   auto [server_pair, conn_r] = co_await xpp::all(std::move(server), std::move(client));
   TcpStream server_conn      = std::move(server_pair.first);
@@ -57,7 +57,7 @@ xpp::Promise<void> do_copy_tcp_to_file() {
   TcpListener listener = std::move(listener_r).unwrap();
 
   auto server = listener.accept();
-  auto client = xpp::net::TcpStream::connect("127.0.0.1", port);
+  auto client = xpp::net::TcpStream::connect(("127.0.0.1:" + std::to_string(port)).c_str());
 
   auto [server_pair, conn_r] = co_await xpp::all(std::move(server), std::move(client));
   TcpStream server_conn      = std::move(server_pair.first);

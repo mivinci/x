@@ -24,7 +24,7 @@ xpp::Promise<void> do_buf_reader_small() {
   TcpListener listener = std::move(lr).unwrap();
 
   auto server = listener.accept();
-  auto client = xpp::net::TcpStream::connect("127.0.0.1", port);
+  auto client = xpp::net::TcpStream::connect(("127.0.0.1:" + std::to_string(port)).c_str());
 
   auto [sp, cr] = co_await xpp::all(std::move(server), std::move(client));
   TcpStream sc  = std::move(sp.first);
@@ -61,7 +61,7 @@ xpp::Promise<void> do_buf_reader_large_bypass() {
   TcpListener listener = std::move(lr).unwrap();
 
   auto server = listener.accept();
-  auto client = xpp::net::TcpStream::connect("127.0.0.1", port);
+  auto client = xpp::net::TcpStream::connect(("127.0.0.1:" + std::to_string(port)).c_str());
 
   auto [sp, cr] = co_await xpp::all(std::move(server), std::move(client));
   TcpStream sc  = std::move(sp.first);
@@ -91,7 +91,7 @@ xpp::Promise<void> do_buf_reader_with_read_all() {
   TcpListener listener = std::move(lr).unwrap();
 
   auto server = listener.accept();
-  auto client = xpp::net::TcpStream::connect("127.0.0.1", port);
+  auto client = xpp::net::TcpStream::connect(("127.0.0.1:" + std::to_string(port)).c_str());
 
   auto [sp, cr] = co_await xpp::all(std::move(server), std::move(client));
   TcpStream sc  = std::move(sp.first);

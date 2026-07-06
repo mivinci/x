@@ -9,7 +9,7 @@
  * pointers; the caller owns the string storage). TlsContext is RAII
  * over xTlsCtx — created by xTlsCtxCreate, destroyed by xTlsCtxDestroy.
  *
- * Pass a TlsContext* to TcpConn::connect() to enable TLS — libx's
+ * Pass a TlsContext to TcpStream::connect() (in the TlsContext argument) to enable TLS — libx's
  * xTcpConnect does the handshake transparently.
  *
  * C++11-compatible. Header-only.
@@ -233,7 +233,7 @@ private:
  *
  * Created from a TlsConfig (or raw xTlsConf). The underlying context
  * is shared across all connections on a listener or connector — pass
- * a TlsContext* to TcpConn::connect() or TcpListener::bind().
+ * a TlsContext (via the TlsContext option) to TcpStream::connect() or TcpListener::bind().
  *
  * Move-only. NULL on construction failure (check is_valid()).
  */
