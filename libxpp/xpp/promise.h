@@ -174,7 +174,7 @@ private:
 /* ── Free helper functions ──────────────────────────────────────── */
 
 inline Promise<void> yield() {
-  return Promise<void>(_::OwnPromiseNode<void>(_::allocate_promise<_::YieldPromiseNode>(nullptr)));
+  return Promise<void>(_::OwnPromiseNode<void>(_promise::allocate<_::YieldPromiseNode>(nullptr)));
 }
 
 /* ── Chain helper ────────────────────────────────────────────────── */
@@ -184,13 +184,13 @@ namespace _ {
 namespace _chain {
 
 // chain: append a TransformPromiseNode to the predecessor's arena.
-// Uses append_promise which reads the arena from the predecessor's
+// Uses _promise::append which reads the arena from the predecessor's
 // header and transfers ownership to the new node.
 template <class ReducedT, class OutT, class T, class Func>
 typename std::enable_if<std::is_same<OutT, ReducedT>::value, _::OwnPromiseNode<ReducedT>>::type
 chain(_::OwnPromiseNode<T> dep, Func &&func) {
   void *pred = dep.get();
-  return _::OwnPromiseNode<ReducedT>(_::append_promise<TransformPromiseNode<ReducedT, T, Func>>(
+  return _::OwnPromiseNode<ReducedT>(_promise::append<TransformPromiseNode<ReducedT, T, Func>>(
     pred, std::move(dep), std::forward<Func>(func)));
 }
 
@@ -200,12 +200,12 @@ chain(_::OwnPromiseNode<T> dep, Func &&func) {
   void *pred = dep.get();
   // Inner: TransformPromiseNode<Promise<ReducedT>, T, Func> (appended to dep's arena)
   auto inner = _::OwnPromiseNode<Promise<ReducedT>>(
-    _::append_promise<TransformPromiseNode<Promise<ReducedT>, T, Func>>(pred, std::move(dep),
+    _promise::append<TransformPromiseNode<Promise<ReducedT>, T, Func>>(pred, std::move(dep),
                                                                         std::forward<Func>(func)));
   // Outer: ChainPromiseNode<ReducedT> (appended to inner's arena)
   void *inner_pred = inner.get();
   return _::OwnPromiseNode<ReducedT>(
-    _::append_promise<ChainPromiseNode<ReducedT>>(inner_pred, std::move(inner)));
+    _promise::append<ChainPromiseNode<ReducedT>>(inner_pred, std::move(inner)));
 }
 
 } // namespace _chain
@@ -251,7 +251,7 @@ template <class T> std::pair<Promise<T>, PromiseResolver<T>> async();
 
 /** Create a promise backed by a custom Adapter. */
 template <class T, class Adapter, class... AdapterArgs> Promise<T> adapt(AdapterArgs &&...args) {
-  auto *node = _::allocate_promise<_::AdapterPromiseNode<T, Adapter>>(
+  auto *node = _promise::allocate<_::AdapterPromiseNode<T, Adapter>>(
     nullptr, std::forward<AdapterArgs>(args)...);
   return Promise<T>(_::OwnPromiseNode<T>(node));
 }
@@ -259,7 +259,7 @@ template <class T, class Adapter, class... AdapterArgs> Promise<T> adapt(Adapter
 /** Create an immediately-resolved promise. T deduced from argument. */
 template <class T> Promise<T> resolve(T v) {
   return Promise<T>(
-    _::OwnPromiseNode<T>(_::allocate_promise<_::ImmediatePromiseNode<T>>(nullptr, std::move(v))));
+    _::OwnPromiseNode<T>(_promise::allocate<_::ImmediatePromiseNode<T>>(nullptr, std::move(v))));
 }
 
 /** Resolve after `ms` milliseconds. Always returns Promise<void>. */
@@ -287,7 +287,7 @@ template <class T> std::pair<Promise<T>, PromiseResolver<T>> async() {
   auto state    = Arc<_::ResolveState<V>>::make();
   auto resolver = PromiseResolver<T>(Arc<_::ResolveState<V>>::downgrade(state));
   auto promise  = Promise<T>(
-    _::OwnPromiseNode<T>(_::allocate_promise<_::ManualResolveNode<T>>(nullptr, std::move(state))));
+    _::OwnPromiseNode<T>(_promise::allocate<_::ManualResolveNode<T>>(nullptr, std::move(state))));
   return {std::move(promise), std::move(resolver)};
 }
 

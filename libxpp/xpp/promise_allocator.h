@@ -7,7 +7,7 @@
  *
  * KJ-style: arena ownership lives in the node (via header), not in
  * Promise<T>. No thread-local, no guard. All PromiseNode allocations
- * go through allocate_promise() or append_promise(), which add a
+ * go through _promise::allocate() or _promise::append(), which add a
  * fixed-size header storing the arena pointer + owns_arena flag:
  *
  *   Layout: [arena_ptr (8B)][owns_arena (1B)][pad (7B)][node data]
@@ -56,7 +56,7 @@ static const size_t kPromiseNodeHeaderSize = sizeof(PromiseNodeHeader) > alignof
 class PromiseNodeAllocator {
 public:
   Result<Span<uint8_t>, AllocError> allocate(Layout layout) const {
-    // Never called through Own — nodes are created via allocate_promise().
+    // Never called through Own — nodes are created via _promise::allocate().
     return GlobalAllocator{}.allocate(layout);
   }
 
@@ -79,7 +79,7 @@ public:
       // overload — because the Layout passed by destroy_and_dealloc may
       // correspond to the base class PromiseNode<T> rather than the actual
       // derived type (ImmediatePromiseNode, CoroutinePromiseNode, etc.).
-      // allocate_promise always uses ::operator new(size_t), so the
+      // _promise::allocate always uses ::operator new(size_t), so the
       // matching deallocation is ::operator delete(void*).
       void *raw = static_cast<char *>(ptr) - kPromiseNodeHeaderSize;
       (void)layout;
@@ -89,19 +89,23 @@ public:
   }
 };
 
-/* ── allocate_promise: create a node with NO arena (heap-only) ─────── */
+} // namespace _
+
+namespace _promise {
+
+/* ── allocate: create a node with NO arena (heap-only) ─────────────── */
 // Used for standalone nodes: resolve(), yield(), adapt(), all(), race(),
 // coroutine start. These are not part of a .then() chain.
-template <class T, class... Args> T *allocate_promise(PromiseArena * /*arena*/, Args &&...args) {
+template <class T, class... Args> T *allocate(_::PromiseArena * /*arena*/, Args &&...args) {
   // arena is always nullptr for this overload — kept for API uniformity.
-  void *mem       = ::operator new(kPromiseNodeHeaderSize + sizeof(T));
-  auto *hdr       = static_cast<PromiseNodeHeader *>(mem);
+  void *mem = ::operator new(_::kPromiseNodeHeaderSize + sizeof(T));
+  auto *hdr = static_cast<_::PromiseNodeHeader *>(mem);
   hdr->arena      = nullptr;
   hdr->owns_arena = false;
-  return ::new (static_cast<char *>(mem) + kPromiseNodeHeaderSize) T(std::forward<Args>(args)...);
+  return ::new (static_cast<char *>(mem) + _::kPromiseNodeHeaderSize) T(std::forward<Args>(args)...);
 }
 
-/* ── append_promise: create a node in the predecessor's arena ──────── */
+/* ── append: create a node in the predecessor's arena ──────────────── */
 // KJ-style: reads the arena from the predecessor's header, bump-allocates
 // the new node in the same arena (or heap if full/no arena), transfers
 // arena ownership from predecessor to the new node.
@@ -109,33 +113,33 @@ template <class T, class... Args> T *allocate_promise(PromiseArena * /*arena*/, 
 // pred is the predecessor's raw node pointer (from OwnPromiseNode).
 // Returns the new node pointer. The caller must update pred's header
 // to release ownership (owns_arena = false).
-template <class T, class... Args> T *append_promise(void *pred_raw, Args &&...args) {
+template <class T, class... Args> T *append(void *pred_raw, Args &&...args) {
   // Read predecessor's header to find the arena.
   auto *pred_hdr =
-    reinterpret_cast<PromiseNodeHeader *>(static_cast<char *>(pred_raw) - kPromiseNodeHeaderSize);
-  PromiseArena *arena = pred_hdr->arena;
+    reinterpret_cast<_::PromiseNodeHeader *>(static_cast<char *>(pred_raw) - _::kPromiseNodeHeaderSize);
+  _::PromiseArena *arena = pred_hdr->arena;
 
   void *mem;
   if (arena) {
-    mem = arena->allocate(kPromiseNodeHeaderSize + sizeof(T), kPromiseNodeHeaderSize);
+    mem = arena->allocate(_::kPromiseNodeHeaderSize + sizeof(T), _::kPromiseNodeHeaderSize);
     if (mem) {
       // Bump-allocated in arena. Transfer ownership.
       pred_hdr->owns_arena = false; // predecessor releases
-      auto *hdr            = static_cast<PromiseNodeHeader *>(mem);
+      auto *hdr            = static_cast<_::PromiseNodeHeader *>(mem);
       hdr->arena           = arena;
       hdr->owns_arena      = true; // new node is now the tail
     } else {
       // Arena full — heap fallback. Predecessor keeps ownership.
-      mem             = ::operator new(kPromiseNodeHeaderSize + sizeof(T));
-      auto *hdr       = static_cast<PromiseNodeHeader *>(mem);
+      mem             = ::operator new(_::kPromiseNodeHeaderSize + sizeof(T));
+      auto *hdr       = static_cast<_::PromiseNodeHeader *>(mem);
       hdr->arena      = nullptr;
       hdr->owns_arena = false;
     }
   } else {
     // No arena — create one. New node owns it.
-    arena           = new PromiseArena();
-    mem             = arena->allocate(kPromiseNodeHeaderSize + sizeof(T), kPromiseNodeHeaderSize);
-    auto *hdr       = static_cast<PromiseNodeHeader *>(mem);
+    arena           = new _::PromiseArena();
+    mem             = arena->allocate(_::kPromiseNodeHeaderSize + sizeof(T), _::kPromiseNodeHeaderSize);
+    auto *hdr       = static_cast<_::PromiseNodeHeader *>(mem);
     hdr->arena      = arena;
     hdr->owns_arena = true;
 
@@ -144,10 +148,10 @@ template <class T, class... Args> T *append_promise(void *pred_raw, Args &&...ar
     // is non-null but owns_arena is false — nothing to do.
   }
 
-  return ::new (static_cast<char *>(mem) + kPromiseNodeHeaderSize) T(std::forward<Args>(args)...);
+  return ::new (static_cast<char *>(mem) + _::kPromiseNodeHeaderSize) T(std::forward<Args>(args)...);
 }
 
-} // namespace _
+} // namespace _promise
 } // namespace xpp
 
 #endif // XPP_PROMISE_ALLOC_H
