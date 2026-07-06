@@ -2,12 +2,12 @@
 
 ## Introduction
 
-`xpp::io::read_all` and `xpp::io::copy` are template utility functions that work on any type with `read(void*, size_t) → Promise<ssize_t>` and `write(const void*, size_t) → Promise<ssize_t>` — duck-typed, no traits or inheritance required. Both use coroutine loops with an 8KB stack buffer (matching Rust's `DEFAULT_BUF_SIZE`).
+`xpp::io::read_all` and `xpp::io::copy` are template utility functions that work on any type with `read(void*, size_t) → Promise<ssize_t>` and `write(const void*, size_t) → Promise<ssize_t>` — duck-typed, no traits or inheritance required. Both use an 8KB buffer (matching Rust's `DEFAULT_BUF_SIZE`).
 
-C++20 only (`co_await`).
+C++20: coroutine loops with stack buffers. C++11: struct+move fallback with `xpp::Shared` heap buffer.
 
 ```cpp
-#include <xpp/io/util.h>
+#include <xpp/io/utils.h>
 
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
@@ -28,7 +28,7 @@ template <class R>
 Promise<std::vector<uint8_t>> read_all(R &reader);
 ```
 
-Reads the entire byte stream into a vector. Stops when `read` returns ≤ 0 (EOF or error). Uses an 8KB stack buffer — zero heap allocation for the buffer.
+Reads the entire byte stream into a vector. Stops when `read` returns ≤ 0 (EOF or error). Uses an 8KB buffer — stack-allocated in C++20 (coroutine), heap-allocated via `xpp::Shared` in C++11 (struct+move).
 
 The reader must have `read(void*, size_t) → Promise<ssize_t>`. Compatible with `TcpStream`, `fs::File` (cursor mode), and any user-defined type matching the signature.
 
@@ -39,7 +39,7 @@ template <class R, class W>
 Promise<void> copy(R &reader, W &writer);
 ```
 
-Pipes all content from reader to writer. Uses an 8KB stack buffer.
+Pipes all content from reader to writer. Uses an 8KB buffer (stack in C++20, heap via `xpp::Shared` in C++11).
 
 The reader must have `read(void*, size_t) → Promise<ssize_t>`. The writer must have `write(const void*, size_t) → Promise<ssize_t>`.
 

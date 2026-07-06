@@ -32,7 +32,7 @@ on:
 
 jobs:
   test:
-    name: ${{ matrix.os }} / ${{ matrix.tls }} / C++${{ matrix.cxx_std }}
+    name: ${{ matrix.os }} / ${{ matrix.tls }} / C++${{ matrix.cxx_std }} / MT=${{ matrix.mt }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -40,13 +40,41 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         tls: [openssl, mbedtls]
         cxx_std: [20]
+        mt: [on]
         include:
           - os: ubuntu-latest
             tls: openssl
             cxx_std: 11
+            mt: on
           - os: macos-latest
             tls: openssl
             cxx_std: 11
+            mt: on
+          # ── MT=OFF: test single-threaded code paths (Shared=Rc, Lock=no-op) ──
+          - os: ubuntu-latest
+            tls: openssl
+            cxx_std: 20
+            mt: off
+          - os: macos-latest
+            tls: openssl
+            cxx_std: 20
+            mt: off
+          - os: ubuntu-latest
+            tls: openssl
+            cxx_std: 11
+            mt: off
+          - os: macos-latest
+            tls: openssl
+            cxx_std: 11
+            mt: off
+          - os: ubuntu-latest
+            tls: mbedtls
+            cxx_std: 20
+            mt: off
+          - os: macos-latest
+            tls: mbedtls
+            cxx_std: 20
+            mt: off
 
     steps:
       - uses: actions/checkout@v4
@@ -132,7 +160,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: build
-          key: build-${{ runner.os }}-${{ matrix.tls }}-cxx${{ matrix.cxx_std }}-${{ steps.cache-key.outputs.hash }}
+          key: build-${{ runner.os }}-${{ matrix.tls }}-cxx${{ matrix.cxx_std }}-mt${{ matrix.mt }}-${{ steps.cache-key.outputs.hash }}
           restore-keys: |
             build-${{ runner.os }}-${{ matrix.tls }}-cxx${{ matrix.cxx_std }}-
 
@@ -142,6 +170,7 @@ jobs:
         env:
           CTEST_ARGS: ${{ steps.scope-cxx.outputs.filter }}
           CMAKE_CXX_STANDARD: ${{ matrix.cxx_std }}
+          CMAKE_EXTRA_FLAGS: ${{ matrix.mt == 'off' && '-DXPP_MT=OFF' || '' }}
         run: |
           rm -f build/CMakeCache.txt
           bash scripts/test-linux.sh -t ${{ matrix.tls }} -j $(nproc) -B build --asan
@@ -151,6 +180,7 @@ jobs:
         env:
           CTEST_ARGS: ${{ steps.scope-cxx.outputs.filter }}
           CMAKE_CXX_STANDARD: ${{ matrix.cxx_std }}
+          CMAKE_EXTRA_FLAGS: ${{ matrix.mt == 'off' && '-DXPP_MT=OFF' || '' }}
         run: |
           rm -f build/CMakeCache.txt
           zsh scripts/test-mac.sh -t ${{ matrix.tls }} -j $(sysctl -n hw.ncpu) -B build --asan

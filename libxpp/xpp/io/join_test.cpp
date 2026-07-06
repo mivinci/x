@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include <xpp/io/join.h>
 #include <xpp/io/simplex.h>
-#include <xpp/io/util.h>
+#include <xpp/io/utils.h>
 
 TEST(JoinTest, CombineSimplex) {
   xpp::EventLoop loop;

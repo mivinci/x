@@ -9,6 +9,8 @@
 #include <xpp/promise.h>
 #include <xpp/sync/broadcast.h>
 
+#include <thread>
+
 using namespace xpp::sync::broadcast;
 
 // ── B-1: multiple receivers see all values ──────────────────────────
@@ -105,3 +107,59 @@ TEST(BroadcastTest, MultiProducer) {
   EXPECT_EQ(rx.try_recv().unwrap(), 10);
   EXPECT_EQ(rx.try_recv().unwrap(), 20);
 }
+
+// ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
+
+#if XPP_MT
+
+TEST(BroadcastMtTest, WorkerSendLoopRecv) {
+  auto [tx, rx] = channel<int>(16);
+
+  std::thread worker([&tx] {
+    for (int i = 0; i < 3; ++i) {
+      EXPECT_TRUE(tx.try_send(i).is_ok());
+    }
+  });
+
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto recver = [&]() -> xpp::Promise<void> {
+    for (int i = 0; i < 3; ++i) {
+      auto v = co_await rx.recv();
+      EXPECT_TRUE(v.is_ok());
+    }
+    co_return;
+  };
+  recver().wait();
+  worker.join();
+}
+
+TEST(BroadcastMtTest, MultipleWorkerSenders) {
+  auto [tx, rx] = channel<int>(32);
+
+  std::thread t1([tx]() mutable {
+    for (int i = 0; i < 5; ++i)
+      EXPECT_TRUE(tx.try_send(i).is_ok());
+  });
+  std::thread t2([tx]() mutable {
+    for (int i = 100; i < 105; ++i)
+      EXPECT_TRUE(tx.try_send(i).is_ok());
+  });
+
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto recver = [&]() -> xpp::Promise<void> {
+    for (int i = 0; i < 10; ++i) {
+      auto v = co_await rx.recv();
+      EXPECT_TRUE(v.is_ok());
+    }
+    co_return;
+  };
+  recver().wait();
+  t1.join();
+  t2.join();
+}
+
+#endif // XPP_MT

@@ -4,7 +4,7 @@
 
 `xpp::io::BufReader<R>` wraps any `AsyncReader` with an internal 8KB buffer. Small reads copy from the buffer with zero I/O overhead; large reads (≥ 8KB) bypass the buffer entirely. Reduces per-call Promise overhead for byte-at-a-time parsing over TCP.
 
-Satisfies the `AsyncReader` concept — composable with `io::read_all`, `io::copy`, or nested in another `BufReader`. Takes ownership of the inner reader via move semantics. C++20 coroutine-only.
+Satisfies the `AsyncReader` concept — composable with `io::read_all`, `io::copy`, or nested in another `BufReader`. Takes ownership of the inner reader via move semantics. Coroutine (C++20) or struct+move fallback (C++11).
 
 ```cpp
 #include <xpp/io/buf_reader.h>
@@ -104,6 +104,6 @@ xpp::Promise<void> download_chunk(xpp::net::TcpStream conn) {
 }
 ```
 
-## Coroutine Examples
+## Examples
 
-`BufReader` is itself coroutine-based — all examples above are valid coroutine usage. See [Utilities](util.md) for how to compose `BufReader` with `io::read_all` and `io::copy`.
+All examples above show coroutine usage (C++20). For C++11, `BufReader` works identically — the `.read()` method uses struct+move instead of `co_await` internally. See [Utilities](util.md) for composing `BufReader` with `io::read_all` and `io::copy`.

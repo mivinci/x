@@ -17,11 +17,11 @@
 
 #include <utility>
 
+#include <xpp/loom/internal.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
 #include <xpp/result.h>
 #include <xpp/shared.h>
-#include <xpp/loom/internal.h>
 #include <xpp/sync/notify.h>
 
 namespace xpp {
@@ -33,17 +33,17 @@ namespace _ {
 // ── Channel ──────────────────────────────────────────────────────────
 
 template <class T> struct Channel {
-  T                         *m_buf;
-  size_t                     m_cap;
-  size_t                     m_head              = 0;
-  size_t                     m_tail              = 0;
-  xpp::loom::_::Atomic<size_t>    m_sender_count{1};
-  xpp::loom::_::Atomic<bool>      m_closed{false};
-  xpp::loom::_::Mutex             m_mutex;
-  xpp::sync::Notify          m_notify;
+  T                           *m_buf;
+  size_t                       m_cap;
+  size_t                       m_head = 0;
+  size_t                       m_tail = 0;
+  xpp::loom::_::Atomic<size_t> m_sender_count{1};
+  xpp::loom::_::Atomic<bool>   m_closed{false};
+  xpp::loom::_::Mutex          m_mutex;
+  xpp::sync::Notify            m_notify;
 
   // Count of active receivers (used by send() return value).
-  xpp::loom::_::Atomic<size_t>    m_receiver_count{1};
+  xpp::loom::_::Atomic<size_t> m_receiver_count{1};
 
   explicit Channel(size_t cap) : m_buf(new T[cap]), m_cap(cap) {}
   ~Channel() {
@@ -134,7 +134,9 @@ public:
     }
     return *this;
   }
-  ~Sender() { drop(); }
+  ~Sender() {
+    drop();
+  }
 
   /**
    * @brief Send a value to all receivers. Never blocks.
@@ -145,72 +147,29 @@ public:
    * @return Ok(n) where n is the number of active receivers, or
    *         Err(SendError::NoReceiver) if no receivers.
    */
+  /**
+   * @brief Send a value to all receivers. Never blocks.
+   *
+   * Thin Promise wrapper around try_send(). Since try_send() is entirely
+   * synchronous (lock + memcpy + notify, no I/O wait), this resolves
+   * immediately via xpp::resolve(). Works in C++11+ without change.
+   *
+   * @return Ok(n) where n is the number of active receivers, or
+   *         Err(SendError::NoReceiver) if no receivers.
+   */
   xpp::Promise<xpp::Result<size_t, SendError<T>>> send(T value) {
-    auto *ch = m_chan.get();
-    if (!ch) co_return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
-
-    xpp::loom::_::Lock lock(ch->m_mutex);
-
-    if (ch->m_closed.load(std::memory_order_acquire))
-      co_return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
-
-    size_t n = ch->m_receiver_count.load(std::memory_order_acquire);
-    if (n == 0)
-      co_return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
-
-    size_t next = ch->m_tail;
-    // If full, evict oldest and advance head.
-    if ((next + 1) % ch->m_cap == ch->m_head) {
-      ch->m_buf[ch->m_head].~T();
-      ch->m_head = (ch->m_head + 1) % ch->m_cap;
-    }
-
-    new (&ch->m_buf[next]) T(std::move(value));
-    ch->m_tail = (next + 1) % ch->m_cap;
-    lock.unlock();
-
-    ch->m_notify.notify_waiters();
-    co_return xpp::ok(n);
+    return xpp::resolve(try_send(std::move(value)));
   }
 
   /**
    * @brief Synchronous, non-blocking send.
    */
-  xpp::Result<size_t, SendError<T>> try_send(T value) {
-    auto *ch = m_chan.get();
-    if (!ch) return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
-
-    xpp::loom::_::Lock lock(ch->m_mutex);
-
-    if (ch->m_closed.load(std::memory_order_acquire))
-      return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
-
-    size_t n = ch->m_receiver_count.load(std::memory_order_acquire);
-    if (n == 0)
-      return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
-
-    size_t next = ch->m_tail;
-    if ((next + 1) % ch->m_cap == ch->m_head) {
-      ch->m_buf[ch->m_head].~T();
-      ch->m_head = (ch->m_head + 1) % ch->m_cap;
-    }
-
-    new (&ch->m_buf[next]) T(std::move(value));
-    ch->m_tail = (next + 1) % ch->m_cap;
-    lock.unlock();
-
-    ch->m_notify.notify_waiters();
-    return xpp::ok(n);
-  }
+  xpp::Result<size_t, SendError<T>> try_send(T value);
 
   /**
    * @brief Create a new Receiver that sees only values sent after this call.
    */
-  Receiver<T> subscribe() {
-    auto *ch = m_chan.get();
-    ch->m_receiver_count.fetch_add(1, std::memory_order_relaxed);
-    return Receiver<T>(m_chan, ch->m_tail);
-  }
+  Receiver<T> subscribe();
 
   /// Number of buffered values (head-to-tail inclusive).
   size_t len() const {
@@ -224,11 +183,7 @@ public:
   }
 
   /// Explicitly close the channel.
-  void close() {
-    auto *ch = m_chan.get();
-    if (!ch) return;
-    close_channel(ch);
-  }
+  void close();
 
 private:
   template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
@@ -262,7 +217,7 @@ private:
  */
 template <class T> class Receiver {
 public:
-  Receiver(Receiver &&) noexcept = default;
+  Receiver(Receiver &&) noexcept            = default;
   Receiver &operator=(Receiver &&) noexcept = default;
 
   ~Receiver() {
@@ -280,18 +235,34 @@ public:
    *
    * @return Ok(T) with the next value, or Err(RecvError) on failure.
    */
-  xpp::Promise<xpp::Result<T, RecvError>> recv() {
+  xpp::Promise<xpp::Result<T, RecvError>> recv();
+
+  /// Synchronous, non-blocking recv.
+  xpp::Result<T, TryRecvError> try_recv();
+
+private:
+  template <class U> friend class Sender;
+  template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
+  Shared<_::Channel<T>>                                       m_chan;
+  size_t                                                      m_pos;
+
+  Receiver(Shared<_::Channel<T>> c, size_t pos) : m_chan(std::move(c)), m_pos(pos) {}
+
+  /**
+   * @brief Try to read the next value at m_pos.
+   *
+   * Checks for lag (sender overwrote unread values). On lag, resets
+   * m_pos to m_head and returns none. On success, reads the value,
+   * advances m_pos, and returns some(value).
+   *
+   * Caller must ensure m_pos != m_tail before calling.
+   *
+   * @return some(value) if a value was read, none if lagged.
+   */
+  xpp::Option<T> try_read_value() {
     auto *ch = m_chan.get();
-    if (!ch) co_return xpp::err(RecvError::Closed);
 
-    // Wait until data is available or channel is closed.
-    while (m_pos == ch->m_tail) {
-      if (ch->m_closed.load(std::memory_order_acquire))
-        co_return xpp::err(RecvError::Closed);
-      co_await ch->m_notify.notified();
-    }
-
-    // Check for lag: m_pos should be in [m_head, m_tail) going forward.
+    // Lag check: m_pos must be in [m_head, m_tail) circling forward.
     // Lag occurs when m_head overtakes m_pos (sender evicted values).
     bool lagged;
     if (ch->m_head <= ch->m_tail) {
@@ -301,47 +272,13 @@ public:
     }
     if (lagged) {
       m_pos = ch->m_head;
-      co_return xpp::err(RecvError::Lagged);
+      return xpp::none;
     }
 
     T value = std::move(ch->m_buf[m_pos]);
     m_pos   = (m_pos + 1) % ch->m_cap;
-    co_return xpp::ok(std::move(value));
+    return xpp::some(std::move(value));
   }
-
-  /// Synchronous, non-blocking recv.
-  xpp::Result<T, TryRecvError> try_recv() {
-    auto *ch = m_chan.get();
-    if (!ch) return xpp::err(TryRecvError::Closed);
-
-    if (m_pos == ch->m_tail) {
-      return xpp::err(ch->m_closed.load(std::memory_order_acquire) ? TryRecvError::Closed
-                                                                    : TryRecvError::Empty);
-    }
-
-    bool lagged;
-    if (ch->m_head <= ch->m_tail) {
-      lagged = (m_pos < ch->m_head || m_pos >= ch->m_tail);
-    } else {
-      lagged = (m_pos < ch->m_head && m_pos >= ch->m_tail);
-    }
-    if (lagged) {
-      m_pos = ch->m_head;
-      return xpp::err(TryRecvError::Lagged);
-    }
-
-    T value = std::move(ch->m_buf[m_pos]);
-    m_pos   = (m_pos + 1) % ch->m_cap;
-    return xpp::ok(std::move(value));
-  }
-
-private:
-  template <class U> friend class Sender;
-  template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
-  Shared<_::Channel<T>> m_chan;
-  size_t                m_pos;
-
-  Receiver(Shared<_::Channel<T>> c, size_t pos) : m_chan(std::move(c)), m_pos(pos) {}
 };
 
 /**
@@ -355,6 +292,99 @@ template <class T> std::pair<Sender<T>, Receiver<T>> channel(size_t cap) {
   auto tx = Sender<T>(ch);
   auto rx = Receiver<T>(std::move(ch), 0);
   return {std::move(tx), std::move(rx)};
+}
+
+/* ── Method bodies ─────────────────────────────────────────────────── */
+
+template <class T> xpp::Result<size_t, SendError<T>> Sender<T>::try_send(T value) {
+  auto *ch = m_chan.get();
+  if (!ch) return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
+
+  xpp::loom::_::Lock lock(ch->m_mutex);
+
+  if (ch->m_closed.load(std::memory_order_acquire))
+    return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
+
+  size_t n = ch->m_receiver_count.load(std::memory_order_acquire);
+  if (n == 0) return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
+
+  size_t next = ch->m_tail;
+  if ((next + 1) % ch->m_cap == ch->m_head) {
+    ch->m_buf[ch->m_head].~T();
+    ch->m_head = (ch->m_head + 1) % ch->m_cap;
+  }
+
+  new (&ch->m_buf[next]) T(std::move(value));
+  ch->m_tail = (next + 1) % ch->m_cap;
+  lock.unlock();
+
+  ch->m_notify.notify_waiters();
+  return xpp::ok(n);
+}
+
+template <class T> Receiver<T> Sender<T>::subscribe() {
+  auto *ch = m_chan.get();
+  ch->m_receiver_count.fetch_add(1, std::memory_order_relaxed);
+  return Receiver<T>(m_chan, ch->m_tail);
+}
+
+template <class T> void Sender<T>::close() {
+  auto *ch = m_chan.get();
+  if (!ch) return;
+  close_channel(ch);
+}
+
+#if XPP_HAS_COROUTINES
+
+template <class T> xpp::Promise<xpp::Result<T, RecvError>> Receiver<T>::recv() {
+  auto *ch = m_chan.get();
+  if (!ch) co_return xpp::err(RecvError::Closed);
+
+  while (m_pos == ch->m_tail) {
+    if (ch->m_closed.load(std::memory_order_acquire)) co_return xpp::err(RecvError::Closed);
+    co_await ch->m_notify.notified();
+  }
+
+  auto opt = try_read_value();
+  if (opt.is_some()) co_return xpp::ok(std::move(opt).unwrap());
+  co_return xpp::err(RecvError::Lagged);
+}
+
+#else // !XPP_HAS_COROUTINES
+
+template <class T> xpp::Promise<xpp::Result<T, RecvError>> Receiver<T>::recv() {
+  auto *ch = m_chan.get();
+  if (!ch) return xpp::resolve(xpp::err(RecvError::Closed));
+
+  // Data already available — drain synchronously (fast path)
+  if (m_pos != ch->m_tail) {
+    auto opt = try_read_value();
+    if (opt.is_some()) return xpp::resolve(xpp::ok(std::move(opt).unwrap()));
+    return xpp::resolve(xpp::err(RecvError::Lagged));
+  }
+
+  // Closed with nothing left → terminal
+  if (ch->m_closed.load(std::memory_order_acquire))
+    return xpp::resolve(xpp::err(RecvError::Closed));
+
+  // No data, not closed → wait on notify, then retry
+  return ch->m_notify.notified().then([this](Void) { return recv(); });
+}
+
+#endif // XPP_HAS_COROUTINES
+
+template <class T> xpp::Result<T, TryRecvError> Receiver<T>::try_recv() {
+  auto *ch = m_chan.get();
+  if (!ch) return xpp::err(TryRecvError::Closed);
+
+  if (m_pos == ch->m_tail) {
+    return xpp::err(ch->m_closed.load(std::memory_order_acquire) ? TryRecvError::Closed
+                                                                 : TryRecvError::Empty);
+  }
+
+  auto opt = try_read_value();
+  if (opt.is_some()) return xpp::ok(std::move(opt).unwrap());
+  return xpp::err(TryRecvError::Lagged);
 }
 
 } // namespace broadcast

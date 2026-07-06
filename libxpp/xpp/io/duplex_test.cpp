@@ -7,7 +7,7 @@
  */
 #include <gtest/gtest.h>
 #include <xpp/io/duplex.h>
-#include <xpp/io/util.h>
+#include <xpp/io/utils.h>
 #include <xpp/promise.h>
 #include <xpp/promise_combinators.h>
 

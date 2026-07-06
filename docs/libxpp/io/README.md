@@ -25,7 +25,7 @@ ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
 - [AsyncFd](async_fd.md) — Reactive I/O wrapper: register fd once, `readable()`/`writable()` as `Promise<void>`, fast-path `read()`/`write()`.
 - [I/O Error](error.md) — `io::Error`: niche-optimized (4-byte) error type with `ErrorKind`, `raw_os_error()`, `raw_xerrno()`. Mirrors Rust's `std::io::Error`.
 
-- [Utilities](util.md) — `read_all` and `copy`: duck-typed template functions. C++20 coroutine loops with 8KB stack buffers.
+- [Utilities](util.md) — `read_all` and `copy`: duck-typed template functions. Coroutine loops with 8KB stack buffers (C++20) or struct+move fallback (C++11).
 - [BufReader](buf_reader.md) — `BufReader<R>`: buffered async reader. Reduces per-call Promise overhead for small reads.
 - [BufWriter](buf_writer.md)
 - [Take](take.md)

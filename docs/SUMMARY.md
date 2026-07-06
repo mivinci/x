@@ -81,7 +81,7 @@
   - [I/O](libxpp/io/README.md)
     - [AsyncFd](libxpp/io/async_fd.md)
     - [I/O Error](libxpp/io/error.md)
-    - [Utilities](libxpp/io/util.md)
+    - [Utilities](libxpp/io/utils.md)
     - [BufReader](libxpp/io/buf_reader.md)
     - [BufWriter](libxpp/io/buf_writer.md)
     - [Take](libxpp/io/take.md)

@@ -14,7 +14,7 @@
  *   never blocks. Aligned with tokio::sync::mpsc.
  *
  * Both variants use RAII close: when the last Sender drops, the channel
- * marks itself closed and wakes any blocked coroutines.
+ *   marks itself closed and wakes any blocked coroutines.
  */
 
 #ifndef XPP_SYNC_MPSC_H
@@ -29,13 +29,11 @@
 #include <xpp/shared.h>
 #include <xpp/sync/list.h>
 
-#if XPP_HAS_COROUTINES
-
 namespace xpp {
 namespace sync {
 namespace mpsc {
 
-// ── Error types ──────────────────────────────────────────────────────
+// ── Error types (C++11, no coroutine dependency) ─────────────────────
 
 /**
  * @brief Error returned by try_send() when the channel is full or closed.
@@ -77,7 +75,7 @@ template <class T> class Receiver;
  */
 template <class T> class Sender {
 public:
-  Sender(Sender &&) noexcept = default;
+  Sender(Sender &&) noexcept            = default;
   Sender &operator=(Sender &&) noexcept = default;
   Sender(const Sender &o) : m_chan(o.m_chan) {
     if (m_chan) m_chan->m_sender_count.fetch_add(1, std::memory_order_relaxed);
@@ -90,50 +88,25 @@ public:
     }
     return *this;
   }
-  ~Sender() { drop(); }
+  ~Sender() {
+    drop();
+  }
 
   /**
    * @brief Asynchronously send a value. Suspends if full.
    *
    * @param value The value to send. Moved into the channel on success.
-   * @return A coroutine promise. Resolves when the value is enqueued
-   *         or silently dropped if the channel is closed.
+   * @return A promise. Resolves when the value is enqueued or silently
+   *         dropped if the channel is closed.
    */
-  Promise<void> send(T value) {
-    if (!m_chan) co_return;
-
-    while (true) {
-      if (m_closed()) co_return;
-      if (m_chan->m_tx.try_push(std::move(value))) break;
-
-      auto w = xpp::async<void>();
-      m_chan->m_write_waiter = std::move(w.second);
-      co_await std::move(w.first);
-    }
-
-    if (m_chan->m_read_waiter.is_pending()) {
-      auto w = std::move(m_chan->m_read_waiter);
-      w.resolve();
-    }
-  }
+  Promise<void> send(T value);
 
   /**
    * @brief Synchronous, non-blocking send.
    *
    * @return Ok if the value was enqueued, or TrySendError on failure.
    */
-  Result<Void, TrySendError<T>> try_send(T value) {
-    if (!m_chan) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
-    if (m_closed()) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
-    if (!m_chan->m_tx.try_push(std::move(value)))
-      return err(TrySendError<T>{TrySendError<T>::Full, std::move(value)});
-
-    if (m_chan->m_read_waiter.is_pending()) {
-      auto w = std::move(m_chan->m_read_waiter);
-      w.resolve();
-    }
-    return ok(Void{});
-  }
+  Result<Void, TrySendError<T>> try_send(T value);
 
   /**
    * @brief Explicitly close the channel. Idempotent.
@@ -141,31 +114,19 @@ public:
    * Wakes any blocked senders and receivers. The receiver can still
    * drain buffered values after close.
    */
-  void close() {
-    if (!m_chan) return;
-    m_chan->m_closed.store(true, std::memory_order_release);
-
-    if (m_chan->m_write_waiter.is_pending()) {
-      auto w = std::move(m_chan->m_write_waiter);
-      w.resolve();
-    }
-    if (m_chan->m_read_waiter.is_pending()) {
-      auto w = std::move(m_chan->m_read_waiter);
-      w.resolve();
-    }
-  }
+  void close();
 
 private:
   template <class U> friend class Receiver;
   template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
 
   struct Chan {
-    list::Tx<T>                   m_tx;
-    list::Rx<T>                   m_rx;
-    PromiseResolver<void>         m_read_waiter;
-    PromiseResolver<void>         m_write_waiter;
-    xpp::loom::_::Atomic<size_t>  m_sender_count{1};
-    xpp::loom::_::Atomic<bool>    m_closed{false};
+    list::Tx<T>                  m_tx;
+    list::Rx<T>                  m_rx;
+    PromiseResolver<void>        m_read_waiter;
+    PromiseResolver<void>        m_write_waiter;
+    xpp::loom::_::Atomic<size_t> m_sender_count{1};
+    xpp::loom::_::Atomic<bool>   m_closed{false};
 
     Chan(list::Tx<T> tx, list::Rx<T> rx) : m_tx(std::move(tx)), m_rx(std::move(rx)) {}
   };
@@ -173,7 +134,9 @@ private:
 
   explicit Sender(Shared<Chan> c) : m_chan(std::move(c)) {}
 
-  bool m_closed() const { return m_chan->m_closed.load(std::memory_order_acquire); }
+  bool m_closed() const {
+    return m_chan->m_closed.load(std::memory_order_acquire);
+  }
 
   void drop() {
     if (!m_chan) return;
@@ -194,7 +157,7 @@ private:
  */
 template <class T> class Receiver {
 public:
-  Receiver(Receiver &&) noexcept = default;
+  Receiver(Receiver &&) noexcept            = default;
   Receiver &operator=(Receiver &&) noexcept = default;
 
   /**
@@ -203,54 +166,192 @@ public:
    * @return `some(T)` if a value was received, `none` if the channel
    *         is closed and empty.
    */
-  Promise<Option<T>> recv() {
-    if (!m_chan) co_return none;
-
-    while (true) {
-      auto v = m_chan->m_rx.try_pop();
-      if (v.is_some()) {
-        if (m_chan->m_write_waiter.is_pending()) {
-          auto w = std::move(m_chan->m_write_waiter);
-          w.resolve();
-        }
-        co_return xpp::some(std::move(v).unwrap());
-      }
-
-      if (m_closed() && m_chan->m_rx.empty()) co_return none;
-
-      auto pr = xpp::async<void>();
-      m_chan->m_read_waiter = std::move(pr.second);
-      co_await std::move(pr.first);
-    }
-  }
+  Promise<Option<T>> recv();
 
   /**
    * @brief Synchronous, non-blocking receive.
    *
    * @return Ok(T) if a value is available, or TryRecvError.
    */
-  Result<T, TryRecvError> try_recv() {
-    if (!m_chan) return err(TryRecvError::Closed);
+  Result<T, TryRecvError> try_recv();
 
+private:
+  template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
+  using Chan = typename Sender<T>::Chan;
+  Shared<Chan> m_chan;
+  explicit Receiver(Shared<Chan> c) : m_chan(std::move(c)) {}
+
+  bool m_closed() const {
+    return m_chan->m_closed.load(std::memory_order_acquire);
+  }
+};
+
+/* ── send() / recv() method bodies ─────────────────────────────────── */
+
+#if XPP_HAS_COROUTINES
+
+template <class T> Promise<void> Sender<T>::send(T value) {
+  if (!m_chan) co_return;
+
+  while (true) {
+    if (m_closed()) co_return;
+    if (m_chan->m_tx.try_push(std::move(value))) break;
+
+    auto w                 = xpp::async<void>();
+    m_chan->m_write_waiter = std::move(w.second);
+    co_await std::move(w.first);
+  }
+
+  if (m_chan->m_read_waiter.is_pending()) {
+    auto w = std::move(m_chan->m_read_waiter);
+    w.resolve();
+  }
+}
+
+template <class T> Promise<Option<T>> Receiver<T>::recv() {
+  if (!m_chan) co_return none;
+
+  while (true) {
     auto v = m_chan->m_rx.try_pop();
     if (v.is_some()) {
       if (m_chan->m_write_waiter.is_pending()) {
         auto w = std::move(m_chan->m_write_waiter);
         w.resolve();
       }
-      return ok(std::move(v).unwrap());
+      co_return xpp::some(std::move(v).unwrap());
     }
-    return err(m_closed() ? TryRecvError::Closed : TryRecvError::Empty);
+
+    if (m_closed() && m_chan->m_rx.empty()) co_return none;
+
+    auto pr               = xpp::async<void>();
+    m_chan->m_read_waiter = std::move(pr.second);
+    co_await std::move(pr.first);
   }
+}
 
-private:
-  template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
-  using Chan    = typename Sender<T>::Chan;
-  Shared<Chan> m_chan;
-  explicit Receiver(Shared<Chan> c) : m_chan(std::move(c)) {}
+#else // !XPP_HAS_COROUTINES
 
-  bool m_closed() const { return m_chan->m_closed.load(std::memory_order_acquire); }
-};
+/**
+ * C++11 send(): recursively retry via .then() chain.
+ *
+ * The value is held on the heap (Shared<T>) so it survives callback
+ * boundaries. Mirrors the co_await version: try_push, if full store
+ * a write_waiter and recurse when woken.
+ *
+ * Trade-off: 1 extra heap allocation for Shared<T> vs C++20's
+ * coroutine frame. Promise nodes use arena bump alloc internally.
+ */
+template <class T> Promise<void> Sender<T>::send(T value) {
+  if (!m_chan) return xpp::resolve();
+
+  auto val = Shared<T>::make(std::move(value));
+
+  struct SendLoop {
+    Shared<Chan> chan;
+    Shared<T>    val;
+
+    Promise<void> operator()() {
+      auto *c = chan.get();
+      if (c->m_closed.load(std::memory_order_acquire)) return xpp::resolve();
+      if (c->m_tx.try_push(std::move(*val))) {
+        if (c->m_read_waiter.is_pending()) {
+          auto w = std::move(c->m_read_waiter);
+          w.resolve();
+        }
+        return xpp::resolve();
+      }
+      // Full — store waiter and recurse when woken
+      auto pr           = xpp::async<void>();
+      c->m_write_waiter = std::move(pr.second);
+      return std::move(pr.first).then([self = std::move(*this)](Void) mutable { return self(); });
+    }
+  };
+
+  return SendLoop{chan, val}();
+}
+
+/**
+ * C++11 recv(): recursively retry via .then() chain.
+ *
+ * Tries try_pop() eagerly. If empty and not closed, stores a
+ * read_waiter and recurses when the sender wakes us.
+ *
+ * No extra heap allocation beyond Promise chain nodes (arena alloc).
+ * m_chan is Shared<Chan>, stored by value in the struct (8 bytes).
+ */
+template <class T> Promise<Option<T>> Receiver<T>::recv() {
+  if (!m_chan) return xpp::resolve(none);
+
+  struct RecvLoop {
+    Shared<Chan> chan;
+
+    Promise<Option<T>> operator()() {
+      auto *c = chan.get();
+
+      auto v = c->m_rx.try_pop();
+      if (v.is_some()) {
+        if (c->m_write_waiter.is_pending()) {
+          auto w = std::move(c->m_write_waiter);
+          w.resolve();
+        }
+        return xpp::resolve(xpp::some(std::move(v).unwrap()));
+      }
+
+      if (c->m_closed.load(std::memory_order_acquire) && c->m_rx.empty()) return xpp::resolve(none);
+
+      auto pr          = xpp::async<void>();
+      c->m_read_waiter = std::move(pr.second);
+      return std::move(pr.first).then([self = std::move(*this)](Void) mutable { return self(); });
+    }
+  };
+
+  return RecvLoop{m_chan}();
+}
+
+#endif // XPP_HAS_COROUTINES
+
+/* ── Synchronous methods (C++11, no coroutine dependency) ──────────── */
+
+template <class T> Result<Void, TrySendError<T>> Sender<T>::try_send(T value) {
+  if (!m_chan) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
+  if (m_closed()) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
+  if (!m_chan->m_tx.try_push(std::move(value)))
+    return err(TrySendError<T>{TrySendError<T>::Full, std::move(value)});
+
+  if (m_chan->m_read_waiter.is_pending()) {
+    auto w = std::move(m_chan->m_read_waiter);
+    w.resolve();
+  }
+  return ok(Void{});
+}
+
+template <class T> void Sender<T>::close() {
+  if (!m_chan) return;
+  m_chan->m_closed.store(true, std::memory_order_release);
+
+  if (m_chan->m_write_waiter.is_pending()) {
+    auto w = std::move(m_chan->m_write_waiter);
+    w.resolve();
+  }
+  if (m_chan->m_read_waiter.is_pending()) {
+    auto w = std::move(m_chan->m_read_waiter);
+    w.resolve();
+  }
+}
+
+template <class T> Result<T, TryRecvError> Receiver<T>::try_recv() {
+  if (!m_chan) return err(TryRecvError::Closed);
+
+  auto v = m_chan->m_rx.try_pop();
+  if (v.is_some()) {
+    if (m_chan->m_write_waiter.is_pending()) {
+      auto w = std::move(m_chan->m_write_waiter);
+      w.resolve();
+    }
+    return ok(std::move(v).unwrap());
+  }
+  return err(m_closed() ? TryRecvError::Closed : TryRecvError::Empty);
+}
 
 /**
  * @brief Create a bounded MPSC channel.
@@ -268,7 +369,7 @@ private:
  */
 template <class T> std::pair<Sender<T>, Receiver<T>> channel(size_t cap) {
   auto [tx, rx] = list::channel<T>(cap);
-  auto chan      = Shared<typename Sender<T>::Chan>::make(std::move(tx), std::move(rx));
+  auto chan     = Shared<typename Sender<T>::Chan>::make(std::move(tx), std::move(rx));
   return {Sender<T>(chan), Receiver<T>(std::move(chan))};
 }
 
@@ -291,62 +392,49 @@ template <class T> class UnboundedReceiver;
  */
 template <class T> class UnboundedSender {
 public:
-  UnboundedSender(UnboundedSender &&) noexcept = default;
+  UnboundedSender(UnboundedSender &&) noexcept            = default;
   UnboundedSender &operator=(UnboundedSender &&) noexcept = default;
-  UnboundedSender(const UnboundedSender &) = default;
-  UnboundedSender &operator=(const UnboundedSender &) = default;
-  ~UnboundedSender() { drop(); }
+  UnboundedSender(const UnboundedSender &)                = default;
+  UnboundedSender &operator=(const UnboundedSender &)     = default;
+  ~UnboundedSender() {
+    drop();
+  }
 
   /**
    * @brief Send a value. Always succeeds — never blocks.
    *
    * @param value The value to send (moved into the channel).
    */
-  void send(T value) {
-    if (!m_chan) return;
-    m_chan->m_tx.push(std::move(value));
-    if (m_chan->m_read_waiter.is_pending()) {
-      auto w = std::move(m_chan->m_read_waiter);
-      w.resolve();
-    }
-  }
+  void send(T value);
 
   /**
    * @brief Synchronous, non-blocking send. Always succeeds.
    * @return true (unbounded send never fails due to capacity).
    */
-  bool try_send(T value) {
-    if (!m_chan) return false;
-    m_chan->m_tx.push(std::move(value));
-    return true;
-  }
+  bool try_send(T value);
 
   /** @brief Explicitly close the channel. Idempotent. */
-  void close() {
-    if (!m_chan) return;
-    m_chan->m_closed.store(true, std::memory_order_release);
-    if (m_chan->m_read_waiter.is_pending()) {
-      auto w = std::move(m_chan->m_read_waiter);
-      w.resolve();
-    }
-  }
+  void close();
 
 private:
   template <class U> friend class UnboundedReceiver;
   template <class U> friend std::pair<UnboundedSender<U>, UnboundedReceiver<U>> channel();
   struct Chan {
-    list::UnboundedTx<T>          m_tx;
-    list::UnboundedRx<T>          m_rx;
-    PromiseResolver<void>         m_read_waiter;
-    PromiseResolver<void>         m_write_waiter; // unused (unbounded never blocks on full)
-    xpp::loom::_::Atomic<size_t>  m_sender_count{1};
-    xpp::loom::_::Atomic<bool>    m_closed{false};
+    list::UnboundedTx<T>         m_tx;
+    list::UnboundedRx<T>         m_rx;
+    PromiseResolver<void>        m_read_waiter;
+    PromiseResolver<void>        m_write_waiter;
+    xpp::loom::_::Atomic<size_t> m_sender_count{1};
+    xpp::loom::_::Atomic<bool>   m_closed{false};
     Chan(list::UnboundedTx<T> tx, list::UnboundedRx<T> rx)
         : m_tx(std::move(tx)), m_rx(std::move(rx)) {}
   };
   Shared<Chan> m_chan;
   explicit UnboundedSender(Shared<Chan> c) : m_chan(std::move(c)) {}
-  void drop() { if(!m_chan)return; if(m_chan->m_sender_count.fetch_sub(1)==1)close(); }
+  void drop() {
+    if (!m_chan) return;
+    if (m_chan->m_sender_count.fetch_sub(1) == 1) close();
+  }
 };
 
 /**
@@ -360,43 +448,112 @@ private:
  */
 template <class T> class UnboundedReceiver {
 public:
-  UnboundedReceiver(UnboundedReceiver &&) noexcept = default;
+  UnboundedReceiver(UnboundedReceiver &&) noexcept            = default;
   UnboundedReceiver &operator=(UnboundedReceiver &&) noexcept = default;
 
   /**
    * @brief Asynchronously receive the next value. Suspends if empty.
    */
-  Promise<Option<T>> recv() {
-    if (!m_chan) co_return none;
-
-    while (true) {
-      auto v = m_chan->m_rx.try_pop();
-      if (v.is_some()) {
-        if (m_chan->m_write_waiter.is_pending()) {
-          auto w = std::move(m_chan->m_write_waiter);
-          w.resolve();
-        }
-        co_return xpp::some(std::move(v).unwrap());
-      }
-
-      if (m_closed() && m_chan->m_rx.empty()) co_return none;
-
-      auto pr = xpp::async<void>();
-      m_chan->m_read_waiter = std::move(pr.second);
-      co_await std::move(pr.first);
-    }
-  }
+  Promise<Option<T>> recv();
 
   /** @brief Synchronous, non-blocking receive. */
-  Option<T> try_recv() { return m_chan ? m_chan->m_rx.try_pop() : xpp::none; }
+  Option<T> try_recv() {
+    return m_chan ? m_chan->m_rx.try_pop() : xpp::none;
+  }
 
 private:
   template <class U> friend std::pair<UnboundedSender<U>, UnboundedReceiver<U>> channel();
-  using Chan    = typename UnboundedSender<T>::Chan;
+  using Chan = typename UnboundedSender<T>::Chan;
   Shared<Chan> m_chan;
   explicit UnboundedReceiver(Shared<Chan> c) : m_chan(std::move(c)) {}
-  bool m_closed() const { return m_chan->m_closed.load(std::memory_order_acquire); }
+  bool m_closed() const {
+    return m_chan->m_closed.load(std::memory_order_acquire);
+  }
 };
+
+/* ── UnboundedReceiver::recv() body ────────────────────────────────── */
+
+#if XPP_HAS_COROUTINES
+
+template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
+  if (!m_chan) co_return none;
+
+  while (true) {
+    auto v = m_chan->m_rx.try_pop();
+    if (v.is_some()) {
+      if (m_chan->m_write_waiter.is_pending()) {
+        auto w = std::move(m_chan->m_write_waiter);
+        w.resolve();
+      }
+      co_return xpp::some(std::move(v).unwrap());
+    }
+
+    if (m_closed() && m_chan->m_rx.empty()) co_return none;
+
+    auto pr               = xpp::async<void>();
+    m_chan->m_read_waiter = std::move(pr.second);
+    co_await std::move(pr.first);
+  }
+}
+
+#else // !XPP_HAS_COROUTINES
+
+template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
+  if (!m_chan) return xpp::resolve(none);
+
+  struct RecvLoop {
+    Shared<Chan> chan;
+
+    Promise<Option<T>> operator()() {
+      auto *c = chan.get();
+
+      auto v = c->m_rx.try_pop();
+      if (v.is_some()) {
+        if (c->m_write_waiter.is_pending()) {
+          auto w = std::move(c->m_write_waiter);
+          w.resolve();
+        }
+        return xpp::resolve(xpp::some(std::move(v).unwrap()));
+      }
+
+      if (c->m_closed.load(std::memory_order_acquire) && c->m_rx.empty()) return xpp::resolve(none);
+
+      auto pr          = xpp::async<void>();
+      c->m_read_waiter = std::move(pr.second);
+      return std::move(pr.first).then([self = std::move(*this)](Void) mutable { return self(); });
+    }
+  };
+
+  return RecvLoop{m_chan}();
+}
+
+#endif // XPP_HAS_COROUTINES
+
+/* ── UnboundedSender synchronous methods ──────────────────────────── */
+
+template <class T> void UnboundedSender<T>::send(T value) {
+  if (!m_chan) return;
+  m_chan->m_tx.push(std::move(value));
+  if (m_chan->m_read_waiter.is_pending()) {
+    auto w = std::move(m_chan->m_read_waiter);
+    w.resolve();
+  }
+}
+
+template <class T> bool UnboundedSender<T>::try_send(T value) {
+  if (!m_chan) return false;
+  m_chan->m_tx.push(std::move(value));
+  return true;
+}
+
+template <class T> void UnboundedSender<T>::close() {
+  if (!m_chan) return;
+  m_chan->m_closed.store(true, std::memory_order_release);
+  if (m_chan->m_read_waiter.is_pending()) {
+    auto w = std::move(m_chan->m_read_waiter);
+    w.resolve();
+  }
+}
 
 /**
  * @brief Create an unbounded MPSC channel.
@@ -409,14 +566,12 @@ private:
  */
 template <class T> std::pair<UnboundedSender<T>, UnboundedReceiver<T>> channel() {
   auto [tx, rx] = list::unbounded_channel<T>();
-  auto chan = Shared<typename UnboundedSender<T>::Chan>::make(std::move(tx), std::move(rx));
+  auto chan     = Shared<typename UnboundedSender<T>::Chan>::make(std::move(tx), std::move(rx));
   return {UnboundedSender<T>(chan), UnboundedReceiver<T>(std::move(chan))};
 }
 
 } // namespace mpsc
 } // namespace sync
 } // namespace xpp
-
-#endif // XPP_HAS_COROUTINES
 
 #endif // XPP_SYNC_MPSC_H
