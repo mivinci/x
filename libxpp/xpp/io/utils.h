@@ -20,7 +20,6 @@
 #include <sys/types.h>
 
 #include <cstddef>
-#include <utility>
 #include <vector>
 
 #include <xpp/promise.h>
@@ -97,23 +96,35 @@ template <AsyncReader R, AsyncWriter W> Promise<void> copy(R &reader, W &writer)
 
 #else // !XPP_HAS_COROUTINES
 
-/* ═══ C++11 struct+move fallback ════════════════════════════════════ */
-
-namespace _detail {
-
-/** Create an immediately-resolved Promise<void>. */
-inline Promise<void> resolve_void() {
-  return Promise<void>(::xpp::_::OwnPromiseNode<void>(
-    ::xpp::_::promise::allocate<::xpp::_::ImmediatePromiseNode<void>>(nullptr)));
-}
-
-} // namespace _detail
+/* ═══ C++11 struct+move fallback ════════════════════════════════════
+ *
+ * Replaces coroutine `while (true) { co_await ... }` loops with
+ * struct + std::move(*this) recursive chaining.
+ *
+ * read_all accumulates into a vector — a single while loop with
+ * tail-recursive .then(). copy chains two .then() levels: read → write
+ * → recurse (read again).
+ *
+ * Trade-offs:
+ *   - xpp::Shared for the 8KB buffer and vector (read_all). One heap
+ *     alloc per call — same as the coroutine version's implicit
+ *     allocation for the coroutine frame's local variables.
+ *   - Reader/Writer captured by reference (&). Must outlive the promise
+ *     chain — guaranteed because the caller holds them on stack while
+ *     awaiting the result.
+ *   - All .then() nodes are arena bump-allocated (promise_allocator.h),
+ *     so the only heap costs are the Shared<State/Buf> allocations.
+ * ═══════════════════════════════════════════════════════════════════ */
 
 /**
- * @brief Read the entire byte stream into a vector.
+ * @brief Read the entire byte stream into a vector (C++11 fallback).
+ *
+ * ReadAllLoop holds a Shared<State> (8KB buf + result vector on heap)
+ * and a reference to the reader. Each .then() iteration reads a chunk,
+ * appends to the vector, and tail-recurses until n <= 0.
  *
  * @tparam R Duck-typed: R::read(void*, size_t) must return a then-able
- *         resolving to ssize_t. n <= 0 terminates the loop.
+ *           resolving to ssize_t. n <= 0 terminates the loop.
  */
 template <class R> Promise<std::vector<uint8_t>> read_all(R &reader) {
   struct State {
@@ -140,7 +151,12 @@ template <class R> Promise<std::vector<uint8_t>> read_all(R &reader) {
 }
 
 /**
- * @brief Copy all bytes from reader to writer.
+ * @brief Copy all bytes from reader to writer (C++11 fallback).
+ *
+ * CopyLoop chains two .then() levels per iteration: read a chunk →
+ * write it → recurse. Uses a Shared<Buf> for the transfer buffer to
+ * avoid moving 8KB through each .then() node. Terminates when read
+ * returns n <= 0, returning a resolved Promise<void>.
  *
  * @tparam R Duck-typed: R::read(void*, size_t) → then-able<ssize_t>
  * @tparam W Duck-typed: W::write(const void*, size_t) → then-able<ssize_t>
@@ -159,10 +175,10 @@ template <class R, class W> Promise<void> copy(R &reader, W &writer) {
     Promise<void> operator()() {
       return reader.read(buf->data, sizeof(buf->data))
         .then([self = std::move(*this)](ssize_t n) mutable {
-          if (n <= 0) return _detail::resolve_void();
+          if (n <= 0) return xpp::resolve();
           return self.writer.write(self.buf->data, static_cast<size_t>(n))
             .then([self = std::move(self)](ssize_t) mutable {
-              return self(); // tail-recursive
+              return self(); // tail-recursive read loop
             });
         });
     }

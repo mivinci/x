@@ -7,7 +7,7 @@
  *
  * Wraps any AsyncReader (TcpStream, fs::File, etc.) with an 8KB
  * internal buffer. Small reads copy from the buffer with zero I/O
- * and zero Promise overhead; large reads (≥ 8KB) bypass the buffer
+ * and zero Promise overhead; large reads (>= 8KB) bypass the buffer
  * entirely and go directly to the inner reader.
  *
  * Primary use case: byte-at-a-time parsing over TCP (HTTP headers,
@@ -19,7 +19,13 @@
  * works with io::read_all, io::copy, or nested in another BufReader.
  * Takes ownership of the inner reader via move semantics.
  *
- * Coroutine-only (C++20). sizeof ≈ 8KB + sizeof(R).
+ * C++20: coroutine with co_await for buffer refill.
+ * C++11: struct + std::move(*this) recursive .then() chain.
+ *
+ * sizeof(BufReader) = 8 (Shared ptr). The 8KB buffer + inner reader
+ * live in a heap-allocated Shared<Inner> to avoid moving bulk state
+ * through .then() chain nodes in the C++11 path. In the C++20 path
+ * the indirection is a tiny cost for unified member layout.
  */
 
 #ifndef XPP_IO_BUF_READER_H
@@ -30,9 +36,7 @@
 #include <cstring>
 #include <utility>
 
-#include <xpp/io/util.h>
-
-#if XPP_HAS_COROUTINES
+#include <xpp/io/utils.h>
 
 namespace xpp {
 namespace io {
@@ -43,10 +47,11 @@ namespace io {
  * Maintains an 8KB internal buffer (`_::kBufSize`). The first call
  * to read() fills the buffer from the inner reader. Subsequent small
  * reads drain the buffer with zero additional I/O. When the buffer
- * is empty, it refills from the inner reader. Large reads (≥ 8KB)
+ * is empty, it refills from the inner reader. Large reads (>= 8KB)
  * skip the buffer entirely after draining any pending data.
  *
- * @tparam R Inner reader type (must satisfy AsyncReader concept).
+ * @tparam R Duck-typed: R::read(void*, size_t) must return a then-able
+ *           resolving to ssize_t.
  *
  * Usage:
  * @code
@@ -61,10 +66,12 @@ namespace io {
  *   auto all = co_await io::read_all(buf);
  * @endcode
  */
-template <AsyncReader R> class BufReader {
+template <class R> class BufReader {
 public:
   /** @brief Wrap an existing reader (takes ownership). */
-  explicit BufReader(R reader) : m_reader(std::move(reader)) {}
+  explicit BufReader(R reader) {
+    m_inner->reader = std::move(reader);
+  }
 
   BufReader(BufReader &&) noexcept            = default;
   BufReader &operator=(BufReader &&) noexcept = default;
@@ -74,69 +81,121 @@ public:
   ~BufReader() = default;
 
   /**
-   * @brief Read up to `len` bytes into `buf`. Satisfies the AsyncReader
-   *        concept, making BufReader composable with io::read_all/io::copy.
+   * @brief Read up to `len` bytes into `buf`.
    *
-   * Algorithm:
-   *   1. If the internal buffer has pending data, copy from it directly
-   *      (no I/O, no co_await).
-   *   2. If `len >= 8KB`, bypass the buffer: read directly from the inner
-   *      reader after draining any remaining buffered data.
-   *   3. Otherwise, refill the buffer from the inner reader, then copy.
-   *
-   * @param buf Destination buffer (caller-owned, must outlive the Promise).
-   * @param len Maximum bytes to read.
-   * @return    Promise resolving to bytes read (0 = EOF, <0 = error).
+   * Three paths:
+   *   1. Buffered data available → copy + resolve (zero I/O).
+   *   2. len >= 8KB → bypass buffer, read directly from inner.
+   *   3. Buffer empty → refill from inner reader, then copy.
    */
-  Promise<ssize_t> read(void *buf, size_t len) {
-    // Drain remaining buffered data first
-    if (m_pos < m_filled) {
-      size_t avail = m_filled - m_pos;
-      size_t n     = len < avail ? len : avail;
-      std::memcpy(buf, m_buf + m_pos, n);
-      m_pos += n;
-      co_return static_cast<ssize_t>(n);
-    }
-    m_pos    = 0;
-    m_filled = 0;
+  Promise<ssize_t> read(void *buf, size_t len);
 
-    // Large read: bypass buffer
-    if (len >= _::kBufSize) {
-      co_return co_await m_reader.read(buf, len);
-    }
-
-    // Refill buffer from inner reader
-    ssize_t n = co_await m_reader.read(m_buf, _::kBufSize);
-    if (n <= 0) co_return n;
-    m_filled = static_cast<size_t>(n);
-
-    // Copy requested bytes from freshly filled buffer
-    size_t copy = len < m_filled ? len : m_filled;
-    std::memcpy(buf, m_buf, copy);
-    m_pos = copy;
-    co_return static_cast<ssize_t>(copy);
-  }
-
-  /** @brief Access the inner reader (non-const). Useful for `close()` or sending. */
+  /** @brief Access the inner reader (non-const). */
   R &inner() {
-    return m_reader;
+    return m_inner->reader;
   }
 
   /** @brief Access the inner reader (const). */
   const R &inner() const {
-    return m_reader;
+    return m_inner->reader;
   }
 
 private:
-  R       m_reader;           // inner reader (owned)
-  uint8_t m_buf[_::kBufSize]; // internal buffer
-  size_t  m_pos    = 0;       // next unread position in m_buf
-  size_t  m_filled = 0;       // bytes currently in m_buf (invariant: m_pos ≤ m_filled)
+  struct Inner {
+    R       reader;
+    uint8_t buf[_::kBufSize];
+    size_t  pos    = 0;
+    size_t  filled = 0;
+  };
+  Shared<Inner> m_inner = Shared<Inner>::make();
 };
+
+/* ── read() — two implementations ─────────────────────────────────── */
+
+#if XPP_HAS_COROUTINES
+
+/* ═══ C++20: coroutine with co_await ═════════════════════════════════ */
+
+template <class R> inline Promise<ssize_t> BufReader<R>::read(void *buf, size_t len) {
+  auto *i = m_inner.get();
+
+  // Path 1: drain remaining buffered data
+  if (i->pos < i->filled) {
+    size_t avail = i->filled - i->pos;
+    size_t n     = len < avail ? len : avail;
+    std::memcpy(buf, i->buf + i->pos, n);
+    i->pos += n;
+    co_return static_cast<ssize_t>(n);
+  }
+  i->pos    = 0;
+  i->filled = 0;
+
+  // Path 2: large read bypasses buffer
+  if (len >= _::kBufSize) {
+    co_return co_await i->reader.read(buf, len);
+  }
+
+  // Path 3: refill buffer from inner reader, then copy
+  ssize_t n = co_await i->reader.read(i->buf, _::kBufSize);
+  if (n <= 0) co_return n;
+  i->filled = static_cast<size_t>(n);
+
+  size_t copy = len < i->filled ? len : i->filled;
+  std::memcpy(buf, i->buf, copy);
+  i->pos = copy;
+  co_return static_cast<ssize_t>(copy);
+}
+
+#else // !XPP_HAS_COROUTINES
+
+/* ═══ C++11: struct + std::move(*this) recursive .then() chain ════════
+ *
+ * Only path 3 (refill) needs the Refill struct — the other two paths
+ * resolve immediately. Refill holds Shared<Inner> (8 bytes) + two
+ * scalar params, moved through .then() nodes.
+ * ─────────────────────────────────────────────────────────────────── */
+
+template <class R> inline Promise<ssize_t> BufReader<R>::read(void *buf, size_t len) {
+  auto *i = m_inner.get();
+
+  if (i->pos < i->filled) {
+    size_t avail = i->filled - i->pos;
+    size_t n     = len < avail ? len : avail;
+    std::memcpy(buf, i->buf + i->pos, n);
+    i->pos += n;
+    return xpp::resolve(static_cast<ssize_t>(n));
+  }
+  i->pos    = 0;
+  i->filled = 0;
+
+  if (len >= _::kBufSize) {
+    return i->reader.read(buf, len);
+  }
+
+  struct Refill {
+    Shared<Inner> inner;
+    void         *buf;
+    size_t        len;
+
+    Promise<ssize_t> operator()() {
+      auto *i = inner.get();
+      return i->reader.read(i->buf, _::kBufSize).then([self = std::move(*this)](ssize_t n) mutable {
+        if (n <= 0) return xpp::resolve(n);
+        self.inner->filled = static_cast<size_t>(n);
+        size_t copy        = self.len < self.inner->filled ? self.len : self.inner->filled;
+        std::memcpy(self.buf, self.inner->buf, copy);
+        self.inner->pos = copy;
+        return xpp::resolve(static_cast<ssize_t>(copy));
+      });
+    }
+  };
+
+  return Refill{m_inner, buf, len}();
+}
+
+#endif // XPP_HAS_COROUTINES
 
 } // namespace io
 } // namespace xpp
-
-#endif // XPP_HAS_COROUTINES
 
 #endif // XPP_IO_BUF_READER_H

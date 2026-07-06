@@ -9,6 +9,8 @@
 #include <xpp/promise.h>
 #include <xpp/sync/mpsc.h>
 
+#include <thread>
+
 xpp::Promise<void> do_send_recv() {
   auto [tx, rx] = xpp::sync::mpsc::channel<int>(4);
   co_await tx.send(1);
@@ -182,3 +184,165 @@ TEST(MpscTest, RaiiCloseRecv) {
   xpp::WaitScope scope(loop);
   do_raii_close_recv().wait();
 }
+
+// ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
+
+#if XPP_MT
+
+TEST(MpscMtTest, CrossThreadSendRecv) {
+  auto [tx, rx] = xpp::sync::mpsc::channel<int>(4);
+
+  std::thread ta([&tx] {
+    xpp::EventLoop loop;
+    xpp::WaitScope scope(loop);
+
+    auto sender = [&]() -> xpp::Promise<void> {
+      co_await tx.send(10);
+      co_await tx.send(20);
+      co_await tx.send(30);
+      tx.close();
+      co_return;
+    };
+    sender().wait();
+  });
+
+  std::thread tb([&rx] {
+    xpp::EventLoop loop;
+    xpp::WaitScope scope(loop);
+
+    auto receiver = [&]() -> xpp::Promise<void> {
+      EXPECT_TRUE((co_await rx.recv()).is_some());
+      EXPECT_TRUE((co_await rx.recv()).is_some());
+      EXPECT_TRUE((co_await rx.recv()).is_some());
+      EXPECT_TRUE((co_await rx.recv()).is_none());
+      co_return;
+    };
+    receiver().wait();
+  });
+
+  ta.join();
+  tb.join();
+}
+
+TEST(MpscMtTest, CrossThreadBufferFull) {
+  auto [tx, rx] = xpp::sync::mpsc::channel<int>(2);
+
+  std::thread ta([&tx] {
+    xpp::EventLoop loop;
+    xpp::WaitScope scope(loop);
+
+    auto sender = [&]() -> xpp::Promise<void> {
+      co_await tx.send(1);
+      co_await tx.send(2);
+      co_await tx.send(3);
+      tx.close();
+      co_return;
+    };
+    sender().wait();
+  });
+
+  std::thread tb([&rx] {
+    xpp::EventLoop loop;
+    xpp::WaitScope scope(loop);
+
+    auto receiver = [&]() -> xpp::Promise<void> {
+      EXPECT_EQ((co_await rx.recv()).unwrap(), 1);
+      EXPECT_EQ((co_await rx.recv()).unwrap(), 2);
+      EXPECT_EQ((co_await rx.recv()).unwrap(), 3);
+      EXPECT_TRUE((co_await rx.recv()).is_none());
+      co_return;
+    };
+    receiver().wait();
+  });
+
+  ta.join();
+  tb.join();
+}
+
+TEST(MpscMtTest, TrySendRecvWorkerThread) {
+  auto [tx, rx] = xpp::sync::mpsc::channel<int>(4);
+
+  std::thread worker([&tx] {
+    for (int i = 0; i < 4; ++i) {
+      auto r = tx.try_send(i);
+      EXPECT_TRUE(r.is_ok()) << "try_send " << i << " failed";
+    }
+  });
+
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto recv_all = [&]() -> xpp::Promise<void> {
+    for (int i = 0; i < 4; ++i) {
+      auto v = co_await rx.recv();
+      EXPECT_TRUE(v.is_some());
+      EXPECT_EQ(v.unwrap(), i);
+    }
+    co_return;
+  };
+  recv_all().wait();
+  worker.join();
+}
+
+TEST(MpscMtTest, MultiProducerThreads) {
+  auto [tx, rx] = xpp::sync::mpsc::channel<int>(64);
+
+  std::thread t1([tx]() mutable {
+    for (int i = 0; i < 10; ++i)
+      EXPECT_TRUE(tx.try_send(i).is_ok());
+  });
+  std::thread t2([tx]() mutable {
+    for (int i = 100; i < 110; ++i)
+      EXPECT_TRUE(tx.try_send(i).is_ok());
+  });
+  std::thread t3([tx]() mutable {
+    for (int i = 200; i < 210; ++i)
+      EXPECT_TRUE(tx.try_send(i).is_ok());
+  });
+
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto consumer = [&]() -> xpp::Promise<void> {
+    int sum = 0;
+    for (int i = 0; i < 30; ++i) {
+      auto v = co_await rx.recv();
+      EXPECT_TRUE(v.is_some());
+      sum += v.unwrap();
+    }
+    EXPECT_EQ(sum, 3135);
+    co_return;
+  };
+  consumer().wait();
+
+  t1.join();
+  t2.join();
+  t3.join();
+}
+
+TEST(MpscMtTest, UnboundedCrossThread) {
+  auto [tx, rx] = xpp::sync::mpsc::channel<int>();
+
+  std::thread worker([&tx] {
+    for (int i = 1; i <= 5; ++i)
+      EXPECT_TRUE(tx.try_send(i));
+    tx.close();
+  });
+
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto recver = [&]() -> xpp::Promise<void> {
+    for (int i = 1; i <= 5; ++i) {
+      auto v = co_await rx.recv();
+      EXPECT_TRUE(v.is_some());
+      EXPECT_EQ(v.unwrap(), i);
+    }
+    EXPECT_TRUE((co_await rx.recv()).is_none());
+    co_return;
+  };
+  recver().wait();
+  worker.join();
+}
+
+#endif // XPP_MT

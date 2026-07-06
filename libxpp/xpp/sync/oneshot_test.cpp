@@ -9,6 +9,8 @@
 #include <xpp/promise.h>
 #include <xpp/sync/oneshot.h>
 
+#include <thread>
+
 xpp::Promise<void> do_send_recv() {
   auto [tx, rx] = xpp::sync::oneshot::channel<int>();
   tx.send(42);
@@ -36,3 +38,83 @@ TEST(OneshotTest, String) {
   xpp::WaitScope scope(loop);
   do_string().wait();
 }
+
+// ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
+
+#if XPP_MT
+
+TEST(OneshotMtTest, SendFromWorkerRecvOnLoop) {
+  auto [tx, rx] = xpp::sync::oneshot::channel<int>();
+
+  std::thread worker([&tx] { tx.send(42); });
+
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto recver = [&]() -> xpp::Promise<void> {
+    int val = co_await std::move(rx).recv();
+    EXPECT_EQ(val, 42);
+    co_return;
+  };
+  recver().wait();
+  worker.join();
+}
+
+TEST(OneshotMtTest, SendOnLoopRecvInWorker) {
+  auto [tx, rx] = xpp::sync::oneshot::channel<int>();
+
+  std::thread worker([&rx]() mutable {
+    xpp::EventLoop loop;
+    xpp::WaitScope scope(loop);
+
+    auto recver = [&]() -> xpp::Promise<void> {
+      int val = co_await std::move(rx).recv();
+      EXPECT_EQ(val, 99);
+      co_return;
+    };
+    recver().wait();
+  });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  tx.send(99);
+  worker.join();
+}
+
+TEST(OneshotMtTest, ResolveBeforeAwait) {
+  auto [tx, rx] = xpp::sync::oneshot::channel<int>();
+  tx.send(77);
+
+  std::thread worker([&rx]() mutable {
+    xpp::EventLoop loop;
+    xpp::WaitScope scope(loop);
+
+    auto recver = [&]() -> xpp::Promise<void> {
+      int val = co_await std::move(rx).recv();
+      EXPECT_EQ(val, 77);
+      co_return;
+    };
+    recver().wait();
+  });
+
+  worker.join();
+}
+
+TEST(OneshotMtTest, MoveOnlyType) {
+  auto [tx, rx] = xpp::sync::oneshot::channel<std::unique_ptr<int>>();
+
+  std::thread worker([&tx] { tx.send(std::make_unique<int>(42)); });
+
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto recver = [&]() -> xpp::Promise<void> {
+    auto val = co_await std::move(rx).recv();
+    EXPECT_NE(val, nullptr);
+    EXPECT_EQ(*val, 42);
+    co_return;
+  };
+  recver().wait();
+  worker.join();
+}
+
+#endif // XPP_MT

@@ -40,7 +40,7 @@ if(XPP_BUILD_TESTS)
     endif()
 
     # Tests that use co_await (C++20) but don't have "coroutine" in the filename
-    if(test_name STREQUAL "util_test" OR
+    if(test_name STREQUAL "utils_test" OR
        test_name STREQUAL "buf_reader_test" OR
        test_name STREQUAL "buf_writer_test" OR
        test_name STREQUAL "take_test" OR
@@ -60,21 +60,28 @@ if(XPP_BUILD_TESTS)
         target_compile_options(${test_name} PRIVATE -fcoroutines)
       endif()
     endif()
-    # Multi-threaded test: C++20 + pthread
-    if(test_name MATCHES "_mt_test")
-      target_compile_features(${test_name} PRIVATE cxx_std_20)
-      set_tests_properties(${test_name} PROPERTIES LABELS "xpp;needs-cxx20")
-      set(THREADS_PREFER_PTHREAD_FLAG ON)
-      find_package(Threads REQUIRED)
-      target_link_libraries(${test_name} PRIVATE Threads::Threads)
-      if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
-        target_compile_options(${test_name} PRIVATE -fcoroutines)
-      endif()
-    endif()
     # Structured bindings (C++17)
     if(test_name STREQUAL "list_test")
       target_compile_features(${test_name} PRIVATE cxx_std_17)
       set_tests_properties(${test_name} PROPERTIES LABELS "xpp;needs-cxx20")
     endif()
+  endforeach()
+endif()
+
+# ── Benchmarks ────────────────────────────────────────────────────────
+
+option(XPP_BUILD_BENCHMARKS "Build libxpp benchmarks" OFF)
+
+if(XPP_BUILD_BENCHMARKS)
+  find_package(benchmark REQUIRED)
+
+  file(GLOB_RECURSE bench_files "sync/*_bench.cpp")
+  foreach(bench_file ${bench_files})
+    get_filename_component(bench_name ${bench_file} NAME_WE)
+    x_add_benchmark(${bench_name}
+      SOURCES ${bench_file}
+      LIBS    xpp
+    )
+    target_compile_features(${bench_name} PRIVATE cxx_std_20)
   endforeach()
 endif()

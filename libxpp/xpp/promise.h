@@ -262,6 +262,30 @@ template <class T> Promise<T> resolve(T v) {
     _::OwnPromiseNode<T>(_::promise::allocate<_::ImmediatePromiseNode<T>>(nullptr, std::move(v))));
 }
 
+/**
+ * @brief Create an immediately-resolved Promise<void>.
+ *
+ * The void counterpart of resolve(v) — no value to move, no template
+ * deduction needed. Returns a promise that is already fulfilled in a
+ * single arena allocation (8B bump inside the head node's arena).
+ *
+ * For chaining after flush(), close(), or any async operation whose
+ * only job is to signal completion.
+ *
+ * @code
+ *   Promise<void> flush() override {
+ *     if (m_pos == 0) return xpp::resolve();  // nothing to flush
+ *     return m_writer.write(m_buf, m_pos).then([...](ssize_t) {
+ *       return xpp::resolve();
+ *     });
+ *   }
+ * @endcode
+ */
+inline Promise<void> resolve() {
+  return Promise<void>(
+    _::OwnPromiseNode<void>(_::promise::allocate<_::ImmediatePromiseNode<void>>(nullptr)));
+}
+
 /** Resolve after `ms` milliseconds. Always returns Promise<void>. */
 inline Promise<void> after(uint64_t ms) {
   return adapt<void, TimerAdapter>(ms);

@@ -4,7 +4,7 @@
 
 `xpp::io::simplex(size)` creates a unidirectional pipe — a `SimplexReader` and `SimplexWriter` sharing a single ring buffer. Simpler than `duplex()` which provides two buffers for bidirectional communication. Like Go's `io.Pipe`.
 
-Coroutine-only (C++20). Single-threaded.
+Coroutine (C++20) or struct+move fallback (C++11). Single-threaded.
 
 ```cpp
 #include <xpp/io/simplex.h>

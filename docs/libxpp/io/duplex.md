@@ -4,7 +4,7 @@
 
 `xpp::io::duplex(size)` creates a pair of connected `DuplexStream`s backed by two internal ring buffers. Each half satisfies both `AsyncReader` and `AsyncWriter` — writing to one side makes data readable on the other. Like tokio's `DuplexStream` or Go's `net.Pipe`.
 
-Coroutine-only (C++20). Single-threaded — no atomics or mutex.
+Coroutine (C++20) or struct+move fallback (C++11). Single-threaded — no atomics or mutex.
 
 ```cpp
 #include <xpp/io/duplex.h>

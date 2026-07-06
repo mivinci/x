@@ -4,7 +4,7 @@
 
 `xpp::io::BufWriter<W>` wraps any `AsyncWriter` with an internal 8KB buffer. Small writes fill the buffer; when it's full, pending data is automatically flushed to the inner writer. Large writes (≥ 8KB) bypass the buffer entirely. Reduces per-call syscall overhead for message-building over TCP.
 
-Satisfies the `AsyncWriter` concept — composable with `io::copy`. Takes ownership of the inner writer via move semantics. C++20 coroutine-only.
+Satisfies the `AsyncWriter` concept — composable with `io::copy`. Takes ownership of the inner writer via move semantics. Coroutine (C++20) or struct+move fallback (C++11).
 
 **IMPORTANT**: `flush()` must be called explicitly before dropping. The destructor does **NOT** flush un-sent data — matching Rust's BufWriter behavior.
 
@@ -103,6 +103,6 @@ co_await buf.flush();
 buf.inner().close();  // close the underlying TcpStream
 ```
 
-## Coroutine Examples
+## Examples
 
-`BufWriter` is itself coroutine-based — all examples above are valid coroutine usage. See [Utilities](util.md) for how to compose `BufWriter` with `io::copy`.
+All examples above show coroutine usage (C++20). For C++11, `BufWriter` works identically — the `.write()` / `.flush()` methods use struct+move instead of `co_await` internally. See [Utilities](util.md) for composing `BufWriter` with `io::copy`.

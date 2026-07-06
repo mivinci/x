@@ -84,6 +84,26 @@ endif()
 
 # ── External dependencies ─────────────────────────────────────────────
 find_package(Libcurl REQUIRED)
+find_package(benchmark QUIET)
+
+# Promote IMPORTED targets to GLOBAL so sibling subdirs can link against them.
+if(benchmark_FOUND)
+  foreach(_tgt benchmark::benchmark benchmark::benchmark_main)
+    if(TARGET ${_tgt})
+      get_target_property(_aliased ${_tgt} ALIASED_TARGET)
+      if(_aliased)
+        set(_real ${_aliased})
+      else()
+        set(_real ${_tgt})
+      endif()
+      get_target_property(_is_global ${_real} IMPORTED_GLOBAL)
+      if(NOT _is_global)
+        set_target_properties(${_real} PROPERTIES IMPORTED_GLOBAL TRUE)
+      endif()
+    endif()
+  endforeach()
+endif()
+find_package(benchmark QUIET)
 
 # Filter non-existent paths from Libcurl::Libcurl's include directories.
 # Homebrew's curl cmake config may reference an Xcode SDK path that

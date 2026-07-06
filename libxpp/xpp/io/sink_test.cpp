@@ -7,7 +7,7 @@
  */
 #include <gtest/gtest.h>
 #include <xpp/io/sink.h>
-#include <xpp/io/util.h>
+#include <xpp/io/utils.h>
 #include <xpp/net/tcp.h>
 #include <xpp/net/test_helpers.h>
 #include <xpp/promise.h>

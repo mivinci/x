@@ -4,7 +4,7 @@
 
 `xpp::io::Take<R>` wraps any `AsyncReader` with a byte limit. Once the limit is reached, `read()` returns 0 (EOF) regardless of whether the inner reader has more data. Essential for HTTP `Content-Length` parsing and protocol frame boundaries where the reader must not consume beyond a known byte limit.
 
-Satisfies the `AsyncReader` concept — composable with `io::read_all`, `io::copy`, `BufReader`, or nested in another `Take`. Takes ownership of the inner reader via move semantics. C++20 coroutine-only.
+Satisfies the `AsyncReader` concept — composable with `io::read_all`, `io::copy`, `BufReader`, or nested in another `Take`. Takes ownership of the inner reader via move semantics. Coroutine (C++20) or struct+move fallback (C++11).
 
 ```cpp
 #include <xpp/io/take.h>
@@ -80,6 +80,6 @@ ssize_t n2 = co_await limit.read(buf, 10);
 // n2 == 0 (EOF), inner reader untouched
 ```
 
-## Coroutine Examples
+## Examples
 
-`Take` is itself coroutine-based — all examples above are valid coroutine usage. See [Utilities](util.md) for composing `Take` with `io::read_all` and `io::copy`.
+All examples above show coroutine usage (C++20). For C++11, `Take` works identically — the `.read()` method uses `.then()` instead of `co_await` internally. See [Utilities](util.md) for composing `Take` with `io::read_all` and `io::copy`.

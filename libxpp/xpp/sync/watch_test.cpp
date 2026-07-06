@@ -9,6 +9,9 @@
 #include <xpp/promise.h>
 #include <xpp/sync/watch.h>
 
+#include <thread>
+#include <chrono>
+
 using namespace xpp::sync::watch;
 
 // ── W-2: send returns old value ─────────────────────────────────────
@@ -118,3 +121,34 @@ TEST(WatchTest, Subscribe) {
   xpp::WaitScope scope(loop);
   do_subscribe().wait();
 }
+
+// ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
+
+#if XPP_MT
+
+TEST(WatchMtTest, WorkerSendLoopChanged) {
+  auto [tx, rx] = channel(0);
+
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  std::thread worker([&tx] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    tx.send(1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    tx.send(2);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    tx.send(3);
+  });
+
+  auto recver = [&]() -> xpp::Promise<void> {
+    co_await rx.changed(); // 1
+    co_await rx.changed(); // 2
+    co_await rx.changed(); // 3
+    co_return;
+  };
+  recver().wait();
+  worker.join();
+}
+
+#endif // XPP_MT

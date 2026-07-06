@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include <xpp/io/repeat.h>
-#include <xpp/io/util.h>
+#include <xpp/io/utils.h>
 
 TEST(RepeatTest, SingleByte) {
   xpp::EventLoop loop;
