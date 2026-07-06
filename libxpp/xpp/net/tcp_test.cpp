@@ -32,7 +32,7 @@ TEST(TcpConnTest, ConnectFailure) {
   xpp::WaitScope scope(loop);
 
   // Port 1 on loopback: ECONNREFUSED (no listener, port < 1024 needs root)
-  auto result = TcpStream::connect("127.0.0.1", 1).wait();
+  auto result = TcpStream::connect("127.0.0.1:1").wait();
   ASSERT_TRUE(result.is_err());
 }
 
@@ -56,7 +56,7 @@ TEST(TcpConnTest, ConnectAndSendRecv) {
   auto      accept_p =
     listener.accept().then([&server_conn](auto p) { server_conn = std::move(p.first); });
 
-  auto connect_r = TcpStream::connect("127.0.0.1", port).wait();
+  auto connect_r = TcpStream::connect(("127.0.0.1:" + std::to_string(port)).c_str()).wait();
   ASSERT_TRUE(connect_r.is_ok());
   TcpStream client_conn = std::move(connect_r).unwrap();
 
@@ -104,7 +104,7 @@ TEST(TcpConnTest, PeerAndLocalAddr) {
   auto accept_p = listener.accept().then([&server_peer](auto p) { server_peer = p.second; });
 
   TcpStream client;
-  auto      connect_p = TcpStream::connect("127.0.0.1", port).then([&client](auto r) {
+  auto      connect_p = TcpStream::connect(("127.0.0.1:" + std::to_string(port)).c_str()).then([&client](auto r) {
     ASSERT_TRUE(r.is_ok());
     client = std::move(r).unwrap();
   });
@@ -140,7 +140,7 @@ TEST(TcpListenerTest, BindAndAccept) {
   bool accepted = false;
   auto accept_p = listener.accept().then([&accepted](auto p) { accepted = p.first.is_open(); });
 
-  auto connect_p = TcpStream::connect("127.0.0.1", port).then([](auto) {});
+  auto connect_p = TcpStream::connect(("127.0.0.1:" + std::to_string(port)).c_str()).then([](auto) {});
 
   connect_p.wait();
   accept_p.wait();
@@ -163,14 +163,14 @@ TEST(TcpListenerTest, SequentialAccept) {
 
   // First accept + connect
   auto p1 = listener.accept().then([&accept_count](auto) { accept_count++; });
-  auto c1 = TcpStream::connect("127.0.0.1", port);
+  auto c1 = TcpStream::connect(("127.0.0.1:" + std::to_string(port)).c_str());
   c1.then([](auto) {}).wait();
   p1.wait();
   ASSERT_EQ(accept_count, 1);
 
   // Second accept + connect
   auto p2 = listener.accept().then([&accept_count](auto) { accept_count++; });
-  auto c2 = TcpStream::connect("127.0.0.1", port);
+  auto c2 = TcpStream::connect(("127.0.0.1:" + std::to_string(port)).c_str());
   c2.then([](auto) {}).wait();
   p2.wait();
   EXPECT_EQ(accept_count, 2);

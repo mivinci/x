@@ -96,6 +96,7 @@ graph TD
 - [Deferred Resolution](deferred.md) — `async()`, `PromiseResolver`, cross-thread resolve
 - [Timers & Timeouts](timers.md) — `after(ms)`, timeout pattern with `race`
 - [Combinators](combinators.md) — `all()`, `race()`, concurrent composition
+- [Utilities](utils.md) — `try_next()`, sequential fall-through
 - [Custom Adapters](adapter.md) — `adapt`, `work`, Adapter contract, `TimerAdapter`, `WorkAdapter`
 - [C++20 Coroutines](coroutine.md) — `co_await` / `co_return` with `Promise<T>` (no `Task<T>`)
 - [Internals](internals.md) — `PromiseNode` hierarchy, waker system, `ResolveState`
@@ -133,3 +134,4 @@ graph TD
 | `async<T>()` | → `pair<Promise<T>, PromiseResolver<T>>` |
 | `all(Promise<Ts>...)` | Wait for all → `tuple` or `void` |
 | `race(Promise<T>, Promise<T>...)` | First resolved wins |
+| `try_next(items, fn)` | Try each item sequentially, return first `ok` |

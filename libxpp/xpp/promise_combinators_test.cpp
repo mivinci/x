@@ -59,8 +59,12 @@ TEST(AllTest, DeferredHeterogeneous) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p1, r1] = xpp::async<int>();
-  auto [p2, r2] = xpp::async<std::string>();
+  auto pr1  = xpp::async<int>();
+  auto p1   = std::move(pr1.first);
+  auto r1   = std::move(pr1.second);
+  auto pr2  = xpp::async<std::string>();
+  auto p2   = std::move(pr2.first);
+  auto r2   = std::move(pr2.second);
 
   auto t1 = schedule_resolve(r1, 99, 10);
   auto t2 = schedule_resolve(r2, std::string("deferred"), 30);
@@ -74,8 +78,12 @@ TEST(AllTest, DeferredAllVoid) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p1, r1] = xpp::async<void>();
-  auto [p2, r2] = xpp::async<void>();
+  auto pr1  = xpp::async<void>();
+  auto p1   = std::move(pr1.first);
+  auto r1   = std::move(pr1.second);
+  auto pr2  = xpp::async<void>();
+  auto p2   = std::move(pr2.first);
+  auto r2   = std::move(pr2.second);
 
   auto t1 = schedule_resolve(r1, 10);
   auto t2 = schedule_resolve(r2, 30);
@@ -139,8 +147,12 @@ TEST(RaceTest, DeferredViaResolver) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p1, r1] = xpp::async<int>();
-  auto [p2, r2] = xpp::async<int>();
+  auto pr1  = xpp::async<int>();
+  auto p1   = std::move(pr1.first);
+  auto r1   = std::move(pr1.second);
+  auto pr2  = xpp::async<int>();
+  auto p2   = std::move(pr2.first);
+  auto r2   = std::move(pr2.second);
 
   auto t2 = schedule_resolve(r2, 77, 10); // r2 resolves first
   auto t1 = schedule_resolve(r1, 88, 50);

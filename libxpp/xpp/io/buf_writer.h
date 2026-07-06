@@ -57,7 +57,7 @@ namespace io {
  *
  * Usage:
  * @code
- *   auto conn = co_await TcpStream::connect("host", port);
+ *   auto conn = co_await TcpStream::connect("host:port");
  *   BufWriter<TcpStream> buf(std::move(conn));
  *
  *   // Small writes accumulate — no syscalls yet

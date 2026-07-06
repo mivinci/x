@@ -37,6 +37,7 @@
 #include <xpp/net/tls.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
+#include <xpp/promise_utils.h>
 #include <xpp/rc.h>
 #include <xpp/result.h>
 #include <xpp/shared.h>
@@ -63,11 +64,22 @@ class TcpConnectAdapter;
  */
 class TcpStream {
 public:
-  /** @brief Async connect. Resolves to Ok(TcpStream) on success, Err(io::Error) on failure. */
-  static Promise<io::Result<TcpStream>> connect(const char *host, uint16_t port,
+  /**
+   * @brief Async connect to an address string.
+   *
+   * Accepts "IP:port" (e.g. "127.0.0.1:9090", "[::1]:9090") — resolved
+   * synchronously. Also accepts "hostname:port" (e.g. "example.com:80") —
+   * resolved asynchronously via lookup_host().
+   *
+   * Returns Err(InvalidInput) on malformed input, Err(HostNotFound)
+   * if the hostname can't be resolved, or Err(io::Error) on connect failure.
+   *
+   * Aligned with TcpListener::bind(const char *addr).
+   */
+  static Promise<io::Result<TcpStream>> connect(const char                *addr,
                                                 Option<const TlsContext &> tls = none);
 
-  /** @brief Async connect by SocketAddr (skips DNS). */
+  /** @brief Async connect to a SocketAddr (skips DNS). */
   static Promise<io::Result<TcpStream>> connect(SocketAddr                 addr,
                                                 Option<const TlsContext &> tls = none);
 
@@ -479,20 +491,53 @@ inline Promise<io::Result<TcpStream>> TcpStream::connect_with_conf(const char *h
   return std::move(pr.first);
 }
 
-inline Promise<io::Result<TcpStream>> TcpStream::connect(const char *host, uint16_t port,
+inline Promise<io::Result<TcpStream>> TcpStream::connect(const char                *addr,
                                                          Option<const TlsContext &> tls) {
-  xTcpConnectConf conf{};
-  if (tls.is_some() && tls.unwrap().is_valid()) {
-    conf.tls_ctx = tls.unwrap().raw();
+  if (!addr || *addr == '\0') {
+    return xpp::resolve(
+      io::Result<TcpStream>(xpp::err, io::Error::from_kind(io::ErrorKind::InvalidInput)));
   }
-  return connect_with_conf(host, port, &conf);
+
+  // IP literal → connect directly (no DNS)
+  auto parsed = SocketAddr::parse(addr);
+  if (parsed.is_ok()) {
+    return connect(parsed.unwrap(), tls);
+  }
+
+  // hostname:port → async DNS → try each resolved address (happy eyeballs)
+  auto hp_r = parse_host_port(addr);
+  if (hp_r.is_err()) {
+    return xpp::resolve(io::Result<TcpStream>(xpp::err, hp_r.unwrap_err()));
+  }
+  auto hp = std::move(hp_r).unwrap();
+
+  return lookup_host(hp.first.c_str()).then([port = hp.second, tls](std::vector<SocketAddr> addrs) {
+    if (addrs.empty()) {
+      return xpp::resolve(
+        io::Result<TcpStream>(xpp::err, io::Error::from_kind(io::ErrorKind::HostNotFound)));
+    }
+
+    // Build conf once (TlsContext* inside survives as long as TlsContext does).
+    auto conf = Shared<xTcpConnectConf>::make();
+    if (tls.is_some() && tls.unwrap().is_valid()) {
+      conf->tls_ctx = tls.unwrap().raw();
+    }
+
+    // Tail-recursive happy eyeballs: try each resolved address
+    return xpp::try_next(std::move(addrs), [conf](const SocketAddr &a) {
+      return TcpStream::connect_with_conf(a.ip().to_string().c_str(), a.port(), conf.get());
+    })();
+  });
 }
 
 inline Promise<io::Result<TcpStream>> TcpStream::connect(SocketAddr                 addr,
                                                          Option<const TlsContext &> tls) {
-  // Pass the IP string directly — xTcpConnect parses literal IPs without DNS.
-  std::string ip = addr.ip().to_string();
-  return connect(ip.c_str(), addr.port(), tls);
+  std::string     ip = addr.ip().to_string();
+  xTcpConnectConf conf{};
+  if (tls.is_some() && tls.unwrap().is_valid()) {
+    conf.tls_ctx = tls.unwrap().raw();
+  }
+  return connect_with_conf(ip.c_str(), addr.port(), &conf);
 }
 
 } // namespace net

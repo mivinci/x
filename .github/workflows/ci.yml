@@ -32,13 +32,21 @@ on:
 
 jobs:
   test:
-    name: ${{ matrix.os }} / ${{ matrix.tls }}
+    name: ${{ matrix.os }} / ${{ matrix.tls }} / C++${{ matrix.cxx_std }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         tls: [openssl, mbedtls]
+        cxx_std: [20]
+        include:
+          - os: ubuntu-latest
+            tls: openssl
+            cxx_std: 11
+          - os: macos-latest
+            tls: openssl
+            cxx_std: 11
 
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +107,21 @@ jobs:
             echo "filter=-L nosuchlabel" >> "$GITHUB_OUTPUT"
           fi
 
+      # C++11 builds can't compile coroutine/C++17 tests, so exclude them
+      - name: Append C++ standard test filter
+        id: scope-cxx
+        run: |
+          if [ "${{ matrix.cxx_std }}" = "11" ]; then
+            FILTER="${{ steps.scope.outputs.filter }}"
+            if [ -z "$FILTER" ]; then
+              echo "filter=-LE needs-cxx20" >> "$GITHUB_OUTPUT"
+            else
+              echo "filter=$FILTER -LE needs-cxx20" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "filter=${{ steps.scope.outputs.filter }}" >> "$GITHUB_OUTPUT"
+          fi
+
       # ── Build cache ────────────────────────────────────────────────────
       - name: Compute cache key
         id: cache-key
@@ -109,15 +132,16 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: build
-          key: build-${{ runner.os }}-${{ matrix.tls }}-${{ steps.cache-key.outputs.hash }}
+          key: build-${{ runner.os }}-${{ matrix.tls }}-cxx${{ matrix.cxx_std }}-${{ steps.cache-key.outputs.hash }}
           restore-keys: |
-            build-${{ runner.os }}-${{ matrix.tls }}-
+            build-${{ runner.os }}-${{ matrix.tls }}-cxx${{ matrix.cxx_std }}-
 
       # ── Build & Test ──────────────────────────────────────────────────
       - name: Build & Test (Linux)
         if: runner.os == 'Linux'
         env:
-          CTEST_ARGS: ${{ steps.scope.outputs.filter }}
+          CTEST_ARGS: ${{ steps.scope-cxx.outputs.filter }}
+          CMAKE_CXX_STANDARD: ${{ matrix.cxx_std }}
         run: |
           rm -f build/CMakeCache.txt
           bash scripts/test-linux.sh -t ${{ matrix.tls }} -j $(nproc) -B build --asan
@@ -125,7 +149,8 @@ jobs:
       - name: Build & Test (macOS)
         if: runner.os == 'macOS'
         env:
-          CTEST_ARGS: ${{ steps.scope.outputs.filter }}
+          CTEST_ARGS: ${{ steps.scope-cxx.outputs.filter }}
+          CMAKE_CXX_STANDARD: ${{ matrix.cxx_std }}
         run: |
           rm -f build/CMakeCache.txt
           zsh scripts/test-mac.sh -t ${{ matrix.tls }} -j $(sysctl -n hw.ncpu) -B build --asan

@@ -50,7 +50,7 @@ namespace io {
  *
  * Usage:
  * @code
- *   auto conn = co_await TcpStream::connect("host", port);
+ *   auto conn = co_await TcpStream::connect("host:port");
  *   BufReader<TcpStream> buf(std::move(conn));
  *
  *   // Byte-at-a-time parsing with zero per-byte Promise overhead

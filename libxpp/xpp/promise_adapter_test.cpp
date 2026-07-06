@@ -24,7 +24,9 @@ using namespace xpp;
 TEST(PromiseResolverTest, ResolveBeforeWait) {
   EventLoop loop;
   WaitScope scope(loop);
-  auto [p, r] = async<int>();
+  auto pr = async<int>();
+  auto p  = std::move(pr.first);
+  auto r  = std::move(pr.second);
   r.resolve(42);
   EXPECT_EQ(p.wait(), 42);
 }
@@ -53,7 +55,9 @@ TEST(PromiseResolverTest, ResolveAfterPromiseDestroyed) {
   WaitScope            scope(loop);
   PromiseResolver<int> r;
   {
-    auto [p, r2] = async<int>();
+    auto pr = async<int>();
+    auto p  = std::move(pr.first);
+    auto r2 = std::move(pr.second);
     r            = std::move(r2);
   }
   r.resolve(42);
@@ -63,7 +67,9 @@ TEST(PromiseResolverTest, ResolveAfterPromiseDestroyed) {
 TEST(PromiseResolverTest, DoubleResolve) {
   EventLoop loop;
   WaitScope scope(loop);
-  auto [p, r] = async<int>();
+  auto pr = async<int>();
+  auto p  = std::move(pr.first);
+  auto r  = std::move(pr.second);
   r.resolve(42);
   r.resolve(99);
   EXPECT_EQ(p.wait(), 42);
@@ -85,7 +91,9 @@ TEST(PromiseResolverTest, CrossThreadResolve) {
 TEST(PromiseResolverTest, IsPending) {
   EventLoop loop;
   WaitScope scope(loop);
-  auto [p, r] = async<int>();
+  auto pr = async<int>();
+  auto p  = std::move(pr.first);
+  auto r  = std::move(pr.second);
   EXPECT_TRUE(r.is_pending());
   r.resolve(42);
   EXPECT_FALSE(r.is_pending());
