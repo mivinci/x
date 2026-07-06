@@ -15,10 +15,8 @@ more than once is safe — only the first call takes effect (atomic CAS).
 #include <xpp/promise.h>
 #include <xpp/sync/oneshot.h>
 
-using namespace xpp::sync::oneshot;
-
 // Fire-and-forget: worker thread computes a result, main thread awaits it
-auto [tx, rx] = channel<int>();
+auto [tx, rx] = xpp::sync::oneshot::channel<int>();
 
 std::thread worker([tx = std::move(tx)]() mutable {
   tx.send(42);

@@ -14,9 +14,7 @@ bounded buffer wraps around. Receivers that fall behind get `RecvError::Lagged`.
 
 ```cpp
 #include <xpp/sync/broadcast.h>
-using namespace xpp::sync::broadcast;
-
-auto [tx, rx1] = channel<std::string>(16);
+auto [tx, rx1] = xpp::sync::broadcast::channel<std::string>(16);
 
 // Create a second receiver
 auto rx2 = tx.subscribe();
@@ -40,7 +38,7 @@ auto v5 = co_await rx3.recv();  // Ok("!") — didn't see hello/world
 ## Handling lag
 
 ```cpp
-auto [tx, rx] = channel<int>(2);
+auto [tx, rx] = xpp::sync::broadcast::channel<int>(2);
 
 tx.send(1);
 tx.send(2);

@@ -18,9 +18,7 @@ Bounded and unbounded variants available:
 
 ```cpp
 #include <xpp/sync/mpsc.h>
-using namespace xpp::sync::mpsc;
-
-auto [tx, rx] = channel<int>(16);
+auto [tx, rx] = xpp::sync::mpsc::channel<int>(16);
 
 // Async: suspends when buffer is full
 co_await tx.send(42);
@@ -41,7 +39,7 @@ auto v = rx.try_recv();       // Result<T, TryRecvError>
 ## Unbounded channel
 
 ```cpp
-auto [tx, rx] = channel<int>();  // no capacity argument
+auto [tx, rx] = xpp::sync::mpsc::channel<int>();  // no capacity argument
 
 // Send never blocks — always succeeds
 tx.send(42);       // void — no failure case
