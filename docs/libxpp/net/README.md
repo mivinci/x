@@ -17,7 +17,7 @@ using xpp::net::TcpListener;
 
 // TCP echo server + client in one chain
 auto server = TcpListener::bind("127.0.0.1:9090").wait().unwrap();
-auto client_p = TcpStream::connect("127.0.0.1", 9090).then([](TcpStream c) {
+auto client_p = TcpStream::connect("127.0.0.1:9090").then([](TcpStream c) {
     return c.write("hi", 2).then([c](ssize_t) mutable {
         char buf[64];
         return c.read(buf, 64);
@@ -47,7 +47,7 @@ TCP                           UDP                    DNS                URL/TLS
 ├── TcpStream                   ├── UdpSocket          ├── lookup_host()  ├── Url (sync)
 │   ├── xTcpConn (libx)       │   ├── int m_fd       │   └── adapt()    │   └── xUrl
 │   ├── AsyncFd (readiness)   │   └── AsyncFd        └── LookupHostAdapter  ├── TlsConfig
-│   └── connect via adapt()   └── bind/recv_from/send_to                  └── TlsContext
+│   ├── connect via async()+new  └── bind/recv_from/send_to                └── TlsContext
 ├── TcpListener                                                              (RAII)
 │   ├── xTcpListener
 │   └── accept via adapt()
@@ -69,7 +69,7 @@ TCP                           UDP                    DNS                URL/TLS
 | Aspect | xpp::net | tokio::net |
 | -------- | ---------- | ------------ |
 | Async model | Poll-based Promise + `wait()` | `async fn` + `.await` |
-| TCP connect | `Promise<TcpStream>` (adapt) | `Future<Result<TcpStream>>` |
+| TCP connect | `Promise<TcpStream>` (async()+new) | `Future<Result<TcpStream>>` |
 | Readiness | `AsyncFd` (edge-triggered) | `mio` (edge-triggered) |
 | Fast path | `::read` + EAGAIN → readiness | `read` + EAGAIN → readiness |
 | TLS | `Option<const TlsContext&>` to `connect()` | `TlsConnector::connect()` |

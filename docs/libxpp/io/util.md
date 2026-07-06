@@ -13,7 +13,7 @@ xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
 // Copy from TcpStream to File
-auto stream = xpp::net::TcpStream::connect("127.0.0.1", 9090).wait().unwrap();
+auto stream = xpp::net::TcpStream::connect("127.0.0.1:9090").wait().unwrap();
 auto file = xpp::fs::File::create("output.bin").wait();
 
 xpp::io::copy(stream, file).wait();
@@ -49,7 +49,7 @@ The reader must have `read(void*, size_t) → Promise<ssize_t>`. The writer must
 
 ```cpp
 xpp::Promise<void> fetch() {
-    auto stream = co_await xpp::net::TcpStream::connect("example.com", 80);
+    auto stream = co_await xpp::net::TcpStream::connect("example.com:80");
     co_await stream.write("GET / HTTP/1.0\r\n\r\n", 18);
     auto data = co_await xpp::io::read_all(stream);
     printf("%.*s\n", (int)data.size(), data.data());
@@ -60,7 +60,7 @@ xpp::Promise<void> fetch() {
 
 ```cpp
 xpp::Promise<void> download() {
-    auto stream = co_await xpp::net::TcpStream::connect("example.com", 80);
+    auto stream = co_await xpp::net::TcpStream::connect("example.com:80");
     co_await stream.write("GET / HTTP/1.0\r\n\r\n", 18);
 
     auto file = co_await xpp::fs::File::create("response.txt");

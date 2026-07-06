@@ -93,7 +93,9 @@ TEST(PromiseTest, DeferredResolveInt) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r]  = xpp::async<int>();
+  auto pr       = xpp::async<int>();
+  auto p        = std::move(pr.first);
+  auto r        = std::move(pr.second);
   xpp::Timer t = schedule_resolve(r, 99, 50);
 
   EXPECT_EQ(p.wait(), 99);
@@ -103,7 +105,9 @@ TEST(PromiseTest, DeferredResolveVoid) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r]  = xpp::async<void>();
+  auto pr       = xpp::async<void>();
+  auto p        = std::move(pr.first);
+  auto r        = std::move(pr.second);
   xpp::Timer t = schedule_resolve(r, 50);
 
   p.wait();
@@ -113,7 +117,9 @@ TEST(PromiseTest, DeferredResolveWithThen) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r]  = xpp::async<int>();
+  auto pr       = xpp::async<int>();
+  auto p        = std::move(pr.first);
+  auto r        = std::move(pr.second);
   xpp::Timer t = schedule_resolve(r, 7, 50);
 
   int result = p.then([](int x) { return x * 3; }).wait();
@@ -164,7 +170,9 @@ TEST(PromiseTest, ResolverIsPendingBeforeResolve) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r] = xpp::async<int>();
+  auto pr = xpp::async<int>();
+  auto p  = std::move(pr.first);
+  auto r  = std::move(pr.second);
   EXPECT_TRUE(r.is_pending());
   r.resolve(1);
   EXPECT_FALSE(r.is_pending());
@@ -177,7 +185,9 @@ TEST(PromiseTest, ResolveBeforePollIsImmediate) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r] = xpp::async<int>();
+  auto pr = xpp::async<int>();
+  auto p  = std::move(pr.first);
+  auto r  = std::move(pr.second);
   r.resolve(77);
   EXPECT_EQ(p.wait(), 77);
 }
@@ -186,7 +196,9 @@ TEST(PromiseTest, ResolveVoidBeforePoll) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto [p, r] = xpp::async<void>();
+  auto pr = xpp::async<void>();
+  auto p  = std::move(pr.first);
+  auto r  = std::move(pr.second);
   r.resolve();
   p.wait();
   SUCCEED();

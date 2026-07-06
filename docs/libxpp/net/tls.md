@@ -8,7 +8,7 @@
 #include <xpp/net/tls.h>
 
 xpp::net::TlsContext ctx(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpStream::connect("example.com", 443, ctx).wait();
+auto conn = xpp::net::TcpStream::connect("example.com:443", ctx).wait();
 ```
 
 ## API Reference
@@ -67,7 +67,7 @@ When passed to `TcpStream::connect()`, the `xTlsCtx` handle is set in `xTcpConne
 
 ```cpp
 xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpStream::connect("example.com", 443, tls).wait();
+auto conn = xpp::net::TcpStream::connect("example.com:443", tls).wait();
 conn.write("GET / HTTP/1.0\r\n\r\n", 18).wait();
 ```
 
@@ -104,7 +104,7 @@ xpp::net::TlsContext client_tls(client_conf);
 ```cpp
 xpp::Promise<void> https_fetch() {
     xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-    auto conn = co_await xpp::net::TcpStream::connect("example.com", 443, tls);
+    auto conn = co_await xpp::net::TcpStream::connect("example.com:443", tls);
 
     co_await conn.write("GET / HTTP/1.0\r\nHost: example.com\r\n\r\n", 40);
 
@@ -119,7 +119,7 @@ xpp::Promise<void> https_fetch() {
 ```cpp
 xpp::Promise<void> connect_or_fallback() {
     xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-    auto conn = co_await xpp::net::TcpStream::connect("example.com", 443, tls);
+    auto conn = co_await xpp::net::TcpStream::connect("example.com:443", tls);
     if (!conn.is_open()) {
         // connect failed — try fallback
         co_return;

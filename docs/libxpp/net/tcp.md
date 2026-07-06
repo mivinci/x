@@ -11,7 +11,7 @@ xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
 // Client
-auto conn_r = xpp::net::TcpStream::connect("127.0.0.1", 8080).wait();
+auto conn_r = xpp::net::TcpStream::connect("127.0.0.1:8080").wait();
 auto conn = std::move(conn_r).unwrap();
 conn.write("hello", 5).wait();
 
@@ -25,7 +25,7 @@ ssize_t n = conn.read(buf, sizeof(buf)).wait();
 
 | Method | Returns | Description |
 | -------- | --------- | ------------- |
-| `connect(host, port, tls = none)` | `Promise<io::Result<TcpStream>>` | Async connect (with optional TLS) |
+| `connect("host:port", tls = none)` | `Promise<io::Result<TcpStream>>` | Async connect ("IP:port" or "hostname:port", with optional TLS) |
 | `connect(SocketAddr, tls = none)` | `Promise<io::Result<TcpStream>>` | Connect by address (no DNS) |
 | `read(buf, len)` | `Promise<ssize_t>` | Async read via `io::read` |
 | `write(buf, len)` | `Promise<ssize_t>` | Async write via `io::write` |
@@ -55,7 +55,7 @@ Pass `Option<const TlsContext&>` to enable TLS. The handshake is transparent:
 
 ```cpp
 xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpStream::connect("example.com", 443, tls).wait();
+auto conn = xpp::net::TcpStream::connect("example.com:443", tls).wait();
 // conn.read() / conn.write() transparently encrypt/decrypt
 ```
 
@@ -109,7 +109,7 @@ session(listener.accept().wait()).wait();
 
 ```cpp
 xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpStream::connect("example.com", 443, tls).wait();
+auto conn = xpp::net::TcpStream::connect("example.com:443", tls).wait();
 conn.write("GET / HTTP/1.0\r\n\r\n", 18).wait();
 
 char buf[4096];
@@ -142,7 +142,7 @@ xpp::Promise<void> server(xpp::net::TcpListener listener) {
 ```cpp
 xpp::Promise<void> fetch() {
     xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-    auto conn = co_await xpp::net::TcpStream::connect("example.com", 443, tls);
+    auto conn = co_await xpp::net::TcpStream::connect("example.com:443", tls);
 
     co_await conn.write("GET / HTTP/1.0\r\n\r\n", 18);
 
@@ -163,7 +163,7 @@ xpp::Promise<void> echo_server(xpp::net::TcpListener listener) {
 }
 
 xpp::Promise<void> echo_client(uint16_t port) {
-    auto conn = co_await xpp::net::TcpStream::connect("127.0.0.1", port);
+    auto conn = co_await xpp::net::TcpStream::connect(("127.0.0.1:" + std::to_string(port)).c_str());
     co_await conn.write("hello", 5);
     char buf[64];
     ssize_t n = co_await conn.read(buf, sizeof(buf));

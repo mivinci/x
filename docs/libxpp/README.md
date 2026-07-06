@@ -49,6 +49,7 @@ if (cached) {
   - [Deferred Resolution](promise/deferred.md) — `async()`, `PromiseResolver`, cross-thread
   - [Timers & Timeouts](promise/timers.md) — `after()`, timeout pattern
   - [Combinators (all/race)](promise/combinators.md) — `all()`, `race()`, waker sharing
+  - [Utilities (try\_next)](promise/utils.md) — `try_next()`, sequential fall-through
   - [Custom Adapters](promise/adapter.md) — `adapt`, `work`, Adapter contract
   - [C++20 Coroutines](promise/coroutine.md) — `co_await`/`co_return`
   - [Internals](promise/internals.md) — PromiseNode hierarchy, poll-based model

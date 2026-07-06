@@ -72,6 +72,7 @@
     - [Deferred Resolution](libxpp/promise/deferred.md)
     - [Timers & Timeouts](libxpp/promise/timers.md)
     - [Combinators (all/race)](libxpp/promise/combinators.md)
+    - [Utilities (try\_next)](libxpp/promise/utils.md)
     - [Custom Adapters](libxpp/promise/adapter.md)
     - [C++20 Coroutines](libxpp/promise/coroutine.md)
     - [Internals](libxpp/promise/internals.md)

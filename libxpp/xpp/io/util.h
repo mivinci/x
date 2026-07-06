@@ -7,10 +7,11 @@
  *
  * Template-based, duck-typed on read(void*, size_t) → Promise<ssize_t>
  * and write(const void*, size_t) → Promise<ssize_t>. No traits, no CRTP.
- * Both functions use co_await loops with stack-allocated 8KB buffers
- * (matches Rust's DEFAULT_BUF_SIZE). C++20 required.
  *
- * C++20-compatible (coroutines). Header-only.
+ * C++20: coroutine + concept versions (clear compile errors).
+ * C++11: struct + std::move(*this) fallback (zero heap alloc in combinator).
+ *
+ * Header-only.
  */
 
 #ifndef XPP_IO_UTIL_H
@@ -19,14 +20,25 @@
 #include <sys/types.h>
 
 #include <cstddef>
+#include <utility>
 #include <vector>
 
 #include <xpp/promise.h>
-
-#if XPP_HAS_COROUTINES
+#include <xpp/shared.h>
 
 namespace xpp {
 namespace io {
+
+namespace _ {
+
+/** @brief Default buffer size for I/O utilities (8KB, matches Rust). */
+constexpr size_t kBufSize = 8192;
+
+} // namespace _
+
+#if XPP_HAS_COROUTINES
+
+/* ═══ C++20 coroutine versions ══════════════════════════════════════ */
 
 /**
  * @brief Concept: R has read(void*, size_t) returning an awaitable type.
@@ -52,13 +64,6 @@ concept AsyncWriter = requires(W &w, const void *buf, size_t len) {
 template <class T>
 concept AsyncReadWriter = AsyncReader<T> && AsyncWriter<T>;
 
-namespace _ {
-
-/** @brief Default buffer size for I/O utilities (8KB, matches Rust). */
-constexpr size_t kBufSize = 8192;
-
-} // namespace _
-
 /**
  * @brief Read the entire byte stream into a vector.
  *
@@ -82,7 +87,7 @@ template <AsyncReader R> Promise<std::vector<uint8_t>> read_all(R &reader) {
  * @tparam W Writer type satisfying AsyncWriter
  */
 template <AsyncReader R, AsyncWriter W> Promise<void> copy(R &reader, W &writer) {
-  uint8_t buf[8192];
+  uint8_t buf[_::kBufSize];
   while (true) {
     ssize_t n = co_await reader.read(buf, sizeof(buf));
     if (n <= 0) co_return;
@@ -90,9 +95,85 @@ template <AsyncReader R, AsyncWriter W> Promise<void> copy(R &reader, W &writer)
   }
 }
 
-} // namespace io
-} // namespace xpp
+#else // !XPP_HAS_COROUTINES
+
+/* ═══ C++11 struct+move fallback ════════════════════════════════════ */
+
+namespace _detail {
+
+/** Create an immediately-resolved Promise<void>. */
+inline Promise<void> resolve_void() {
+  return Promise<void>(::xpp::_::OwnPromiseNode<void>(
+    ::xpp::_::promise::allocate<::xpp::_::ImmediatePromiseNode<void>>(nullptr)));
+}
+
+} // namespace _detail
+
+/**
+ * @brief Read the entire byte stream into a vector.
+ *
+ * @tparam R Duck-typed: R::read(void*, size_t) must return a then-able
+ *         resolving to ssize_t. n <= 0 terminates the loop.
+ */
+template <class R> Promise<std::vector<uint8_t>> read_all(R &reader) {
+  struct State {
+    std::vector<uint8_t> data;
+    uint8_t              buf[_::kBufSize];
+  };
+  auto state = xpp::Shared<State>::make();
+
+  struct ReadAllLoop {
+    R                 &reader;
+    xpp::Shared<State> state;
+
+    Promise<std::vector<uint8_t>> operator()() {
+      return reader.read(state->buf, sizeof(state->buf))
+        .then([self = std::move(*this)](ssize_t n) mutable {
+          if (n <= 0) return xpp::resolve(std::move(self.state->data));
+          self.state->data.insert(self.state->data.end(), self.state->buf, self.state->buf + n);
+          return self(); // tail-recursive via Promise chain
+        });
+    }
+  };
+
+  return ReadAllLoop{reader, state}();
+}
+
+/**
+ * @brief Copy all bytes from reader to writer.
+ *
+ * @tparam R Duck-typed: R::read(void*, size_t) → then-able<ssize_t>
+ * @tparam W Duck-typed: W::write(const void*, size_t) → then-able<ssize_t>
+ */
+template <class R, class W> Promise<void> copy(R &reader, W &writer) {
+  struct Buf {
+    uint8_t data[_::kBufSize];
+  };
+  auto buf = xpp::Shared<Buf>::make();
+
+  struct CopyLoop {
+    R               &reader;
+    W               &writer;
+    xpp::Shared<Buf> buf;
+
+    Promise<void> operator()() {
+      return reader.read(buf->data, sizeof(buf->data))
+        .then([self = std::move(*this)](ssize_t n) mutable {
+          if (n <= 0) return _detail::resolve_void();
+          return self.writer.write(self.buf->data, static_cast<size_t>(n))
+            .then([self = std::move(self)](ssize_t) mutable {
+              return self(); // tail-recursive
+            });
+        });
+    }
+  };
+
+  return CopyLoop{reader, writer, buf}();
+}
 
 #endif // XPP_HAS_COROUTINES
+
+} // namespace io
+} // namespace xpp
 
 #endif // XPP_IO_UTIL_H
