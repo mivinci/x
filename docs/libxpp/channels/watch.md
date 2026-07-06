@@ -15,10 +15,7 @@ consumers want the *latest* value, not every intermediate value.
 
 ```cpp
 #include <xpp/sync/watch.h>
-using namespace xpp::sync::watch;
-
-// Config hot-reload loop
-auto [tx, rx] = channel<std::string>("localhost:8080");
+auto [tx, rx] = xpp::sync::watch::channel<std::string>("localhost:8080");
 
 // On config change:
 tx.send("0.0.0.0:9090");

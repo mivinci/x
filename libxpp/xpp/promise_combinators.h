@@ -195,7 +195,7 @@ auto all(Promise<Ts>... promises)
   -> std::enable_if_t<(std::is_same<Ts, void>::value && ...), Promise<void>> {
   static_assert(sizeof...(Ts) > 0, "all() requires at least one promise");
   constexpr size_t N = sizeof...(Ts);
-  auto *node = _::allocate_promise<_::AllVoidPromiseNode<N>>(nullptr, std::move(promises)...);
+  auto *node = _::promise::allocate<_::AllVoidPromiseNode<N>>(nullptr, std::move(promises)...);
   return Promise<void>(_::OwnPromiseNode<void>(node));
 }
 
@@ -204,7 +204,7 @@ auto all(Promise<Ts>... promises)
   -> std::enable_if_t<!((std::is_same<Ts, void>::value && ...)),
                       Promise<std::tuple<typename FixVoid<Ts>::Type...>>> {
   static_assert(sizeof...(Ts) > 0, "all() requires at least one promise");
-  auto *node = _::allocate_promise<_::AllTuplePromiseNode<Ts...>>(nullptr, std::move(promises)...);
+  auto *node = _::promise::allocate<_::AllTuplePromiseNode<Ts...>>(nullptr, std::move(promises)...);
   return Promise<std::tuple<typename FixVoid<Ts>::Type...>>(
     _::OwnPromiseNode<std::tuple<typename FixVoid<Ts>::Type...>>(node));
 }
@@ -227,7 +227,7 @@ template <class T, class... Rest> Promise<T> race(Promise<T> first, Promise<Rest
   static_assert((std::is_same<Rest, T>::value && ...),
                 "race() requires all promises to have the same type");
   constexpr size_t N    = 1 + sizeof...(Rest);
-  auto            *node = _::allocate_promise<_::RacePromiseNode<typename FixVoid<T>::Type, N>>(
+  auto            *node = _::promise::allocate<_::RacePromiseNode<typename FixVoid<T>::Type, N>>(
     nullptr, std::move(first), std::move(rest)...);
   return Promise<T>(_::OwnPromiseNode<T>(node));
 }

@@ -128,7 +128,7 @@ public:
   CoroutinePromiseNode<T> *m_node = nullptr;
 
   Promise<T> get_return_object() {
-    auto *n     = _::allocate_promise<CoroutinePromiseNode<T>>(nullptr);
+    auto *n     = _::promise::allocate<CoroutinePromiseNode<T>>(nullptr);
     m_node      = n;
     n->m_handle = std::coroutine_handle<CoroutinePromise>::from_promise(*this);
     return Promise<T>(_::OwnPromiseNode<T>(n));
@@ -163,7 +163,7 @@ public:
   CoroutinePromiseNode<void> *m_node = nullptr;
 
   Promise<void> get_return_object() {
-    auto *n     = _::allocate_promise<CoroutinePromiseNode<void>>(nullptr);
+    auto *n     = _::promise::allocate<CoroutinePromiseNode<void>>(nullptr);
     m_node      = n;
     n->m_handle = std::coroutine_handle<CoroutinePromise<void>>::from_promise(*this);
     return Promise<void>(_::OwnPromiseNode<void>(n));
