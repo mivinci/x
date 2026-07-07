@@ -51,6 +51,19 @@ Promise<> p = resolve(10)
 // p is Promise<void>
 ```
 
+A `then()` that returns void (or `Promise<void>`) turns the rest of the chain into `Promise<void>`. This is convenient for fire-and-forget side effects at the end of a chain.
+
+## then() is non-mutating
+
+Each `.then()` call returns a **new** `Promise` — the original is untouched. This means you can fork a chain into multiple consumers:
+
+```cpp
+auto root     = fetch_value();
+auto doubled  = root.then([](int x) { return x * 2; });
+auto tripled  = root.then([](int x) { return x * 3; });
+// root is unchanged; doubled and tripled are independent forks
+```
+
 ## Error handling
 
 There's no built-in `catch` method. Errors are propagated through the chain as regular values using `Result<T, E>`:
@@ -70,7 +83,7 @@ Promise<Result<int, MyError>> compute = resolve(42)
 
 Each `.then()` chain shares a 256-byte bump allocator (arena). Promise nodes are allocated from this arena, not individually heap-allocated. This means a 10-link chain is a single `malloc` (the arena) rather than 10 separate allocations. Nodes that overflow the arena fall back to heap transparently. The arena is freed when the chain's root promise is destroyed.
 
-## Drving the chain
+## Driving the chain
 
 Chains are lazy -- nothing runs until polled. Use `.wait()` to drive the chain to completion on the current thread:
 
