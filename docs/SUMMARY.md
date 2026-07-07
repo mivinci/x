@@ -1,7 +1,7 @@
 # Summary
 
 [Introduction](README.md)
-[中文版](README_CN.md)
+[设计哲学](README_CN.md)
 
 ---
 
