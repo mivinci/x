@@ -62,7 +62,7 @@ If you want to dive into the details behind each piece:
 - **[Threading Model](libxpp/promise/README.md#thread-safety)** — the `XPP_MT` compile flag that switches `Shared<T>` from `Rc` to `Arc`, the `loom` module of swappable primitives for future concurrency testing, and RAII close semantics across all channels.
 - **[Network](libxpp/net/README.md)** — async TCP, UDP, DNS, and TLS, all built on the same `Promise<T>` foundation.
 - **[Filesystem](libxpp/fs.md)** — async file I/O with cursor tracking, `stat`, and directory operations.
-- **[Time](libxpp/time.md)** — TODO: sleep, interval, and deadline utilities built on `Promise<T>`.
+- **[Time](libxpp/time.md)** — TODO: tokio-style time primitives — `Instant`, `Duration`, `sleep`, `interval`, `timeout` — built on `Promise<T>`.
 
 The design philosophy throughout is the same: leverage what C++ gives us (move semantics, RAII, coroutine code generation) to build an async experience that feels like Rust with Tokio, still runs on a C foundation, and fits into existing C++ codebases without requiring a language fork or a custom compiler.
 
