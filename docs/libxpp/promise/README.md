@@ -98,6 +98,7 @@ graph TD
 
 ## Topics
 
+- [then()](then.md) — chaining, auto-flatten, type transformations
 - [Deferred Resolution](deferred.md) — `async()`, `PromiseResolver`, cross-thread resolve
 - [Timers & Timeouts](timers.md) — `after(ms)`, timeout pattern with `race`
 - [Combinators](combinators.md) — `all()`, `race()`, concurrent composition
