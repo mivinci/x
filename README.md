@@ -1,12 +1,13 @@
 # x
 
-Foundation libraries for programming in C/C艹.
+Foundation libraries for programming in C/C++.
 
 ## Libraries
 
 | Library | Description |
 |---------|-------------|
 | **libx** | Event loop, async I/O, HTTP/2, WebSocket, WebRTC — all in C99 |
+| **libxpp** | Rust-style C++ bindings: Promise\<T\>, coroutines, channels, async I/O |
 
 ## Quick Start
 
