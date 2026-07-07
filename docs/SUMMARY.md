@@ -110,5 +110,5 @@
 
 # API Reference
 
-- [libx](api/x/html/index.html)
 - [libxpp](api/xpp/html/index.html)
+- [libx](api/x/html/index.html)
