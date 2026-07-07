@@ -13,14 +13,16 @@ The core API (`.then()`, `.wait()`, `resolve()`, `all()`, `race()`) is C++11. C+
 `Promise<T>` supports two equivalent coding styles — pick whichever fits your compiler and preference:
 
 ```cpp
-// ── C++11 (then() callbacks) ────────────────────
+// C++11: then() callbacks
 xpp::Promise<int> compute() {
     return fetch_value()
         .then([](int x) { return x * 2; });
 }
 int result = compute().wait();  // drives event loop, returns 2x
+```
 
-// ── C++20 (co_await / co_return) ────────────────
+```cpp
+// C++20: co_await / co_return
 xpp::Promise<int> compute() {
     int x = co_await fetch_value();
     co_return x * 2;
