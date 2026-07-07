@@ -119,6 +119,7 @@ graph TD
 | `time.h` | — | Time utilities: `xMonoMs()` (monotonic) and `xWallMs()` (wall-clock) in milliseconds |
 | `cmd.h` | [cmd.md](cmd.md) | Async command executor over xEventLoop — spawn child processes with stdout/stderr capture, streaming, discard, and PTY modes |
 | `flag.h` | [flag.md](flag.md) | POSIX/GNU-style command-line flag parser — typed storage, auto-generated `--help`, choice validation, counter and positional support |
+| `fiber.h` | [fiber.md](fiber.md) | Cross-platform lightweight fibers (stackful coroutines) — independent stacks with guard pages, `_setjmp`/`_longjmp` on Unix, `CreateFiber`/`SwitchToFiber` on Windows |
 
 ## How to Choose
 
@@ -144,6 +145,7 @@ graph TD
 | Read/write through abstract I/O interfaces | [`io.h`](io.md) — `xReader` / `xWriter` + helpers like `xReadFull`, `xReadAll` |
 | Submit a shell command asynchronously | [`cmd.h`](cmd.md) — `xCommandExecutorSubmit()` with capture, stream, or discard output modes |
 | Parse command-line arguments | [`flag.h`](flag.md) — `xFlagAddString / Int / Bool / Choice / Counter / Positional` + `xFlagParse` with auto-generated `--help` |
+| Yield and resume execution contexts cooperatively | [`fiber.h`](fiber.md) — `xFiberCreate` / `xFiberSwitch` / `xFiberDestroy`, integrate with `xEventLoop` for async I/O |
 
 ## Quick Start
 

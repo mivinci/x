@@ -63,6 +63,7 @@
 - [libx](libx/README.md)
   - [base — Core Primitives](libx/base/README.md)
     - [Event Loop](libx/base/event.md)
+    - [Fiber](libx/base/fiber.md)
     - [Task](libx/base/task.md)
     - [Memory Management](libx/base/memory.md)
     - [Slab Allocator](libx/base/slab.md)
