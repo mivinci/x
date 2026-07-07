@@ -28,7 +28,9 @@ We chose stackless for two reasons. First, C++20 standardized stackless coroutin
 
 Rust's `Future` trait is the blueprint: an async operation is a state machine that, when polled, either returns `Poll::Ready(value)` or `Poll::Pending` and registers a waker to be called when progress can be made. The executor drives the state machine by calling `poll()` in a loop until the future completes.
 
-C++ doesn't have this trait as a language feature, but it gives us the tools to build it. Our `Promise<T>` is a type-erased state machine with exactly this interface: `poll(waker) → Option<T>`. When a coroutine hits `co_await`, it suspends and registers its waker with the awaited sub-promise. When that sub-promise resolves, it calls the waker, which queues the suspended coroutine for re-polling on the event loop. This is the same core mechanism that powers `tokio`, just implemented at the library level rather than in the language runtime. The full design is documented in the [Promise chapter](libxpp/promise/README.md).
+C++ doesn't have this trait as a language feature, but it gives us the tools to build it. Our `Promise<T>` is a type-erased state machine with exactly this interface: `poll(waker) → Option<T>`. It works with both C++11 (via `then()` callbacks and `Promise<T>::wait()`) and C++20 (via native `co_await` / `co_return` coroutines). The same `Promise<T>` returned by `TcpStream::connect()` can be used in a C++11 callback chain or a C++20 coroutine with zero code changes — the library doesn't care which style you choose.
+
+When a C++20 coroutine hits `co_await`, it suspends and registers its waker with the awaited sub-promise. When that sub-promise resolves, it calls the waker, which queues the suspended coroutine for re-polling on the event loop. This is the same core mechanism that powers `tokio`, just implemented at the library level rather than in the language runtime. The full design is documented in the [Promise chapter](libxpp/promise/README.md).
 
 ## Building the Async Stack
 
