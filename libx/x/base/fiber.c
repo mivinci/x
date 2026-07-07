@@ -6,16 +6,21 @@
  * fiber.c - Fiber implementation for Unix (Linux / macOS / BSD).
  *
  * Context switching:
- *   _setjmp / _longjmp — fast, saves only callee-saved registers and
- *     SP/FP/PC. Does NOT save the signal mask (unlike setjmp/longjmp),
- *     avoiding a syscall per switch. Used for all fiber ↔ main
- *     transitions after the initial entry.
+ *   swapcontext — atomically saves the current machine context and
+ *     restores the target. POSIX.1-2001. Supports switching between
+ *     independent stacks, which is required for fibers (the fiber
+ *     stack is mmap'd separately from the main stack). Used for all
+ *     fiber ↔ main transitions.
  *
- *   makecontext / setcontext — only called once per fiber, at first
- *     entry. makecontext configures a ucontext_t with the fiber's
- *     stack and entry point; setcontext loads the full machine context
- *     (including SP) and jumps. After the first switch-in, subsequent
- *     yield/resume cycles use _setjmp/_longjmp exclusively.
+ *   makecontext — called once per child fiber at creation time to
+ *     configure the initial entry point (fiber_trampoline) on the
+ *     fiber's own stack. Subsequent switches use swapcontext.
+ *
+ *   NOTE: _setjmp / _longjmp was originally used for performance
+ *   (avoids saving the full machine context), but glibc fortification
+ *   (FORTIFY_SOURCE) detects jumps to independent stacks as "uninitialized
+ *   stack frame" and aborts. swapcontext is the POSIX-blessed way to
+ *   switch between arbitrary stacks.
  *
  * Stack allocation:
  *   mmap(MAP_PRIVATE | MAP_ANONYMOUS) with PROT_NONE guard page.
@@ -44,8 +49,7 @@
  *   independent fiber sets without synchronization.
  *
  * Portability notes:
- *   - _setjmp / _longjmp: POSIX.1-2001. Available on all Unix.
- *   - makecontext / setcontext: POSIX.1-2001, deprecated on macOS 10.6+
+ *   - swapcontext / makecontext: POSIX.1-2001, deprecated on macOS 10.6+
  *     but still functional. Wrapped with diagnostic suppression.
  *   - mmap / mprotect / munmap: POSIX.1-2001.
  *   - sysconf(_SC_PAGESIZE): POSIX.1-2001.
@@ -61,12 +65,10 @@
 
 #include <x/base/fiber.h>
 
-#include <stdbool.h>
 #include <stdlib.h>
 
 /* ── POSIX headers ─────────────────────────────────────────────────── */
 
-#include <setjmp.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -88,9 +90,7 @@
 struct xFiber_ {
   void      *stack;       /* mmap base (guard page start), NULL for main */
   size_t     stack_size;  /* usable stack size in bytes */
-  jmp_buf    jmp;         /* _setjmp save point (registers + SP/FP/PC)   */
-  ucontext_t uctx;        /* makecontext state (initial entry only)       */
-  bool       started;     /* true after first switch-in (use _longjmp)   */
+  ucontext_t uctx;        /* saved machine context (SP / PC / regs)       */
   void      *stack_base;  /* guard page end = usable stack start         */
   xFiberProc proc;        /* user entry point (NULL for main fiber)       */
   void      *proc_arg;    /* opaque argument passed to proc               */
@@ -140,8 +140,13 @@ xFiber xFiberMain(void) {
 
   /* Main fiber uses the thread's native stack — no mmap needed.
    * stack == NULL signals xFiberDestroy() to skip munmap. */
-  tl_main_fiber->started = true; /* already "running", no makecontext entry */
-  tl_main_fiber->stack    = NULL;
+  tl_main_fiber->stack = NULL;
+  /* Initialize uctx so swapcontext can save/restore to it. */
+  if (getcontext(&tl_main_fiber->uctx) != 0) {
+    free(tl_main_fiber);
+    tl_main_fiber = NULL;
+    return NULL;
+  }
 
   tl_fiber = tl_main_fiber;
   return tl_main_fiber;
@@ -234,7 +239,7 @@ void xFiberDestroy(xFiber handle) {
  * ═══════════════════════════════════════════════════════════════════════ */
 
 void xFiberSwitch(xFiber target) {
-  struct xFiber_ *current = tl_fiber;
+  struct xFiber_ *current  = tl_fiber;
   struct xFiber_ *target_p = (struct xFiber_ *)target;
 
   if (!target_p) return;
@@ -247,37 +252,17 @@ void xFiberSwitch(xFiber target) {
     current = (struct xFiber_ *)xFiberMain();
   }
 
-  /* ── Save current context ───────────────────────────────────────
-   * _setjmp returns 0 on the save path (first call), and non-zero
-   * on the restore path (when another fiber longjmp's back).
+  /* swapcontext atomically saves the current machine context
+   * (SP, PC, callee-saved registers) to current->uctx and restores
+   * target_p->uctx. On first entry into a child fiber, target_p->uctx
+   * was set up by makecontext; on subsequent entries, it holds the
+   * state saved by the previous swapcontext out of that fiber.
    *
-   * TLS fixup (tl_fiber = current) below is needed because
-   * _longjmp lands back here, but tl_fiber may have been set to
-   * any value by the fiber that switched to us. We correct it. */
-
-  if (_setjmp(current->jmp) == 0) {
-    /* Save path: about to enter `target` */
-
-    tl_fiber = target;
-
-    if (target_p->started) {
-      /* Target has run before — use _longjmp to restore its saved
-       * register state (including its stack pointer). */
-      _longjmp(target_p->jmp, 1);
-    }
-
-    /* First entry into target — use setcontext to load the full
-     * machine context from makecontext initialization. This sets
-     * SP, PC, and callee-saved registers for the new stack.
-     * setcontext() does not return. */
-    target_p->started = true;
-    setcontext(&target_p->uctx);
-
-    /* NOTREACHED — setcontext does not return */
-  }
-
-  /* Restore path: somebody switched back to `current`.
-   * Fix tl_fiber which may have been clobbered by the switcher. */
+   * TLS fixup after swapcontext returns: tl_fiber may have been set
+   * to any value by the fiber that switched to us. We correct it to
+   * `current` (the fiber that just resumed). */
+  tl_fiber = target_p;
+  swapcontext(&current->uctx, &target_p->uctx);
   tl_fiber = current;
 }
 
