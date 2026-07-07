@@ -60,7 +60,8 @@ If you want to dive into the details behind each piece:
 - **[Async I/O](libxpp/io/README.md)** — the layering from raw `AsyncFd` up through `BufReader`/`BufWriter` to type-safe `TcpStream` and `File`, plus utilities like `io::copy` and in-process `Duplex`/`Simplex` pipes.
 - **[Channels](libxpp/channels/README.md)** — the full Tokio-aligned suite: `oneshot`, `mpsc` (bounded via lock-free ring buffer, unbounded via lock-free linked list), `broadcast` with lag recovery, `watch` with version-tracked "seen" semantics, and `Notify` as a reusable wake primitive.
 - **[Threading Model](libxpp/promise/README.md#thread-safety)** — the `XPP_MT` compile flag that switches `Shared<T>` from `Rc` to `Arc`, the `loom` module of swappable primitives for future concurrency testing, and RAII close semantics across all channels.
-- **[Network](libxpp/net/README.md)** and **[Filesystem](libxpp/fs.md)** — async TCP, UDP, DNS, TLS, and file I/O, all built on the same `Promise<T>` foundation.
+- **[Network](libxpp/net/README.md)** — async TCP, UDP, DNS, and TLS, all built on the same `Promise<T>` foundation.
+- **[Filesystem](libxpp/fs.md)** — async file I/O with cursor tracking, `stat`, and directory operations.
 
 The design philosophy throughout is the same: leverage what C++ gives us (move semantics, RAII, coroutine code generation) to build an async experience that feels like Rust with Tokio, still runs on a C foundation, and fits into existing C++ codebases without requiring a language fork or a custom compiler.
 
