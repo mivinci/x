@@ -34,7 +34,7 @@ Rust 的 `Future` trait 是蓝图：一个异步操作就是一个状态机，�
 
 C++ 没有这个 trait 作为语言特性，但它给了我们实现它的工具。我们的 `Promise<T>` 是一个具体模板，提供 `poll(waker) → Option<T>` 的 polling 接口——它内部持有一个类型擦除后的协程帧或适配器节点，但从使用者角度看，`Promise<T>` 始终是完整类型的，编译器在每一个调用点都会检查。它同时支持 C++11（通过 `then()` 回调和 `Promise<T>::wait()`）和 C++20（通过原生 `co_await` / `co_return` 协程）。同一个由 `TcpStream::connect()` 返回的 `Promise<T>`，既可以用在 C++11 的回调链里，也可以用在 C++20 的协程里，不需要任何代码改动——库不在乎你选哪种风格。
 
-当一个 C++20 协程碰到 `co_await` 时，它挂起并把 waker 注册到被等待的子 Promise 上。当那个子 Promise resolve 时，它调用 waker，waker 把挂起的协程排入事件循环等待重新 poll。这就是驱动 `tokio` 的核心机制，只不过我们是在库层面实现的，而不是在语言运行时里。完整设计见 [Promise 章节](libxpp/promise/README.md)。
+当一个 C++20 协程碰到 `co_await` 时，它挂起并把 waker 注册到被等待的子 Promise 上。当那个子 Promise resolve 时，它调用 waker，waker 把挂起的协程排入事件循环等待重新 poll。这就是驱动 `tokio` 的核心机制，只不过我们是在库层面实现的，而不是在语言运行时里。完整设计见 [Promise 章节](libxpp/promise/)。
 
 ## 构建异步技术栈
 
@@ -55,12 +55,12 @@ C++ 没有这个 trait 作为语言特性，但它给了我们实现它的工具
 
 如果上面的内容让你想进一步了解每个模块的细节，以下是各部分的入口：
 
-- **[类型系统](libxpp/smart-pointers/README.md)** — `Own<T>`、`Box<T>`、`Rc<T>`、`Arc<T>`、`NonNull<T>` 如何在库层面实现 Rust 风格的所有权，以及和编译器强制 borrow checker 相比的边界在哪
-- **[Promise 模型](libxpp/promise/README.md)** — poll-waker 状态机，C++20 协程帧如何映射到 `Promise<T>`，串联、取消和错误传播的内部机制
-- **[异步 I/O](libxpp/io/README.md)** — 从原始 `AsyncFd` 往上经过 `BufReader`/`BufWriter` 到类型安全的 `TcpStream` 和 `File` 的分层架构，以及 `io::copy`、`Duplex`/`Simplex` 等工具
-- **[Channel](libxpp/channels/README.md)** — 完整的 Tokio 对齐套件：`oneshot`、`mpsc`（有界用无锁环形缓冲区，无界用无锁链表）、带滞后恢复的 `broadcast`、版本追踪"已读"语义的 `watch`，以及可复用的唤醒原语 `Notify`
-- **[线程模型](libxpp/promise/README.md#thread-safety)** — `XPP_MT` 编译开关将 `Shared<T>` 从 `Rc` 切换为 `Arc`，`loom` 模块提供可替换的并发原语用于未来的并发测试，以及所有 channel 的 RAII close 语义
-- **[Network](libxpp/net/README.md)** — 异步 TCP、UDP、DNS、TLS，全部建立在同一个 `Promise<T>` 基础上
+- **[类型系统](libxpp/smart-pointers/)** — `Own<T>`、`Box<T>`、`Rc<T>`、`Arc<T>`、`NonNull<T>` 如何在库层面实现 Rust 风格的所有权，以及和编译器强制 borrow checker 相比的边界在哪
+- **[Promise 模型](libxpp/promise/)** — poll-waker 状态机，C++20 协程帧如何映射到 `Promise<T>`，串联、取消和错误传播的内部机制
+- **[异步 I/O](libxpp/io/)** — 从原始 `AsyncFd` 往上经过 `BufReader`/`BufWriter` 到类型安全的 `TcpStream` 和 `File` 的分层架构，以及 `io::copy`、`Duplex`/`Simplex` 等工具
+- **[Channel](libxpp/channels/)** — 完整的 Tokio 对齐套件：`oneshot`、`mpsc`（有界用无锁环形缓冲区，无界用无锁链表）、带滞后恢复的 `broadcast`、版本追踪"已读"语义的 `watch`，以及可复用的唤醒原语 `Notify`
+- **[线程模型](libxpp/promise/#thread-safety)** — `XPP_MT` 编译开关将 `Shared<T>` 从 `Rc` 切换为 `Arc`，`loom` 模块提供可替换的并发原语用于未来的并发测试，以及所有 channel 的 RAII close 语义
+- **[Network](libxpp/net/)** — 异步 TCP、UDP、DNS、TLS，全部建立在同一个 `Promise<T>` 基础上
 - **[Filesystem](libxpp/fs.md)** — 异步文件 I/O，带游标追踪，支持 stat、目录操作等
 - **[Time](libxpp/time.md)(TODO)** — Tokio 风格的时间原语 — `Instant`、`Duration`、`sleep`、`interval`、`timeout` — 全部基于 `Promise<T>`
 
