@@ -72,7 +72,7 @@ Each `.then()` chain shares a 256-byte bump allocator (arena). Promise nodes are
 
 ## Drving the chain
 
-Chains are lazy ��� nothing runs until polled. Use `.wait()` to drive the chain to completion on the current thread:
+Chains are lazy -- nothing runs until polled. Use `.wait()` to drive the chain to completion on the current thread:
 
 ```cpp
 int result = resolve(10)
