@@ -8,13 +8,15 @@ C++11 introduced rvalue references, and with them came **move semantics** — a 
 
 Move semantics bridges this gap. When you `std::move` a value, you're not copying bits — you're transferring *ownership*. The source object is left in a valid-but-unspecified state, and the destination assumes full responsibility. This is **ownership semantics**, not just a copy elision trick. Combined with RAII destructors, move semantics lets you express in the type system: "I am the only one who holds this resource, and when I go out of scope, it gets cleaned up." No reference counting, no garbage collector, no manual `free`.
 
-Rust took this idea and made it the foundation of the language — every value has exactly one owner, the compiler enforces borrowing rules at compile time, and you get memory safety without a runtime. C++ can't match Rust's compiler-level guarantees, but we can get surprisingly close with a library. That's where **libxpp** comes in: a C++11 wrapper that uses move semantics to implement `Own<T>` (single-owner heap allocation), `Box<T>`, `Rc<T>` / `Arc<T>` (shared ownership), and a family of Rust-inspired types like `Option<T>`, `Result<T, E>`, and `Variant<Ts...>`. The goal is to make value semantics, especially move semantics, the default way you write C++ — so your code reads like "I have a value, I move it to you" rather than "here's a pointer, please don't forget to free it."
+Rust took this idea and made it the foundation of the language — every value has exactly one owner, the compiler enforces borrowing rules at compile time, and you get memory safety without a runtime. C++ can't match Rust's compiler-level guarantees, but we can get surprisingly close with a library. That's where **libxpp** comes in: a C++11 wrapper that uses move semantics to implement `Own<T>` (single-owner heap allocation), `Box<T>`, `Rc<T>` / `Arc<T>` (shared ownership), `NonNull<T>` (non-null pointer abstraction), and a family of Rust-inspired types like `Option<T>`, `Result<T, E>`, and `Variant<Ts...>`. The goal is to make value semantics, especially move semantics, the default way you write C++ — so your code reads like "I have a value, I move it to you" rather than "here's a pointer, please don't forget to free it."
 
-## Beyond Smart Pointers: The Async Problem
+## Beyond Smart Pointers
 
 Solid value types are necessary but not sufficient. A modern programming language also needs a good story for **asynchronous I/O**. The C/C++ ecosystem has no shortage of event libraries — libevent, libev, and my personal favorite, libuv — but these are *event notification* libraries, not *async programming* frameworks. They tell you that a socket became readable, but they don't give you the experience you get in Go or Rust: writing sequential-looking code that suspends and resumes across I/O boundaries.
 
 To go from "the event loop told me there's data" to "I wrote `co_await socket.read(buf)` and it just worked" requires building: a scheduler that can park and resume tasks, a mechanism for coroutines to yield and be re-polled, a standard API for chaining async operations, combinators for running tasks concurrently or racing them against timeouts, integration with the event loop's I/O multiplexing, and — crucially — a way to propagate errors through the async chain without losing type information. This is the "非常多的东西" that separates a raw event library from an async runtime.
+
+A natural question: why not just use Boost.Asio? Asio is the most mature async library in the C++ ecosystem, but it was designed before C++11 was widespread. It's built on a callback chain and `io_service` scheduling model where the type system plays a minimal role and error handling is almost entirely `error_code`. Coroutine support was retrofitted with macros and templates — it wasn't designed in from the start. We wanted an async stack where type safety, move semantics, and coroutines are first-class citizens from day one.
 
 ## Why Stackless Coroutines
 
@@ -47,13 +49,13 @@ We deliberately align our API with both the STL (naming conventions, iterator pa
 
 ## The Foundation: libx
 
-All of this runs on top of **libx**, a C99 library that provides the event loop, non-blocking I/O, timers, and the lock-free MPSC queue used by our channel implementations. libx was built with the same philosophy: give C developers an async runtime they can start using immediately — no callback hell, no manual fd management, just `xTcpConnect()` and a promise-like callback. libxpp is the C++ layer that adds type safety, move semantics, and coroutine ergonomics on top.
+All of this runs on top of **libx**, a C99 library that provides the event loop, non-blocking I/O, timers, and lock-free queue primitives. libx was built with the same philosophy: give C developers an async runtime they can start using immediately — no callback hell, no manual fd management, just `xTcpConnect()` and a promise-like callback. libxpp is the C++ layer that adds type safety, move semantics, and coroutine ergonomics on top — the name says it directly: the C core is **libx**, the C++ binding is **libxpp**.
 
 ## Into the Design
 
-If the story above resonates, here's where to find the concrete design details behind each piece:
+If you want to dive into the details behind each piece:
 
-- **[Type System](libxpp/smart-pointers/README.md)** — how `Own<T>`, `Box<T>`, `Rc<T>`, and `Arc<T>` implement Rust-style ownership in a library, and where the limits are compared to a compiler-enforced borrow checker.
+- **[Type System](libxpp/smart-pointers/README.md)** — how `Own<T>`, `Box<T>`, `Rc<T>`, `Arc<T>`, and `NonNull<T>` implement Rust-style ownership in a library, and where the limits are compared to a compiler-enforced borrow checker.
 - **[Promise Model](libxpp/promise/README.md)** — the poll-and-waker state machine, how C++20 coroutine frames map to `Promise<T>`, and the internals of chaining, cancellation, and error propagation.
 - **[Async I/O](libxpp/io/README.md)** — the layering from raw `AsyncFd` up through `BufReader`/`BufWriter` to type-safe `TcpStream` and `File`, plus utilities like `io::copy` and in-process `Duplex`/`Simplex` pipes.
 - **[Channels](libxpp/channels/README.md)** — the full Tokio-aligned suite: `oneshot`, `mpsc` (bounded via lock-free ring buffer, unbounded via lock-free linked list), `broadcast` with lag recovery, `watch` with version-tracked "seen" semantics, and `Notify` as a reusable wake primitive.
@@ -64,4 +66,4 @@ The design philosophy throughout is the same: leverage what C++ gives us (move s
 
 ---
 
-The result is a stack where C and C++ each get the async experience they deserve: libx for systems programmers who need raw control with structured concurrency, and libxpp for application developers who want to write `co_await tcp_stream.read(buf)` and have it just work — no pointers, no leaky abstractions, no callback pyramids.
+The result is a stack where C and C++ each get the async experience they deserve: libx for systems programmers who need raw control with structured concurrency, and libxpp for application developers who want to write `co_await tcp_stream.read(buf)` or chain `promise.then([](auto v){...})` and have it just work — no pointers, no leaky abstractions, no callback pyramids.
