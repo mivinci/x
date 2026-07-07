@@ -99,8 +99,6 @@ graph TD
 ## Topics
 
 - [then()](then.md) — chaining, auto-flatten, type transformations
-- [wait()](wait.md) — driving the event loop, nested wait, test patterns
-- [Error Handling](error.md) — Result<T, E> chains, try_next, recovery
 - [Deferred Resolution](deferred.md) — `async()`, `PromiseResolver`, cross-thread resolve
 - [Timers & Timeouts](timers.md) — `after(ms)`, timeout pattern with `race`
 - [Combinators](combinators.md) — `all()`, `race()`, concurrent composition

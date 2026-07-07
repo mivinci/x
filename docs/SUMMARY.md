@@ -24,8 +24,6 @@
   - [EventLoop & WaitScope](libxpp/event.md)
   - [Promise](libxpp/promise/README.md)
     - [then()](libxpp/promise/then.md)
-    - [wait()](libxpp/promise/wait.md)
-    - [Error Handling](libxpp/promise/error.md)
     - [Deferred Resolution](libxpp/promise/deferred.md)
     - [Timers & Timeouts](libxpp/promise/timers.md)
     - [Combinators (all/race)](libxpp/promise/combinators.md)
