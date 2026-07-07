@@ -34,7 +34,7 @@ Rust's `Future` trait is the blueprint: an async operation is a state machine th
 
 C++ doesn't have this trait as a language feature, but it gives us the tools to build it. Our `Promise<T>` is a concrete template with the polling interface `poll(waker) → Option<T>` — internally it holds a type-erased coroutine frame or adapter node, but from the user's perspective, `Promise<T>` is always fully typed and the compiler checks every call site. It works with both C++11 (via `then()` callbacks and `Promise<T>::wait()`) and C++20 (via native `co_await` / `co_return` coroutines). The same `Promise<T>` returned by `TcpStream::connect()` can be used in a C++11 callback chain or a C++20 coroutine with zero code changes — the library doesn't care which style you choose.
 
-When a C++20 coroutine hits `co_await`, it suspends and registers its waker with the awaited sub-promise. When that sub-promise resolves, it calls the waker, which queues the suspended coroutine for re-polling on the event loop. This is the same core mechanism that powers `tokio`, just implemented at the library level rather than in the language runtime. The full design is documented in the [Promise chapter](libxpp/promise/README.md).
+When a C++20 coroutine hits `co_await`, it suspends and registers its waker with the awaited sub-promise. When that sub-promise resolves, it calls the waker, which queues the suspended coroutine for re-polling on the event loop. This is the same core mechanism that powers `tokio`, just implemented at the library level rather than in the language runtime. The full design is documented in the [Promise chapter](libxpp/promise/).
 
 ## Building the Async Stack
 
@@ -55,12 +55,12 @@ All of this runs on top of **libx**, a C99 library that provides the event loop,
 
 If you want to dive into the details behind each piece:
 
-- **[Type System](libxpp/smart-pointers/README.md)** — how `Own<T>`, `Box<T>`, `Rc<T>`, `Arc<T>`, and `NonNull<T>` implement Rust-style ownership in a library, and where the limits are compared to a compiler-enforced borrow checker.
-- **[Promise Model](libxpp/promise/README.md)** — the poll-and-waker state machine, how C++20 coroutine frames map to `Promise<T>`, and the internals of chaining, cancellation, and error propagation.
-- **[Async I/O](libxpp/io/README.md)** — the layering from raw `AsyncFd` up through `BufReader`/`BufWriter` to type-safe `TcpStream` and `File`, plus utilities like `io::copy` and in-process `Duplex`/`Simplex` pipes.
-- **[Channels](libxpp/channels/README.md)** — the full Tokio-aligned suite: `oneshot`, `mpsc` (bounded via lock-free ring buffer, unbounded via lock-free linked list), `broadcast` with lag recovery, `watch` with version-tracked "seen" semantics, and `Notify` as a reusable wake primitive.
-- **[Threading Model](libxpp/promise/README.md#thread-safety)** — the `XPP_MT` compile flag that switches `Shared<T>` from `Rc` to `Arc`, the `loom` module of swappable primitives for future concurrency testing, and RAII close semantics across all channels.
-- **[Network](libxpp/net/README.md)** — async TCP, UDP, DNS, and TLS, all built on the same `Promise<T>` foundation.
+- **[Type System](libxpp/smart-pointers/)** — how `Own<T>`, `Box<T>`, `Rc<T>`, `Arc<T>`, and `NonNull<T>` implement Rust-style ownership in a library, and where the limits are compared to a compiler-enforced borrow checker.
+- **[Promise Model](libxpp/promise/)** — the poll-and-waker state machine, how C++20 coroutine frames map to `Promise<T>`, and the internals of chaining, cancellation, and error propagation.
+- **[Async I/O](libxpp/io/)** — the layering from raw `AsyncFd` up through `BufReader`/`BufWriter` to type-safe `TcpStream` and `File`, plus utilities like `io::copy` and in-process `Duplex`/`Simplex` pipes.
+- **[Channels](libxpp/channels/)** — the full Tokio-aligned suite: `oneshot`, `mpsc` (bounded via lock-free ring buffer, unbounded via lock-free linked list), `broadcast` with lag recovery, `watch` with version-tracked "seen" semantics, and `Notify` as a reusable wake primitive.
+- **[Threading Model](libxpp/promise/#thread-safety)** — the `XPP_MT` compile flag that switches `Shared<T>` from `Rc` to `Arc`, the `loom` module of swappable primitives for future concurrency testing, and RAII close semantics across all channels.
+- **[Network](libxpp/net/)** — async TCP, UDP, DNS, and TLS, all built on the same `Promise<T>` foundation.
 - **[Filesystem](libxpp/fs.md)** — async file I/O with cursor tracking, `stat`, and directory operations.
 - **[Time](libxpp/time.md)(TODO)** — tokio-style time primitives — `Instant`, `Duration`, `sleep`, `interval`, `timeout` — built on `Promise<T>`.
 
