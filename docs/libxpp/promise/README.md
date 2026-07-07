@@ -29,7 +29,7 @@ xpp::Promise<int> compute() {
     int x = co_await fetch_value();
     co_return x * 2;
 }
-int result = compute().wait();  // same poll mechanism, same result
+// co_await it from another coroutine, or .wait() in test/main
 ```
 
 Both are backed by the same `poll()`-based state machine. `wait()` drives the event loop on the calling thread, like Tokio's single-threaded `current_thread` runtime — no background thread pool is needed.
