@@ -62,6 +62,7 @@ C++ 没有这个 trait 作为语言特性，但它给了我们实现它的工具
 - **[线程模型](libxpp/promise/README.md#thread-safety)** — `XPP_MT` 编译开关将 `Shared<T>` 从 `Rc` 切换为 `Arc`，`loom` 模块提供可替换的并发原语用于未来的并发测试，以及所有 channel 的 RAII close 语义
 - **[Network](libxpp/net/README.md)** — 异步 TCP、UDP、DNS、TLS，全部建立在同一个 `Promise<T>` 基础上
 - **[Filesystem](libxpp/fs.md)** — 异步文件 I/O，带游标追踪，支持 stat、目录操作等
+- **[Time](libxpp/time.md)** — TODO: 基于 `Promise<T>` 的 sleep、interval 和 deadline 工具
 
 贯穿始终的设计哲学是同一个：善用 C++ 已经给我们的东西（移动语义、RAII、协程代码生成），构建一个用起来像 Rust + Tokio 的异步体验，底层跑在 C 的基础上，能融入现有 C++ 项目而无需语言分支或自定义编译器。
 
