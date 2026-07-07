@@ -1,4 +1,4 @@
-# The Story of x
+# The Story of the X Project
 
 ## Why This Project Exists
 
@@ -24,7 +24,7 @@ There are two schools of thought for async programming at the runtime level:
 
 We chose stackless for two reasons. First, C++20 standardized stackless coroutines with `co_await`/`co_return`, giving us a compiler-supported code generation path that is both portable and optimizable. Second, stackless coroutines compose better with zero-cost abstractions — the compiler can inline across coroutine boundaries, dead-code eliminate unused state variables, and allocate coroutine frames with custom allocators. A stackful approach would require either assembly-level stack manipulation (non-portable) or a separate threading model (heavyweight).
 
-## The Promise<T> Abstraction
+## The Promise\<T\> Abstraction
 
 Rust's `Future` trait is the blueprint: an async operation is a state machine that, when polled, either returns `Poll::Ready(value)` or `Poll::Pending` and registers a waker to be called when progress can be made. The executor drives the state machine by calling `poll()` in a loop until the future completes.
 
@@ -44,6 +44,19 @@ We deliberately align our API with both the STL (naming conventions, iterator pa
 ## The Foundation: libx
 
 All of this runs on top of **libx**, a C99 library that provides the event loop, non-blocking I/O, timers, and the lock-free MPSC queue used by our channel implementations. libx was built with the same philosophy: give C developers an async runtime they can start using immediately — no callback hell, no manual fd management, just `xTcpConnect()` and a promise-like callback. libxpp is the C++ layer that adds type safety, move semantics, and coroutine ergonomics on top.
+
+## Into the Design
+
+If the story above resonates, here's where to find the concrete design details behind each piece:
+
+- **[Type System](libxpp/smart-pointers/README.md)** — how `Own<T>`, `Box<T>`, `Rc<T>`, and `Arc<T>` implement Rust-style ownership in a library, and where the limits are compared to a compiler-enforced borrow checker.
+- **[Promise Model](libxpp/promise/README.md)** — the poll-and-waker state machine, how C++20 coroutine frames map to `Promise<T>`, and the internals of chaining, cancellation, and error propagation.
+- **[Async I/O](libxpp/io/README.md)** — the layering from raw `AsyncFd` up through `BufReader`/`BufWriter` to type-safe `TcpStream` and `File`, plus utilities like `io::copy` and in-process `Duplex`/`Simplex` pipes.
+- **[Channels](libxpp/channels/README.md)** — the full Tokio-aligned suite: `oneshot`, `mpsc` (bounded via lock-free ring buffer, unbounded via lock-free linked list), `broadcast` with lag recovery, `watch` with version-tracked "seen" semantics, and `Notify` as a reusable wake primitive.
+- **[Threading Model](libxpp/promise/README.md#thread-safety)** — the `XPP_MT` compile flag that switches `Shared<T>` from `Rc` to `Arc`, the `loom` module of swappable primitives for future concurrency testing, and RAII close semantics across all channels.
+- **[Network](libxpp/net/README.md)** and **[Filesystem](libxpp/fs.md)** — async TCP, UDP, DNS, TLS, and file I/O, all built on the same `Promise<T>` foundation.
+
+The design philosophy throughout is the same: leverage what C++ gives us (move semantics, RAII, coroutine code generation) to build an async experience that feels like Rust with Tokio, still runs on a C foundation, and fits into existing C++ codebases without requiring a language fork or a custom compiler.
 
 ---
 
