@@ -10,24 +10,29 @@ The core API (`.then()`, `.wait()`, `resolve()`, `all()`, `race()`) is C++11. C+
 
 `wait()` drives the event loop on the calling thread, like Tokio's single-threaded `current_thread` runtime — no background thread pool is needed.
 
-```cpp
-xpp::EventLoop loop;
-xpp::WaitScope scope(loop);
+`Promise<T>` supports two equivalent coding styles — pick whichever fits your compiler and preference:
 
-int result = xpp::resolve(10)
-    .then([](int x) { return x * 2; })
-    .wait();
-// result == 20
-```
-
-C++20 coroutines work too — `co_await` drives the same poll mechanism:
+With C++11 `then()` callbacks:
 
 ```cpp
 xpp::Promise<int> compute() {
-    int x = co_await fetch_value();   // poll-based, same node tree
+    return fetch_value()
+        .then([](int x) { return x * 2; });
+}
+int result = compute().wait();  // drives event loop, returns 2x  // drives event loop, returns 2x
+```
+
+With C++20 `co_await` / `co_return`:
+
+```cpp
+xpp::Promise<int> compute() {
+    int x = co_await fetch_value();
     co_return x * 2;
 }
+int result = compute().wait();  // drives event loop, returns 2x
 ```
+
+Both are backed by the same `poll()`-based state machine. `wait()` drives the event loop on the calling thread, like Tokio's single-threaded `current_thread` runtime — no background thread pool is needed.
 
 ## Design Philosophy
 
