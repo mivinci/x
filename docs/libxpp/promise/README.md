@@ -19,7 +19,7 @@ xpp::Promise<int> compute() {
     return fetch_value()
         .then([](int x) { return x * 2; });
 }
-int result = compute().wait();  // drives event loop, returns 2x
+int result = compute().wait();  // drives event loop, returns 2x  // drives event loop, returns 2x
 ```
 
 With C++20 `co_await` / `co_return`:
@@ -29,7 +29,7 @@ xpp::Promise<int> compute() {
     int x = co_await fetch_value();
     co_return x * 2;
 }
-int result = compute().wait();
+int result = compute().wait();  // drives event loop, returns 2x
 ```
 
 Both are backed by the same `poll()`-based state machine. `wait()` drives the event loop on the calling thread, like Tokio's single-threaded `current_thread` runtime — no background thread pool is needed.
