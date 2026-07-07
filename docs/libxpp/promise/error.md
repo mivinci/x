@@ -90,7 +90,7 @@ For domain-specific errors, define your own error enum — `Result` works with a
 ## Comparison with other approaches
 
 | | libxpp | Rust | JavaScript |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Error type | `Result<T, E>` | `Result<T, E>` | `throw` / `catch` |
 | Propagation | explicit in chain | `?` operator | implicit |
 | Type safety | compile-time (template) | compile-time | runtime |
