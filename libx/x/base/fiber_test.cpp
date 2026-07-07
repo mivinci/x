@@ -49,7 +49,7 @@ struct TestCtx {
 
 /** Sets visited=true, records self, switches back to main. */
 static void basicProc(void *arg) {
-  TestCtx *ctx = (TestCtx *)arg;
+  TestCtx *ctx = static_cast<TestCtx *>(arg);
   ctx->visited = true;
   ctx->self    = xFiberCurrent();
   xFiberSwitch(ctx->main_fiber);
@@ -57,7 +57,7 @@ static void basicProc(void *arg) {
 
 /** Stores the int value in ctx->value, switches back. */
 static void passValueProc(void *arg) {
-  TestCtx *ctx  = (TestCtx *)arg;
+  TestCtx *ctx  = static_cast<TestCtx *>(arg);
   ctx->value    = 42;
   ctx->visited  = true;
   xFiberSwitch(ctx->main_fiber);
@@ -65,7 +65,7 @@ static void passValueProc(void *arg) {
 
 /** Yields back to main N times, counting each yield in ctx->counter. */
 static void yieldNProc(void *arg) {
-  TestCtx *ctx = (TestCtx *)arg;
+  TestCtx *ctx = static_cast<TestCtx *>(arg);
   int      n   = ctx->value; /* how many yields */
 
   for (int i = 0; i < n; i++) {
@@ -79,15 +79,15 @@ static void yieldNProc(void *arg) {
 /** Runs, increments an externally-provided counter pointer. Uses a
  *  TestCtx to also hold the main fiber handle. */
 static void incrementAndSwitchProc(void *arg) {
-  TestCtx *ctx = (TestCtx *)arg;
-  int *counter = (int *)ctx->proc_arg;
+  TestCtx *ctx = static_cast<TestCtx *>(arg);
+  int *counter = static_cast<int *>(ctx->proc_arg);
   (*counter)++;
   xFiberSwitch(ctx->main_fiber);
 }
 
 /** Switches to ctx->next_fiber (fiber-to-fiber switch, no main involved). */
 static void chainProc(void *arg) {
-  TestCtx *ctx = (TestCtx *)arg;
+  TestCtx *ctx = static_cast<TestCtx *>(arg);
   ctx->visited = true;
   xFiberSwitch(ctx->next_fiber);
   /* NOTREACHED in normal test flow */
@@ -95,7 +95,7 @@ static void chainProc(void *arg) {
 
 /** Switches back to xFiberMain() — for implicit-conversion tests. */
 static void implicitSwitchProc(void *arg) {
-  TestCtx *ctx = (TestCtx *)arg;
+  TestCtx *ctx = static_cast<TestCtx *>(arg);
   ctx->visited = true;
   ctx->self    = xFiberCurrent();
   xFiberSwitch(xFiberMain());
@@ -518,7 +518,7 @@ TEST(FiberTest, DestroyCurrentFiber) {
 
   /* A fiber that attempts to delete itself — should be a silent no-op. */
   xFiber f = xFiberCreate(0, [](void *arg) {
-    xFiber *self = (xFiber *)arg;
+    xFiber *self = static_cast<xFiber *>(arg);
     xFiberDestroy(*self);  /* no-op: silently ignored */
     xFiberSwitch(xFiberMain());
   }, &f);
@@ -564,7 +564,7 @@ static void deepRecursion(int depth, xFiber main) {
 }
 
 static void deepRecursionProc(void *arg) {
-  TestCtx *ctx = (TestCtx *)arg;
+  TestCtx *ctx = static_cast<TestCtx *>(arg);
   ctx->visited = true;
   deepRecursion(ctx->value, ctx->main_fiber);
   xFiberSwitch(ctx->main_fiber);
@@ -596,7 +596,7 @@ struct StatefulCtx {
 };
 
 static void statefulProc(void *arg) {
-  StatefulCtx *ctx = (StatefulCtx *)arg;
+  StatefulCtx *ctx = static_cast<StatefulCtx *>(arg);
 
   for (int i = 1; i <= ctx->limit; i++) {
     ctx->accumulator += i;
