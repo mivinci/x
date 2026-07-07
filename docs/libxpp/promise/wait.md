@@ -77,7 +77,7 @@ TEST(MyTest, Example) {
 ## wait() vs co_await
 
 | | `wait()` | `co_await` |
-|---|---|---|
+| --- | --- | --- |
 | Available in | C++11 | C++20 |
 | Blocks thread | Yes | No (suspends coroutine) |
 | Use case | main, tests, sync code | Inside another coroutine |
