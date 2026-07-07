@@ -168,6 +168,11 @@ xFlagSetCreate
 xFlagSetDestroy
 xFlagSetEpilog
 xFlagSetVersion
+xFiberCreate
+xFiberCurrent
+xFiberDestroy
+xFiberMain
+xFiberSwitch
 xFree
 xFsReqCancel
 xFsReqSubmit
