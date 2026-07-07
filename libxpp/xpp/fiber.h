@@ -1,0 +1,213 @@
+/*
+ * Copyright 2025 The libx++ Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * fiber.h - xpp::fiber() — start a Promise-driven fiber (stackful coroutine).
+ *
+ * The single public API: xpp::fiber(stack_size, func).
+ * Creates a fiber that runs func() on its own stack. Inside the fiber,
+ * Promise::wait() transparently suspends instead of blocking the event
+ * loop. The fiber resumes when the promise resolves.
+ *
+ * Returns a Promise<T> where T = decltype(func()). The promise resolves
+ * when func() returns.
+ *
+ * Usage:
+ *
+ *   auto p = xpp::fiber(65536, []() {
+ *     auto a = http_get("/a").wait();  // suspends fiber, not the event loop
+ *     auto b = http_get("/b").wait();
+ *     return a + b;
+ *   });
+ *   // p is a Promise<int> — .then() / .wait() as usual
+ *
+ *   loop.run();  // drives all I/O and fiber resumes
+ *
+ * This module requires XPP_FIBER (CMake option, links xbase for xFiber* API).
+ * Without XPP_FIBER this header is empty — Promise::wait() uses the
+ * blocking path exclusively.
+ *
+ * C++11-compatible (requires XPP_FIBER at compile time).
+ */
+
+#ifndef XPP_FIBER_H
+#define XPP_FIBER_H
+
+#include <utility>
+
+#include <xpp/promise.h>      // Promise<T>, async(), PromiseResolver<T>
+#include <xpp/promise_node.h> // _::FixVoid
+
+#if XPP_FIBER
+#include <x/base/event.h>
+#include <x/base/fiber.h> // xFiber*, xEventLoopPost, xEventLoopCurrent
+#endif
+
+namespace xpp {
+
+#if XPP_FIBER
+
+/* ── Internal: fiber trampoline + cleanup ─────────────────────────── */
+
+namespace _ {
+namespace fiber {
+
+/**
+ * @brief Opaque context header placed before user state in the
+ *        single-allocation block (Context + user State).
+ *
+ * The trampoline is a non-template function (compatible with
+ * xFiberCreate's void(*)(void*) signature). All template-dependent
+ * work is dispatched through function pointers stored here.
+ */
+struct Context {
+  void (*run)(void *state);     ///< Call func(), resolve promise
+  void (*destroy)(void *state); ///< Destruct user state
+  xFiber handle;                ///< Fiber handle for cleanup
+};
+
+/**
+ * @brief Forward declaration — cleanup_cb runs on event loop to destroy fiber.
+ */
+static void cleanup_cb(void *arg);
+
+/**
+ * @brief Fiber entry point — called on the fiber's stack.
+ *
+ * 1. Calls ctx->run(ctx + 1) to execute the user's lambda
+ * 2. Posts cleanup_cb to the event loop (can't destroy fiber from within)
+ * 3. Switches back to the main fiber
+ */
+static void trampoline(void *arg) {
+  auto *ctx  = static_cast<Context *>(arg);
+  void *data = ctx + 1; // user state follows Context in memory
+  ctx->run(data);
+
+  // Post cleanup to the event loop boundary.  The trampoline cannot
+  // call xFiberDestroy on itself, so deferred cleanup is necessary.
+  xEventLoopPost(xEventLoopCurrent(), &cleanup_cb, ctx);
+  xFiberSwitch(xFiberMain());
+}
+
+/**
+ * @brief Runs on the event loop (main stack), destroys the fiber + user state.
+ */
+static void cleanup_cb(void *arg) {
+  auto *ctx  = static_cast<Context *>(arg);
+  void *data = ctx + 1;
+  ctx->destroy(data);
+  xFiberDestroy(ctx->handle);
+  operator delete(ctx);
+}
+
+} // namespace fiber
+} // namespace _
+
+/* ── Internal: resolve helper (handles void vs T) ────────────────── */
+
+namespace _ {
+namespace fiber {
+
+/**
+ * @brief Call func() then resolve the promise.
+ *
+ * For T != void: resolver.resolve(func())
+ * For T == void: func(); resolver.resolve()
+ *
+ * Partial specialisation of function templates is not allowed in C++,
+ * so we use a struct with a static method.
+ */
+template <typename T> struct Runner {
+  template <typename Resolver, typename Func> static void run(Resolver &resolver, Func &func) {
+    resolver.resolve(func());
+  }
+};
+
+template <> struct Runner<void> {
+  template <typename Resolver, typename Func> static void run(Resolver &resolver, Func &func) {
+    func();
+    resolver.resolve();
+  }
+};
+
+} // namespace fiber
+} // namespace _
+
+/* ── xpp::fiber() ─────────────────────────────────────────────────── */
+
+/**
+ * @brief Start a Promise-driven fiber with a custom stack size.
+ *
+ * @param stack_size  Stack size in bytes. 0 uses the default (64 KiB).
+ * @param func        Callable to run on the fiber's stack.
+ *                    Signature: T func() or void func().
+ * @return Promise<T> that resolves when func() returns.
+ *
+ * The fiber starts executing immediately (before this function returns).
+ * If func() calls Promise::wait() on a pending promise, the fiber
+ * suspends via xFiberSwitch and the event loop keeps running.  When
+ * the promise resolves, the waker switches the fiber back in and
+ * execution resumes after .wait().
+ *
+ * The returned Promise is safe to use like any other Promise:
+ * chain with .then(), race(), or .wait().
+ */
+template <typename Func>
+auto fiber(size_t stack_size, Func &&func) -> Promise<decltype(std::declval<Func>()())> {
+  using T = decltype(std::declval<Func>()());
+
+  auto pair     = async<T>();
+  auto promise  = std::move(pair.first);
+  auto resolver = std::move(pair.second);
+
+  // User state — lambda + resolver, destroyed by Context::destroy
+  struct State {
+    typename std::decay<Func>::type func;
+    decltype(resolver)              resolver;
+  };
+
+  // Allocate Context + State in one block
+  size_t total = sizeof(_::fiber::Context) + sizeof(State);
+  void  *mem   = operator new(total);
+  auto  *ctx   = static_cast<_::fiber::Context *>(mem);
+  auto  *state = new (ctx + 1) State{std::forward<Func>(func), std::move(resolver)};
+
+  // Non-capturing lambdas → void(*)(void*)
+  ctx->run = [](void *s) {
+    auto *st = static_cast<State *>(s);
+    _::fiber::Runner<T>::run(st->resolver, st->func);
+  };
+
+  ctx->destroy = [](void *s) { static_cast<State *>(s)->~State(); };
+
+  // Create fiber on a new stack
+  ctx->handle = xFiberCreate(stack_size, &_::fiber::trampoline, ctx);
+  if (!ctx->handle) {
+    ctx->destroy(state);
+    operator delete(mem);
+    return Promise<T>(); // empty promise — caller should handle
+  }
+
+  // Ensure the thread is fiber-capable (idempotent), then enter the fiber.
+  xFiberMain();
+  xFiberSwitch(ctx->handle);
+  // Back here: fiber either finished (func() returned) or suspended
+  // on its first .wait() call.  In both cases the Promise is live —
+  // resolved or pending.
+
+  return std::move(promise);
+}
+
+/**
+ * @brief Start a Promise-driven fiber with the default stack size (64 KiB).
+ */
+template <typename Func> auto fiber(Func &&func) -> Promise<decltype(std::declval<Func>()())> {
+  return fiber(0, std::forward<Func>(func));
+}
+
+#endif // XPP_FIBER
+
+} // namespace xpp
+
+#endif // XPP_FIBER_H

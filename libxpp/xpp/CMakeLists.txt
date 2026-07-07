@@ -3,6 +3,7 @@
 file(GLOB_RECURSE XPP_HEADERS "*.h")
 
 option(XPP_MT "Enable multi-threading support (Shared→Arc, atomic channel ops)" ON)
+option(XPP_FIBER "Enable fiber scheduling for Promise::wait() (requires xbase fiber)" OFF)
 
 # ── Header-only library target ──────────────────────────────────────
 add_library(xpp INTERFACE)
@@ -15,6 +16,9 @@ target_compile_features(xpp INTERFACE cxx_std_11)
 target_link_libraries(xpp INTERFACE xbase xlog xfs xnet)
 if(XPP_MT)
   target_compile_definitions(xpp INTERFACE XPP_MT)
+endif()
+if(XPP_FIBER)
+  target_compile_definitions(xpp INTERFACE XPP_FIBER=1)
 endif()
 
 # ── Tests ────────────────────────────────────────────────────────────

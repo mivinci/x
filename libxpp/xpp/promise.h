@@ -105,8 +105,8 @@ public:
 
   template <class Func, class V = ValueType,
             class = typename std::enable_if<std::is_same<V, Void>::value>::type, class = void>
-  auto
-  then(Func &&func) -> Promise<typename _::ReducePromise<decltype(std::declval<Func>()())>::Type>;
+  auto then(Func &&func)
+    -> Promise<typename _::ReducePromise<decltype(std::declval<Func>()())>::Type>;
 
   /// Discard the value, returning a completion-only Promise<void>.
   Promise<void> discard() {
@@ -122,8 +122,14 @@ public:
    * @brief Block until the promise resolves, driving the event loop.
    *
    * Must be called on the WaitScope thread. Polls the promise node;
-   * if not ready, runs the event loop until the waker fires and
+   * if not ready, parks the current context until the waker fires and
    * re-polls. Returns the resolved value. Consumes the promise.
+   *
+   * @par Parking
+   * PromiseWaker::park() encapsulates the waiting strategy:
+   *   - Non-fiber: runs xEventLoopRun(X_RUN_ONCE) in a poll loop.
+   *   - Fiber:     suspends via xFiberSwitch, yielding to the event
+   *                loop until the waker wakes the fiber back up.
    *
    * @par Thread safety
    * Not thread-safe. Only the WaitScope thread may call wait().
@@ -139,25 +145,13 @@ public:
   ValueType wait() {
     XPP_ASSERT(m_node != nullptr, "wait() on empty promise");
 
-    bool         done  = false;
-    PromiseWaker waker = PromiseWaker::sync_wait(&done);
-
+    PromiseWaker waker;
     while (true) {
       Option<ValueType> result = m_node->poll(waker);
       if (result.is_some()) {
         return std::move(result).unwrap();
       }
-      // Pending — run one loop iteration per try. X_RUN_ONCE returns
-      // after processing one batch of events (timers, I/O, done queue),
-      // so we can re-check `done` without waiting for all event sources
-      // to drain. This is critical for race(): with two timers, the
-      // faster timer sets done=true, but the slower timer keeps the
-      // loop alive. X_RUN_ONCE returns after the faster timer fires,
-      // allowing re-poll before the slower timer completes.
-      while (!done) {
-        xEventLoopRun(EventLoop::current(), X_RUN_ONCE);
-      }
-      done = false; // reset for next poll iteration
+      waker.park();
     }
   }
 
@@ -201,7 +195,7 @@ chain(_::OwnPromiseNode<T> dep, Func &&func) {
   // Inner: TransformPromiseNode<Promise<ReducedT>, T, Func> (appended to dep's arena)
   auto inner = _::OwnPromiseNode<Promise<ReducedT>>(
     _::promise::append<TransformPromiseNode<Promise<ReducedT>, T, Func>>(pred, std::move(dep),
-                                                                        std::forward<Func>(func)));
+                                                                         std::forward<Func>(func)));
   // Outer: ChainPromiseNode<ReducedT> (appended to inner's arena)
   void *inner_pred = inner.get();
   return _::OwnPromiseNode<ReducedT>(
