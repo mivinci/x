@@ -8,15 +8,17 @@
  * Wraps libx xHttpClient via OwnedHandle. Request pipeline via
  * ClientAdapter (heap, self-delete). Response resolved at header time.
  *
- * Body arrives asynchronously through two paths:
- *   - text() / bytes(): buffer the full body, resolve on on_done.
- *   - chunk(): stream chunks via mpsc channel as they arrive.
+ * Body data flows through a single mpsc channel:
+ *   on_data → try_send(chunk) → [channel] → chunk() / text() / bytes()
+ *   on_done → close channel
+ *
+ * No buffering in the adapter — the channel is the single source of truth.
  *
  * The entry point:
  *
  *   auto client  = Client::builder().build();
  *   auto resp    = client.get(url).send().await().unwrap();
- *   // Buffered: auto text = resp.text().await().unwrap();
+ *   // Buffered:  auto text = resp.text().await().unwrap();
  *   // Streaming: while (auto c = resp.chunk().await()) { ... }
  *
  * For bodies: .body(bytes::Bytes) for static data.
@@ -33,7 +35,6 @@
 #include <vector>
 
 #include <xpp/bytes/bytes.h>
-#include <xpp/bytes/bytes_mut.h>
 #include <xpp/bytes/reader.h>
 #include <xpp/handle.h>
 #include <xpp/http/error.h>
@@ -142,31 +143,28 @@ inline ClientBuilder Client::builder() {
 // ═════════════════════════════════════════════════════════════════════
 // ClientAdapter (internal)
 //
-// @tparam R  TryRead type — bytes::Reader for static, mpsc::Receiver
-//            for streaming uploads.
+// @tparam R  TryRead type for request body (bytes::Reader for static).
 //
-// Body chunks are delivered through two paths in parallel:
-//   1. m_body_buf — accumulated for the buffered resolver (text/bytes)
-//   2. m_body_tx  — pushed per-chunk for streaming (chunk())
-// Both paths are populated by on_data and finalized by on_done.
+// Body data flows through a single mpsc channel:
+//   on_data → try_send(chunk) → channel → Response::chunk()/text()/bytes()
+//   on_done → close channel
+//
+// No buffering — the channel is the single source of truth.
 // ═════════════════════════════════════════════════════════════════════
 
 namespace _ {
 
 template <class R> struct ClientAdapter {
-  PromiseResolver<Result<Response>>     m_resolver;
-  PromiseResolver<Result<bytes::Bytes>> m_body_resolver;
-  bytes::BytesMut                       m_body_buf;
-  R                                     m_reader;
-  sync::mpsc::Sender<bytes::Bytes>      m_body_tx;
-  Response                              m_response;
+  PromiseResolver<Result<Response>> m_resolver;
+  R                                 m_reader;
+  sync::mpsc::Sender<bytes::Bytes>  m_body_tx;
+  Response                          m_response;
 
   ClientAdapter(PromiseResolver<Result<Response>> r,
-                PromiseResolver<Result<bytes::Bytes>> br,
                 R reader,
                 sync::mpsc::Sender<bytes::Bytes> tx)
-      : m_resolver(std::move(r)), m_body_resolver(std::move(br)),
-        m_reader(std::move(reader)), m_body_tx(std::move(tx)) {}
+      : m_resolver(std::move(r)), m_reader(std::move(reader)),
+        m_body_tx(std::move(tx)) {}
 
   static int on_response(xHttpCtx *ctx, void *arg) {
     auto *self = static_cast<ClientAdapter *>(arg);
@@ -177,9 +175,6 @@ template <class R> struct ClientAdapter {
 
   static int on_data(const char *data, size_t len, void *arg) {
     auto *self = static_cast<ClientAdapter *>(arg);
-    // Buffer for text()/bytes().
-    self->m_body_buf.put(reinterpret_cast<const uint8_t *>(data), len);
-    // Push to streaming channel — try_send is non-blocking, safe in C callback.
     self->m_body_tx.try_send(bytes::Bytes::from(std::vector<uint8_t>(
       reinterpret_cast<const uint8_t *>(data),
       reinterpret_cast<const uint8_t *>(data) + len)));
@@ -190,17 +185,13 @@ template <class R> struct ClientAdapter {
     auto   *self = static_cast<ClientAdapter *>(arg);
     ssize_t n    = self->m_reader.try_read(buf, bufsize);
     if (n > 0) return static_cast<size_t>(n);
-    if (n < 0) return bytes::_::kReadFuncPause; // data not ready, curl will retry
-    return 0;                                   // EOF
+    if (n < 0) return bytes::_::kReadFuncPause;
+    return 0;
   }
 
   static void on_done(xHttpCtx *ctx, void *arg) {
     auto *self = static_cast<ClientAdapter *>(arg);
-    // Close the streaming channel — any pending chunk().await() in
-    // a fiber will see None on the next recv() and exit the loop.
     self->m_body_tx.close();
-    // Resolve the buffered promise for text()/bytes().
-    self->m_body_resolver.resolve(Result<bytes::Bytes>(xpp::ok, self->m_body_buf.freeze()));
     delete self;
   }
 };
@@ -210,20 +201,17 @@ template <class R> struct ClientAdapter {
 // ═════════════════════════════════════════════════════════════════════
 
 inline Promise<Result<Response>> RequestBuilder::send() {
-  auto [body_p, body_r] = async<Result<bytes::Bytes>>();
-
-  // Body streaming channel — 8 chunks of buffering before back-pressure.
+  // Body channel — 8 chunks of back-pressure.
   auto [body_tx, body_rx] = sync::mpsc::channel<bytes::Bytes>(8);
 
   auto [p, r] = async<Result<Response>>();
 
   bool  has_body = m_has_body;
   auto *adapter  = new _::ClientAdapter<bytes::Reader>(
-      std::move(r), std::move(body_r),
+      std::move(r),
       bytes::Reader(std::move(m_body)),
       std::move(body_tx));
 
-  adapter->m_response.set_full_body(std::move(body_p));
   adapter->m_response.set_body_channel(std::move(body_rx));
 
   xHttpRequestConf conf{};
@@ -250,9 +238,8 @@ inline Promise<Result<Response>> RequestBuilder::send() {
   xErrno err = xHttpClientDo(m_client, &conf, adapter);
   if (err != xErrno_Ok) {
     adapter->m_body_tx.close();
-    adapter->m_resolver.resolve(Result<Response>(xpp::err, Error::request("xHttpClientDo failed")));
-    adapter->m_body_resolver.resolve(
-      Result<bytes::Bytes>(xpp::err, Error::request("xHttpClientDo failed")));
+    adapter->m_resolver.resolve(
+      Result<Response>(xpp::err, Error::request("xHttpClientDo failed")));
     delete adapter;
   }
   return std::move(p);
