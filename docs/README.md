@@ -6,6 +6,24 @@
 
 C++11 introduced rvalue references, and with them came **move semantics** — a mechanism that at first glance seems like a performance optimization (avoid copying large objects) but is actually something far more profound. Before move semantics, C++ had two ways to pass a value: copy it, or pass a pointer. Copying is safe but expensive; pointers are cheap but dangerous — nothing in the type system tells you who owns the pointed-to memory, when it will be freed, or whether it's even still valid. This is why C++ codebases are haunted by "who frees this?" and "is this pointer still alive?" — questions that don't exist in garbage-collected languages, and that C++ developers pay for with valgrind sessions, ASan runs, and late-night debugging.
 
+```cpp
+// Three ways to pass a buffer to another function:
+
+// 1. Copy — safe, but deep-copies gigabytes of video frame data.
+void process_copy(std::vector<uint8_t> buf);  // caller knows buf is copied
+
+// 2. Raw pointer — cheap, but who owns this? Who frees it?
+void process_ptr(uint8_t* data, size_t len);  // caller: "is data still valid?"
+
+// 3. Rvalue reference — cheap AND clear. "I'm done with this, it's yours."
+void process_move(std::vector<uint8_t>&& buf); // caller: std::move(buf)
+                                               // callee: sole owner, RAII cleanup
+```
+
+Traditional C++ leans on copies (too expensive for large objects) or pointers
+(too ambiguous for ownership). Neither encodes *who holds the value* into the
+function signature.
+
 Move semantics bridges this gap. When you `std::move` a value, you're not copying bits — you're transferring *ownership*. The source object is left in a valid-but-unspecified state, and the destination assumes full responsibility. This is **ownership semantics**, not just a copy elision trick. Combined with RAII destructors, move semantics lets you express in the type system: "I am the only one who holds this resource, and when I go out of scope, it gets cleaned up." No reference counting, no garbage collector, no manual `free`.
 
 Rust took this idea and made it the foundation of the language — every value has exactly one owner, the compiler enforces borrowing rules at compile time, and you get memory safety without a runtime. C++ can't match Rust's compiler-level guarantees, but we can get surprisingly close with a library. That's where **libxpp** comes in: a C++11 wrapper that uses move semantics to implement `Own<T>` (single-owner heap allocation), `Box<T>`, `Rc<T>` / `Arc<T>` (shared ownership), `NonNull<T>` (non-null pointer abstraction), and a family of Rust-inspired types like `Option<T>`, `Result<T, E>`, and `Variant<Ts...>`. The goal is to make value semantics, especially move semantics, the default way you write C++ — so your code reads like "I have a value, I move it to you" rather than "here's a pointer, please don't forget to free it."
