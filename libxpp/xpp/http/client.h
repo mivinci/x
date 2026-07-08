@@ -160,11 +160,8 @@ template <class R> struct ClientAdapter {
   sync::mpsc::Sender<bytes::Bytes>  m_body_tx;
   Response                          m_response;
 
-  ClientAdapter(PromiseResolver<Result<Response>> r,
-                R reader,
-                sync::mpsc::Sender<bytes::Bytes> tx)
-      : m_resolver(std::move(r)), m_reader(std::move(reader)),
-        m_body_tx(std::move(tx)) {}
+  ClientAdapter(PromiseResolver<Result<Response>> r, R reader, sync::mpsc::Sender<bytes::Bytes> tx)
+      : m_resolver(std::move(r)), m_reader(std::move(reader)), m_body_tx(std::move(tx)) {}
 
   static int on_response(xHttpCtx *ctx, void *arg) {
     auto *self = static_cast<ClientAdapter *>(arg);
@@ -175,8 +172,7 @@ template <class R> struct ClientAdapter {
 
   static int on_data(const char *data, size_t len, void *arg) {
     auto *self = static_cast<ClientAdapter *>(arg);
-    self->m_body_tx.try_send(bytes::Bytes::copy(
-      reinterpret_cast<const uint8_t *>(data), len));
+    self->m_body_tx.try_send(bytes::Bytes::copy(reinterpret_cast<const uint8_t *>(data), len));
     return 0;
   }
 
@@ -207,9 +203,7 @@ inline Promise<Result<Response>> RequestBuilder::send() {
 
   bool  has_body = m_has_body;
   auto *adapter  = new _::ClientAdapter<bytes::Reader>(
-      std::move(r),
-      bytes::Reader(std::move(m_body)),
-      std::move(body_tx));
+    std::move(r), bytes::Reader(std::move(m_body)), std::move(body_tx));
 
   adapter->m_response.set_body_channel(std::move(body_rx));
 
@@ -237,8 +231,7 @@ inline Promise<Result<Response>> RequestBuilder::send() {
   xErrno err = xHttpClientDo(m_client, &conf, adapter);
   if (err != xErrno_Ok) {
     adapter->m_body_tx.close();
-    adapter->m_resolver.resolve(
-      Result<Response>(xpp::err, Error::request("xHttpClientDo failed")));
+    adapter->m_resolver.resolve(Result<Response>(xpp::err, Error::request("xHttpClientDo failed")));
     delete adapter;
   }
   return std::move(p);

@@ -19,10 +19,10 @@ namespace http {
 class Error {
 public:
   enum Kind {
-    Builder,          // Invalid config, bad URL, etc.
-    Request,          // Connection failed, network error
-    Timeout,          // Request timed out
-    Status,           // HTTP error status code
+    Builder, // Invalid config, bad URL, etc.
+    Request, // Connection failed, network error
+    Timeout, // Request timed out
+    Status,  // HTTP error status code
   };
 
   static Error builder(const std::string &msg) {

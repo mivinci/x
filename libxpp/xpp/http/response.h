@@ -21,7 +21,6 @@
 #include <map>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include <xpp/bytes/bytes.h>
 #include <xpp/bytes/bytes_mut.h>
@@ -42,7 +41,9 @@ public:
 
   // ── Headers (available immediately) ─────────────────────────────
 
-  int status() const { return m_status; }
+  int status() const {
+    return m_status;
+  }
 
   Option<std::string> header(const std::string &name) const {
     auto it = m_headers.find(name);
@@ -66,7 +67,7 @@ public:
                "bytes() after chunk() — body already consumed as stream");
     m_access = Access::Buffered;
     XPP_ASSERT(m_body_rx.is_some(), "bytes() on response without body channel");
-    return drain_into_bytes(std::move(m_body_rx).unwrap());
+    return drain_into_bytes(std::move(m_body_rx).unwrap_unchecked());
   }
 
   // ── Streaming body access ───────────────────────────────────────
@@ -81,12 +82,14 @@ public:
                "chunk() after bytes()/text() — body already consumed as buffered");
     m_access = Access::Streaming;
     XPP_ASSERT(m_body_rx.is_some(), "chunk() on a response without body channel");
-    return std::move(m_body_rx).unwrap().recv();
+    return m_body_rx.unwrap_unchecked().recv();
   }
 
   // ── Internal ───────────────────────────────────────────────────
 
-  void set_status(int s) { m_status = s; }
+  void set_status(int s) {
+    m_status = s;
+  }
 
   /// Set the body channel (single source of truth for both access patterns).
   void set_body_channel(sync::mpsc::Receiver<bytes::Bytes> rx) {
@@ -94,16 +97,19 @@ public:
   }
 
 private:
-  enum class Access { None, Buffered, Streaming };
+  enum class Access {
+    None,
+    Buffered,
+    Streaming
+  };
 
   /// Drain the body channel into a single buffered Bytes.
-  static Promise<Result<bytes::Bytes>> drain_into_bytes(
-    sync::mpsc::Receiver<bytes::Bytes> rx);
+  static Promise<Result<bytes::Bytes>> drain_into_bytes(sync::mpsc::Receiver<bytes::Bytes> rx);
 
-  int                                         m_status  = 0;
-  Access                                      m_access  = Access::None;
-  std::multimap<std::string, std::string>     m_headers;
-  Option<sync::mpsc::Receiver<bytes::Bytes>>  m_body_rx;
+  int                                        m_status = 0;
+  Access                                     m_access = Access::None;
+  std::multimap<std::string, std::string>    m_headers;
+  Option<sync::mpsc::Receiver<bytes::Bytes>> m_body_rx;
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -118,8 +124,8 @@ private:
 #if XPP_HAS_COROUTINES
 
 // C++20 coroutine — simplest, compiler does the state machine.
-inline Promise<Result<bytes::Bytes>> Response::drain_into_bytes(
-    sync::mpsc::Receiver<bytes::Bytes> rx) {
+inline Promise<Result<bytes::Bytes>>
+Response::drain_into_bytes(sync::mpsc::Receiver<bytes::Bytes> rx) {
   bytes::BytesMut buf;
   while (true) {
     auto chunk = co_await rx.recv();
@@ -133,8 +139,8 @@ inline Promise<Result<bytes::Bytes>> Response::drain_into_bytes(
 #elif XPP_FIBER
 
 // Fiber — linear code with .await() that suspends the fiber.
-inline Promise<Result<bytes::Bytes>> Response::drain_into_bytes(
-    sync::mpsc::Receiver<bytes::Bytes> rx) {
+inline Promise<Result<bytes::Bytes>>
+Response::drain_into_bytes(sync::mpsc::Receiver<bytes::Bytes> rx) {
   bytes::BytesMut buf;
   while (true) {
     auto chunk = rx.recv().await();
@@ -149,8 +155,8 @@ inline Promise<Result<bytes::Bytes>> Response::drain_into_bytes(
 
 // C++11 — struct + std::move(*this) tail-recursive .then() chain.
 // State is Shared (one heap alloc) for the buffer and receiver.
-inline Promise<Result<bytes::Bytes>> Response::drain_into_bytes(
-    sync::mpsc::Receiver<bytes::Bytes> rx) {
+inline Promise<Result<bytes::Bytes>>
+Response::drain_into_bytes(sync::mpsc::Receiver<bytes::Bytes> rx) {
   struct State {
     sync::mpsc::Receiver<bytes::Bytes> rx;
     bytes::BytesMut                    buf;
@@ -159,14 +165,13 @@ inline Promise<Result<bytes::Bytes>> Response::drain_into_bytes(
   auto state = Shared<State>::make(std::move(rx));
 
   struct DrainLoop {
-    Shared<State> state;
+    Shared<State>                 state;
     Promise<Result<bytes::Bytes>> operator()() {
       return state->rx.recv().then(
-        [self = std::move(*this)](Option<bytes::Bytes> chunk) mutable
-        -> Promise<Result<bytes::Bytes>> {
+        [self =
+           std::move(*this)](Option<bytes::Bytes> chunk) mutable -> Promise<Result<bytes::Bytes>> {
           if (chunk.is_none()) {
-            return xpp::resolve(
-              Result<bytes::Bytes>(xpp::ok, self.state->buf.freeze()));
+            return xpp::resolve(Result<bytes::Bytes>(xpp::ok, self.state->buf.freeze()));
           }
           auto &&b = chunk.unwrap();
           self.state->buf.put(b.data(), b.size());
