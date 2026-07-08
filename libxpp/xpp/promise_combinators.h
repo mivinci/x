@@ -186,8 +186,8 @@ private:
  * Promise<tuple<Void, Void, ...>>.
  *
  * @code
- *   auto [a, b] = xpp::all(fetch_int(), fetch_str()).wait();
- *   xpp::all(prefetch(0), prefetch(1)).wait();  // all-void → void
+ *   auto [a, b] = xpp::all(fetch_int(), fetch_str()).await();
+ *   xpp::all(prefetch(0), prefetch(1)).await();  // all-void → void
  * @endcode
  */
 template <class... Ts>
@@ -219,7 +219,7 @@ auto all(Promise<Ts>... promises)
  * run — e.g., TimerPromiseNode stops its timer).
  *
  * @code
- *   auto r = xpp::race(fetch(url), timeout(5000)).wait();
+ *   auto r = xpp::race(fetch(url), timeout(5000)).await();
  * @endcode
  */
 template <class T, class... Rest> Promise<T> race(Promise<T> first, Promise<Rest>... rest) {

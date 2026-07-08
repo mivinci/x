@@ -184,6 +184,78 @@ inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
 
 #else // !XPP_HAS_COROUTINES
 
+#if XPP_FIBER
+
+/* ═══ C++11 + fiber: linear while + .await() ═════════════════════════ */
+
+inline Promise<ssize_t> SimplexReader::read(void *buf, size_t len) {
+  auto *d = m_dup.get();
+  if (!d) return xpp::resolve(static_cast<ssize_t>(-1));
+
+  while (d->count == 0) {
+    if (d->closed) return xpp::resolve(0);
+    auto pr        = xpp::async<void>();
+    d->read_waiter = std::move(pr.second);
+    pr.first.await();
+  }
+
+  size_t avail = d->count;
+  size_t n     = len < avail ? len : avail;
+  size_t first = d->rpos;
+  if (first + n > d->buf.size()) {
+    size_t chunk = d->buf.size() - first;
+    std::memcpy(buf, d->buf.data() + first, chunk);
+    size_t rem = n - chunk;
+    std::memcpy(static_cast<uint8_t *>(buf) + chunk, d->buf.data(), rem);
+    d->rpos = rem;
+  } else {
+    std::memcpy(buf, d->buf.data() + first, n);
+    d->rpos = first + n;
+  }
+  d->count -= n;
+
+  if (d->write_waiter.is_pending()) {
+    auto w = std::move(d->write_waiter);
+    w.resolve();
+  }
+  return xpp::resolve(static_cast<ssize_t>(n));
+}
+
+inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
+  auto *d = m_dup.get();
+  if (!d) return xpp::resolve(static_cast<ssize_t>(-1));
+  if (len == 0) return xpp::resolve(0);
+
+  while (d->count + len > d->buf.size()) {
+    if (d->closed) return xpp::resolve(static_cast<ssize_t>(-1));
+    auto pr         = xpp::async<void>();
+    d->write_waiter = std::move(pr.second);
+    pr.first.await();
+  }
+
+  const uint8_t *src = static_cast<const uint8_t *>(buf);
+  size_t         pos = d->wpos;
+  if (pos + len > d->buf.size()) {
+    size_t chunk = d->buf.size() - pos;
+    std::memcpy(d->buf.data() + pos, src, chunk);
+    size_t rem = len - chunk;
+    std::memcpy(d->buf.data(), src + chunk, rem);
+    d->wpos = rem;
+  } else {
+    std::memcpy(d->buf.data() + pos, src, len);
+    d->wpos = pos + len;
+  }
+  d->count += len;
+
+  if (d->read_waiter.is_pending()) {
+    auto r = std::move(d->read_waiter);
+    r.resolve();
+  }
+  return xpp::resolve(static_cast<ssize_t>(len));
+}
+
+#else // !XPP_FIBER
+
 /* ═══ C++11: struct + std::move(*this) recursive .then() chain ════════
  *
  * Replaces `while (condition) { co_await ... }` with a local recursive
@@ -285,6 +357,8 @@ inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
 
   return WriteLoop{m_dup, buf, len}();
 }
+
+#endif // XPP_FIBER
 
 #endif // XPP_HAS_COROUTINES
 

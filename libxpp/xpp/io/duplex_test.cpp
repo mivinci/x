@@ -32,7 +32,7 @@ xpp::Promise<void> do_write_then_read() {
 TEST(DuplexTest, WriteThenRead) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_write_then_read().wait();
+  do_write_then_read().await();
 }
 
 /* ── Bidirectional ─────────────────────────────────────────────────── */
@@ -65,7 +65,7 @@ xpp::Promise<void> do_bidirectional() {
 TEST(DuplexTest, Bidirectional) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_bidirectional().wait();
+  do_bidirectional().await();
 }
 
 /* ── Buffer full → writer blocks, reader unblocks ──────────────────── */
@@ -94,7 +94,7 @@ xpp::Promise<void> do_buffer_full() {
 TEST(DuplexTest, BufferFull) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_buffer_full().wait();
+  do_buffer_full().await();
 }
 
 /* ── read_all round-trip ───────────────────────────────────────────── */
@@ -114,5 +114,5 @@ xpp::Promise<void> do_read_all_roundtrip() {
 TEST(DuplexTest, ReadAllRoundtrip) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_read_all_roundtrip().wait();
+  do_read_all_roundtrip().await();
 }

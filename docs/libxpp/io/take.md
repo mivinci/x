@@ -2,9 +2,11 @@
 
 ## Introduction
 
-`xpp::io::Take<R>` wraps any `AsyncReader` with a byte limit. Once the limit is reached, `read()` returns 0 (EOF) regardless of whether the inner reader has more data. Essential for HTTP `Content-Length` parsing and protocol frame boundaries where the reader must not consume beyond a known byte limit.
+`xpp::io::Take<R>` wraps any `AsyncReader` with a byte limit. Once the limit is reached, `read()` returns 0 (EOF) regardless of whether the inner reader has more data. Essential for HTTP `Content-Length` parsing and protocol frame boundaries.
 
-Satisfies the `AsyncReader` concept — composable with `io::read_all`, `io::copy`, `BufReader`, or nested in another `Take`. Takes ownership of the inner reader via move semantics. Coroutine (C++20) or struct+move fallback (C++11).
+Satisfies the `AsyncReader` concept — composable with `io::read_all`, `io::copy`, `BufReader`. Takes ownership via move semantics.
+
+## Example — `.await()`
 
 ```cpp
 #include <xpp/io/take.h>
@@ -12,10 +14,17 @@ Satisfies the `AsyncReader` concept — composable with `io::read_all`, `io::cop
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto conn = xpp::net::TcpStream::connect("127.0.0.1:9090").wait().unwrap();
+auto conn = xpp::net::TcpStream::connect("127.0.0.1:9090").await().unwrap();
 xpp::io::Take<xpp::net::TcpStream> body(std::move(conn), 128);
 
-// Reads exactly 128 bytes, then EOF
+auto data = xpp::io::read_all(body).await();  // reads exactly 128 bytes, then EOF
+```
+
+## Example — `co_await` (C++20)
+
+```cpp
+auto conn = xpp::net::TcpStream::connect("127.0.0.1:9090").await().unwrap();
+xpp::io::Take<xpp::net::TcpStream> body(std::move(conn), 128);
 auto data = co_await xpp::io::read_all(body);
 ```
 
@@ -25,7 +34,7 @@ auto data = co_await xpp::io::read_all(body);
 Take<R> { m_reader, m_remaining }
 
 read(buf, len):
-  m_remaining == 0? → co_return 0 (EOF)
+  m_remaining == 0? → return 0 (EOF)
   m_remaining > 0?  → cap len to m_remaining, forward to inner
   inner returns n  → m_remaining -= n, return n
 ```
@@ -42,44 +51,60 @@ A simple counter tracks remaining bytes. Each `read()` delegates to the inner re
 
 ## Usage Examples
 
-### HTTP body with Content-Length
+### HTTP body with Content-Length — `.await()`
+
+```cpp
+xpp::io::Take<xpp::net::TcpStream> body(std::move(conn), content_length);
+auto data = xpp::io::read_all(body).await();
+// data.size() ≤ content_length
+```
+
+### HTTP body with Content-Length — `co_await` (C++20)
 
 ```cpp
 xpp::Promise<void> read_body(xpp::net::TcpStream conn, size_t content_length) {
     xpp::io::Take<xpp::net::TcpStream> body(std::move(conn), content_length);
     auto data = co_await xpp::io::read_all(body);
-    // data.size() ≤ content_length
 }
 ```
 
-### Protocol frame boundary
+### Protocol frame boundary — `.await()`
+
+```cpp
+char header[4];
+conn.read(header, 4).await();
+uint32_t body_len = ntohl(*reinterpret_cast<uint32_t *>(header));
+
+xpp::io::Take<xpp::net::TcpStream> body(std::move(conn), body_len);
+auto data = xpp::io::read_all(body).await();
+```
+
+### Protocol frame boundary — `co_await` (C++20)
 
 ```cpp
 xpp::Promise<void> read_frame(xpp::net::TcpStream conn) {
-    // Read 4-byte header
     char header[4];
     co_await conn.read(header, 4);
     uint32_t body_len = ntohl(*reinterpret_cast<uint32_t *>(header));
-
-    // Read exactly body_len bytes — won't consume next frame
     xpp::io::Take<xpp::net::TcpStream> body(std::move(conn), body_len);
     auto data = co_await xpp::io::read_all(body);
 }
 ```
 
-### Read limit hits zero
+### Read limit hits zero — `.await()`
 
 ```cpp
 xpp::io::Take<xpp::net::TcpStream> limit(std::move(conn), 5);
 char buf[10];
-
-ssize_t n1 = co_await limit.read(buf, 5);
-// n1 == 5 (if 5 bytes available), remaining == 0
-
-ssize_t n2 = co_await limit.read(buf, 10);
-// n2 == 0 (EOF), inner reader untouched
+ssize_t n1 = limit.read(buf, 5).await();  // n1 == 5, remaining == 0
+ssize_t n2 = limit.read(buf, 10).await(); // n2 == 0 (EOF)
 ```
 
-## Examples
+### Read limit hits zero — `co_await` (C++20)
 
-All examples above show coroutine usage (C++20). For C++11, `Take` works identically — the `.read()` method uses `.then()` instead of `co_await` internally. See [Utilities](util.md) for composing `Take` with `io::read_all` and `io::copy`.
+```cpp
+xpp::io::Take<xpp::net::TcpStream> limit(std::move(conn), 5);
+char buf[10];
+ssize_t n1 = co_await limit.read(buf, 5);  // n1 == 5, remaining == 0
+ssize_t n2 = co_await limit.read(buf, 10); // n2 == 0 (EOF)
+```

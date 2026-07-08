@@ -23,6 +23,7 @@
   - [Panic](libxpp/panic.md)
   - [EventLoop & WaitScope](libxpp/event.md)
   - [Promise](libxpp/promise/README.md)
+    - [.await() & Waiting](libxpp/promise/await.md)
     - [then()](libxpp/promise/then.md)
     - [Deferred Resolution](libxpp/promise/deferred.md)
     - [Timers & Timeouts](libxpp/promise/timers.md)
@@ -108,6 +109,7 @@
   - [p2p — P2P Connectivity](libx/p2p/README.md)
     - [ICE Agent](libx/p2p/ice.md)
     - [Peer Connection](libx/p2p/pc.md)
+  - [fs — Async Filesystem I/O](libx/fs/README.md)
 ---
 
 # API Reference

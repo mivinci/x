@@ -60,6 +60,7 @@ struct xFiber_ {
   size_t     stack_size;   /* requested stack size (0 for main / default) */
   xFiberProc proc;         /* user entry point (NULL for main fiber)      */
   void      *proc_arg;     /* opaque argument passed to proc              */
+  xFiber     parent;       /* parent fiber (NULL for root); yield target  */
 };
 
 /* ── Thread-local current fiber ─────────────────────────────────── */
@@ -143,6 +144,7 @@ xFiber xFiberCreate(size_t stack_size, xFiberProc proc, void *arg) {
   f->proc       = proc;
   f->proc_arg   = arg;
   f->is_main    = false;
+  f->parent     = (xFiber)tl_fiber;  /* NULL from main, parent fiber inside nested fiber */
 
   /* CreateFiberEx with FIBER_FLAG_FLOAT_SWITCH: preserves the x87
    * FPU / SSE / AVX state on context switches, which is the safe
@@ -207,6 +209,14 @@ void xFiberSwitch(xFiber target) {
   /* Control returns here when another fiber switches back to 'current'.
    * Fix tl_fiber which may have been clobbered by the switcher. */
   tl_fiber = current;
+}
+
+void xFiberYield(void) {
+  struct xFiber_ *cur = tl_fiber;
+  if (!cur) return; /* not a fiber thread — nothing to yield */
+
+  xFiber target = cur->parent ? cur->parent : xFiberMain();
+  xFiberSwitch(target);
 }
 
 xFiber xFiberCurrent(void) {

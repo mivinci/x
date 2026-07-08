@@ -16,14 +16,14 @@ using xpp::net::TcpStream;
 using xpp::net::TcpListener;
 
 // TCP echo server + client in one chain
-auto server = TcpListener::bind("127.0.0.1:9090").wait().unwrap();
+auto server = TcpListener::bind("127.0.0.1:9090").await().unwrap();
 auto client_p = TcpStream::connect("127.0.0.1:9090").then([](TcpStream c) {
     return c.write("hi", 2).then([c](ssize_t) mutable {
         char buf[64];
         return c.read(buf, 64);
     });
 });
-client_p.wait();
+client_p.await();
 ```
 
 ## Design Philosophy

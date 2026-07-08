@@ -34,7 +34,7 @@ static void BM_Watch_RoundTrip(benchmark::State &state) {
   for (auto _ : state) {
     auto [tx, mut_rx] = xpp::sync::watch::channel(int{0});
     tx.send(42);
-    auto r = mut_rx.changed().wait();
+    auto r = mut_rx.changed().await();
     benchmark::DoNotOptimize(r);
   }
 }
@@ -76,7 +76,7 @@ static void BM_Watch_String(benchmark::State &state) {
   for (auto _ : state) {
     auto [tx, mut_rx] = xpp::sync::watch::channel(std::string("hello"));
     tx.send(std::string("world!"));
-    auto r = mut_rx.changed().wait();
+    auto r = mut_rx.changed().await();
     benchmark::DoNotOptimize(r);
   }
 }

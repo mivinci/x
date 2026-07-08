@@ -23,7 +23,7 @@ static void BM_Notify_NotifyOneNotified(benchmark::State &state) {
     xpp::sync::Notify n;
     auto p = n.notified();
     n.notify_one();
-    p.wait();
+    p.await();
   }
 }
 BENCHMARK(BM_Notify_NotifyOneNotified);
@@ -38,7 +38,7 @@ static void BM_Notify_PreNotified(benchmark::State &state) {
     xpp::sync::Notify n;
     n.notify_one();           // accumulate pending count
     auto p = n.notified();    // fast path: consume without lock
-    p.wait();
+    p.await();
   }
 }
 BENCHMARK(BM_Notify_PreNotified);
@@ -56,7 +56,7 @@ static void BM_Notify_NotifyWaiters(benchmark::State &state) {
     waiters.reserve(kN);
     for (int i = 0; i < kN; ++i) waiters.push_back(n.notified());
     n.notify_waiters();
-    for (auto &p : waiters) p.wait();
+    for (auto &p : waiters) p.await();
   }
 }
 BENCHMARK(BM_Notify_NotifyWaiters);

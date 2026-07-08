@@ -6,7 +6,7 @@
  * promise.h - Promise<T> + PromiseResolver<T>.
  *
  * Promise<T> represents a value that will be available in the future.
- * Chain transformations with then(), wait for the result with wait().
+ * Chain transformations with then(), block for the result with await().
  *
  * PromiseResolver<T>::create() returns a resolver; call .promise()
  * to get the associated Promise, and .resolve() to fulfill it.
@@ -74,7 +74,7 @@ template <class Func> using ReturnTypeVoid = decltype(std::declval<Func>()());
  *
  *   int result = xpp::resolve(42)
  *     .then([](int x) { return x * 2; })
- *     .wait();
+ *     .await();
  *   // result == 84
  * @endcode
  */
@@ -105,8 +105,8 @@ public:
 
   template <class Func, class V = ValueType,
             class = typename std::enable_if<std::is_same<V, Void>::value>::type, class = void>
-  auto
-  then(Func &&func) -> Promise<typename _::ReducePromise<decltype(std::declval<Func>()())>::Type>;
+  auto then(Func &&func)
+    -> Promise<typename _::ReducePromise<decltype(std::declval<Func>()())>::Type>;
 
   /// Discard the value, returning a completion-only Promise<void>.
   Promise<void> discard() {
@@ -119,46 +119,46 @@ public:
   }
 
   /**
-   * @brief Block until the promise resolves, driving the event loop.
+   * @brief Wait for the promise to resolve.
    *
    * Must be called on the WaitScope thread. Polls the promise node;
-   * if not ready, runs the event loop until the waker fires and
+   * if not ready, parks the current context until the waker fires and
    * re-polls. Returns the resolved value. Consumes the promise.
    *
+   * @par Parking
+   * PromiseWaker::park() encapsulates the waiting strategy:
+   *   - Non-fiber: runs xEventLoopRun(X_RUN_ONCE) in a poll loop.
+   *   - Fiber:     suspends via xFiberYield(), yielding to the event
+   *                loop until the waker switches the fiber back in.
+   *
    * @par Thread safety
-   * Not thread-safe. Only the WaitScope thread may call wait().
+   * Not thread-safe. Only the WaitScope thread may call await().
    * However, the promise being waited on may be resolved from
    * another thread via PromiseResolver::resolve() — that path is
    * thread-safe (AtomicPromiseWaker + atomic flag).
    *
-   * @par Nested wait()
-   * Safe to call wait() inside a callback that runs during another
-   * wait(). xEventLoopRun no longer calls Enter/Leave internally,
+   * @par Nested await()
+   * Safe to call await() inside a callback that runs during another
+   * await(). xEventLoopRun no longer calls Enter/Leave internally,
    * so nested Run calls do not corrupt the thread-local loop binding.
    */
-  ValueType wait() {
-    XPP_ASSERT(m_node != nullptr, "wait() on empty promise");
+  ValueType await() {
+    XPP_ASSERT(m_node != nullptr, "await() on empty promise");
 
-    bool         done  = false;
-    PromiseWaker waker = PromiseWaker::sync_wait(&done);
-
+    PromiseWaker waker;
     while (true) {
       Option<ValueType> result = m_node->poll(waker);
       if (result.is_some()) {
         return std::move(result).unwrap();
       }
-      // Pending — run one loop iteration per try. X_RUN_ONCE returns
-      // after processing one batch of events (timers, I/O, done queue),
-      // so we can re-check `done` without waiting for all event sources
-      // to drain. This is critical for race(): with two timers, the
-      // faster timer sets done=true, but the slower timer keeps the
-      // loop alive. X_RUN_ONCE returns after the faster timer fires,
-      // allowing re-poll before the slower timer completes.
-      while (!done) {
-        xEventLoopRun(EventLoop::current(), X_RUN_ONCE);
-      }
-      done = false; // reset for next poll iteration
+      waker.park();
     }
+  }
+
+  /// @deprecated Use await() instead.
+  XPP_DEPRECATED("use await() instead")
+  ValueType wait() {
+    return await();
   }
 
 private:
@@ -201,7 +201,7 @@ chain(_::OwnPromiseNode<T> dep, Func &&func) {
   // Inner: TransformPromiseNode<Promise<ReducedT>, T, Func> (appended to dep's arena)
   auto inner = _::OwnPromiseNode<Promise<ReducedT>>(
     _::promise::append<TransformPromiseNode<Promise<ReducedT>, T, Func>>(pred, std::move(dep),
-                                                                        std::forward<Func>(func)));
+                                                                         std::forward<Func>(func)));
   // Outer: ChainPromiseNode<ReducedT> (appended to inner's arena)
   void *inner_pred = inner.get();
   return _::OwnPromiseNode<ReducedT>(

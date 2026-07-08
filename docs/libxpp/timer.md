@@ -13,7 +13,7 @@ pause/resume.
 |---|---|---|
 | Style | Promise-based (poll/wait) | Callback-based |
 | Modes | One-shot only | One-shot + repeating |
-| Composition | `.then()`, `.wait()` | None (just fires callback) |
+| Composition | `.then()`, `.await()` | None (just fires callback) |
 | Use case | Delayed computation in a Promise chain | Periodic tasks, heartbeats, simple delayed callbacks |
 
 ## API Reference
@@ -134,7 +134,7 @@ change). The hook nulls the stored handle, so `~Timer` skips
 // Promise-based (use for Promise composition):
 Promise<void>::after(100).then([]() {
   return compute_result();
-}).wait();
+}).await();
 
 // Callback-based (use for periodic tasks or simple callbacks):
 xpp::Timer t(100, []() {
@@ -142,6 +142,6 @@ xpp::Timer t(100, []() {
 });
 ```
 
-Use `after(ms)` when you need `.then()` / `.wait()` composition. Use
+Use `after(ms)` when you need `.then()` / `.await()` composition. Use
 `Timer` when you need a periodic callback or a simple one-shot callback
 without Promise overhead.

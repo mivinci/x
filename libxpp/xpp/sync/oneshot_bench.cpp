@@ -33,7 +33,7 @@ static void BM_Oneshot_RoundTrip(benchmark::State &state) {
   for (auto _ : state) {
     auto [tx, rx] = xpp::sync::oneshot::channel<int>();
     tx.send(state.iterations());
-    int val = std::move(rx).recv().wait();
+    int val = std::move(rx).recv().await();
     benchmark::DoNotOptimize(val);
   }
 }
@@ -48,7 +48,7 @@ static void BM_Oneshot_PreResolvedRecv(benchmark::State &state) {
   for (auto _ : state) {
     auto [tx, rx] = xpp::sync::oneshot::channel<int>();
     tx.send(42);
-    int val = std::move(rx).recv().wait();
+    int val = std::move(rx).recv().await();
     benchmark::DoNotOptimize(val);
   }
 }
@@ -63,7 +63,7 @@ static void BM_Oneshot_String(benchmark::State &state) {
   for (auto _ : state) {
     auto [tx, rx] = xpp::sync::oneshot::channel<std::string>();
     tx.send(std::string("hello world!"));
-    auto val = std::move(rx).recv().wait();
+    auto val = std::move(rx).recv().await();
     benchmark::DoNotOptimize(val);
   }
 }

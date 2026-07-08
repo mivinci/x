@@ -37,7 +37,7 @@ public:
 auto p = xpp::adapt<int, MyAdapter>(url);
 // MyAdapter is constructed with (PromiseResolver<int>&&, url)
 // When the fetch completes, MyAdapter calls resolver.resolve(code)
-int code = p.wait();
+int code = p.await();
 ```
 
 ## How It Works
@@ -131,7 +131,7 @@ auto [p, r] = xpp::async<int>();
 // p is backed by ManualResolveNode<int>
 // r is PromiseResolver<int> (ArcWeak to shared state)
 r.resolve(42);
-p.wait();  // 42
+p.await();  // 42
 ```
 
 ## Writing a Custom Cross-Thread Adapter

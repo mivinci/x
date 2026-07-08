@@ -2,26 +2,30 @@
 
 [← Promise](README.md)
 
-## When to Use
+libxpp supports three ways to express async flows — pick the one that fits your compiler:
 
-You have multi-step async flows and want linear code instead of `.then()` chains.
+| Style | Compiler | Blocking? |
+| --- | --- | --- |
+| `.then()` chains | C++11 | No (callback-driven) |
+| `.await()` + fiber | C++11 + `XPP_FIBER` | No (stackful suspend) |
+| `co_await` / `co_return` | C++20 | No (compiler-generated state machine) |
+
+## When to Use `co_await`
+
+You have multi-step async flows and want linear code. `.await()` + fiber already gives you this on C++11 — `co_await` is the C++20 sugar on top.
+
+## `.await()` + fiber (C++11)
 
 ```cpp
-// .then() chain — nested callbacks
-Promise<int> compute() {
-    return resolve(1)
-        .then([](int x) { return x + 1; })
-        .then([](int x) { return work([x] { return x * 2; }); })
-        .then([](int x) { return x - 3; });
-}
-
-// Coroutine — linear code
-Promise<int> compute() {
-    int x = co_await resolve(1);
+int result = xpp::fiber([]() {
+    int x = xpp::resolve(1).await();
     x = x + 1;
-    x = co_await work([x] { return x * 2; });
-    co_return x - 3;
-}
+    x = xpp::work([x] { return x * 2; }).await();
+    return x - 3;
+}).await();
+```
+
+## `co_await` / `co_return` (C++20)
 ```
 
 ## Requirements
@@ -90,7 +94,7 @@ Promise<int> outer() {
     co_return x + 1;
 }
 
-// outer().wait() == 101
+// outer().await() == 101
 ```
 
 ## co_await Combinators
@@ -120,7 +124,7 @@ Coroutines produce regular `Promise<T>`, so they compose with `.then()`:
 ```cpp
 Promise<int> compute() { co_return 10; }
 
-int result = compute().then([](int x) { return x * 3; }).wait();
+int result = compute().then([](int x) { return x * 3; }).await();
 // result == 30
 ```
 

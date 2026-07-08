@@ -4,19 +4,46 @@
 
 `xpp::net::TcpStream` and `TcpListener` provide Promise-based async TCP, wrapping libx's `xTcpConn` and `xTcpListener`. I/O uses `io::AsyncFd` for readiness — fast-path syscall + EAGAIN wait.
 
+## Example — `.await()`
+
 ```cpp
 #include <xpp/net/tcp.h>
 
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-// Client
-auto conn_r = xpp::net::TcpStream::connect("127.0.0.1:8080").wait();
-auto conn = std::move(conn_r).unwrap();
-conn.write("hello", 5).wait();
+auto conn = xpp::net::TcpStream::connect("127.0.0.1:8080").await().unwrap();
+conn.write("hello", 5).await();
 
 char buf[64];
-ssize_t n = conn.read(buf, sizeof(buf)).wait();
+ssize_t n = conn.read(buf, sizeof(buf)).await();
+```
+
+With fiber — echo server:
+
+```cpp
+xpp::fiber([]() {
+  auto listener = xpp::net::TcpListener::bind("127.0.0.1:8080").await().unwrap();
+  auto conn = listener.accept().await().unwrap();
+
+  char buf[1024];
+  while (true) {
+    ssize_t n = conn.read(buf, sizeof(buf)).await();
+    if (n <= 0) break;
+    conn.write(buf, n).await();
+  }
+}).await();
+```
+
+## Example — `co_await` (C++20)
+
+```cpp
+xpp::Promise<void> client_demo() {
+  auto conn = co_await xpp::net::TcpStream::connect("127.0.0.1:8080");
+  co_await conn.unwrap().write("hello", 5);
+  char buf[64];
+  ssize_t n = co_await conn.unwrap().read(buf, sizeof(buf));
+}
 ```
 
 ## TcpStream
@@ -55,7 +82,7 @@ Pass `Option<const TlsContext&>` to enable TLS. The handshake is transparent:
 
 ```cpp
 xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpStream::connect("example.com:443", tls).wait();
+auto conn = xpp::net::TcpStream::connect("example.com:443", tls).await();
 // conn.read() / conn.write() transparently encrypt/decrypt
 ```
 
@@ -88,7 +115,7 @@ auto conn = xpp::net::TcpStream::connect("example.com:443", tls).wait();
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto listener_r = xpp::net::TcpListener::bind("0.0.0.0:8080").wait();
+auto listener_r = xpp::net::TcpListener::bind("0.0.0.0:8080").await();
 ASSERT_TRUE(listener_r.is_ok());
 auto listener = std::move(listener_r).unwrap();
 
@@ -102,18 +129,18 @@ auto session = [](xpp::net::TcpStream conn) {
         .then([conn_ptr](ssize_t) mutable {});
 };
 
-session(listener.accept().wait()).wait();
+session(listener.accept().await()).await();
 ```
 
 ### TCP Client with TLS
 
 ```cpp
 xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpStream::connect("example.com:443", tls).wait();
-conn.write("GET / HTTP/1.0\r\n\r\n", 18).wait();
+auto conn = xpp::net::TcpStream::connect("example.com:443", tls).await();
+conn.write("GET / HTTP/1.0\r\n\r\n", 18).await();
 
 char buf[4096];
-ssize_t n = conn.read(buf, sizeof(buf)).wait();
+ssize_t n = conn.read(buf, sizeof(buf)).await();
 ```
 
 ## Coroutine Examples
@@ -171,7 +198,7 @@ xpp::Promise<void> echo_client(uint16_t port) {
 }
 
 // Drive both concurrently:
-xpp::all(echo_server(std::move(listener)), echo_client(port)).wait();
+xpp::all(echo_server(std::move(listener)), echo_client(port)).await();
 ```
 
 ## Implementation Notes

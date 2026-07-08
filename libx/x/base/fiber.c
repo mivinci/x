@@ -94,6 +94,7 @@ struct xFiber_ {
   void      *stack_base;  /* guard page end = usable stack start         */
   xFiberProc proc;        /* user entry point (NULL for main fiber)       */
   void      *proc_arg;    /* opaque argument passed to proc               */
+  xFiber     parent;      /* parent fiber (NULL for root); yield target  */
 };
 
 /* ── Thread-local current fiber ─────────────────────────────────────── */
@@ -192,6 +193,7 @@ xFiber xFiberCreate(size_t stack_size, xFiberProc proc, void *arg) {
   f->stack_base = (char *)mem + page_size;
   f->proc       = proc;
   f->proc_arg   = arg;
+  f->parent     = (xFiber)tl_fiber;  /* NULL from main, parent fiber inside nested fiber */
 
   /* ── Initialize entry context (makecontext) ─────────────────────
    * makecontext/setcontext is used ONLY for the first switch-in.
@@ -264,6 +266,27 @@ void xFiberSwitch(xFiber target) {
   tl_fiber = target_p;
   swapcontext(&current->uctx, &target_p->uctx);
   tl_fiber = current;
+}
+
+/**
+ * @brief Yield to the parent fiber.
+ *
+ * If the current fiber has a parent (created inside another fiber),
+ * switches to the parent. Otherwise, switches to the main fiber
+ * (the thread's event loop). This enables nested fiber calls:
+ * a fiber can spawn child fibers and have them yield back to it
+ * instead of jumping all the way to the main stack.
+ *
+ * This is the preferred way to suspend a fiber — use inside
+ * PromiseWaker::park() and trampoline cleanup instead of hardcoding
+ * xFiberSwitch(xFiberMain()).
+ */
+void xFiberYield(void) {
+  struct xFiber_ *cur = tl_fiber;
+  if (!cur) return; /* not a fiber thread — nothing to yield */
+
+  xFiber target = cur->parent ? cur->parent : xFiberMain();
+  xFiberSwitch(target);
 }
 
 xFiber xFiberCurrent(void) {

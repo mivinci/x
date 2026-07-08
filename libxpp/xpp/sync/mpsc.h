@@ -134,7 +134,7 @@ private:
 
   explicit Sender(Shared<Chan> c) : m_chan(std::move(c)) {}
 
-  bool m_closed() const {
+  bool closed() const {
     return m_chan->m_closed.load(std::memory_order_acquire);
   }
 
@@ -181,7 +181,7 @@ private:
   Shared<Chan> m_chan;
   explicit Receiver(Shared<Chan> c) : m_chan(std::move(c)) {}
 
-  bool m_closed() const {
+  bool closed() const {
     return m_chan->m_closed.load(std::memory_order_acquire);
   }
 };
@@ -194,7 +194,7 @@ template <class T> Promise<void> Sender<T>::send(T value) {
   if (!m_chan) co_return;
 
   while (true) {
-    if (m_closed()) co_return;
+    if (closed()) co_return;
     if (m_chan->m_tx.try_push(std::move(value))) break;
 
     auto w                 = xpp::async<void>();
@@ -221,7 +221,7 @@ template <class T> Promise<Option<T>> Receiver<T>::recv() {
       co_return xpp::some(std::move(v).unwrap());
     }
 
-    if (m_closed() && m_chan->m_rx.empty()) co_return none;
+    if (closed() && m_chan->m_rx.empty()) co_return none;
 
     auto pr               = xpp::async<void>();
     m_chan->m_read_waiter = std::move(pr.second);
@@ -230,6 +230,57 @@ template <class T> Promise<Option<T>> Receiver<T>::recv() {
 }
 
 #else // !XPP_HAS_COROUTINES
+
+#if XPP_FIBER
+
+/* ═══ C++11 + fiber: linear while + .await() ═════════════════════════
+ *
+ * With fiber, .await() suspends the fiber inside the while loop.
+ * Values live on the fiber stack — no Shared<T> heap allocation needed
+ * for send(). The struct+move pattern is replaced by plain linear code.
+ * ─────────────────────────────────────────────────────────────────── */
+
+template <class T> Promise<void> Sender<T>::send(T value) {
+  if (!m_chan) return xpp::resolve();
+
+  while (true) {
+    if (closed()) return xpp::resolve();
+    if (m_chan->m_tx.try_push(std::move(value))) break;
+
+    auto pr                = xpp::async<void>();
+    m_chan->m_write_waiter = std::move(pr.second);
+    pr.first.await();
+  }
+
+  if (m_chan->m_read_waiter.is_pending()) {
+    auto w = std::move(m_chan->m_read_waiter);
+    w.resolve();
+  }
+  return xpp::resolve();
+}
+
+template <class T> Promise<Option<T>> Receiver<T>::recv() {
+  if (!m_chan) return xpp::resolve(none);
+
+  while (true) {
+    auto v = m_chan->m_rx.try_pop();
+    if (v.is_some()) {
+      if (m_chan->m_write_waiter.is_pending()) {
+        auto w = std::move(m_chan->m_write_waiter);
+        w.resolve();
+      }
+      return xpp::resolve(xpp::some(std::move(v).unwrap()));
+    }
+
+    if (closed() && m_chan->m_rx.empty()) return xpp::resolve(none);
+
+    auto pr               = xpp::async<void>();
+    m_chan->m_read_waiter = std::move(pr.second);
+    pr.first.await();
+  }
+}
+
+#else // !XPP_FIBER
 
 /**
  * C++11 send(): recursively retry via .then() chain.
@@ -308,13 +359,15 @@ template <class T> Promise<Option<T>> Receiver<T>::recv() {
   return RecvLoop{m_chan}();
 }
 
+#endif // XPP_FIBER
+
 #endif // XPP_HAS_COROUTINES
 
 /* ── Synchronous methods (C++11, no coroutine dependency) ──────────── */
 
 template <class T> Result<Void, TrySendError<T>> Sender<T>::try_send(T value) {
   if (!m_chan) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
-  if (m_closed()) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
+  if (closed()) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
   if (!m_chan->m_tx.try_push(std::move(value)))
     return err(TrySendError<T>{TrySendError<T>::Full, std::move(value)});
 
@@ -350,7 +403,7 @@ template <class T> Result<T, TryRecvError> Receiver<T>::try_recv() {
     }
     return ok(std::move(v).unwrap());
   }
-  return err(m_closed() ? TryRecvError::Closed : TryRecvError::Empty);
+  return err(closed() ? TryRecvError::Closed : TryRecvError::Empty);
 }
 
 /**
@@ -466,7 +519,7 @@ private:
   using Chan = typename UnboundedSender<T>::Chan;
   Shared<Chan> m_chan;
   explicit UnboundedReceiver(Shared<Chan> c) : m_chan(std::move(c)) {}
-  bool m_closed() const {
+  bool closed() const {
     return m_chan->m_closed.load(std::memory_order_acquire);
   }
 };
@@ -488,7 +541,7 @@ template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
       co_return xpp::some(std::move(v).unwrap());
     }
 
-    if (m_closed() && m_chan->m_rx.empty()) co_return none;
+    if (closed() && m_chan->m_rx.empty()) co_return none;
 
     auto pr               = xpp::async<void>();
     m_chan->m_read_waiter = std::move(pr.second);
@@ -497,6 +550,33 @@ template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
 }
 
 #else // !XPP_HAS_COROUTINES
+
+#if XPP_FIBER
+
+/* ═══ C++11 + fiber: linear while + .await() ═════════════════════════ */
+
+template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
+  if (!m_chan) return xpp::resolve(none);
+
+  while (true) {
+    auto v = m_chan->m_rx.try_pop();
+    if (v.is_some()) {
+      if (m_chan->m_write_waiter.is_pending()) {
+        auto w = std::move(m_chan->m_write_waiter);
+        w.resolve();
+      }
+      return xpp::resolve(xpp::some(std::move(v).unwrap()));
+    }
+
+    if (closed() && m_chan->m_rx.empty()) return xpp::resolve(none);
+
+    auto pr               = xpp::async<void>();
+    m_chan->m_read_waiter = std::move(pr.second);
+    pr.first.await();
+  }
+}
+
+#else // !XPP_FIBER
 
 template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
   if (!m_chan) return xpp::resolve(none);
@@ -526,6 +606,8 @@ template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
 
   return RecvLoop{m_chan}();
 }
+
+#endif // XPP_FIBER
 
 #endif // XPP_HAS_COROUTINES
 

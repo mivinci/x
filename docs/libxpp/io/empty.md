@@ -4,13 +4,23 @@
 
 `xpp::io::Empty` is an always-EOF async reader. Every call to `read()` returns 0 immediately. Useful for testing, placeholder values, and situations where a reader is expected but no data is available.
 
-Satisfies the `AsyncReader` concept — composable with `io::read_all`, `io::copy`, and `BufReader`. C++11-compatible (no coroutines needed — uses `xpp::resolve(0)`).
+Satisfies the `AsyncReader` concept. C++11-compatible (uses `xpp::resolve(0)`).
+
+## Example — `.await()`
 
 ```cpp
 #include <xpp/io/empty.h>
 
 xpp::io::Empty e;
-ssize_t n = e.read(nullptr, 10).wait();
+ssize_t n = e.read(nullptr, 10).await();
+// n == 0
+```
+
+## Example — `co_await` (C++20)
+
+```cpp
+xpp::io::Empty e;
+ssize_t n = co_await e.read(nullptr, 10);
 // n == 0
 ```
 
@@ -32,24 +42,33 @@ auto e = xpp::io::empty();
 
 ## Usage Examples
 
-### As default reader parameter
+### As default reader parameter — `.await()`
+
+```cpp
+auto e = xpp::io::empty();
+auto data = xpp::io::read_all(e).await();
+// data is empty vector
+```
+
+### As default reader parameter — `co_await` (C++20)
 
 ```cpp
 template <AsyncReader R>
 xpp::Promise<void> process(R &reader) {
     auto data = co_await xpp::io::read_all(reader);
-    // process data...
 }
-
-// Call with empty — nothing to read
 auto e = xpp::io::empty();
-process(e).wait();  // data is empty vector
+process(e).await();
 ```
 
 ### Combined with Take
 
 ```cpp
+// .await()
 xpp::io::Take<xpp::io::Empty> limit(xpp::io::empty(), 0);
-ssize_t n = limit.read(nullptr, 10).wait();
-// n == 0
+ssize_t n = limit.read(nullptr, 10).await();  // n == 0
+
+// co_await (C++20)
+xpp::io::Take<xpp::io::Empty> limit(xpp::io::empty(), 0);
+ssize_t n = co_await limit.read(nullptr, 10);  // n == 0
 ```

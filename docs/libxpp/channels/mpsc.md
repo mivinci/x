@@ -14,14 +14,18 @@ Bounded and unbounded variants available:
 | Bounded | `channel<T>(cap)` | Lock-free ring buffer (pre-allocated slots) |
 | Unbounded | `channel<T>()` | Lock-free linked list (heap-allocated per send) |
 
-## Bounded channel
+## Bounded channel — `.await()`
 
 ```cpp
 #include <xpp/sync/mpsc.h>
+
+xpp::EventLoop loop;
+xpp::WaitScope scope(loop);
+
 auto [tx, rx] = xpp::sync::mpsc::channel<int>(16);
 
-// Async: suspends when buffer is full
-co_await tx.send(42);
+// Async: .await() suspends (fiber) or blocks + drives loop
+tx.send(42).await();
 
 // Sync: returns immediately, fails when full
 auto r = tx.try_send(99);
@@ -29,25 +33,58 @@ if (r.is_err()) { /* Full or Closed */ }
 
 // Clone the sender for multiple producers
 auto tx2 = tx;
-co_await tx2.send(10);
+tx2.send(10).await();
 
 // Receive
-auto v = co_await rx.recv();  // Option<T> — none if closed
+auto v = rx.recv().await();   // Option<T> — none if closed
 auto v = rx.try_recv();       // Result<T, TryRecvError>
 ```
 
-## Unbounded channel
+With fiber — non-blocking:
+
+```cpp
+xpp::fiber([]() {
+  auto [tx, rx] = xpp::sync::mpsc::channel<int>(4);
+
+  std::thread producer([tx = std::move(tx)]() mutable {
+    for (int i = 0; i < 10; i++) tx.send(i).await();  // blocks when full
+  }).detach();
+
+  for (int i = 0; i < 10; i++) {
+    auto v = rx.recv().await();  // fiber suspends when empty
+    printf("got %d\n", v.unwrap());
+  }
+}).await();
+```
+
+## Bounded channel — `co_await` (C++20)
+
+```cpp
+auto [tx, rx] = xpp::sync::mpsc::channel<int>(16);
+co_await tx.send(42);
+auto tx2 = tx;
+co_await tx2.send(10);
+auto v = co_await rx.recv();
+```
+
+## Unbounded channel — `.await()`
 
 ```cpp
 auto [tx, rx] = xpp::sync::mpsc::channel<int>();  // no capacity argument
 
-// Send never blocks — always succeeds
-tx.send(42);       // void — no failure case
+tx.send(42);       // void — never blocks
 tx.try_send(99);   // bool — always true
 
-// Same receiver API
+auto v = rx.recv().await();   // async receive
+auto v = rx.try_recv();       // sync receive — Option<T>
+```
+
+## Unbounded channel — `co_await`
+
+```cpp
+auto [tx, rx] = xpp::sync::mpsc::channel<int>();
+tx.send(42);
 auto v = co_await rx.recv();
-auto v = rx.try_recv();  // Option<T>
 ```
 
 ## API

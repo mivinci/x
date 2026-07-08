@@ -45,7 +45,7 @@ xpp::Promise<void> do_buf_writer_buffered() {
 TEST(BufWriterTest, Buffered) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_buf_writer_buffered().wait();
+  do_buf_writer_buffered().await();
 }
 
 xpp::Promise<void> do_buf_writer_large_bypass() {
@@ -75,7 +75,7 @@ xpp::Promise<void> do_buf_writer_large_bypass() {
 TEST(BufWriterTest, LargeBypass) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_buf_writer_large_bypass().wait();
+  do_buf_writer_large_bypass().await();
 }
 
 xpp::Promise<void> do_buf_writer_auto_flush() {
@@ -107,5 +107,5 @@ xpp::Promise<void> do_buf_writer_auto_flush() {
 TEST(BufWriterTest, AutoFlush) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_buf_writer_auto_flush().wait();
+  do_buf_writer_auto_flush().await();
 }

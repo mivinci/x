@@ -30,6 +30,8 @@ xpp provides five channel primitives in `xpp::sync`, plus the `Notify` notificat
 - **broadcast**: Every consumer sees every value. Think "event stream".
 - **mpsc**: Each value consumed exactly once. Think "work queue".
 
+All channels work with `.await()` (C++11 + fiber), `co_await` (C++20), and `.then()` (C++11 callback chains).
+
 ## Thread safety
 
 All channels support both single-threaded and multi-threaded usage:

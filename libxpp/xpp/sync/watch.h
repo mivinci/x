@@ -281,6 +281,52 @@ template <class T> xpp::Promise<xpp::Result<void, RecvError>> Receiver<T>::chang
 
 #else // !XPP_HAS_COROUTINES
 
+#if XPP_FIBER
+
+/* ═══ C++11 + fiber: linear while + .await() ═════════════════════════ */
+
+template <class T> xpp::Promise<void> Sender<T>::closed() {
+  if (!m_state) return xpp::resolve();
+
+  {
+    auto g = m_state->m_value.lock();
+    if (g->m_receiver_count.load(std::memory_order_acquire) == 0) return xpp::resolve();
+    if (g->m_closed.load(std::memory_order_acquire)) return xpp::resolve();
+  }
+
+  while (true) {
+    {
+      auto g = m_state->m_value.lock();
+      if (g->m_receiver_count.load(std::memory_order_acquire) == 0) return xpp::resolve();
+      if (g->m_closed.load(std::memory_order_acquire)) return xpp::resolve();
+    }
+    m_state->m_notify.notified().await();
+  }
+}
+
+template <class T> xpp::Promise<xpp::Result<void, RecvError>> Receiver<T>::changed() {
+  if (!m_state) return xpp::resolve(xpp::err(RecvError{}));
+
+  uint64_t current = m_state->m_value.lock()->m_version.load(std::memory_order_acquire);
+  if (current != m_seen_version) {
+    m_seen_version = current;
+    return xpp::resolve(xpp::ok);
+  }
+
+  while (true) {
+    if (m_state->m_value.lock()->m_closed.load(std::memory_order_acquire))
+      return xpp::resolve(xpp::err(RecvError{}));
+    m_state->m_notify.notified().await();
+    current = m_state->m_value.lock()->m_version.load(std::memory_order_acquire);
+    if (current != m_seen_version) {
+      m_seen_version = current;
+      return xpp::resolve(xpp::ok);
+    }
+  }
+}
+
+#else // !XPP_FIBER
+
 /**
  * C++11 closed(): lock-check-wait loop via recursive .then().
  *
@@ -363,6 +409,8 @@ template <class T> xpp::Promise<xpp::Result<void, RecvError>> Receiver<T>::chang
     return xpp::resolve(std::move(r));
   });
 }
+
+#endif // XPP_FIBER
 
 #endif // XPP_HAS_COROUTINES
 

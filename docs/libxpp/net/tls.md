@@ -4,11 +4,23 @@
 
 `xpp::net::TlsConfig` and `TlsContext` provide RAII TLS configuration. Pass a `TlsContext` to `TcpStream::connect()` to enable TLS — the handshake is transparent.
 
+## Example — `.await()`
+
 ```cpp
 #include <xpp/net/tls.h>
 
+xpp::EventLoop loop;
+xpp::WaitScope scope(loop);
+
 xpp::net::TlsContext ctx(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpStream::connect("example.com:443", ctx).wait();
+auto conn = xpp::net::TcpStream::connect("example.com:443", ctx).await();
+```
+
+## Example — `co_await` (C++20)
+
+```cpp
+xpp::net::TlsContext ctx(xpp::net::TlsConfig::client());
+auto conn = co_await xpp::net::TcpStream::connect("example.com:443", ctx);
 ```
 
 ## API Reference
@@ -55,75 +67,77 @@ conf.with_ca("/custom/ca.pem").with_alpn({"h2", "http/1.1"});
 
 ## How it works
 
-`TlsConfig` is a builder that owns the string storage (cert path, key path, CA path, key password, ALPN protocols). It wraps `xTlsConf` (a POD of pointers) — the strings stay valid for the config's lifetime.
+`TlsConfig` is a builder that owns the string storage (cert path, key path, CA path, key password, ALPN protocols). It wraps `xTlsConf` (a POD of pointers).
 
 `TlsContext` calls `xTlsCtxCreate` in its constructor and `xTlsCtxDestroy` in its destructor. The mode (client or server) is determined automatically by libx: if both `cert` and `key` are set, server mode; otherwise client mode.
 
-When passed to `TcpStream::connect()`, the `xTlsCtx` handle is set in `xTcpConnectConf::tls_ctx`. libx's `xTcpConnect` does the TLS handshake transparently — the resulting `TcpStream` encrypts/decrypts via `recv`/`send` as usual.
+When passed to `TcpStream::connect()`, the `xTlsCtx` handle is set in `xTcpConnectConf::tls_ctx`. libx's `xTcpConnect` does the TLS handshake transparently.
 
 ## Usage Examples
 
-### Client with system CA
+### Client with system CA — `.await()`
 
 ```cpp
 xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpStream::connect("example.com:443", tls).wait();
-conn.write("GET / HTTP/1.0\r\n\r\n", 18).wait();
+auto conn = xpp::net::TcpStream::connect("example.com:443", tls).await();
+conn.write("GET / HTTP/1.0\r\n\r\n", 18).await();
 ```
 
-### Server with certificate
-
-```cpp
-xpp::net::TlsContext tls(xpp::net::TlsConfig::server("cert.pem", "key.pem"));
-// Pass to TcpListener::bind via xTcpListenerConf (not yet wrapped)
-```
-
-### Builder pattern
-
-```cpp
-xpp::net::TlsConfig conf = xpp::net::TlsConfig::client().with_ca("/custom/ca.pem").with_alpn({"h2", "http/1.1"});
-xpp::net::TlsContext ctx(conf);
-```
-
-### mTLS (mutual TLS)
-
-```cpp
-// Server verifies client certificates
-xpp::net::TlsContext server_tls(
-    xpp::net::TlsConfig::server("server.pem", "server.key", "ca.pem"));
-
-// Client presents its certificate
-xpp::net::TlsConfig client_conf = xpp::net::TlsConfig::client().with_cert("client.pem").with_key("client.key");
-xpp::net::TlsContext client_tls(client_conf);
-```
-
-## Coroutine Examples
-
-### HTTPS client
+### Client with system CA — `co_await` (C++20)
 
 ```cpp
 xpp::Promise<void> https_fetch() {
     xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
     auto conn = co_await xpp::net::TcpStream::connect("example.com:443", tls);
-
     co_await conn.write("GET / HTTP/1.0\r\nHost: example.com\r\n\r\n", 40);
-
     char buf[4096];
     ssize_t n = co_await conn.read(buf, sizeof(buf));
     printf("%.*s\n", (int)n, buf);
 }
 ```
 
-### Connect with error handling
+### Server with certificate
+
+```cpp
+xpp::net::TlsContext tls(xpp::net::TlsConfig::server("cert.pem", "key.pem"));
+```
+
+### Builder pattern
+
+```cpp
+xpp::net::TlsConfig conf = xpp::net::TlsConfig::client()
+    .with_ca("/custom/ca.pem")
+    .with_alpn({"h2", "http/1.1"});
+xpp::net::TlsContext ctx(conf);
+```
+
+### mTLS (mutual TLS)
+
+```cpp
+xpp::net::TlsContext server_tls(
+    xpp::net::TlsConfig::server("server.pem", "server.key", "ca.pem"));
+
+xpp::net::TlsConfig client_conf = xpp::net::TlsConfig::client()
+    .with_cert("client.pem").with_key("client.key");
+xpp::net::TlsContext client_tls(client_conf);
+```
+
+### Connect with error handling — `.await()`
+
+```cpp
+xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
+auto conn = xpp::net::TcpStream::connect("example.com:443", tls).await();
+if (!conn.is_open()) { /* handle failure */ }
+conn.write("hello", 5).await();
+```
+
+### Connect with error handling — `co_await` (C++20)
 
 ```cpp
 xpp::Promise<void> connect_or_fallback() {
     xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
     auto conn = co_await xpp::net::TcpStream::connect("example.com:443", tls);
-    if (!conn.is_open()) {
-        // connect failed — try fallback
-        co_return;
-    }
+    if (!conn.is_open()) { co_return; }
     co_await conn.write("hello", 5);
 }
 ```

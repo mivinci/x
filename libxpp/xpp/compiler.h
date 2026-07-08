@@ -128,6 +128,25 @@
 #endif
 
 /**
+ * @brief Mark a declaration as deprecated with an optional message.
+ *
+ * Prefers C++14's [[deprecated]] attribute. Falls back to compiler-specific
+ * extensions on older standards (C++11), which is the primary target.
+ *
+ * Usage:
+ *   XPP_DEPRECATED("use bar() instead") void foo();
+ */
+#if defined(__cplusplus) && __cplusplus >= 201402L
+#define XPP_DEPRECATED(msg) [[deprecated(msg)]]
+#elif defined(__GNUC__) || defined(__clang__)
+#define XPP_DEPRECATED(msg) __attribute__((deprecated(msg)))
+#elif defined(_MSC_VER)
+#define XPP_DEPRECATED(msg) __declspec(deprecated(msg))
+#else
+#define XPP_DEPRECATED(msg)
+#endif
+
+/**
  * @brief Master switch for xpp debug instrumentation.
  *
  * Controls all debug-only facilities: XPP_DEBUG_ASSERT, deadlock
@@ -152,25 +171,19 @@
 /**
  * @brief Feature detection for C++20 coroutines.
  *
- * Checks for the __cpp_coroutines or __cpp_impl_coroutine feature test macro.
- * Set to 1 if coroutines are available, 0 otherwise.
- *
- * Note: Different compilers use different macros:
- *   - GCC/Clang: __cpp_coroutines
- *   - AppleClang: __cpp_impl_coroutine
- *   - MSVC: __cpp_coroutines
- *
- * Usage:
- *   #if XPP_HAS_COROUTINES
- *     #include <coroutine>
- *     // Coroutine-specific code
- *   #endif
+ * Requires both C++20 mode AND compiler support.  Use
+ * -DXPP_HAS_COROUTINES=0 or 1 to override (e.g. for CI testing
+ * the C++11 fallback on Apple Clang where __cpp_coroutines is
+ * defined regardless of -std=c++11).
  */
-#if (defined(__cpp_coroutines) && __cpp_coroutines >= 201902L) || \
-  (defined(__cpp_impl_coroutine) && __cpp_impl_coroutine >= 201902L)
+#ifndef XPP_HAS_COROUTINES
+#if __cplusplus >= 202002L &&                                  \
+  ((defined(__cpp_coroutines) && __cpp_coroutines >= 201902L) || \
+   (defined(__cpp_impl_coroutine) && __cpp_impl_coroutine >= 201902L))
 #define XPP_HAS_COROUTINES 1
 #else
 #define XPP_HAS_COROUTINES 0
+#endif
 #endif
 
 #endif // XPP_COMPILER_H

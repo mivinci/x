@@ -49,7 +49,7 @@ static void BM_Broadcast_RoundTrip(benchmark::State &state) {
   for (auto _ : state) {
     auto [tx, mut_rx] = xpp::sync::broadcast::channel<int>(4);
     tx.try_send(state.iterations());
-    auto r = mut_rx.recv().wait();
+    auto r = mut_rx.recv().await();
     benchmark::DoNotOptimize(r);
   }
 }
@@ -78,7 +78,7 @@ static void BM_Broadcast_String(benchmark::State &state) {
   for (auto _ : state) {
     auto [tx, mut_rx] = xpp::sync::broadcast::channel<std::string>(4);
     tx.try_send(std::string("hello world!"));
-    auto r = mut_rx.recv().wait();
+    auto r = mut_rx.recv().await();
     benchmark::DoNotOptimize(r);
   }
 }

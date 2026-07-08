@@ -17,7 +17,9 @@ This separation mirrors the C API where `xEventLoopCreate`/`Destroy` and `xEvent
 
 3. **The handle itself is thread-safe.** `stop()`, `wake()`, and `xEventLoopPost` can be called from any thread. `run()`, `xTimerStart`, and `xEventAdd` must be called from the entered thread.
 
-4. **`EventLoop::current()` panics outside WaitScope.** This catches the common bug of calling `Promise::wait()` without an active event loop binding.
+4. **`EventLoop::current()` panics outside WaitScope.** This catches the common bug of calling `Promise::await()` without an active event loop binding.
+
+5. **Fiber integration.** With `XPP_FIBER`, `PromiseWaker::park()` can suspend a fiber via `xFiberYield()` instead of blocking the thread with `X_RUN_ONCE`. The same WaitScope and EventLoop drive all fibers — no separate scheduler needed. See [`.await()` docs](promise/await.md).
 
 ## API Reference
 
@@ -90,7 +92,7 @@ xpp::EventLoop loop;
 
     xpp::Timer(50, 0, [&]() { r.resolve(42); });
 
-    int result = r.promise().wait();  // EventLoop::current() succeeds
+    int result = r.promise().await();  // EventLoop::current() succeeds
 }
 ```
 

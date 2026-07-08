@@ -6,6 +6,8 @@
 
 Free functions `read()`/`write()` combine a fast-path syscall (zero Promise overhead when data is available) with a readiness wait on EAGAIN.
 
+## Example — `.await()`
+
 ```cpp
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
@@ -17,8 +19,20 @@ xpp::io::AsyncFd io(sv[0]);
 // Fast path: data already available
 write(sv[1], "hello", 5);
 char buf[64] = {};
-ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
+ssize_t n = xpp::io::read(io, buf, sizeof(buf)).await();
 // n == 5
+```
+
+## Example — `co_await` (C++20)
+
+```cpp
+xpp::Promise<void> read_loop(xpp::io::AsyncFd &io) {
+    char buf[1024];
+    while (true) {
+        ssize_t n = co_await xpp::io::read(io, buf, sizeof(buf));
+        if (n <= 0) co_return;
+    }
+}
 ```
 
 ## Design Philosophy
@@ -29,9 +43,9 @@ ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
 
 3. **Adapter pattern, not custom PromiseNode** — `readable()`/`writable()` use `adapt<void, AsyncReadAdapter>()`. The adapter stores a `PromiseResolver<void>` in `AsyncFd`'s waiter slot. When `on_event` fires, it calls `resolver.resolve()`, which triggers the waker in `ResolveState`. Same pattern as `TimerAdapter`, `WorkAdapter`, `FsOpenAdapter`.
 
-4. **Single-threaded** — All operations run on the event loop thread. Plain `bool` for readiness, no atomics or mutex. When multi-threaded scheduler is added, upgrade to `atomic<uint8_t>` + `mutex<Waiters>` + double-check-under-lock.
+4. **Single-threaded** — All operations run on the event loop thread. Plain `bool` for readiness, no atomics or mutex.
 
-5. **Does not own fd** — `AsyncFd` registers/deregisters with the event loop but does NOT `::close(fd)`. The caller owns the fd. This allows wrapping fds from any source (TCP, pipe, eventfd, etc.).
+5. **Does not own fd** — `AsyncFd` registers/deregisters with the event loop but does NOT `::close(fd)`. The caller owns the fd.
 
 ## Architecture
 
@@ -83,29 +97,28 @@ AsyncFd (per-fd, registered once)
 
 ## Usage Examples
 
-### Basic read
+### Basic read — `.await()`
 
 ```cpp
 xpp::io::AsyncFd io(fd);
 char buf[1024];
-ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
+ssize_t n = xpp::io::read(io, buf, sizeof(buf)).await();
 ```
 
 ### Read with then() chain
 
 ```cpp
 xpp::io::read(io, buf, 1024).then([](ssize_t n) {
-    // process n bytes
     return n;
-}).wait();
+}).await();
 ```
 
 ### Wait for readability without reading
 
 ```cpp
 io.readable().then([&]() {
-    // fd is readable, do something custom
-}).wait();
+    // fd is readable
+}).await();
 ```
 
 ### Close wakes pending waiters
@@ -115,19 +128,6 @@ xpp::io::AsyncFd io(fd);
 // ... later ...
 io.close(); // any pending readable()/writable() resolves immediately
 // caller still needs to ::close(fd)
-```
-
-## Coroutine Examples
-
-```cpp
-xpp::Promise<void> read_loop(xpp::io::AsyncFd &io) {
-    char buf[1024];
-    while (true) {
-        ssize_t n = co_await xpp::io::read(io, buf, sizeof(buf));
-        if (n <= 0) co_return;  // EOF or error
-        // process buf[0..n]
-    }
-}
 ```
 
 ## Comparison
@@ -147,15 +147,11 @@ xpp::Promise<void> read_loop(xpp::io::AsyncFd &io) {
 
 `xEventAdd` uses edge-triggered by default. After `recv` returns EAGAIN, the fd is not readable. When data arrives, the edge fires and `on_event` is called. The readiness bool is set, and the next `readable()` call resolves immediately.
 
-If `on_event` fires while a `PromiseResolver` is stored in `m_read_waiter`, the resolver is called directly (readiness is consumed, not stored as a bool). This avoids a wasted round-trip.
+If `on_event` fires while a `PromiseResolver` is stored in `m_read_waiter`, the resolver is called directly (readiness is consumed, not stored as a bool).
 
 ### PromiseResolver safety
 
-`PromiseResolver<void>` holds `ArcWeak<ResolveState>`. If the Promise is destroyed before the event fires:
-
-1. `AdapterPromiseNode` destroyed → `Arc<ResolveState>` dropped
-2. `on_event` fires → `m_read_waiter.resolve()` → `ArcWeak::upgrade()` fails → no-op
-3. No use-after-free
+`PromiseResolver<void>` holds `ArcWeak<ResolveState>`. If the Promise is destroyed before the event fires, `ArcWeak::upgrade()` fails → no-op. No use-after-free.
 
 ### Move semantics
 

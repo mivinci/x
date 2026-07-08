@@ -4,11 +4,25 @@
 
 Promise chains don't have built-in exceptions or a `catch` method. Instead, errors are propagated as regular values using `Result<T, E>`. The type system tracks error states through the entire chain.
 
-## The pattern: Result<T, E> in chains
+## The pattern: Result<T, E> in chains — `.await()`
 
 ```cpp
 enum class DbError { ConnectionFailed, NotFound, Timeout };
 
+auto result = fetch_user(42).await();
+if (result.is_ok()) {
+    auto &user = result.unwrap();
+} else {
+    switch (result.unwrap_err()) {
+        case DbError::ConnectionFailed: /* retry */ break;
+        case DbError::NotFound: /* handle */ break;
+    }
+}
+```
+
+## The pattern: Result<T, E> in chains — `co_await` (C++20)
+
+```cpp
 Promise<Result<User, DbError>> fetch_user(int id) {
     auto conn = co_await db_connect();
     if (!conn) co_return err(DbError::ConnectionFailed);
@@ -16,12 +30,8 @@ Promise<Result<User, DbError>> fetch_user(int id) {
     if (!user) co_return err(DbError::NotFound);
     co_return ok(std::move(user));
 }
-```
 
-The calling code unboxes the result at the end of the chain:
-
-```cpp
-auto result = fetch_user(42).wait();
+auto result = fetch_user(42).await();
 if (result.is_ok()) {
     auto &user = result.unwrap();
 } else {
@@ -37,23 +47,33 @@ if (result.is_ok()) {
 If the async operation itself can't fail (e.g., a timer, a pure computation), just return `Promise<T>` directly:
 
 ```cpp
-Promise<int> always_works() {
-    co_return 42;
-}
+// .await()
+auto val = always_works().await();
+
+// co_await (C++20)
+Promise<int> always_works() { co_return 42; }
+auto val = always_works().await();
 ```
 
-Use `Result<T, E>` only when the operation can fail and the caller needs to distinguish success from failure.
+## Error recovery in chains — `.await()`
 
-## Error recovery in chains
+```cpp
+auto user = fetch_user(42)
+    .then([](Result<User, DbError> r) -> User {
+        if (r.is_ok()) return r.unwrap();
+        return User::anonymous();
+    })
+    .await();
+```
 
-Each `.then()` can inspect the result and decide to recover or propagate:
+## Error recovery in chains — `co_await` (C++20)
 
 ```cpp
 Promise<User> get_or_default(int id) {
     return fetch_user(id)
         .then([](Result<User, DbError> r) -> User {
             if (r.is_ok()) return r.unwrap();
-            return User::anonymous();   // fallback on any error
+            return User::anonymous();
         });
 }
 ```
@@ -77,6 +97,10 @@ If `primary` succeeds → return its result. If it fails → try `replica`. If a
 libxpp provides `io::Error` for I/O errors — a niche-optimized 4-byte type that distinguishes between POSIX `errno` and libx `xErrno`:
 
 ```cpp
+// .await()
+auto file_r = xpp::fs::File::open("config.json").await();
+
+// co_await (C++20)
 Promise<Result<std::string, io::Error>> read_file() {
     auto file = co_await File::open("config.json");
     if (!file) co_return err(file.unwrap_err());

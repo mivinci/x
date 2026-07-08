@@ -148,6 +148,38 @@ template <class R> inline Promise<ssize_t> BufReader<R>::read(void *buf, size_t 
 
 #else // !XPP_HAS_COROUTINES
 
+#if XPP_FIBER
+
+/* ═══ C++11 + fiber: linear path + .await() ══════════════════════════ */
+
+template <class R> inline Promise<ssize_t> BufReader<R>::read(void *buf, size_t len) {
+  auto *i = m_inner.get();
+
+  if (i->pos < i->filled) {
+    size_t avail = i->filled - i->pos;
+    size_t n     = len < avail ? len : avail;
+    std::memcpy(buf, i->buf + i->pos, n);
+    i->pos += n;
+    return xpp::resolve(static_cast<ssize_t>(n));
+  }
+  i->pos    = 0;
+  i->filled = 0;
+
+  if (len >= _::kBufSize) {
+    return i->reader.read(buf, len);
+  }
+
+  ssize_t n = i->reader.read(i->buf, _::kBufSize).await();
+  if (n <= 0) return xpp::resolve(n);
+  i->filled = static_cast<size_t>(n);
+  size_t copy = len < i->filled ? len : i->filled;
+  std::memcpy(buf, i->buf, copy);
+  i->pos = copy;
+  return xpp::resolve(static_cast<ssize_t>(copy));
+}
+
+#else // !XPP_FIBER
+
 /* ═══ C++11: struct + std::move(*this) recursive .then() chain ════════
  *
  * Only path 3 (refill) needs the Refill struct — the other two paths
@@ -192,6 +224,8 @@ template <class R> inline Promise<ssize_t> BufReader<R>::read(void *buf, size_t 
 
   return Refill{m_inner, buf, len}();
 }
+
+#endif // XPP_FIBER
 
 #endif // XPP_HAS_COROUTINES
 

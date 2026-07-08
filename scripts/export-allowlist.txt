@@ -173,6 +173,7 @@ xFiberCurrent
 xFiberDestroy
 xFiberMain
 xFiberSwitch
+xFiberYield
 xFree
 xFsReqCancel
 xFsReqSubmit

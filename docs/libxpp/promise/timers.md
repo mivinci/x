@@ -16,7 +16,7 @@ xpp::WaitScope scope(loop);
 
 xpp::after(100)
     .then([]() { printf("100ms elapsed\n"); })
-    .wait();
+    .await();
 ```
 
 Internally uses `AdapterPromiseNode<void, TimerAdapter>`. The `TimerAdapter` owns an `xTimer` handle:
@@ -41,7 +41,7 @@ xpp::WaitScope scope(loop);
 int result = xpp::race(
     xpp::after(100).then([] { return 200; }),  // "fetch"
     xpp::after(10).then([] { return -1; })     // timeout
-).wait();
+).await();
 // result == -1 (timeout)
 ```
 
@@ -53,7 +53,7 @@ When `race` resolves, the losing branch is destroyed. `TimerAdapter`'s destructo
 xpp::after(10)
     .then([]() { return xpp::after(20); })  // auto-flattened
     .then([]() { printf("30ms total\n"); })
-    .wait();
+    .await();
 ```
 
 ## Void Promise Chains
@@ -63,7 +63,7 @@ int counter = 0;
 xpp::yield()
     .then([&]() { counter++; })
     .then([&]() { counter++; })
-    .wait();
+    .await();
 // counter == 2
 ```
 
@@ -71,10 +71,10 @@ xpp::yield()
 
 ```cpp
 // defer: wrap a sync function as a promise
-int result = xpp::defer([] { return 42; }).wait();
+int result = xpp::defer([] { return 42; }).await();
 // result == 42
 
 // yield: immediately-resolved Promise<void>, chain entry point
-int val = xpp::yield().then([] { return 1; }).wait();
+int val = xpp::yield().then([] { return 1; }).await();
 // val == 1
 ```

@@ -9,20 +9,44 @@ Sender ──(value)──▶ Receiver
 Once `send()` is called, the `Receiver`'s promise resolves. Calling `send()`
 more than once is safe — only the first call takes effect (atomic CAS).
 
-## Example
+## Example — `.await()`
 
 ```cpp
 #include <xpp/promise.h>
 #include <xpp/sync/oneshot.h>
 
-// Fire-and-forget: worker thread computes a result, main thread awaits it
+xpp::EventLoop loop;
+xpp::WaitScope scope(loop);
+
 auto [tx, rx] = xpp::sync::oneshot::channel<int>();
 
 std::thread worker([tx = std::move(tx)]() mutable {
   tx.send(42);
 });
 
-int result = co_await std::move(rx).recv();  // resolves when worker sends
+int result = std::move(rx).recv().await();  // resolves when worker sends
+// result == 42
+```
+
+With `xpp::fiber()` — non-blocking:
+
+```cpp
+xpp::fiber([]() {
+  auto [tx, rx] = xpp::sync::oneshot::channel<int>();
+  std::thread([tx = std::move(tx)]() { tx.send(42); }).detach();
+  int result = std::move(rx).recv().await();  // fiber suspends
+  return result;
+}).then([](int v) { printf("got %d\n", v); });
+```
+
+## Example — `co_await` (C++20)
+
+```cpp
+xpp::Promise<int> await_result() {
+  auto [tx, rx] = xpp::sync::oneshot::channel<int>();
+  std::thread([tx = std::move(tx)]() { tx.send(42); }).detach();
+  co_return co_await std::move(rx).recv();
+}
 ```
 
 ## API

@@ -64,7 +64,7 @@ xpp::Promise<void> do_changed_ready() {
 TEST(WatchTest, ChangedReady) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_changed_ready().wait();
+  do_changed_ready().await();
 }
 
 // ── W-1: initial seen, changed() waits ───────────────────────────────
@@ -80,7 +80,7 @@ xpp::Promise<void> do_initial_seen() {
 TEST(WatchTest, InitialSeen) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_initial_seen().wait();
+  do_initial_seen().await();
 }
 
 // ── W-5: borrow_and_update marks seen ───────────────────────────────
@@ -119,7 +119,7 @@ xpp::Promise<void> do_subscribe() {
 TEST(WatchTest, Subscribe) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_subscribe().wait();
+  do_subscribe().await();
 }
 
 // ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
@@ -147,7 +147,7 @@ TEST(WatchMtTest, WorkerSendLoopChanged) {
     co_await rx.changed(); // 3
     co_return;
   };
-  recver().wait();
+  recver().await();
   worker.join();
 }
 

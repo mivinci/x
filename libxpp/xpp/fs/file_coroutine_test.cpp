@@ -50,7 +50,7 @@ TEST_F(FsCoroutineTest, OpenAndRead) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto content = coro_read_file(m_path.c_str()).wait();
+  auto content = coro_read_file(m_path.c_str()).await();
   EXPECT_EQ(content, "coroutine content");
 }
 
@@ -66,7 +66,7 @@ TEST_F(FsCoroutineTest, CreateAndWrite) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  coro_write_file(m_path.c_str(), "written via coroutine").wait();
+  coro_write_file(m_path.c_str(), "written via coroutine").await();
 
   std::ifstream f(m_path);
   std::string   content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
@@ -96,9 +96,9 @@ TEST_F(FsCoroutineTest, ReadTransformWrite) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  coro_copy_uppercase(m_path.c_str(), out_path.c_str()).wait();
+  coro_copy_uppercase(m_path.c_str(), out_path.c_str()).await();
 
-  auto result = xpp::fs::read(out_path.c_str()).wait();
+  auto result = xpp::fs::read(out_path.c_str()).await();
   ASSERT_EQ(result.size(), 11u);
   EXPECT_EQ(memcmp(result.data(), "HELLO WORLD", 11), 0);
 
@@ -120,7 +120,7 @@ TEST_F(FsCoroutineTest, StatViaCoroutine) {
   xpp::WaitScope scope(loop);
 
   xpp::fs::Stat st{};
-  bool          found = coro_check_and_stat(m_path.c_str(), &st).wait();
+  bool          found = coro_check_and_stat(m_path.c_str(), &st).await();
   EXPECT_TRUE(found);
   EXPECT_EQ(st.size, 7);
 }
@@ -139,7 +139,7 @@ TEST_F(FsCoroutineTest, CreateAndRemoveDir) {
   xpp::WaitScope scope(loop);
 
   std::string dir = m_path + "_coro_dir";
-  coro_mkdir_rmdir(dir.c_str()).wait();
+  coro_mkdir_rmdir(dir.c_str()).await();
 
   struct stat st;
   EXPECT_NE(::stat(dir.c_str(), &st), 0);

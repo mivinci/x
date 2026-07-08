@@ -62,7 +62,7 @@ Convenience alias — mirrors Rust's `std::io::Result<T>`.
 | `0x80000000 .. 0xFFFFFFFF` | Custom ErrorKind (negative) | `kind()` |
 | `0x00000000` | Niche (Ok sentinel) | — |
 
-Bit 30 (`0x40000000`) is the xErrno flag. Errno and xErrno values are both small (< 256), so this cleanly separates them. Bit 31 (sign) separates custom kinds. The niche (0) is available for future `Result` niche optimization.
+Bit 30 (`0x40000000`) is the xErrno flag. Errno and xErrno values are both small (< 256). Bit 31 (sign) separates custom kinds.
 
 ## Usage Examples
 
@@ -94,21 +94,19 @@ err.raw_os_error();  // 0
 err.raw_xerrno();    // xErrno_Ok
 ```
 
-### With io::Result
+### With io::Result — `.await()`
 
 ```cpp
-xpp::io::Result<xpp::net::UdpSocket> r =
-    xpp::net::UdpSocket::bind("127.0.0.1:9090").wait();
-
+auto r = xpp::net::UdpSocket::bind("127.0.0.1:9090").await();
 if (r.is_err()) {
-    xpp::io::Error e = r.unwrap_err();
+    auto e = r.unwrap_err();
     if (e.kind() == xpp::io::ErrorKind::AddrInUse) {
         // port already taken
     }
 }
 ```
 
-### In a coroutine
+### With io::Result — `co_await` (C++20)
 
 ```cpp
 xpp::Promise<void> bind_or_retry(const char *addr) {
@@ -116,11 +114,10 @@ xpp::Promise<void> bind_or_retry(const char *addr) {
     if (r.is_err()) {
         auto e = r.unwrap_err();
         if (e.kind() == xpp::io::ErrorKind::AddrInUse) {
-            co_await xpp::after(1000);  // wait 1s, then retry
+            co_await xpp::after(1000);
         }
         co_return;
     }
     auto sock = std::move(r).unwrap();
-    // use sock...
 }
 ```

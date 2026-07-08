@@ -22,7 +22,7 @@ auto [p, r] = xpp::async<int>();
 // Resolve from a timer callback
 xpp::Timer t(100, 0, [&]() { r.resolve(42); });
 
-int result = p.wait();  // blocks ~100ms
+int result = p.await();  // blocks ~100ms
 // result == 42
 ```
 
@@ -43,7 +43,7 @@ std::thread worker([&]() {
     r.resolve(std::string("from another thread"));
 });
 
-std::string result = p.wait();
+std::string result = p.await();
 // result == "from another thread"
 worker.join();
 ```
@@ -75,7 +75,7 @@ Only the first `resolve()` takes effect. Subsequent calls are silently dropped v
 auto [p, r] = xpp::async<int>();
 r.resolve(42);
 r.resolve(99);  // silently dropped
-EXPECT_EQ(p.wait(), 42);
+EXPECT_EQ(p.await(), 42);
 ```
 
 ## Nested wait()
@@ -91,10 +91,10 @@ auto [inner_p, inner_r] = xpp::async<int>();
 
 int result = outer_p
     .then([&](int outer_val) {
-        int inner_val = inner_p.wait();  // nested Run
+        int inner_val = inner_p.await();  // nested Run
         return outer_val + inner_val;
     })
-    .wait();
+    .await();
 ```
 
 ## Best Practices

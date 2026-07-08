@@ -4,14 +4,28 @@
 
 `xpp::io::duplex(size)` creates a pair of connected `DuplexStream`s backed by two internal ring buffers. Each half satisfies both `AsyncReader` and `AsyncWriter` — writing to one side makes data readable on the other. Like tokio's `DuplexStream` or Go's `net.Pipe`.
 
-Coroutine (C++20) or struct+move fallback (C++11). Single-threaded — no atomics or mutex.
+Works with `.await()`, `co_await` (C++20 coroutines), or `.then()` chains (C++11). Single-threaded — no atomics or mutex.
+
+## Example — `.await()`
 
 ```cpp
 #include <xpp/io/duplex.h>
 
+xpp::EventLoop loop;
+xpp::WaitScope scope(loop);
+
 auto [a, b] = xpp::io::duplex(4096);
 
 // a → b and b → a simultaneously
+a.write("ping", 4).await();
+char buf[8];
+b.read(buf, 8).await();  // buf = "ping"
+```
+
+## Example — `co_await` (C++20)
+
+```cpp
+auto [a, b] = xpp::io::duplex(4096);
 co_await a.write("ping", 4);
 char buf[8];
 co_await b.read(buf, 8);  // buf = "ping"
@@ -48,11 +62,25 @@ Writing suspends when the destination buffer is full; reading suspends when the 
 
 ## Usage Examples
 
-### Bidirectional echo
+### Bidirectional echo — `.await()`
+
+```cpp
+xpp::EventLoop loop;
+xpp::WaitScope scope(loop);
+
+auto [client, server] = xpp::io::duplex(256);
+
+client.write("ping", 4).await();
+char buf[8];
+server.read(buf, 8).await();        // server reads "ping"
+server.write("pong", 4).await();    // server responds
+client.read(buf, 8).await();        // client reads "pong"
+```
+
+### Bidirectional echo — `co_await` (C++20)
 
 ```cpp
 auto [client, server] = xpp::io::duplex(256);
-
 co_await client.write("ping", 4);
 char buf[8];
 co_await server.read(buf, 8);       // server reads "ping"
@@ -60,21 +88,32 @@ co_await server.write("pong", 4);   // server responds
 co_await client.read(buf, 8);       // client reads "pong"
 ```
 
-### Test I/O utilities without TCP
+### Test I/O utilities without TCP — `.await()`
 
 ```cpp
 auto [a, b] = xpp::io::duplex(4096);
 
 // Producer
+b.write("hello world", 11).await();
+b.close();
+
+// Consumer with BufReader
+xpp::io::BufReader buf{std::move(a)};
+auto data = xpp::io::read_all(buf).await();
+// data == "hello world"
+```
+
+### Test I/O utilities without TCP — `co_await` (C++20)
+
+```cpp
+auto [a, b] = xpp::io::duplex(4096);
+
 auto wp = [](xpp::io::DuplexStream &w) -> xpp::Promise<void> {
     co_await w.write("hello world", 11);
     w.close();
 };
-
-// Consumer with BufReader
 auto rp = [](xpp::io::DuplexStream &r) -> xpp::Promise<void> {
     xpp::io::BufReader buf{std::move(r)};
     auto data = co_await xpp::io::read_all(buf);
-    // data == "hello world"
 };
 ```
