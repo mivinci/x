@@ -13,7 +13,7 @@ target_include_directories(xpp INTERFACE
 )
 target_compile_features(xpp INTERFACE cxx_std_11)
 # event.h / timer.h / promise.h / fs/file.h / net/tcp.h include libx headers; link for their users.
-target_link_libraries(xpp INTERFACE xbase xlog xfs xnet)
+target_link_libraries(xpp INTERFACE xbase xlog xfs xnet xhttp)
 if(XPP_MT)
   target_compile_definitions(xpp INTERFACE XPP_MT)
 endif()
@@ -80,7 +80,8 @@ if(XPP_BUILD_TESTS)
        test_name STREQUAL "mpsc_test" OR
        test_name STREQUAL "notify_test" OR
        test_name STREQUAL "broadcast_test" OR
-       test_name STREQUAL "watch_test")
+       test_name STREQUAL "watch_test" OR
+       test_name STREQUAL "client_test")
       target_compile_features(${test_name} PRIVATE cxx_std_20)
       set_tests_properties(${test_name} PROPERTIES LABELS "xpp;needs-cxx20")
       if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
