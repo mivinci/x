@@ -18,21 +18,21 @@ To go from "the event loop told me there's data" to "I wrote `co_await socket.re
 
 A natural question: why not just use Boost.Asio? Asio is the most mature async library in the C++ ecosystem, but it was designed before C++11 was widespread. It's built on a callback chain and `io_service` scheduling model where the type system plays a minimal role and error handling is almost entirely `error_code`. Coroutine support was retrofitted with macros and templates — it wasn't designed in from the start. We wanted an async stack where type safety, move semantics, and coroutines are first-class citizens from day one.
 
-## Why Stackless Coroutines
+## Stackless + Stackful: Two Coroutine Models
 
 There are two schools of thought for async programming at the runtime level:
 
-**Stackful coroutines** (Go, Lua, libco): Each coroutine has its own stack, which means you can suspend at any depth of the call stack without changing any function signature. The runtime swaps stacks when a coroutine blocks. This is ergonomic — any function can be async without being marked — but comes at a cost: each coroutine needs a pre-allocated stack (typically 2–8 KB), context switching involves saving/restoring registers, and the runtime needs to manage stack growth.
+**Stackful coroutines** (Go, Lua, libco, `xpp::fiber()`): Each coroutine has its own stack (64 KiB, mmap'd with guard page). When a coroutine blocks on `.await()`, the runtime swaps to the event loop stack via `swapcontext` — no function signatures need to change, no compiler support needed, works in C++11. The coroutine's locals live on its own stack, so you can `.await()` at any call depth.
 
-**Stackless coroutines** (Rust, JavaScript, C++20): A coroutine is compiled into a state machine by the compiler. Each `co_await` point becomes a state transition. No separate stack is allocated — the coroutine's local variables become fields of an anonymous struct, and the whole frame is heap-allocated (or elided if the compiler can prove it's not needed). The cost per coroutine is roughly the size of its local variables plus a function pointer table. No context switching, no stack overflow risks, no runtime memory management beyond what the allocator already does.
+**Stackless coroutines** (Rust, JavaScript, C++20 `co_await`): A coroutine is compiled into a state machine by the compiler. Each `co_await` point becomes a state transition. No separate stack is allocated — the coroutine's local variables become fields of an anonymous struct, and the whole frame is heap-allocated (or elided if the compiler can prove it's not needed). The cost per coroutine is roughly the size of its local variables plus a function pointer table.
 
-We chose stackless for two reasons. First, C++20 standardized stackless coroutines with `co_await`/`co_return`, giving us a compiler-supported code generation path that is both portable and optimizable. Second, stackless coroutines compose better with zero-cost abstractions — the compiler can inline across coroutine boundaries, dead-code eliminate unused state variables, and allocate coroutine frames with custom allocators. By contrast, stackful coroutines require pre-allocated stacks (typically 2–8 KB each) — manageable for a few thousand coroutines but increasingly costly at scale — and the runtime has no visibility into variable lifetimes within a coroutine, so the compiler can't optimize across suspension points.
+**libxpp supports both.** For C++11 codebases (or anywhere you prefer not to color functions with `co_await`), `xpp::fiber()` gives you stackful fibers with a dedicated stack — write linear `.await()` code, the fiber automatically suspends and resumes. For C++20 codebases, native `co_await` / `co_return` work directly on `Promise<T>`. Both converge on the same `poll()`-based `PromiseWaker` mechanism — the only difference is how execution is suspended and resumed.
 
 ## The Promise\<T\> Abstraction
 
 Rust's `Future` trait is the blueprint: an async operation is a state machine that, when polled, either returns `Poll::Ready(value)` or `Poll::Pending` and registers a waker to be called when progress can be made. The executor drives the state machine by calling `poll()` in a loop until the future completes.
 
-C++ doesn't have this trait as a language feature, but it gives us the tools to build it. Our `Promise<T>` is a concrete template with the polling interface `poll(waker) → Option<T>` — internally it holds a type-erased coroutine frame or adapter node, but from the user's perspective, `Promise<T>` is always fully typed and the compiler checks every call site. It works with both C++11 (via `then()` callbacks and `Promise<T>::wait()`) and C++20 (via native `co_await` / `co_return` coroutines). The same `Promise<T>` returned by `TcpStream::connect()` can be used in a C++11 callback chain or a C++20 coroutine with zero code changes — the library doesn't care which style you choose.
+C++ doesn't have this trait as a language feature, but it gives us the tools to build it. Our `Promise<T>` is a concrete template with the polling interface `poll(waker) → Option<T>` — internally it holds a type-erased coroutine frame or adapter node, but from the user's perspective, `Promise<T>` is always fully typed and the compiler checks every call site. It works with C++11 (via `.then()` or `.await()`) and C++20 (via `co_await` / `co_return`). With `XPP_FIBER`, `.await()` automatically detects whether it's inside a fiber and uses stackful suspend — the same `.await()` call works both inside and outside `xpp::fiber()`. The full design is documented in the [Promise chapter](libxpp/promise/).
 
 When a C++20 coroutine hits `co_await`, it suspends and registers its waker with the awaited sub-promise. When that sub-promise resolves, it calls the waker, which queues the suspended coroutine for re-polling on the event loop. This is the same core mechanism that powers `tokio`, just implemented at the library level rather than in the language runtime. The full design is documented in the [Promise chapter](libxpp/promise/).
 
@@ -49,7 +49,7 @@ We deliberately align our API with both the STL (naming conventions, iterator pa
 
 ## The Foundation: libx
 
-All of this runs on top of **libx**, a C99 library that provides the event loop, non-blocking I/O, timers, and lock-free queue primitives. libx was built with the same philosophy: give C developers an async runtime they can start using immediately — no callback hell, no manual fd management, just `xTcpConnect()` and a promise-like callback. libxpp is the C++ layer that adds type safety, move semantics, and coroutine ergonomics on top — the name says it directly: the C core is **libx**, the C++ binding is **libxpp**.
+All of this runs on top of **libx**, a C99 library that provides the event loop, non-blocking I/O, timers, lock-free queue primitives, and (since `xbase/fiber.h`) cross-platform stackful fibers with `xFiberCreate` / `xFiberSwitch`. libx was built with the same philosophy: give C developers an async runtime they can start using immediately — no callback hell, no manual fd management, just `xTcpConnect()` and a promise-like callback. libxpp is the C++ layer that adds type safety, move semantics, `.await()` ergonomics, and `xpp::fiber()` integration on top — the name says it directly: the C core is **libx**, the C++ binding is **libxpp**.
 
 ## Into the Design
 
@@ -68,4 +68,4 @@ The design philosophy throughout is the same: leverage what C++ gives us (move s
 
 ---
 
-The result is a stack where C and C++ each get the async experience they deserve: libx for systems programmers who need raw control with structured concurrency, and libxpp for application developers who want to write `co_await tcp_stream.read(buf)` or chain `promise.then([](auto v){...})` and have it just work — no pointers, no leaky abstractions, no callback pyramids.
+The result is a stack where C and C++ each get the async experience they deserve: libx for systems programmers who need raw control with structured concurrency, and libxpp for application developers who can choose between `xpp::fiber([]() { auto v = promise.await(); ... })` in C++11, `Promise<T>::then([](auto v){...})` for callback chains, or `co_await promise` for C++20 coroutines — no pointers, no leaky abstractions, no callback pyramids.
