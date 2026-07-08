@@ -6,7 +6,7 @@
  * promise.h - Promise<T> + PromiseResolver<T>.
  *
  * Promise<T> represents a value that will be available in the future.
- * Chain transformations with then(), wait for the result with wait().
+ * Chain transformations with then(), block for the result with await().
  *
  * PromiseResolver<T>::create() returns a resolver; call .promise()
  * to get the associated Promise, and .resolve() to fulfill it.
@@ -74,7 +74,7 @@ template <class Func> using ReturnTypeVoid = decltype(std::declval<Func>()());
  *
  *   int result = xpp::resolve(42)
  *     .then([](int x) { return x * 2; })
- *     .wait();
+ *     .await();
  *   // result == 84
  * @endcode
  */
@@ -119,7 +119,7 @@ public:
   }
 
   /**
-   * @brief Block until the promise resolves, driving the event loop.
+   * @brief Wait for the promise to resolve.
    *
    * Must be called on the WaitScope thread. Polls the promise node;
    * if not ready, parks the current context until the waker fires and
@@ -128,22 +128,22 @@ public:
    * @par Parking
    * PromiseWaker::park() encapsulates the waiting strategy:
    *   - Non-fiber: runs xEventLoopRun(X_RUN_ONCE) in a poll loop.
-   *   - Fiber:     suspends via xFiberSwitch, yielding to the event
-   *                loop until the waker wakes the fiber back up.
+   *   - Fiber:     suspends via xFiberYield(), yielding to the event
+   *                loop until the waker switches the fiber back in.
    *
    * @par Thread safety
-   * Not thread-safe. Only the WaitScope thread may call wait().
+   * Not thread-safe. Only the WaitScope thread may call await().
    * However, the promise being waited on may be resolved from
    * another thread via PromiseResolver::resolve() — that path is
    * thread-safe (AtomicPromiseWaker + atomic flag).
    *
-   * @par Nested wait()
-   * Safe to call wait() inside a callback that runs during another
-   * wait(). xEventLoopRun no longer calls Enter/Leave internally,
+   * @par Nested await()
+   * Safe to call await() inside a callback that runs during another
+   * await(). xEventLoopRun no longer calls Enter/Leave internally,
    * so nested Run calls do not corrupt the thread-local loop binding.
    */
-  ValueType wait() {
-    XPP_ASSERT(m_node != nullptr, "wait() on empty promise");
+  ValueType await() {
+    XPP_ASSERT(m_node != nullptr, "await() on empty promise");
 
     PromiseWaker waker;
     while (true) {
@@ -154,6 +154,10 @@ public:
       waker.park();
     }
   }
+
+  /// @deprecated Use await() instead.
+  XPP_DEPRECATED("use await() instead")
+  ValueType wait() { return await(); }
 
 private:
   _::OwnPromiseNode<T> m_node;

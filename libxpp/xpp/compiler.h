@@ -128,6 +128,25 @@
 #endif
 
 /**
+ * @brief Mark a declaration as deprecated with an optional message.
+ *
+ * Prefers C++14's [[deprecated]] attribute. Falls back to compiler-specific
+ * extensions on older standards (C++11), which is the primary target.
+ *
+ * Usage:
+ *   XPP_DEPRECATED("use bar() instead") void foo();
+ */
+#if defined(__cplusplus) && __cplusplus >= 201402L
+#define XPP_DEPRECATED(msg) [[deprecated(msg)]]
+#elif defined(__GNUC__) || defined(__clang__)
+#define XPP_DEPRECATED(msg) __attribute__((deprecated(msg)))
+#elif defined(_MSC_VER)
+#define XPP_DEPRECATED(msg) __declspec(deprecated(msg))
+#else
+#define XPP_DEPRECATED(msg)
+#endif
+
+/**
  * @brief Master switch for xpp debug instrumentation.
  *
  * Controls all debug-only facilities: XPP_DEBUG_ASSERT, deadlock
