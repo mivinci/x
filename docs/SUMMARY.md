@@ -108,6 +108,7 @@
   - [p2p — P2P Connectivity](libx/p2p/README.md)
     - [ICE Agent](libx/p2p/ice.md)
     - [Peer Connection](libx/p2p/pc.md)
+  - [fs — Async Filesystem I/O](libx/fs/README.md)
 ---
 
 # API Reference

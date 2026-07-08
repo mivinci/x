@@ -3,7 +3,7 @@
 file(GLOB_RECURSE XPP_HEADERS "*.h")
 
 option(XPP_MT "Enable multi-threading support (Shared→Arc, atomic channel ops)" ON)
-option(XPP_FIBER "Enable fiber scheduling for Promise::wait() (requires xbase fiber)" OFF)
+option(XPP_FIBER "Enable fiber scheduling for Promise::wait() (requires xbase fiber)" ON)
 
 # ── Header-only library target ──────────────────────────────────────
 add_library(xpp INTERFACE)
