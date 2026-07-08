@@ -186,4 +186,23 @@
 #endif
 #endif
 
+/**
+ * @brief Feature detection for C++20 concepts.
+ *
+ * Separate from XPP_HAS_COROUTINES — a toolchain may support concepts
+ * without coroutines (unlikely in practice, but the features are
+ * orthogonal in the standard).  Use -DXPP_HAS_CONCEPT=0/1 to override.
+ *
+ * Use XPP_HAS_CONCEPT to guard concept definitions and template
+ * constraints (@c requires).  XPP_HAS_COROUTINES guards co_await /
+ * co_return code only.
+ */
+#ifndef XPP_HAS_CONCEPT
+#if defined(__cpp_concepts) && __cpp_concepts >= 202002L
+#define XPP_HAS_CONCEPT 1
+#else
+#define XPP_HAS_CONCEPT 0
+#endif
+#endif
+
 #endif // XPP_COMPILER_H

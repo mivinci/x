@@ -35,9 +35,9 @@ constexpr size_t kBufSize = 8192;
 
 } // namespace _
 
-#if XPP_HAS_COROUTINES
+#if XPP_HAS_CONCEPT
 
-/* ═══ C++20 coroutine versions ══════════════════════════════════════ */
+/* ═══ C++20 concepts — template constraints ═══════════════════════ */
 
 /**
  * @brief Concept: R has read(void*, size_t) returning an awaitable type.
@@ -62,6 +62,12 @@ concept AsyncWriter = requires(W &w, const void *buf, size_t len) {
 /** @brief Concept: T satisfies both AsyncReader and AsyncWriter. */
 template <class T>
 concept AsyncReadWriter = AsyncReader<T> && AsyncWriter<T>;
+
+#endif // XPP_HAS_CONCEPT
+
+#if XPP_HAS_COROUTINES
+
+/* ═══ C++20 coroutine versions ══════════════════════════════════════ */
 
 /**
  * @brief Read the entire byte stream into a vector.
