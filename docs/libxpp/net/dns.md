@@ -21,11 +21,11 @@ for (const auto &addr : addrs) {
 ## Example — `co_await` (C++20)
 
 ```cpp
-xpp::Promise<void> connect_to(const char *hostname) {
+xpp::Promise<void> resolve_print(const char *hostname) {
     auto addrs = co_await xpp::net::lookup_host(hostname);
-    if (addrs.empty()) { co_return; }
-    auto conn = co_await xpp::net::TcpStream::connect(addrs[0]);
-    co_await conn.write("ping", 4);
+    for (const auto &addr : addrs) {
+        printf("%s\n", addr.to_string().c_str());
+    }
 }
 ```
 

@@ -21,17 +21,24 @@ write(sv[1], "hello", 5);
 char buf[64] = {};
 ssize_t n = xpp::io::read(io, buf, sizeof(buf)).await();
 // n == 5
+
+close(sv[0]); close(sv[1]);
 ```
 
 ## Example — `co_await` (C++20)
 
 ```cpp
-xpp::Promise<void> read_loop(xpp::io::AsyncFd &io) {
-    char buf[1024];
-    while (true) {
-        ssize_t n = co_await xpp::io::read(io, buf, sizeof(buf));
-        if (n <= 0) co_return;
-    }
+xpp::Promise<void> read_socket() {
+    int sv[2];
+    socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, sv);
+    xpp::io::AsyncFd io(sv[0]);
+
+    write(sv[1], "hello", 5);
+    char buf[64] = {};
+    ssize_t n = co_await xpp::io::read(io, buf, sizeof(buf));
+    // n == 5
+
+    close(sv[0]); close(sv[1]);
 }
 ```
 
