@@ -134,7 +134,7 @@ private:
 
   explicit Sender(Shared<Chan> c) : m_chan(std::move(c)) {}
 
-  bool m_closed() const {
+  bool closed() const {
     return m_chan->m_closed.load(std::memory_order_acquire);
   }
 
@@ -181,7 +181,7 @@ private:
   Shared<Chan> m_chan;
   explicit Receiver(Shared<Chan> c) : m_chan(std::move(c)) {}
 
-  bool m_closed() const {
+  bool closed() const {
     return m_chan->m_closed.load(std::memory_order_acquire);
   }
 };
@@ -194,7 +194,7 @@ template <class T> Promise<void> Sender<T>::send(T value) {
   if (!m_chan) co_return;
 
   while (true) {
-    if (m_closed()) co_return;
+    if (closed()) co_return;
     if (m_chan->m_tx.try_push(std::move(value))) break;
 
     auto w                 = xpp::async<void>();
@@ -221,7 +221,7 @@ template <class T> Promise<Option<T>> Receiver<T>::recv() {
       co_return xpp::some(std::move(v).unwrap());
     }
 
-    if (m_closed() && m_chan->m_rx.empty()) co_return none;
+    if (closed() && m_chan->m_rx.empty()) co_return none;
 
     auto pr               = xpp::async<void>();
     m_chan->m_read_waiter = std::move(pr.second);
@@ -244,7 +244,7 @@ template <class T> Promise<void> Sender<T>::send(T value) {
   if (!m_chan) return xpp::resolve();
 
   while (true) {
-    if (m_closed()) return xpp::resolve();
+    if (closed()) return xpp::resolve();
     if (m_chan->m_tx.try_push(std::move(value))) break;
 
     auto pr                = xpp::async<void>();
@@ -272,7 +272,7 @@ template <class T> Promise<Option<T>> Receiver<T>::recv() {
       return xpp::resolve(xpp::some(std::move(v).unwrap()));
     }
 
-    if (m_closed() && m_chan->m_rx.empty()) return xpp::resolve(none);
+    if (closed() && m_chan->m_rx.empty()) return xpp::resolve(none);
 
     auto pr               = xpp::async<void>();
     m_chan->m_read_waiter = std::move(pr.second);
@@ -367,7 +367,7 @@ template <class T> Promise<Option<T>> Receiver<T>::recv() {
 
 template <class T> Result<Void, TrySendError<T>> Sender<T>::try_send(T value) {
   if (!m_chan) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
-  if (m_closed()) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
+  if (closed()) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
   if (!m_chan->m_tx.try_push(std::move(value)))
     return err(TrySendError<T>{TrySendError<T>::Full, std::move(value)});
 
@@ -403,7 +403,7 @@ template <class T> Result<T, TryRecvError> Receiver<T>::try_recv() {
     }
     return ok(std::move(v).unwrap());
   }
-  return err(m_closed() ? TryRecvError::Closed : TryRecvError::Empty);
+  return err(closed() ? TryRecvError::Closed : TryRecvError::Empty);
 }
 
 /**
@@ -519,7 +519,7 @@ private:
   using Chan = typename UnboundedSender<T>::Chan;
   Shared<Chan> m_chan;
   explicit UnboundedReceiver(Shared<Chan> c) : m_chan(std::move(c)) {}
-  bool m_closed() const {
+  bool closed() const {
     return m_chan->m_closed.load(std::memory_order_acquire);
   }
 };
@@ -541,7 +541,7 @@ template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
       co_return xpp::some(std::move(v).unwrap());
     }
 
-    if (m_closed() && m_chan->m_rx.empty()) co_return none;
+    if (closed() && m_chan->m_rx.empty()) co_return none;
 
     auto pr               = xpp::async<void>();
     m_chan->m_read_waiter = std::move(pr.second);
@@ -568,7 +568,7 @@ template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
       return xpp::resolve(xpp::some(std::move(v).unwrap()));
     }
 
-    if (m_closed() && m_chan->m_rx.empty()) return xpp::resolve(none);
+    if (closed() && m_chan->m_rx.empty()) return xpp::resolve(none);
 
     auto pr               = xpp::async<void>();
     m_chan->m_read_waiter = std::move(pr.second);
