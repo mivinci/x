@@ -5,12 +5,12 @@
  *
  * take.h - xpp::io::Take<R>: limited async reader.
  *
- * Wraps an AsyncReader with a byte limit. Returns EOF (0) once the
+ * Wraps an AsyncRead with a byte limit. Returns EOF (0) once the
  * limit is reached, regardless of whether the inner reader has more
  * data. Essential for HTTP Content-Length parsing and protocol frame
  * boundaries.
  *
- * Satisfies the AsyncReader concept. Takes ownership of the inner
+ * Satisfies the AsyncRead concept. Takes ownership of the inner
  * reader via move semantics.
  *
  * C++20: coroutine with co_await + co_return.
@@ -40,7 +40,7 @@ namespace io {
  * @endcode
  *
  * @tparam R Duck-typed: R::read(void*, size_t) must return a then-able
- *           resolving to ssize_t. C++20 users get AsyncReader concept
+ *           resolving to ssize_t. C++20 users get AsyncRead concept
  *           inside the #if branch for better error messages.
  */
 template <class R> class Take {

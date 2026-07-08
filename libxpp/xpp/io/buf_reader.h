@@ -5,7 +5,7 @@
  *
  * buf_reader.h - xpp::io::BufReader<R>: buffered async reader.
  *
- * Wraps any AsyncReader (TcpStream, fs::File, etc.) with an 8KB
+ * Wraps any AsyncRead (TcpStream, fs::File, etc.) with an 8KB
  * internal buffer. Small reads copy from the buffer with zero I/O
  * and zero Promise overhead; large reads (>= 8KB) bypass the buffer
  * entirely and go directly to the inner reader.
@@ -15,7 +15,7 @@
  * would create one Promise-chain node per byte. BufReader amortizes
  * these into ~8KB chunks.
  *
- * Composable: BufReader satisfies the AsyncReader concept, so it
+ * Composable: BufReader satisfies the AsyncRead concept, so it
  * works with io::read_all, io::copy, or nested in another BufReader.
  * Takes ownership of the inner reader via move semantics.
  *

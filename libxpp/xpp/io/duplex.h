@@ -6,7 +6,7 @@
  * duplex.h - xpp::io::duplex(): in-memory bidirectional pipe.
  *
  * Returns a pair of DuplexStreams connected by two internal ring
- * buffers. Each half satisfies both AsyncReader and AsyncWriter —
+ * buffers. Each half satisfies both AsyncRead and AsyncWrite —
  * writing to one side makes data readable on the other, emulating
  * a pair of connected sockets.
  *
@@ -62,7 +62,7 @@ struct DuplexBuf {
 /* ── Class declaration ─────────────────────────────────────────────── */
 
 /**
- * @brief One half of a duplex pipe. Satisfies AsyncReader and AsyncWriter.
+ * @brief One half of a duplex pipe. Satisfies AsyncRead and AsyncWrite.
  *
  * Writing to this side makes data readable on the other side, and
  * vice versa — like a connected socket pair. Each side has its own

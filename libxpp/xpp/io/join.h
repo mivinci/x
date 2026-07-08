@@ -5,7 +5,7 @@
  *
  * join.h - xpp::io::join(): combine a reader and writer into one type.
  *
- * Joins an AsyncReader and AsyncWriter into a single type satisfying
+ * Joins an AsyncRead and AsyncWrite into a single type satisfying
  * both concepts. Useful when you have separate read/write halves
  * (e.g., from simplex, or separate TcpStreams for each direction).
  *
@@ -25,8 +25,8 @@ namespace xpp {
 namespace io {
 
 /** @brief Combines a reader and writer into a single bidirectional type.
- *  @tparam R Reader type satisfying AsyncReader.
- *  @tparam W Writer type satisfying AsyncWriter. */
+ *  @tparam R Reader type satisfying AsyncRead.
+ *  @tparam W Writer type satisfying AsyncWrite. */
 template <class R, class W> class Join {
 public:
   /** @brief Construct from a reader and writer.

@@ -7,12 +7,12 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <atomic>
 #include <cstring>
 #include <string>
 
 #include <gtest/gtest.h>
 
+#include <xpp/bytes/bytes.h>
 #include <xpp/event.h>
 #include <xpp/http/client.h>
 #include <xpp/promise.h>
@@ -28,12 +28,12 @@ static uint16_t find_free_port() {
   addr.sin_family         = AF_INET;
   addr.sin_addr.s_addr    = htonl(INADDR_LOOPBACK);
   addr.sin_port           = 0;
-  if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+  if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
     close(fd);
     return 0;
   }
   socklen_t len = sizeof(addr);
-  getsockname(fd, (struct sockaddr *)&addr, &len);
+  getsockname(fd, reinterpret_cast<struct sockaddr *>(&addr), &len);
   uint16_t port = ntohs(addr.sin_port);
   close(fd);
   return port;
@@ -137,7 +137,7 @@ protected:
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST_F(HttpClientTest, CreateClient) {
-  auto client = xpp::http::Client::create();
+  auto client = xpp::http::Client::builder().build();
   SUCCEED();
 }
 
@@ -146,11 +146,11 @@ TEST_F(HttpClientTest, CreateClient) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST_F(HttpClientTest, BuilderChaining) {
-  auto client = xpp::http::Client::create();
+  auto client = xpp::http::Client::builder().build();
   auto b      = client.get(url("/hello"))
                  .header("Accept", "text/html")
                  .header("X-Custom", "value")
-                 .body(std::vector<uint8_t>({1, 2, 3}));
+                 .body(xpp::bytes::Bytes::from(std::vector<uint8_t>({1, 2, 3})));
   SUCCEED();
 }
 
@@ -161,7 +161,7 @@ TEST_F(HttpClientTest, BuilderChaining) {
 TEST_F(HttpClientTest, GetHelloWorld) {
   route("/hello", hello_handler);
 
-  auto client = xpp::http::Client::create();
+  auto client = xpp::http::Client::builder().build();
   auto result = client.get(url("/hello")).send().await();
 
   ASSERT_TRUE(result.is_ok()) << "GET /hello failed";
@@ -181,10 +181,10 @@ TEST_F(HttpClientTest, PostEcho) {
   EchoCtx echo;
   route_with_data("POST /echo", echo_on_data, echo_on_done, &echo);
 
-  auto client = xpp::http::Client::create();
+  auto client = xpp::http::Client::builder().build();
   std::string payload = "echo this back";
   auto result = client.post(url("/echo"))
-                    .body(std::vector<uint8_t>(payload.begin(), payload.end()))
+                    .body(xpp::bytes::Bytes::from(std::vector<uint8_t>(payload.begin(), payload.end())))
                     .send()
                     .await();
 
@@ -205,9 +205,9 @@ TEST_F(HttpClientTest, PostEmptyBody) {
   EchoCtx echo;
   route_with_data("POST /echo-empty", echo_on_data, echo_on_done, &echo);
 
-  auto client = xpp::http::Client::create();
+  auto client = xpp::http::Client::builder().build();
   auto result = client.post(url("/echo-empty"))
-                    .body(std::vector<uint8_t>())
+                    .body(xpp::bytes::Bytes::from(std::vector<uint8_t>()))
                     .send()
                     .await();
 
@@ -228,10 +228,10 @@ TEST_F(HttpClientTest, PostBinaryBody) {
   EchoCtx echo;
   route_with_data("POST /echo-bin", echo_on_data, echo_on_done, &echo);
 
-  auto client = xpp::http::Client::create();
+  auto client = xpp::http::Client::builder().build();
   std::vector<uint8_t> payload = {0x00, 0x01, 0x02, 0xFE, 0xFF};
   auto result = client.post(url("/echo-bin"))
-                    .body(std::vector<uint8_t>(payload))
+                    .body(xpp::bytes::Bytes::from(std::vector<uint8_t>(payload)))
                     .send()
                     .await();
 
@@ -252,7 +252,7 @@ TEST_F(HttpClientTest, PostBinaryBody) {
 TEST_F(HttpClientTest, StatusCode) {
   route("/status/404", status_handler);
 
-  auto client = xpp::http::Client::create();
+  auto client = xpp::http::Client::builder().build();
   auto result = client.get(url("/status/404")).send().await();
 
   ASSERT_TRUE(result.is_ok());
@@ -266,7 +266,7 @@ TEST_F(HttpClientTest, StatusCode) {
 TEST_F(HttpClientTest, EmptyBody) {
   route("/empty", status_handler);
 
-  auto client = xpp::http::Client::create();
+  auto client = xpp::http::Client::builder().build();
   auto result = client.get(url("/empty")).send().await();
 
   ASSERT_TRUE(result.is_ok());

@@ -5,7 +5,7 @@
  *
  * split.h - xpp::io::split(): split a ReadWriter into read/write halves.
  *
- * Wraps any type satisfying both AsyncReader and AsyncWriter in a
+ * Wraps any type satisfying both AsyncRead and AsyncWrite in a
  * Shared<T>, then returns ReadHalf<T> and WriteHalf<T> that
  * share the underlying stream. Like tokio's io::split().
  */
@@ -20,11 +20,11 @@
 namespace xpp {
 namespace io {
 
-template <AsyncReadWriter T> class WriteHalf;
+template <AsyncReadWrite T> class WriteHalf;
 
-/** @brief Read half of a split ReadWriter. Satisfies AsyncReader.
- *  @tparam T Inner type satisfying both AsyncReader and AsyncWriter. */
-template <AsyncReadWriter T> class ReadHalf {
+/** @brief Read half of a split ReadWriter. Satisfies AsyncRead.
+ *  @tparam T Inner type satisfying both AsyncRead and AsyncWrite. */
+template <AsyncReadWrite T> class ReadHalf {
 public:
   ReadHalf()                                = default;
   ReadHalf(ReadHalf &&) noexcept            = default;
@@ -41,12 +41,12 @@ public:
 private:
   Shared<T> m_inner;
   explicit ReadHalf(Shared<T> inner) : m_inner(std::move(inner)) {}
-  template <AsyncReadWriter U> friend std::pair<ReadHalf<U>, WriteHalf<U>> split(U stream);
+  template <AsyncReadWrite U> friend std::pair<ReadHalf<U>, WriteHalf<U>> split(U stream);
 };
 
-/** @brief Write half of a split ReadWriter. Satisfies AsyncWriter.
- *  @tparam T Inner type satisfying both AsyncReader and AsyncWriter. */
-template <AsyncReadWriter T> class WriteHalf {
+/** @brief Write half of a split ReadWriter. Satisfies AsyncWrite.
+ *  @tparam T Inner type satisfying both AsyncRead and AsyncWrite. */
+template <AsyncReadWrite T> class WriteHalf {
 public:
   WriteHalf()                                 = default;
   WriteHalf(WriteHalf &&) noexcept            = default;
@@ -68,14 +68,14 @@ public:
 private:
   Shared<T> m_inner;
   explicit WriteHalf(Shared<T> inner) : m_inner(std::move(inner)) {}
-  template <AsyncReadWriter U> friend std::pair<ReadHalf<U>, WriteHalf<U>> split(U stream);
+  template <AsyncReadWrite U> friend std::pair<ReadHalf<U>, WriteHalf<U>> split(U stream);
 };
 
 /** @brief Split a ReadWriter into separate ReadHalf and WriteHalf.
- *  @tparam T Inner type satisfying AsyncReadWriter.
+ *  @tparam T Inner type satisfying AsyncReadWrite.
  *  @param stream The stream to split (ownership is shared via Shared<T>).
  *  @return A pair of (read_half, write_half) sharing the same underlying stream. */
-template <AsyncReadWriter T> std::pair<ReadHalf<T>, WriteHalf<T>> split(T stream) {
+template <AsyncReadWrite T> std::pair<ReadHalf<T>, WriteHalf<T>> split(T stream) {
   auto s = Shared<T>::make(std::move(stream));
   auto rh = ReadHalf<T>(s);  // copy first (refcount +1)
   auto wh = WriteHalf<T>(std::move(s));

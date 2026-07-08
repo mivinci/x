@@ -26,26 +26,33 @@ option(XPP_BUILD_TESTS "Build libxpp tests" ${X_BUILD_TESTS})
 if(XPP_BUILD_TESTS)
   file(GLOB_RECURSE XPP_TEST_SOURCES "*_test.cpp")
   foreach(test_src ${XPP_TEST_SOURCES})
-    get_filename_component(test_name ${test_src} NAME_WE)
+    file(RELATIVE_PATH test_rel "${CMAKE_CURRENT_SOURCE_DIR}" "${test_src}")
+    get_filename_component(test_dir ${test_rel} DIRECTORY)
+    get_filename_component(test_base ${test_rel} NAME_WE)
+    if(test_dir)
+      string(REPLACE "/" "_" test_name "${test_dir}_${test_base}")
+    else()
+      set(test_name "${test_base}")
+    endif()
 
     # When C++ standard < 20, skip tests that use co_await
     if(DEFINED CMAKE_CXX_STANDARD AND CMAKE_CXX_STANDARD VERSION_LESS 20)
       if(test_name MATCHES "coroutine" OR
-         test_name STREQUAL "list_test" OR
-         test_name STREQUAL "utils_test" OR
-         test_name STREQUAL "buf_reader_test" OR
-         test_name STREQUAL "buf_writer_test" OR
-         test_name STREQUAL "take_test" OR
-         test_name STREQUAL "sink_test" OR
-         test_name STREQUAL "duplex_test" OR
-         test_name STREQUAL "simplex_test" OR
-         test_name STREQUAL "join_test" OR
-         test_name STREQUAL "split_test" OR
-         test_name STREQUAL "oneshot_test" OR
-         test_name STREQUAL "mpsc_test" OR
-         test_name STREQUAL "notify_test" OR
-         test_name STREQUAL "broadcast_test" OR
-         test_name STREQUAL "watch_test")
+         test_name STREQUAL "sync_list_test" OR
+         test_name STREQUAL "io_utils_test" OR
+         test_name STREQUAL "io_buf_reader_test" OR
+         test_name STREQUAL "io_buf_writer_test" OR
+         test_name STREQUAL "io_take_test" OR
+         test_name STREQUAL "io_sink_test" OR
+         test_name STREQUAL "io_duplex_test" OR
+         test_name STREQUAL "io_simplex_test" OR
+         test_name STREQUAL "io_join_test" OR
+         test_name STREQUAL "io_split_test" OR
+         test_name STREQUAL "sync_oneshot_test" OR
+         test_name STREQUAL "sync_mpsc_test" OR
+         test_name STREQUAL "sync_notify_test" OR
+         test_name STREQUAL "sync_broadcast_test" OR
+         test_name STREQUAL "sync_watch_test")
         continue()
       endif()
     endif()
@@ -67,21 +74,21 @@ if(XPP_BUILD_TESTS)
     endif()
 
     # Tests that use co_await (C++20) but don't have "coroutine" in the filename
-    if(test_name STREQUAL "utils_test" OR
-       test_name STREQUAL "buf_reader_test" OR
-       test_name STREQUAL "buf_writer_test" OR
-       test_name STREQUAL "take_test" OR
-       test_name STREQUAL "sink_test" OR
-       test_name STREQUAL "duplex_test" OR
-       test_name STREQUAL "simplex_test" OR
-       test_name STREQUAL "join_test" OR
-       test_name STREQUAL "split_test" OR
-       test_name STREQUAL "oneshot_test" OR
-       test_name STREQUAL "mpsc_test" OR
-       test_name STREQUAL "notify_test" OR
-       test_name STREQUAL "broadcast_test" OR
-       test_name STREQUAL "watch_test" OR
-       test_name STREQUAL "client_test")
+    if(test_name STREQUAL "io_utils_test" OR
+       test_name STREQUAL "io_buf_reader_test" OR
+       test_name STREQUAL "io_buf_writer_test" OR
+       test_name STREQUAL "io_take_test" OR
+       test_name STREQUAL "io_sink_test" OR
+       test_name STREQUAL "io_duplex_test" OR
+       test_name STREQUAL "io_simplex_test" OR
+       test_name STREQUAL "io_join_test" OR
+       test_name STREQUAL "io_split_test" OR
+       test_name STREQUAL "sync_oneshot_test" OR
+       test_name STREQUAL "sync_mpsc_test" OR
+       test_name STREQUAL "sync_notify_test" OR
+       test_name STREQUAL "sync_broadcast_test" OR
+       test_name STREQUAL "sync_watch_test" OR
+       test_name STREQUAL "http_client_test")
       target_compile_features(${test_name} PRIVATE cxx_std_20)
       set_tests_properties(${test_name} PROPERTIES LABELS "xpp;needs-cxx20")
       if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
@@ -89,7 +96,7 @@ if(XPP_BUILD_TESTS)
       endif()
     endif()
     # Structured bindings (C++17)
-    if(test_name STREQUAL "list_test")
+    if(test_name STREQUAL "sync_list_test")
       target_compile_features(${test_name} PRIVATE cxx_std_17)
       set_tests_properties(${test_name} PROPERTIES LABELS "xpp;needs-cxx20")
     endif()

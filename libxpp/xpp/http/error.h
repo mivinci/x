@@ -19,19 +19,23 @@ namespace http {
 class Error {
 public:
   enum Kind {
-    ConnectionFailed,
-    Timeout,
-    HttpStatus
+    Builder,          // Invalid config, bad URL, etc.
+    Request,          // Connection failed, network error
+    Timeout,          // Request timed out
+    Status,           // HTTP error status code
   };
 
-  static Error connection_failed() {
-    return {ConnectionFailed, "connection failed"};
+  static Error builder(const std::string &msg) {
+    return {Builder, msg};
   }
-  static Error timeout() {
-    return {Timeout, "request timed out"};
+  static Error request(const std::string &msg) {
+    return {Request, msg};
   }
-  static Error http_status(int code) {
-    return {HttpStatus, "HTTP " + std::to_string(code)};
+  static Error timeout(const std::string &msg) {
+    return {Timeout, msg};
+  }
+  static Error status_code(int code) {
+    return {Status, "HTTP " + std::to_string(code)};
   }
 
   Kind kind() const {
@@ -39,6 +43,19 @@ public:
   }
   const std::string &message() const {
     return m_msg;
+  }
+
+  bool is_builder() const {
+    return m_kind == Builder;
+  }
+  bool is_request() const {
+    return m_kind == Request;
+  }
+  bool is_timeout() const {
+    return m_kind == Timeout;
+  }
+  bool is_status() const {
+    return m_kind == Status;
   }
 
 private:

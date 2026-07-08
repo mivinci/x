@@ -5,7 +5,7 @@
  *
  * buf_writer.h - xpp::io::BufWriter<W>: buffered async writer.
  *
- * Wraps any AsyncWriter (TcpStream, fs::File, etc.) with an 8KB
+ * Wraps any AsyncWrite (TcpStream, fs::File, etc.) with an 8KB
  * internal buffer. Small writes fill the buffer; when it's full,
  * the buffer is automatically flushed to the inner writer. Large
  * writes (>= 8KB) first flush any pending data, then write directly
@@ -18,7 +18,7 @@
  * flush() must be called explicitly to send remaining buffered data.
  * The destructor does NOT flush — matching Rust's BufWriter behavior.
  *
- * Composable: BufWriter satisfies the AsyncWriter concept, so it
+ * Composable: BufWriter satisfies the AsyncWrite concept, so it
  * works as the writer in io::copy or nested in another BufWriter.
  * Takes ownership of the inner writer via move semantics.
  *

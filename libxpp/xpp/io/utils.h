@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <vector>
 
+#include <xpp/io/traits.h>
 #include <xpp/promise.h>
 #include <xpp/shared.h>
 
@@ -35,36 +36,6 @@ constexpr size_t kBufSize = 8192;
 
 } // namespace _
 
-#if XPP_HAS_CONCEPT
-
-/* ═══ C++20 concepts — template constraints ═══════════════════════ */
-
-/**
- * @brief Concept: R has read(void*, size_t) returning an awaitable type.
- *
- * Satisfied by TcpStream, fs::File (cursor mode), and user-defined
- * types matching the signature. Used as a template constraint to
- * produce clear compile-time errors when the type is wrong.
- */
-template <class R>
-concept AsyncReader = requires(R &r, void *buf, size_t len) {
-  { r.read(buf, len) };
-};
-
-/**
- * @brief Concept: W has write(const void*, size_t) returning an awaitable type.
- */
-template <class W>
-concept AsyncWriter = requires(W &w, const void *buf, size_t len) {
-  { w.write(buf, len) };
-};
-
-/** @brief Concept: T satisfies both AsyncReader and AsyncWriter. */
-template <class T>
-concept AsyncReadWriter = AsyncReader<T> && AsyncWriter<T>;
-
-#endif // XPP_HAS_CONCEPT
-
 #if XPP_HAS_COROUTINES
 
 /* ═══ C++20 coroutine versions ══════════════════════════════════════ */
@@ -72,9 +43,9 @@ concept AsyncReadWriter = AsyncReader<T> && AsyncWriter<T>;
 /**
  * @brief Read the entire byte stream into a vector.
  *
- * @tparam R Reader type satisfying AsyncReader (e.g., TcpStream, fs::File)
+ * @tparam R Reader type satisfying AsyncRead (e.g., TcpStream, fs::File)
  */
-template <AsyncReader R> Promise<std::vector<uint8_t>> read_all(R &reader) {
+template <AsyncRead R> Promise<std::vector<uint8_t>> read_all(R &reader) {
   std::vector<uint8_t> result;
   uint8_t              buf[8192];
   while (true) {
@@ -88,10 +59,10 @@ template <AsyncReader R> Promise<std::vector<uint8_t>> read_all(R &reader) {
 /**
  * @brief Copy all bytes from reader to writer.
  *
- * @tparam R Reader type satisfying AsyncReader
- * @tparam W Writer type satisfying AsyncWriter
+ * @tparam R Reader type satisfying AsyncRead
+ * @tparam W Writer type satisfying AsyncWrite
  */
-template <AsyncReader R, AsyncWriter W> Promise<void> copy(R &reader, W &writer) {
+template <AsyncRead R, AsyncWrite W> Promise<void> copy(R &reader, W &writer) {
   uint8_t buf[_::kBufSize];
   while (true) {
     ssize_t n = co_await reader.read(buf, sizeof(buf));

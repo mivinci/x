@@ -5,7 +5,7 @@
  *
  * sink.h - xpp::io::Sink: write-discarding async writer.
  *
- * Satisfies the AsyncWriter concept. write() always returns len
+ * Satisfies the AsyncWrite concept. write() always returns len
  * (data is discarded). Useful for benchmarks and /dev/null sinks.
  */
 
@@ -21,14 +21,14 @@
 namespace xpp {
 namespace io {
 
-/** @brief Write-discarding async writer. Satisfies AsyncWriter concept. */
+/** @brief Write-discarding async writer. Satisfies AsyncWrite concept. */
 struct Sink {
   Promise<ssize_t> write(const void *, size_t len) {
     return xpp::resolve(static_cast<ssize_t>(len));
   }
 };
 
-/** @brief Create a Sink writer (satisfies AsyncWriter concept). */
+/** @brief Create a Sink writer (satisfies AsyncWrite concept). */
 inline Sink sink() {
   return Sink{};
 }
