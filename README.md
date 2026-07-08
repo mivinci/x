@@ -6,31 +6,44 @@
 </p>
 
 ```cpp
-// libxpp — Rust-style async in C++: no callback hell, no manual state machines.
+auto [tx, rx] = xpp::sync::mpsc::channel<int>(8);
 
-xpp::fiber([]() {
-  auto listener = xpp::net::TcpListener::bind("0.0.0.0:8080").await().unwrap();
-  auto [conn, addr] = listener.accept().await();
-
-  char buf[1024];
+// Consumer fiber — drains the channel, prints sum
+auto consumer = xpp::fiber([rx = std::move(rx)]() mutable {
+  int sum = 0;
   while (true) {
-    ssize_t n = conn.read(buf, sizeof(buf)).await();
-    if (n <= 0) break;
-    conn.write(buf, n).await();
+    auto val = rx.recv().await();      // suspends until data arrives
+    if (val.is_none()) break;          // channel closed — all done
+    sum += val.unwrap();
   }
-}).then([]() { printf("server done\n"); });
+  printf("sum: %d\n", sum);            // 210
+});
 
-// .await() suspends the fiber — the event loop keeps churning.
-// Works in C++11.  Also supports co_await (C++20) and .then() chains.
-// Same Promise<T> every time.  Choose your style, not a different library.
+// Two producer fibers send concurrently over the same channel
+auto p1 = xpp::fiber([tx]() {
+  for (int i =  1; i <= 10; i++) tx.send(i).await();
+});
+auto p2 = xpp::fiber([tx]() {
+  for (int i = 11; i <= 20; i++) tx.send(i).await();
+});
+
+// Wait for producers, then signal consumer
+xpp::all(std::move(p1), std::move(p2))
+    .then([tx = std::move(tx)]() mutable { tx.close(); })
+    .await();
+
+consumer.await();
 ```
+
+`.await()` suspends the fiber so the event loop keeps churning — and it works in C++11.  
+Prefer `co_await`?  Prefer `.then()` chains?  Same `Promise<T>`, your call.
 
 ## Libraries
 
 | Library | Language | Description |
 |---------|----------|-------------|
-| **libx** | C99 | Event loop, async I/O, HTTP/2, WebSocket, WebRTC, P2P, DNS, filesystem |
 | **libxpp** | C++11 | Stackful fibers, `Promise<T>`, channels, I/O combinators, smart pointers |
+| **libx** | C99 | Event loop, async I/O, HTTP/2, WebSocket, WebRTC, P2P, DNS, filesystem |
 
 ## Quick Start
 
@@ -39,7 +52,7 @@ xpp::fiber([]() {
 brew install googletest llhttp nghttp2 libusrsctp
 
 # Linux
-sudo apt-get install cmake libgtest-dev libnghttp2-dev libssl-dev libusrsctp-dev
+sudo apt install cmake libgtest-dev libnghttp2-dev libssl-dev libusrsctp-dev
 ```
 
 ```bash
@@ -55,6 +68,9 @@ cd build && ctest
 | `X_BUILD_TESTS` | `ON` | Build tests |
 | `X_TLS_BACKEND` | `auto` | TLS backend: `auto`, `openssl`, `mbedtls`, `none` |
 | `X_DEBUG_LEVEL` | `0` | Debug log verbosity (0–3) |
+| `XPP_MT` | `ON` | Multi-threading support (`Shared` → `Arc`, atomic channels) |
+| `XPP_FIBER` | `ON` | Stackful fiber scheduling for `Promise::await()` |
+| `CMAKE_CXX_STANDARD` | `20` | C++ standard (`11` for pure callback/fiber, `20` for `co_await`) |
 
 ## Documentation
 
