@@ -64,7 +64,6 @@ static void echo_on_done(xHttpCtx *ctx, void *arg) {
 static void status_handler(xHttpCtx *ctx, void * /*arg*/) {
   int code = 0;
   if (ctx->url) {
-    // Extract status code from URL path like "/status/404"
     const char *slash = strrchr(ctx->url, '/');
     if (slash) code = atoi(slash + 1);
   }
@@ -99,7 +98,6 @@ protected:
     ASSERT_NE(m_server, nullptr);
     ASSERT_EQ(xHttpServerListen(m_server, "127.0.0.1", m_port), xErrno_Ok);
 
-    // Let server bind
     for (int i = 0; i < 20; i++)
       xEventLoopRun(m_loop.handle(), X_RUN_ONCE);
   }
@@ -109,7 +107,6 @@ protected:
     if (m_mux) xHttpMuxDestroy(m_mux);
   }
 
-  /// Register a simple on_done-only route.
   void route(const char *pattern, xHttpDoneFunc on_done, void *arg = nullptr) {
     xHttpRouteConf conf = {};
     conf.pattern        = pattern;
@@ -177,7 +174,7 @@ TEST_F(HttpClientTest, GetHelloWorld) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
- *  POST request with body
+ *  POST request with body echo
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST_F(HttpClientTest, PostEcho) {
@@ -198,6 +195,54 @@ TEST_F(HttpClientTest, PostEcho) {
   auto body = response.text().await();
   ASSERT_TRUE(body.is_ok());
   EXPECT_EQ(body.unwrap(), payload);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  POST with empty body
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST_F(HttpClientTest, PostEmptyBody) {
+  EchoCtx echo;
+  route_with_data("POST /echo-empty", echo_on_data, echo_on_done, &echo);
+
+  auto client = xpp::http::Client::create();
+  auto result = client.post(url("/echo-empty"))
+                    .body(std::vector<uint8_t>())
+                    .send()
+                    .await();
+
+  ASSERT_TRUE(result.is_ok());
+  auto&& response = result.unwrap();
+  EXPECT_EQ(response.status(), 200);
+
+  auto body = response.text().await();
+  ASSERT_TRUE(body.is_ok());
+  EXPECT_EQ(body.unwrap(), "");
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  POST with binary body
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST_F(HttpClientTest, PostBinaryBody) {
+  EchoCtx echo;
+  route_with_data("POST /echo-bin", echo_on_data, echo_on_done, &echo);
+
+  auto client = xpp::http::Client::create();
+  std::vector<uint8_t> payload = {0x00, 0x01, 0x02, 0xFE, 0xFF};
+  auto result = client.post(url("/echo-bin"))
+                    .body(std::vector<uint8_t>(payload))
+                    .send()
+                    .await();
+
+  ASSERT_TRUE(result.is_ok());
+  EXPECT_EQ(result.unwrap().status(), 200);
+
+  auto body = result.unwrap().bytes().await();
+  ASSERT_TRUE(body.is_ok());
+  auto&& data = body.unwrap();
+  EXPECT_EQ(data.size(), payload.size());
+  EXPECT_EQ(std::memcmp(data.data(), payload.data(), payload.size()), 0);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
