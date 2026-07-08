@@ -7,24 +7,49 @@ used repeatedly — after `notify_one()` wakes a waiter, a subsequent call to
 Think "manual condvar": a sender can signal waiting coroutines without
 sending data.
 
-## Example
+## Example — `.await()`
 
 ```cpp
 #include <xpp/sync/notify.h>
 
+xpp::EventLoop loop;
+xpp::WaitScope scope(loop);
+
 xpp::sync::Notify n;
 
-// Coroutine 1: waits for signal
-co_await n.notified();  // suspends until notify_one() or notify_waiters()
+// Waiter 1: waits for signal
+n.notified().await();  // suspends (fiber) or blocks + drives loop
 
-// Coroutine 2: also waits
-co_await n.notified();  // suspends
+// Waiter 2: also waits
+n.notified().await();
 
 // Sender: wake one
-n.notify_one();    // wakes coroutine 1 (or 2)
+n.notify_one();    // wakes waiter 1 (or 2)
 
 // Sender: wake all
 n.notify_waiters(); // wakes all remaining waiters
+```
+
+With fiber — non-blocking:
+
+```cpp
+xpp::fiber([]() {
+  xpp::sync::Notify n;
+
+  std::thread([&] { n.notify_one(); }).detach();
+
+  n.notified().await();  // fiber suspends, event loop continues
+  printf("woken up\n");
+}).await();
+```
+
+## Example — `co_await` (C++20)
+
+```cpp
+xpp::sync::Notify n;
+co_await n.notified();  // suspends until notify_one() or notify_waiters()
+n.notify_one();         // wake one
+n.notify_waiters();     // wake all
 ```
 
 ## When notify arrives before notified()
@@ -41,8 +66,7 @@ std::thread([&] {
     n.notify_one();
 }).detach();
 
-// Event loop coroutine
-co_await n.notified();  // resolves immediately — notification was pending
+n.notified().await();  // resolves immediately — notification was pending
 ```
 
 ## API

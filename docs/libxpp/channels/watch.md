@@ -11,10 +11,14 @@ Sender ──(value)──▶ [latest] ──▶ Receiver₁ (seen=v2)
 Use for configuration hot-reload, state observation, or any pattern where
 consumers want the *latest* value, not every intermediate value.
 
-## Example
+## Example — `.await()`
 
 ```cpp
 #include <xpp/sync/watch.h>
+
+xpp::EventLoop loop;
+xpp::WaitScope scope(loop);
+
 auto [tx, rx] = xpp::sync::watch::channel<std::string>("localhost:8080");
 
 // On config change:
@@ -22,10 +26,23 @@ tx.send("0.0.0.0:9090");
 
 // Wait for changes
 while (true) {
-    auto r = co_await rx.changed();
+    auto r = rx.changed().await();
     if (r.is_err()) break;  // sender dropped
 
     auto ref = rx.borrow_and_update();  // read + mark seen
+    std::cout << *ref << "\n";
+}
+```
+
+## Example — `co_await` (C++20)
+
+```cpp
+auto [tx, rx] = xpp::sync::watch::channel<std::string>("localhost:8080");
+tx.send("0.0.0.0:9090");
+while (true) {
+    auto r = co_await rx.changed();
+    if (r.is_err()) break;
+    auto ref = rx.borrow_and_update();
     std::cout << *ref << "\n";
 }
 ```

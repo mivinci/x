@@ -4,19 +4,47 @@
 
 `xpp::net::TcpStream` and `TcpListener` provide Promise-based async TCP, wrapping libx's `xTcpConn` and `xTcpListener`. I/O uses `io::AsyncFd` for readiness — fast-path syscall + EAGAIN wait.
 
+## Example — `.await()`
+
 ```cpp
 #include <xpp/net/tcp.h>
 
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-// Client
 auto conn_r = xpp::net::TcpStream::connect("127.0.0.1:8080").await();
 auto conn = std::move(conn_r).unwrap();
 conn.write("hello", 5).await();
 
 char buf[64];
 ssize_t n = conn.read(buf, sizeof(buf)).await();
+```
+
+With fiber — echo server:
+
+```cpp
+xpp::fiber([]() {
+  auto listener = xpp::net::TcpListener::bind("127.0.0.1:8080").await().unwrap();
+  auto conn = listener.accept().await().unwrap();
+
+  char buf[1024];
+  while (true) {
+    ssize_t n = conn.read(buf, sizeof(buf)).await();
+    if (n <= 0) break;
+    conn.write(buf, n).await();
+  }
+}).await();
+```
+
+## Example — `co_await` (C++20)
+
+```cpp
+xpp::Promise<void> client_demo() {
+  auto conn = co_await xpp::net::TcpStream::connect("127.0.0.1:8080");
+  co_await conn.unwrap().write("hello", 5);
+  char buf[64];
+  ssize_t n = co_await conn.unwrap().read(buf, sizeof(buf));
+}
 ```
 
 ## TcpStream
