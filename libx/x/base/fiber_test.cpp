@@ -20,6 +20,7 @@
  *   - Multiple concurrent fibers
  *   - Value passing through void* arg
  *   - Fiber chaining: fiber A switches to fiber B
+ *   - xFiberYield(): yield to parent (recursive fiber support)
  *   - Death tests for invalid operations
  */
 
@@ -474,6 +475,99 @@ TEST(FiberTest, ChainFiberToFiber) {
 
   xFiberDestroy(fiberA);
   xFiberDestroy(fiberB);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ *  xFiberYield — yield to parent fiber
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/** Fiber proc: sets visited, records self, yields (not switches to main). */
+static void yieldProc(void *arg) {
+  TestCtx *ctx       = static_cast<TestCtx *>(arg);
+  ctx->visited       = true;
+  ctx->self          = xFiberCurrent();
+  xFiberYield();
+}
+
+TEST(FiberTest, YieldFromRootFiber) {
+  TestCtx ctx = {};
+  ctx.main_fiber = xFiberMain();
+
+  xFiber child = xFiberCreate(0, yieldProc, &ctx);
+  ASSERT_NE(child, (xFiber)NULL);
+
+  /* Root fiber (parent=NULL) — xFiberYield() falls back to xFiberMain() */
+  xFiberSwitch(child);
+  EXPECT_TRUE(ctx.visited);
+  EXPECT_EQ(xFiberCurrent(), ctx.main_fiber);
+
+  xFiberDestroy(child);
+}
+
+/** Fiber proc: spawns a child fiber, yields, child yields back to parent. */
+struct NestedYieldCtx {
+  xFiber main_fiber;
+  xFiber parent_fiber;
+  xFiber child_fiber;
+  bool   parent_visited;
+  bool   child_visited;
+};
+
+static void childYieldProc(void *arg) {
+  NestedYieldCtx *ctx  = static_cast<NestedYieldCtx *>(arg);
+  ctx->child_visited    = true;
+  ctx->child_fiber      = xFiberCurrent();
+  EXPECT_NE(xFiberCurrent(), ctx->parent_fiber);
+  EXPECT_EQ(xFiberCurrent(), ctx->child_fiber);
+  xFiberYield();  /* yield to parent, not directly to main */
+}
+
+static void parentYieldProc(void *arg) {
+  NestedYieldCtx *ctx = static_cast<NestedYieldCtx *>(arg);
+  ctx->parent_fiber    = xFiberCurrent();
+
+  /* Spawn a child fiber. xFiberCreate captures current fiber as parent. */
+  ctx->child_fiber = xFiberCreate(0, childYieldProc, ctx);
+  ASSERT_NE(ctx->child_fiber, (xFiber)NULL);
+
+  /* Switch to child — child will yield back to us */
+  xFiberSwitch(ctx->child_fiber);
+
+  /* Child yielded back to parent! */
+  ctx->parent_visited = true;
+  EXPECT_EQ(xFiberCurrent(), ctx->parent_fiber);
+
+  /* Clean up child, then yield back to main */
+  xFiberDestroy(ctx->child_fiber);
+  xFiberYield();
+}
+
+TEST(FiberTest, YieldNestedParentChild) {
+  NestedYieldCtx ctx = {};
+  ctx.main_fiber      = xFiberMain();
+
+  xFiber parent = xFiberCreate(0, parentYieldProc, &ctx);
+  ASSERT_NE(parent, (xFiber)NULL);
+
+  /* parent runs: spawns child, child yields back, parent yields back */
+  xFiberSwitch(parent);
+
+  /* child_fiber is set inside parentYieldProc — check after switch */
+  ASSERT_NE(ctx.child_fiber, (xFiber)NULL);
+  EXPECT_TRUE(ctx.child_visited);
+  EXPECT_TRUE(ctx.parent_visited);
+  EXPECT_EQ(xFiberCurrent(), ctx.main_fiber);
+
+  xFiberDestroy(parent);
+}
+
+/* ── xFiberYield from main thread is no-op ── */
+
+TEST(FiberTest, YieldFromMainIsNoop) {
+  xFiber main = xFiberMain();
+  /* xFiberYield() on main thread — no parent, not a child fiber → no-op */
+  xFiberYield();
+  EXPECT_EQ(xFiberCurrent(), main);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════

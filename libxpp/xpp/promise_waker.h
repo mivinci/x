@@ -41,6 +41,10 @@
 
 namespace xpp {
 
+/* ═══════════════════════════════════════════════════════════════════════
+ *  PromiseWaker — declaration
+ * ═══════════════════════════════════════════════════════════════════════ */
+
 /**
  * @brief Lightweight waker — captures event loop + done flag + optional fiber.
  *
@@ -49,8 +53,8 @@ namespace xpp {
  *
  * park() blocks the caller until the flag is set, then resets it:
  *   - Non-fiber: runs xEventLoopRun(X_RUN_ONCE) in a poll loop.
- *   - Fiber:     calls xFiberSwitch(xFiberMain()) to suspend and
- *                yield the CPU back to the event loop.
+ *   - Fiber:     calls xFiberYield() to suspend and yield the CPU
+ *                back to the event loop.
  *
  * The constructor auto-detects the execution context via xFiberCurrent().
  * No factory method needed — just instantiate it.
@@ -68,85 +72,32 @@ public:
    * When XPP_FIBER is enabled, also captures the current fiber handle
    * via xFiberCurrent() for cooperative parking.
    */
-  PromiseWaker() : m_done(&m_storage) {
-    m_loop = xEventLoopCurrent();
-#if XPP_FIBER
-    m_fiber = m_loop ? xFiberCurrent() : nullptr;
-#endif
-  }
+  PromiseWaker();
 
   /**
    * @brief Notify the waiter that the promise may be ready.
    *
-   * Sets the internal done flag. If the waker was created inside a
-   * fiber, also posts a callback to switch back to the fiber on the
-   * event loop boundary. Fiber switch is deferred via post rather than
-   * inline because wake() may be called from deep inside poll/resolve.
+   * Same-thread: sets the done flag, then (if fiber) posts a fiber-switch
+   * callback to the event loop boundary.  Fiber switch is deferred because
+   * wake() may be called from deep inside poll/resolve where swapcontext
+   * is unsafe.
+   *
+   * Cross-thread: posts set-done + optional fiber-switch to the event loop.
    */
-  void wake() const {
-    if (!m_loop) return;
-    if (m_loop == xEventLoopCurrent()) {
-      // Same thread — set flag directly.
-      *m_done = true;
-#if XPP_FIBER
-      if (m_fiber) {
-        // Post the fiber switch to the event loop boundary.  Don't
-        // switch inline — wake() may be called from deep inside
-        // poll() / resolve(), where swapcontext is unsafe.
-        xEventLoopPost(m_loop, &on_fiber_wake, const_cast<PromiseWaker *>(this));
-      }
-#endif
-    } else {
-      // Cross-thread — post to the loop's done queue.
-#if XPP_FIBER
-      if (m_fiber) {
-        xEventLoopPost(m_loop, &on_fiber_cross_thread_wake,
-                       const_cast<void *>(static_cast<const void *>(this)));
-      } else
-#endif
-      {
-        xEventLoopPost(m_loop, &set_done_cb, const_cast<void *>(static_cast<const void *>(this)));
-      }
-    }
-  }
+  void wake() const;
 
   /**
-   * @brief Park the current context until wake() is called.
+   * @brief Park the current context until wake() is called, then reset.
    *
-   * Non-fiber path: runs xEventLoopRun(X_RUN_ONCE) in a busy-wait
-   * loop until the done flag is set, then resets it.
+   * Non-fiber path: runs xEventLoopRun(X_RUN_ONCE) in a busy-wait loop.
+   * Fiber path:     calls xFiberYield() to suspend the fiber and yield
+   *                 the CPU to the event loop.  Re-enters when the fiber
+   *                 is switched back by wake()'s posted callback.
    *
-   * Fiber path: suspends the current fiber via xFiberSwitch(main),
-   * yielding the CPU to the event loop. When wake() fires, the fiber
-   * is switched back in and this call returns.
-   *
-   * After returning, the done flag is reset to false so the caller
-   * can re-poll and potentially wait again.
-   *
-   * Must only be called when a valid event loop is captured
-   * (i.e. inside a WaitScope). Calling on an inert waker (no loop)
-   * is a no-op — the flag was presumably already set.
+   * Calling on an inert waker (no loop, no fiber) breaks immediately —
+   * the flag is assumed to have been set externally.
    */
-  void park() const {
-    while (!*m_done) {
-#if XPP_FIBER
-      if (m_fiber) {
-        xFiberSwitch(xFiberMain());
-        continue;
-      }
-#endif
-      if (m_loop) {
-        xEventLoopRun(m_loop, X_RUN_ONCE);
-      } else {
-        // If no loop and not a fiber, this is an inert waker — the
-        // flag should already be set (or will be set externally).
-        // Busy-waiting without an event loop would deadlock, so we
-        // break out and let the caller handle the empty result.
-        break;
-      }
-    }
-    *m_done = false;
-  }
+  void park() const;
 
 private:
   xEventLoop m_loop;
@@ -155,22 +106,98 @@ private:
 #if XPP_FIBER
   xFiber m_fiber = nullptr;
 
-  static void on_fiber_wake(void *arg) {
-    auto *w = static_cast<PromiseWaker *>(arg);
-    xFiberSwitch(w->m_fiber);
-  }
+  /// Posted by wake() on the event loop boundary to switch back to fiber.
+  static void on_fiber_wake(void *arg);
 
-  static void on_fiber_cross_thread_wake(void *arg) {
-    auto *w    = static_cast<PromiseWaker *>(arg);
-    *w->m_done = true;
-    xFiberSwitch(w->m_fiber);
-  }
+  /// Cross-thread variant: also sets the done flag before switching.
+  static void on_fiber_cross_thread_wake(void *arg);
 #endif
 
-  static void set_done_cb(void *arg) {
-    *static_cast<PromiseWaker *>(arg)->m_done = true;
-  }
+  /// Cross-thread done callback (non-fiber path).
+  static void on_done(void *arg);
 };
+
+/* ═══════════════════════════════════════════════════════════════════════
+ *  PromiseWaker — implementation
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+inline PromiseWaker::PromiseWaker() : m_done(&m_storage) {
+  m_loop = xEventLoopCurrent();
+#if XPP_FIBER
+  m_fiber = m_loop ? xFiberCurrent() : nullptr;
+#endif
+}
+
+inline void PromiseWaker::wake() const {
+  if (!m_loop) return;
+  if (m_loop == xEventLoopCurrent()) {
+    // Same thread — set flag directly.
+    *m_done = true;
+#if XPP_FIBER
+    if (m_fiber) {
+      // Post the fiber switch to the event loop boundary.  Don't
+      // switch inline — wake() may be called from deep inside
+      // poll() / resolve(), where swapcontext is unsafe.
+      xEventLoopPost(m_loop, &on_fiber_wake, const_cast<PromiseWaker *>(this));
+    }
+#endif
+  } else {
+    // Cross-thread — post to the loop's done queue.
+#if XPP_FIBER
+    if (m_fiber) {
+      xEventLoopPost(m_loop, &on_fiber_cross_thread_wake,
+                     const_cast<void *>(static_cast<const void *>(this)));
+    } else
+#endif
+    {
+      xEventLoopPost(m_loop, &on_done, const_cast<void *>(static_cast<const void *>(this)));
+    }
+  }
+}
+
+inline void PromiseWaker::park() const {
+  while (!*m_done) {
+#if XPP_FIBER
+    if (m_fiber) {
+      xFiberYield();
+      continue;
+    }
+#endif
+    if (m_loop) {
+      xEventLoopRun(m_loop, X_RUN_ONCE);
+    } else {
+      // If no loop and not a fiber, this is an inert waker — the
+      // flag should already be set (or will be set externally).
+      // Busy-waiting without an event loop would deadlock, so we
+      // break out and let the caller handle the empty result.
+      break;
+    }
+  }
+  *m_done = false;
+}
+
+#if XPP_FIBER
+
+inline void PromiseWaker::on_fiber_wake(void *arg) {
+  auto *w = static_cast<PromiseWaker *>(arg);
+  xFiberSwitch(w->m_fiber);
+}
+
+inline void PromiseWaker::on_fiber_cross_thread_wake(void *arg) {
+  auto *w    = static_cast<PromiseWaker *>(arg);
+  *w->m_done = true;
+  xFiberSwitch(w->m_fiber);
+}
+
+#endif // XPP_FIBER
+
+inline void PromiseWaker::on_done(void *arg) {
+  *static_cast<PromiseWaker *>(arg)->m_done = true;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ *  AtomicPromiseWaker
+ * ═══════════════════════════════════════════════════════════════════════ */
 
 /**
  * @brief Lock-free waker cell using a 2-bit state machine.

@@ -177,4 +177,81 @@ TEST(FiberTest, CaptureByReference) {
   EXPECT_EQ(value, 42);
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+ *  Recursive fibers — spawn fiber inside fiber
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(FiberTest, NestedFiberChildReturnsToParent) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto outer = xpp::fiber(65536, []() {
+    // Spawn inner fiber — it yields back to us, not to main
+    auto inner = xpp::fiber(32768, []() {
+      return 42;
+    });
+    // .wait() on inner: inner suspends, yields back to outer
+    // When inner resolves, outer resumes and gets the value
+    return std::move(inner).wait() + 1;
+  });
+
+  EXPECT_EQ(std::move(outer).wait(), 43);
+}
+
+TEST(FiberTest, NestedFiberPendingPromises) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto outer = xpp::fiber(65536, []() {
+    auto inner = xpp::fiber(32768, []() {
+      int a = xpp::resolve(3).wait();
+      int b = xpp::resolve(4).wait();
+      return a + b;
+    });
+    int x = std::move(inner).wait();
+    int y = xpp::resolve(10).wait();
+    return x + y;
+  });
+
+  EXPECT_EQ(std::move(outer).wait(), 17);
+}
+
+TEST(FiberTest, NestedFiberVoid) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  bool inner_called = false;
+  bool outer_called = false;
+
+  auto outer = xpp::fiber(65536, [&]() {
+    auto inner = xpp::fiber(32768, [&]() {
+      inner_called = true;
+      // void fiber — no return value
+    });
+    std::move(inner).wait();
+    outer_called = true;
+  });
+
+  std::move(outer).wait();
+  EXPECT_TRUE(inner_called);
+  EXPECT_TRUE(outer_called);
+}
+
+TEST(FiberTest, TripleNestedFiber) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto level1 = xpp::fiber(65536, []() {
+    auto level2 = xpp::fiber(32768, []() {
+      auto level3 = xpp::fiber(16384, []() {
+        return xpp::resolve(100).wait();
+      });
+      return std::move(level3).wait() + 10;
+    });
+    return std::move(level2).wait() + 1;
+  });
+
+  EXPECT_EQ(std::move(level1).wait(), 111);  /* 100 + 10 + 1 */
+}
+
 } // namespace

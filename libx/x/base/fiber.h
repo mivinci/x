@@ -21,6 +21,7 @@
  *   xFiberMain()              — convert thread, get main fiber handle
  *   xFiberCreate(sz, fn, arg) — create a fiber (does not start)
  *   xFiberSwitch(target)      — suspend current, resume target
+ *   xFiberYield()             — yield to parent fiber (or main)
  *   xFiberCurrent()           — get currently executing fiber
  *   xFiberDestroy(fiber)      — free a finished fiber
  *
@@ -119,6 +120,19 @@ XCAPI(void) xFiberDestroy(xFiber fiber);
  *                xFiberCreate() or xFiberMain().
  */
 XCAPI(void) xFiberSwitch(xFiber target);
+
+/**
+ * @brief Yield the current fiber to its parent.
+ *
+ * If the current fiber was created inside another fiber (parent != NULL),
+ * switches back to the parent so it can continue execution. Otherwise,
+ * switches to the main fiber (the thread's event loop).
+ *
+ * This is the preferred way for a fiber to voluntarily suspend itself.
+ * Used internally by PromiseWaker::park() for fiber-aware waiting and
+ * by the xpp::fiber trampoline for cleanup.
+ */
+XCAPI(void) xFiberYield(void);
 
 /**
  * @brief Return the currently executing fiber.

@@ -77,7 +77,7 @@ static void cleanup_cb(void *arg);
  *
  * 1. Calls ctx->run(ctx + 1) to execute the user's lambda
  * 2. Posts cleanup_cb to the event loop (can't destroy fiber from within)
- * 3. Switches back to the main fiber
+ * 3. Switches back to the parent fiber (or main if no parent)
  */
 static void trampoline(void *arg) {
   auto *ctx  = static_cast<Context *>(arg);
@@ -87,7 +87,7 @@ static void trampoline(void *arg) {
   // Post cleanup to the event loop boundary.  The trampoline cannot
   // call xFiberDestroy on itself, so deferred cleanup is necessary.
   xEventLoopPost(xEventLoopCurrent(), &cleanup_cb, ctx);
-  xFiberSwitch(xFiberMain());
+  xFiberYield();
 }
 
 /**
