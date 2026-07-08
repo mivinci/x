@@ -12,8 +12,7 @@
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto server_r = xpp::net::UdpSocket::bind("127.0.0.1:9090").await();
-auto server = std::move(server_r).unwrap();
+auto server = xpp::net::UdpSocket::bind("127.0.0.1:9090").await().unwrap();
 
 char buf[64];
 auto result = server.recv_from(buf, sizeof(buf)).await();
@@ -84,11 +83,9 @@ xpp::Promise<void> udp_echo(uint16_t server_port) {
 ### UDP Echo — `.await()`
 
 ```cpp
-auto server_r = xpp::net::UdpSocket::bind("127.0.0.1:9090").await();
-auto server = std::move(server_r).unwrap();
+auto server = xpp::net::UdpSocket::bind("127.0.0.1:9090").await().unwrap();
 
-auto client_r = xpp::net::UdpSocket::bind("127.0.0.1:0").await();
-auto client = std::move(client_r).unwrap();
+auto client = xpp::net::UdpSocket::bind("127.0.0.1:0").await().unwrap();
 
 auto target = server.local_addr().unwrap();
 client.send_to("ping", 4, target).await();
@@ -101,10 +98,8 @@ auto result = server.recv_from(buf, sizeof(buf)).await();
 ### UDP Echo — `co_await` (C++20)
 
 ```cpp
-auto server_r = co_await xpp::net::UdpSocket::bind("127.0.0.1:9090");
-auto server = std::move(server_r).unwrap();
-auto client_r = co_await xpp::net::UdpSocket::bind("127.0.0.1:0");
-auto client = std::move(client_r).unwrap();
+auto server = (co_await xpp::net::UdpSocket::bind("127.0.0.1:9090")).unwrap();
+auto client = (co_await xpp::net::UdpSocket::bind("127.0.0.1:0")).unwrap();
 auto target = server.local_addr().unwrap();
 co_await client.send_to("ping", 4, target);
 char buf[64];

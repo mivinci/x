@@ -12,8 +12,7 @@
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto conn_r = xpp::net::TcpStream::connect("127.0.0.1:8080").await();
-auto conn = std::move(conn_r).unwrap();
+auto conn = xpp::net::TcpStream::connect("127.0.0.1:8080").await().unwrap();
 conn.write("hello", 5).await();
 
 char buf[64];
