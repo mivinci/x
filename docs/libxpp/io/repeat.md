@@ -6,6 +6,8 @@
 
 C++11-compatible (no coroutines). Satisfies the `AsyncReader` concept.
 
+## Example — `.await()`
+
 ```cpp
 #include <xpp/io/repeat.h>
 
@@ -27,20 +29,32 @@ ssize_t n = r.read(buf, sizeof(buf)).await();
 
 ## Usage Examples
 
-### Benchmark throughput
+### Benchmark throughput — `.await()`
 
 ```cpp
 auto r = xpp::io::repeat();
 auto s = xpp::io::sink();
+xpp::io::copy(r, s).await();  // measures pure reader + copy throughput
+```
 
-// Measures pure reader + copy throughput (no real I/O)
+### Benchmark throughput — `co_await` (C++20)
+
+```cpp
+auto r = xpp::io::repeat();
+auto s = xpp::io::sink();
 co_await xpp::io::copy(r, s);
 ```
 
 ### Padding generation
 
 ```cpp
+// .await()
 auto zeros = xpp::io::repeat(0);
 char pad[1024];
-co_await zeros.read(pad, 1024);  // 1KB of zeros
+zeros.read(pad, 1024).await();  // 1KB of zeros
+
+// co_await (C++20)
+auto zeros = xpp::io::repeat(0);
+char pad[1024];
+co_await zeros.read(pad, 1024);
 ```

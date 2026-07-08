@@ -4,11 +4,29 @@
 
 `xpp::io::simplex(size)` creates a unidirectional pipe — a `SimplexReader` and `SimplexWriter` sharing a single ring buffer. Simpler than `duplex()` which provides two buffers for bidirectional communication. Like Go's `io.Pipe`.
 
-Coroutine (C++20) or struct+move fallback (C++11). Single-threaded.
+Works with `.await()`, `co_await` (C++20 coroutines), or `.then()` chains (C++11). Single-threaded.
+
+## Example — `.await()`
 
 ```cpp
 #include <xpp/io/simplex.h>
 
+xpp::EventLoop loop;
+xpp::WaitScope scope(loop);
+
+auto [reader, writer] = xpp::io::simplex(4096);
+
+writer.write("hello", 5).await();
+writer.close();
+
+char buf[8];
+reader.read(buf, 8).await();   // buf = "hello"
+reader.read(buf, 8).await();   // returns 0 (EOF)
+```
+
+## Example — `co_await` (C++20)
+
+```cpp
 auto [reader, writer] = xpp::io::simplex(4096);
 
 co_await writer.write("hello", 5);
@@ -49,26 +67,46 @@ Writing suspends when the buffer is full; reading suspends when the buffer is em
 
 ## Usage Examples
 
-### Testing read_all
+### Testing read_all — `.await()`
 
 ```cpp
-auto [reader, writer] = xpp::io::simplex(256);
+xpp::EventLoop loop;
+xpp::WaitScope scope(loop);
 
-co_await writer.write("hello world", 11);
+auto [reader, writer] = xpp::io::simplex(256);
+writer.write("hello world", 11).await();
 writer.close();
 
-auto data = co_await xpp::io::read_all(reader);
+auto data = xpp::io::read_all(reader).await();
 // data.size() == 11, data == "hello world"
 ```
 
-### Testing copy
+### Testing read_all — `co_await` (C++20)
 
 ```cpp
 auto [reader, writer] = xpp::io::simplex(256);
+co_await writer.write("hello world", 11);
+writer.close();
+auto data = co_await xpp::io::read_all(reader);
+```
 
-co_await writer.write("ping", 4);
+### Testing copy — `.await()`
+
+```cpp
+auto [reader, writer] = xpp::io::simplex(256);
+writer.write("ping", 4).await();
 writer.close();
 
 xpp::io::Empty dst;
-co_await xpp::io::copy(reader, dst);  // reads "ping" and discards
+xpp::io::copy(reader, dst).await();  // reads "ping" and discards
+```
+
+### Testing copy — `co_await` (C++20)
+
+```cpp
+auto [reader, writer] = xpp::io::simplex(256);
+co_await writer.write("ping", 4);
+writer.close();
+xpp::io::Empty dst;
+co_await xpp::io::copy(reader, dst);
 ```

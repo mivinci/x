@@ -4,6 +4,8 @@
 
 `xpp::net::UdpSocket` provides Promise-based async UDP. libx has no UDP API, so `UdpSocket` is built directly on `::socket()`, `::bind()`, and `io::AsyncFd`.
 
+## Example — `.await()`
+
 ```cpp
 #include <xpp/net/udp.h>
 
@@ -17,6 +19,27 @@ char buf[64];
 auto result = server.recv_from(buf, sizeof(buf)).await();
 // result.first  == bytes read
 // result.second == peer SocketAddr
+```
+
+## Example — `co_await` (C++20)
+
+```cpp
+xpp::Promise<void> udp_echo(uint16_t server_port) {
+    auto server_r = co_await xpp::net::UdpSocket::bind(
+        ("127.0.0.1:" + std::to_string(server_port)).c_str());
+    auto server = std::move(server_r).unwrap();
+
+    auto client_r = co_await xpp::net::UdpSocket::bind("127.0.0.1:0");
+    auto client = std::move(client_r).unwrap();
+    auto target = server.local_addr().unwrap();
+
+    auto recv_buf = std::make_shared<std::vector<char>>(64);
+    auto recv_p = server.recv_from(recv_buf->data(), recv_buf->size());
+    co_await client.send_to("ping", 4, target);
+
+    auto result = co_await std::move(recv_p);
+    // result.first == 4, result.second is client's address
+}
 ```
 
 ## API Reference
@@ -52,13 +75,13 @@ auto result = server.recv_from(buf, sizeof(buf)).await();
 
 `UdpSocket` creates a non-blocking UDP socket via `::socket(AF_INET, SOCK_DGRAM, 0)`, sets `O_NONBLOCK` + `FD_CLOEXEC`, binds, and registers with the event loop via `AsyncFd`.
 
-`recv_from()` tries `::recvfrom` immediately (fast path). On EAGAIN, it waits for `readable()` and retries. Returns `Promise<std::pair<ssize_t, SocketAddr>>` — bytes read + peer address. C++11 callers use `std::tie`; C++17 callers may use structured bindings.
+`recv_from()` tries `::recvfrom` immediately (fast path). On EAGAIN, it waits for `readable()` and retries. Returns `Promise<std::pair<ssize_t, SocketAddr>>` — bytes read + peer address.
 
 `send_to()` tries `::sendto` immediately. On EAGAIN, it waits for `writable()` and retries.
 
 ## Usage Examples
 
-### UDP Echo
+### UDP Echo — `.await()`
 
 ```cpp
 auto server_r = xpp::net::UdpSocket::bind("127.0.0.1:9090").await();
@@ -75,32 +98,21 @@ auto result = server.recv_from(buf, sizeof(buf)).await();
 // result.first == 4, result.second is client's address
 ```
 
-## Coroutine Examples
+### UDP Echo — `co_await` (C++20)
 
 ```cpp
-xpp::Promise<void> udp_echo(uint16_t server_port) {
-    auto server_r = co_await xpp::net::UdpSocket::bind(("127.0.0.1:" + std::to_string(server_port)).c_str());
-    auto server = std::move(server_r).unwrap();
-
-    auto client_r = co_await xpp::net::UdpSocket::bind("127.0.0.1:0");
-    auto client = std::move(client_r).unwrap();
-
-    auto target = server.local_addr().unwrap();
-
-    // Send + receive concurrently
-    auto recv_buf = std::make_shared<std::vector<char>>(64);
-    auto recv_p = server.recv_from(recv_buf->data(), recv_buf->size());
-    co_await client.send_to("ping", 4, target);
-
-    auto result = co_await std::move(recv_p);
-    // result.first == 4, result.second is client's address
-}
+auto server_r = co_await xpp::net::UdpSocket::bind("127.0.0.1:9090");
+auto server = std::move(server_r).unwrap();
+auto client_r = co_await xpp::net::UdpSocket::bind("127.0.0.1:0");
+auto client = std::move(client_r).unwrap();
+auto target = server.local_addr().unwrap();
+co_await client.send_to("ping", 4, target);
+char buf[64];
+auto result = co_await server.recv_from(buf, sizeof(buf));
 ```
 
 ## Implementation Notes
 
 - **Built from scratch** — libx has no UDP API. `UdpSocket` uses `::socket()` + `::bind()` + `AsyncFd` directly.
-
 - **Buffer lifetime** — `buf` pointers passed to `recv_from`/`send_to` must remain valid until the returned Promise resolves.
-
-- **Bind with DNS** — `bind("host:port")` tries `SocketAddr::parse` first (literal IP). If that fails, it splits on the last `:` and calls `lookup_host()` to resolve the hostname, then binds to the first resolved address.
+- **Bind with DNS** — `bind("host:port")` tries `SocketAddr::parse` first (literal IP). If that fails, it splits on the last `:` and calls `lookup_host()` to resolve the hostname.

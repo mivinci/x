@@ -4,7 +4,7 @@
 
 `then()` is the primary chaining mechanism for `Promise<T>`. It transforms a resolved value into a new `Promise`, with automatic flattening.
 
-## Basic chaining
+## Basic chaining — `.await()`
 
 ```cpp
 xpp::resolve(10)
@@ -51,8 +51,6 @@ Promise<> p = resolve(10)
 // p is Promise<void>
 ```
 
-A `then()` that returns void (or `Promise<void>`) turns the rest of the chain into `Promise<void>`. This is convenient for fire-and-forget side effects at the end of a chain.
-
 ## then() is non-mutating
 
 Each `.then()` call returns a **new** `Promise` — the original is untouched. This means you can fork a chain into multiple consumers:
@@ -61,7 +59,6 @@ Each `.then()` call returns a **new** `Promise` — the original is untouched. T
 auto root     = fetch_value();
 auto doubled  = root.then([](int x) { return x * 2; });
 auto tripled  = root.then([](int x) { return x * 3; });
-// root is unchanged; doubled and tripled are independent forks
 ```
 
 ## Error handling
@@ -81,11 +78,11 @@ Promise<Result<int, MyError>> compute = resolve(42)
 
 ## Arenas: allocation model
 
-Each `.then()` chain shares a 256-byte bump allocator (arena). Promise nodes are allocated from this arena, not individually heap-allocated. This means a 10-link chain is a single `malloc` (the arena) rather than 10 separate allocations. Nodes that overflow the arena fall back to heap transparently. The arena is freed when the chain's root promise is destroyed.
+Each `.then()` chain shares a 256-byte bump allocator (arena). Promise nodes are allocated from this arena, not individually heap-allocated. This means a 10-link chain is a single `malloc` (the arena) rather than 10 separate allocations. Nodes that overflow the arena fall back to heap transparently.
 
 ## Driving the chain
 
-Chains are lazy ��� nothing runs until polled. Use `.await()` to drive the chain to completion on the current thread:
+Chains are lazy — nothing runs until polled. Use `.await()` to drive the chain to completion on the current thread:
 
 ```cpp
 int result = resolve(10)
@@ -94,17 +91,23 @@ int result = resolve(10)
 // result == 20
 ```
 
-## then() vs co_await
+## then() vs .await() vs co_await
 
-These two are equivalent:
+These three are equivalent:
 
 ```cpp
-// C++11: then()
+// C++11: then() + .await()
 Promise<int> p = fetch_value()
     .then([](int x) { return x * 2; });
+
+// C++11 + fiber: .await()
+int val = xpp::fiber([]() {
+    int x = fetch_value().await();
+    return x * 2;
+}).await();
 
 // C++20: co_await
 Promise<int> p = async_compute();  // inside: int x = co_await fetch_value(); co_return x * 2;
 ```
 
-Both produce the same `Promise<int>` backed by the same `poll()` mechanism.
+All produce the same `Promise<int>` backed by the same `poll()` mechanism.
