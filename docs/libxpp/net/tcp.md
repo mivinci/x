@@ -24,7 +24,7 @@ With fiber — echo server:
 ```cpp
 xpp::fiber([]() {
   auto listener = xpp::net::TcpListener::bind("127.0.0.1:8080").await().unwrap();
-  auto conn = listener.accept().await().unwrap();
+  auto [conn, addr] = listener.accept().await();
 
   char buf[1024];
   while (true) {
@@ -129,7 +129,7 @@ auto session = [](xpp::net::TcpStream conn) {
         .then([conn_ptr](ssize_t) mutable {});
 };
 
-session(listener.accept().await()).await();
+session(listener.accept().await().first).await();
 ```
 
 ### TCP Client with TLS
@@ -158,7 +158,7 @@ xpp::Promise<void> session(xpp::net::TcpStream conn) {
 
 xpp::Promise<void> server(xpp::net::TcpListener listener) {
     while (listener.is_open()) {
-        auto conn = co_await listener.accept();
+        auto [conn, addr] = co_await listener.accept();
         co_await session(std::move(conn));
     }
 }
@@ -183,7 +183,7 @@ xpp::Promise<void> fetch() {
 
 ```cpp
 xpp::Promise<void> echo_server(xpp::net::TcpListener listener) {
-    auto conn = co_await listener.accept();
+    auto [conn, addr] = co_await listener.accept();
     char buf[64];
     ssize_t n = co_await conn.read(buf, sizeof(buf));
     co_await conn.write(buf, n);
