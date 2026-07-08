@@ -23,21 +23,13 @@ auto result = server.recv_from(buf, sizeof(buf)).await();
 ## Example — `co_await` (C++20)
 
 ```cpp
-xpp::Promise<void> udp_echo(uint16_t server_port) {
-    auto server_r = co_await xpp::net::UdpSocket::bind(
-        ("127.0.0.1:" + std::to_string(server_port)).c_str());
-    auto server = std::move(server_r).unwrap();
+xpp::Promise<void> recv_demo() {
+    auto server = (co_await xpp::net::UdpSocket::bind("127.0.0.1:9090")).unwrap();
 
-    auto client_r = co_await xpp::net::UdpSocket::bind("127.0.0.1:0");
-    auto client = std::move(client_r).unwrap();
-    auto target = server.local_addr().unwrap();
-
-    auto recv_buf = std::make_shared<std::vector<char>>(64);
-    auto recv_p = server.recv_from(recv_buf->data(), recv_buf->size());
-    co_await client.send_to("ping", 4, target);
-
-    auto result = co_await std::move(recv_p);
-    // result.first == 4, result.second is client's address
+    char buf[64];
+    auto result = co_await server.recv_from(buf, sizeof(buf));
+    // result.first  == bytes read
+    // result.second == peer SocketAddr
 }
 ```
 
