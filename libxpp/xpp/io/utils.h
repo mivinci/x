@@ -96,7 +96,42 @@ template <AsyncReader R, AsyncWriter W> Promise<void> copy(R &reader, W &writer)
 
 #else // !XPP_HAS_COROUTINES
 
-/* ═══ C++11 struct+move fallback ════════════════════════════════════
+#if XPP_FIBER
+
+/* ═══ C++11 + fiber: linear .await() loop ════════════════════════════
+ *
+ * With fiber support, .await() handles both suspend (inside a fiber)
+ * and blocking X_RUN_ONCE (outside). The implementation is a plain
+ * while loop — structurally identical to the C++20 coroutine version
+ * but using .await() instead of co_await.
+ *
+ * No struct, no Shared, no std::move(*this) — just linear code.
+ * ─────────────────────────────────────────────────────────────────── */
+
+template <class R> Promise<std::vector<uint8_t>> read_all(R &reader) {
+  std::vector<uint8_t> result;
+  uint8_t              buf[_::kBufSize];
+  while (true) {
+    ssize_t n = reader.read(buf, sizeof(buf)).await();
+    if (n <= 0) break;
+    result.insert(result.end(), buf, buf + n);
+  }
+  return xpp::resolve(std::move(result));
+}
+
+template <class R, class W> Promise<void> copy(R &reader, W &writer) {
+  uint8_t buf[_::kBufSize];
+  while (true) {
+    ssize_t n = reader.read(buf, sizeof(buf)).await();
+    if (n <= 0) break;
+    writer.write(buf, static_cast<size_t>(n)).await();
+  }
+  return xpp::resolve();
+}
+
+#else // !XPP_FIBER
+
+/* ═══ C++11: struct+move fallback ════════════════════════════════════
  *
  * Replaces coroutine `while (true) { co_await ... }` loops with
  * struct + std::move(*this) recursive chaining.
@@ -186,6 +221,8 @@ template <class R, class W> Promise<void> copy(R &reader, W &writer) {
 
   return CopyLoop{reader, writer, buf}();
 }
+
+#endif // XPP_FIBER
 
 #endif // XPP_HAS_COROUTINES
 

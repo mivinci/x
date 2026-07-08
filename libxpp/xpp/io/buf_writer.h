@@ -139,6 +139,37 @@ template <class W> inline Promise<void> BufWriter<W>::flush() {
 
 #else // !XPP_HAS_COROUTINES
 
+#if XPP_FIBER
+
+/* ═══ C++11 + fiber: linear .await() ═════════════════════════════════ */
+
+template <class W> inline Promise<ssize_t> BufWriter<W>::write(const void *buf, size_t len) {
+  auto *i = m_inner.get();
+
+  if (len >= _::kBufSize) {
+    if (i->pos > 0) flush().await();
+    return i->writer.write(buf, len);
+  }
+
+  if (i->pos + len > _::kBufSize) {
+    flush().await();
+  }
+
+  std::memcpy(i->buf + i->pos, buf, len);
+  i->pos += len;
+  return xpp::resolve(static_cast<ssize_t>(len));
+}
+
+template <class W> inline Promise<void> BufWriter<W>::flush() {
+  auto *i = m_inner.get();
+  if (i->pos == 0) return xpp::resolve();
+  i->writer.write(i->buf, i->pos).await();
+  i->pos = 0;
+  return xpp::resolve();
+}
+
+#else // !XPP_FIBER
+
 /* ═══ C++11: .then() chains (no while loop, so no struct+move needed) ══ */
 
 template <class W> inline Promise<ssize_t> BufWriter<W>::write(const void *buf, size_t len) {
@@ -177,6 +208,8 @@ template <class W> inline Promise<void> BufWriter<W>::flush() {
     return xpp::resolve();
   });
 }
+
+#endif // XPP_FIBER
 
 #endif // XPP_HAS_COROUTINES
 

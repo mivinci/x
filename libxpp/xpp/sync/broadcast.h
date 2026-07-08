@@ -352,6 +352,27 @@ template <class T> xpp::Promise<xpp::Result<T, RecvError>> Receiver<T>::recv() {
 
 #else // !XPP_HAS_COROUTINES
 
+#if XPP_FIBER
+
+/* ═══ C++11 + fiber: linear while + .await() ═════════════════════════ */
+
+template <class T> xpp::Promise<xpp::Result<T, RecvError>> Receiver<T>::recv() {
+  auto *ch = m_chan.get();
+  if (!ch) return xpp::resolve(xpp::err(RecvError::Closed));
+
+  while (m_pos == ch->m_tail) {
+    if (ch->m_closed.load(std::memory_order_acquire))
+      return xpp::resolve(xpp::err(RecvError::Closed));
+    ch->m_notify.notified().await();
+  }
+
+  auto opt = try_read_value();
+  if (opt.is_some()) return xpp::resolve(xpp::ok(std::move(opt).unwrap()));
+  return xpp::resolve(xpp::err(RecvError::Lagged));
+}
+
+#else // !XPP_FIBER
+
 template <class T> xpp::Promise<xpp::Result<T, RecvError>> Receiver<T>::recv() {
   auto *ch = m_chan.get();
   if (!ch) return xpp::resolve(xpp::err(RecvError::Closed));
@@ -370,6 +391,8 @@ template <class T> xpp::Promise<xpp::Result<T, RecvError>> Receiver<T>::recv() {
   // No data, not closed → wait on notify, then retry
   return ch->m_notify.notified().then([this](Void) { return recv(); });
 }
+
+#endif // XPP_FIBER
 
 #endif // XPP_HAS_COROUTINES
 

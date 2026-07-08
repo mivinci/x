@@ -88,6 +88,21 @@ inline Promise<ssize_t> Take<R>::read(void *buf, size_t len) {
 
 #else // !XPP_HAS_COROUTINES
 
+#if XPP_FIBER
+
+/* ═══ C++11 + fiber: linear .await() ═════════════════════════════════ */
+
+template <class R>
+inline Promise<ssize_t> Take<R>::read(void *buf, size_t len) {
+  if (m_remaining == 0) return xpp::resolve(static_cast<ssize_t>(0));
+  size_t  limit = len < m_remaining ? len : m_remaining;
+  ssize_t n     = m_reader.read(buf, limit).await();
+  if (n > 0) m_remaining -= static_cast<size_t>(n);
+  return xpp::resolve(n);
+}
+
+#else // !XPP_FIBER
+
 template <class R>
 inline Promise<ssize_t> Take<R>::read(void *buf, size_t len) {
   if (m_remaining == 0) return xpp::resolve(static_cast<ssize_t>(0));
@@ -97,6 +112,8 @@ inline Promise<ssize_t> Take<R>::read(void *buf, size_t len) {
     return n;
   });
 }
+
+#endif // XPP_FIBER
 
 #endif // XPP_HAS_COROUTINES
 

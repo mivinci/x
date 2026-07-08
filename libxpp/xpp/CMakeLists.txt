@@ -27,6 +27,29 @@ if(XPP_BUILD_TESTS)
   file(GLOB_RECURSE XPP_TEST_SOURCES "*_test.cpp")
   foreach(test_src ${XPP_TEST_SOURCES})
     get_filename_component(test_name ${test_src} NAME_WE)
+
+    # When C++ standard < 20 or coroutines are forced off, skip tests that use co_await
+    if(CMAKE_CXX_STANDARD VERSION_LESS 20 OR XPP_HAS_COROUTINES EQUAL 0)
+      if(test_name MATCHES "coroutine" OR
+         test_name STREQUAL "list_test" OR
+         test_name STREQUAL "utils_test" OR
+         test_name STREQUAL "buf_reader_test" OR
+         test_name STREQUAL "buf_writer_test" OR
+         test_name STREQUAL "take_test" OR
+         test_name STREQUAL "sink_test" OR
+         test_name STREQUAL "duplex_test" OR
+         test_name STREQUAL "simplex_test" OR
+         test_name STREQUAL "join_test" OR
+         test_name STREQUAL "split_test" OR
+         test_name STREQUAL "oneshot_test" OR
+         test_name STREQUAL "mpsc_test" OR
+         test_name STREQUAL "notify_test" OR
+         test_name STREQUAL "broadcast_test" OR
+         test_name STREQUAL "watch_test")
+        continue()
+      endif()
+    endif()
+
     add_executable(${test_name} ${test_src})
     target_link_libraries(${test_name} PRIVATE xpp GTest::gtest_main)
     set_target_properties(${test_name} PROPERTIES FOLDER "libxpp")
