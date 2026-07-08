@@ -175,9 +175,8 @@ template <class R> struct ClientAdapter {
 
   static int on_data(const char *data, size_t len, void *arg) {
     auto *self = static_cast<ClientAdapter *>(arg);
-    self->m_body_tx.try_send(bytes::Bytes::from(std::vector<uint8_t>(
-      reinterpret_cast<const uint8_t *>(data),
-      reinterpret_cast<const uint8_t *>(data) + len)));
+    self->m_body_tx.try_send(bytes::Bytes::copy(
+      reinterpret_cast<const uint8_t *>(data), len));
     return 0;
   }
 

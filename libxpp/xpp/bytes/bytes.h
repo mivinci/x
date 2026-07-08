@@ -15,6 +15,7 @@
 #define XPP_BYTES_BYTES_H
 
 #include <cstddef>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -36,6 +37,15 @@ public:
       Option<Shared<std::vector<uint8_t>>>(Shared<std::vector<uint8_t>>::make(std::move(buf)));
     b.m_len = b.m_buf.as_deref()->size();
     return b;
+  }
+
+  /// Copy @p len bytes from @p data into a ref-counted buffer.
+  /// Equivalent to `from(std::vector<uint8_t>(data, data + len))`
+  /// but avoids the triply-nested constructor chain.
+  static Bytes copy(const uint8_t *data, size_t len) {
+    std::vector<uint8_t> v(len);
+    std::memcpy(v.data(), data, len);
+    return from(std::move(v));
   }
 
   size_t size() const noexcept {
