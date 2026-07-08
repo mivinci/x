@@ -10,7 +10,7 @@
 auto [reader, writer] = xpp::io::split(std::move(stream));
 
 // Concurrent read + write on the same connection
-xpp::all(reader.read(buf, 10), writer.write("hi", 2)).wait();
+xpp::all(reader.read(buf, 10), writer.write("hi", 2)).await();
 ```
 
 ## How it works

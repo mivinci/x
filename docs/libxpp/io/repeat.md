@@ -11,7 +11,7 @@ C++11-compatible (no coroutines). Satisfies the `AsyncReader` concept.
 
 auto r = xpp::io::repeat('A');
 char buf[16];
-ssize_t n = r.read(buf, sizeof(buf)).wait();
+ssize_t n = r.read(buf, sizeof(buf)).await();
 // n == 16, buf = "AAAAAAAAAAAAAAAA"
 ```
 

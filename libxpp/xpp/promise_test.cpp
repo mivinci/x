@@ -24,7 +24,7 @@ TEST(PromiseTest, ResolveImmediateInt) {
   xpp::WaitScope scope(loop);
 
   auto p = xpp::resolve(42);
-  EXPECT_EQ(p.wait(), 42);
+  EXPECT_EQ(p.await(), 42);
 }
 
 TEST(PromiseTest, ResolveImmediateVoid) {
@@ -32,7 +32,7 @@ TEST(PromiseTest, ResolveImmediateVoid) {
   xpp::WaitScope scope(loop);
 
   auto p = xpp::yield();
-  p.wait();
+  p.await();
   SUCCEED();
 }
 
@@ -41,7 +41,7 @@ TEST(PromiseTest, ResolveImmediateString) {
   xpp::WaitScope scope(loop);
 
   auto p = xpp::resolve(std::string("hello"));
-  EXPECT_EQ(p.wait(), "hello");
+  EXPECT_EQ(p.await(), "hello");
 }
 
 /* ───────────────────── then() chain ───────────────────── */
@@ -50,7 +50,7 @@ TEST(PromiseTest, ThenTransformInt) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::resolve(1).then([](int x) { return x + 1; }).wait();
+  int result = xpp::resolve(1).then([](int x) { return x + 1; }).await();
   EXPECT_EQ(result, 2);
 }
 
@@ -59,7 +59,7 @@ TEST(PromiseTest, ThenChainedTransforms) {
   xpp::WaitScope scope(loop);
 
   int result =
-    xpp::resolve(10).then([](int x) { return x * 2; }).then([](int x) { return x - 5; }).wait();
+    xpp::resolve(10).then([](int x) { return x * 2; }).then([](int x) { return x - 5; }).await();
   EXPECT_EQ(result, 15);
 }
 
@@ -67,7 +67,7 @@ TEST(PromiseTest, ThenVoidToInt) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::yield().then([]() { return 42; }).wait();
+  int result = xpp::yield().then([]() { return 42; }).await();
   EXPECT_EQ(result, 42);
 }
 
@@ -75,7 +75,7 @@ TEST(PromiseTest, ThenIntToVoid) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  xpp::resolve(42).then([](int) {}).wait();
+  xpp::resolve(42).then([](int) {}).await();
   SUCCEED();
 }
 
@@ -83,7 +83,7 @@ TEST(PromiseTest, ThenReturnsPromise) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::resolve(1).then([](int x) { return xpp::resolve(x * 10); }).wait();
+  int result = xpp::resolve(1).then([](int x) { return xpp::resolve(x * 10); }).await();
   EXPECT_EQ(result, 10);
 }
 
@@ -98,7 +98,7 @@ TEST(PromiseTest, DeferredResolveInt) {
   auto r        = std::move(pr.second);
   xpp::Timer t = schedule_resolve(r, 99, 50);
 
-  EXPECT_EQ(p.wait(), 99);
+  EXPECT_EQ(p.await(), 99);
 }
 
 TEST(PromiseTest, DeferredResolveVoid) {
@@ -110,7 +110,7 @@ TEST(PromiseTest, DeferredResolveVoid) {
   auto r        = std::move(pr.second);
   xpp::Timer t = schedule_resolve(r, 50);
 
-  p.wait();
+  p.await();
 }
 
 TEST(PromiseTest, DeferredResolveWithThen) {
@@ -122,7 +122,7 @@ TEST(PromiseTest, DeferredResolveWithThen) {
   auto r        = std::move(pr.second);
   xpp::Timer t = schedule_resolve(r, 7, 50);
 
-  int result = p.then([](int x) { return x * 3; }).wait();
+  int result = p.then([](int x) { return x * 3; }).await();
   EXPECT_EQ(result, 21);
 }
 
@@ -132,7 +132,7 @@ TEST(PromiseTest, EvalSynchronous) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::defer([] { return 42; }).wait();
+  int result = xpp::defer([] { return 42; }).await();
   EXPECT_EQ(result, 42);
 }
 
@@ -140,7 +140,7 @@ TEST(PromiseTest, YieldThenTransform) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::yield().then([] { return 1; }).wait();
+  int result = xpp::yield().then([] { return 1; }).await();
   EXPECT_EQ(result, 1);
 }
 
@@ -150,7 +150,7 @@ TEST(PromiseTest, DiscardValue) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  xpp::resolve(42).discard().wait();
+  xpp::resolve(42).discard().await();
   SUCCEED();
 }
 
@@ -176,7 +176,7 @@ TEST(PromiseTest, ResolverIsPendingBeforeResolve) {
   EXPECT_TRUE(r.is_pending());
   r.resolve(1);
   EXPECT_FALSE(r.is_pending());
-  EXPECT_EQ(p.wait(), 1);
+  EXPECT_EQ(p.await(), 1);
 }
 
 TEST(PromiseTest, ResolveBeforePollIsImmediate) {
@@ -189,7 +189,7 @@ TEST(PromiseTest, ResolveBeforePollIsImmediate) {
   auto p  = std::move(pr.first);
   auto r  = std::move(pr.second);
   r.resolve(77);
-  EXPECT_EQ(p.wait(), 77);
+  EXPECT_EQ(p.await(), 77);
 }
 
 TEST(PromiseTest, ResolveVoidBeforePoll) {
@@ -200,7 +200,7 @@ TEST(PromiseTest, ResolveVoidBeforePoll) {
   auto p  = std::move(pr.first);
   auto r  = std::move(pr.second);
   r.resolve();
-  p.wait();
+  p.await();
   SUCCEED();
 }
 
@@ -211,7 +211,7 @@ TEST(PromiseTest, ThenVoidToVoid) {
   xpp::WaitScope scope(loop);
 
   bool called = false;
-  xpp::yield().then([&called]() { called = true; }).wait();
+  xpp::yield().then([&called]() { called = true; }).await();
   EXPECT_TRUE(called);
 }
 
@@ -224,7 +224,7 @@ TEST(PromiseTest, ThenVoidToVoidChained) {
     .then([&counter]() { counter++; })
     .then([&counter]() { counter++; })
     .then([&counter]() { counter++; })
-    .wait();
+    .await();
   EXPECT_EQ(counter, 3);
 }
 
@@ -238,7 +238,7 @@ TEST(PromiseTest, MovePromise) {
   xpp::Promise<int> p2 = std::move(p1);
   EXPECT_FALSE(p1);
   EXPECT_TRUE(p2);
-  EXPECT_EQ(p2.wait(), 5);
+  EXPECT_EQ(p2.await(), 5);
 }
 
 /* ───────────────────── Recursive wait ───────────────────── */
@@ -263,9 +263,9 @@ TEST(PromiseTest, NestedWaitImmediate) {
                     * during a done-queue drain, which means xEventLoopRun is
                     * already on the call stack. The inner wait() calls
                     * xEventLoopRun again — nested. */
-                   return xpp::resolve(x * 100).wait();
+                   return xpp::resolve(x * 100).await();
                  })
-                 .wait();
+                 .await();
 
   EXPECT_EQ(result, 100);
 }
@@ -296,10 +296,10 @@ TEST(PromiseTest, NestedWaitDeferred) {
                     * The outer timer (30ms) has already fired and we're inside
                     * the outer wait's xEventLoopRun. This inner wait() starts
                     * a nested xEventLoopRun. */
-                   int inner_val = inner_p.wait();
+                   int inner_val = inner_p.await();
                    return outer_val + inner_val;
                  })
-                 .wait();
+                 .await();
 
   EXPECT_EQ(result, 49); /* 7 + 42 */
 }
@@ -322,11 +322,11 @@ TEST(PromiseTest, TripleNestedWait) {
                    return xpp::resolve(a * 2)
                      .then([&p3](int b) {
                        /* Level 3: deferred — wait() nests Run inside Run inside Run */
-                       return b + p3.wait();
+                       return b + p3.await();
                      })
-                     .wait();
+                     .await();
                  })
-                 .wait();
+                 .await();
 
   EXPECT_EQ(result, 302); /* (1*2) + 300 */
 }
@@ -351,7 +351,7 @@ TEST(PromiseTest, CrossThreadResolveInt) {
     r.resolve(77);
   });
 
-  EXPECT_EQ(pr.first.wait(), 77);
+  EXPECT_EQ(pr.first.await(), 77);
   worker.join();
 }
 
@@ -364,7 +364,7 @@ TEST(PromiseTest, CrossThreadResolveVoid) {
 
   std::thread worker([&r]() { r.resolve(); });
 
-  pr.first.wait();
+  pr.first.await();
   worker.join();
   SUCCEED();
 }
@@ -378,7 +378,7 @@ TEST(PromiseTest, CrossThreadResolveString) {
 
   std::thread worker([&r]() { r.resolve(std::string("from another thread")); });
 
-  EXPECT_EQ(pr.first.wait(), "from another thread");
+  EXPECT_EQ(pr.first.await(), "from another thread");
   worker.join();
 }
 
@@ -391,7 +391,7 @@ TEST(PromiseTest, CrossThreadResolveWithThen) {
 
   std::thread worker([&r]() { r.resolve(21); });
 
-  int result = pr.first.then([](int x) { return x * 2; }).wait();
+  int result = pr.first.then([](int x) { return x * 2; }).await();
   EXPECT_EQ(result, 42);
   worker.join();
 }
@@ -410,7 +410,7 @@ TEST(PromiseTest, CrossThreadResolveDelayed) {
     r.resolve(99);
   });
 
-  EXPECT_EQ(pr.first.wait(), 99);
+  EXPECT_EQ(pr.first.await(), 99);
   worker.join();
 }
 
@@ -427,7 +427,7 @@ TEST(PromiseTest, CrossThreadResolveBeforePoll) {
   worker.join();
 
   /* Now wait — promise is already resolved. */
-  EXPECT_EQ(pr.first.wait(), 42);
+  EXPECT_EQ(pr.first.await(), 42);
 }
 
 /* ───────────────────── after() — timer-based deferred promise ───────────────────── */
@@ -437,7 +437,7 @@ TEST(PromiseTest, AfterZeroDelayResolves) {
   xpp::WaitScope scope(loop);
 
   bool fired = false;
-  xpp::after(0).then([&]() { fired = true; }).wait();
+  xpp::after(0).then([&]() { fired = true; }).await();
   EXPECT_TRUE(fired);
 }
 
@@ -446,7 +446,7 @@ TEST(PromiseTest, AfterApproximateDelay) {
   xpp::WaitScope scope(loop);
 
   auto t0 = std::chrono::steady_clock::now();
-  xpp::after(30).wait();
+  xpp::after(30).await();
   auto ms =
     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
       .count();
@@ -460,7 +460,7 @@ TEST(PromiseTest, AfterThenVoidChain) {
   xpp::WaitScope scope(loop);
 
   int step = 0;
-  xpp::after(10).then([&]() { step = 1; }).then([&]() { step = 2; }).wait();
+  xpp::after(10).then([&]() { step = 1; }).then([&]() { step = 2; }).await();
 
   EXPECT_EQ(step, 2);
 }
@@ -469,7 +469,7 @@ TEST(PromiseTest, AfterThenReturnValue) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::after(10).then([]() -> int { return 42; }).wait();
+  int result = xpp::after(10).then([]() -> int { return 42; }).await();
   EXPECT_EQ(result, 42);
 }
 
@@ -478,7 +478,7 @@ TEST(PromiseTest, AfterComposeWithImmediatePromise) {
   xpp::WaitScope scope(loop);
 
   int result =
-    xpp::after(10).then([]() { return xpp::resolve(7); }).then([](int x) { return x * 6; }).wait();
+    xpp::after(10).then([]() { return xpp::resolve(7); }).then([](int x) { return x * 6; }).await();
 
   EXPECT_EQ(result, 42);
 }
@@ -489,9 +489,9 @@ TEST(PromiseTest, AfterSequentialWaitsInOrder) {
 
   std::vector<int> order;
 
-  xpp::after(10).then([&]() { order.push_back(0); }).wait();
-  xpp::after(10).then([&]() { order.push_back(1); }).wait();
-  xpp::after(10).then([&]() { order.push_back(2); }).wait();
+  xpp::after(10).then([&]() { order.push_back(0); }).await();
+  xpp::after(10).then([&]() { order.push_back(1); }).await();
+  xpp::after(10).then([&]() { order.push_back(2); }).await();
 
   ASSERT_EQ(order.size(), 3u);
   EXPECT_EQ(order[0], 0);
@@ -504,7 +504,7 @@ TEST(PromiseTest, AfterNestedAfter) {
   xpp::WaitScope scope(loop);
 
   auto t0 = std::chrono::steady_clock::now();
-  xpp::after(10).then([]() { return xpp::after(20); }).wait();
+  xpp::after(10).then([]() { return xpp::after(20); }).await();
 
   auto ms =
     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
@@ -520,8 +520,8 @@ TEST(PromiseTest, AfterIndependentTimersAllFire) {
   auto pa = xpp::after(10).then([&]() { a = 42; });
   auto pb = xpp::after(20).then([&]() { b = 99; });
 
-  pa.wait();
-  pb.wait();
+  pa.await();
+  pb.await();
 
   EXPECT_EQ(a, 42);
   EXPECT_EQ(b, 99);
@@ -575,7 +575,7 @@ TEST(PromiseTest, AfterStillResolvesOnFire) {
 
   /* Regression: the happy path must still work. */
   bool fired = false;
-  xpp::after(10).then([&]() { fired = true; }).wait();
+  xpp::after(10).then([&]() { fired = true; }).await();
   EXPECT_TRUE(fired);
 }
 
@@ -584,7 +584,7 @@ TEST(PromiseTest, AfterThenChain) {
   xpp::WaitScope scope(loop);
 
   /* Composition with then() must still work. */
-  int result = xpp::after(10).then([]() { return 42; }).then([](int x) { return x * 2; }).wait();
+  int result = xpp::after(10).then([]() { return 42; }).then([](int x) { return x * 2; }).await();
   EXPECT_EQ(result, 84);
 }
 
@@ -605,7 +605,7 @@ TEST(PromiseTest, ArenaHitShortChain) {
                  .then([](int x) { return x + 1; }) // 4
                  .then([](int x) { return x + 1; }) // 5
                  .then([](int x) { return x + 1; }) // 6
-                 .wait();
+                 .await();
   EXPECT_EQ(result, 6);
 }
 
@@ -620,7 +620,7 @@ TEST(PromiseTest, ArenaHitLongChain) {
   for (int i = 0; i < 8; ++i) {
     p = p.then([](int x) { return x + 1; });
   }
-  EXPECT_EQ(p.wait(), 8);
+  EXPECT_EQ(p.await(), 8);
 }
 
 // 4.3: Arena overflow — lambdas with large captures exceed 256B arena.
@@ -646,7 +646,7 @@ TEST(PromiseTest, ArenaOverflowLargeCaptures) {
                  .then([buf2](int x) { return x + static_cast<int>(buf2[0]); })
                  .then([buf3](int x) { return x + static_cast<int>(buf3[0]); })
                  .then([buf4](int x) { return x + static_cast<int>(buf4[0]); })
-                 .wait();
+                 .await();
   EXPECT_EQ(result, 10); // 0 + 1 + 2 + 3 + 4
 }
 
@@ -693,7 +693,7 @@ TEST(PromiseTest, ArenaDestructionAfterWait) {
   // wait() consumes the promise — arena must be freed in the process.
   for (int i = 0; i < 50; ++i) {
     int result =
-      xpp::resolve(i).then([](int x) { return x + 1; }).then([](int x) { return x * 2; }).wait();
+      xpp::resolve(i).then([](int x) { return x + 1; }).then([](int x) { return x * 2; }).await();
     EXPECT_EQ(result, (i + 1) * 2);
   }
 }

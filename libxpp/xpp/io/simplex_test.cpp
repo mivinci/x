@@ -30,7 +30,7 @@ xpp::Promise<void> do_write_then_read() {
 TEST(SimplexTest, WriteThenRead) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_write_then_read().wait();
+  do_write_then_read().await();
 }
 
 xpp::Promise<void> do_buffer_full() {
@@ -51,7 +51,7 @@ xpp::Promise<void> do_buffer_full() {
 TEST(SimplexTest, BufferFull) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_buffer_full().wait();
+  do_buffer_full().await();
 }
 
 xpp::Promise<void> do_read_all_roundtrip() {
@@ -69,5 +69,5 @@ xpp::Promise<void> do_read_all_roundtrip() {
 TEST(SimplexTest, ReadAllRoundtrip) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_read_all_roundtrip().wait();
+  do_read_all_roundtrip().await();
 }

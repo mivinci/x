@@ -49,7 +49,7 @@ static void BM_Mpsc_BoundedAsyncRoundTrip(benchmark::State &state) {
   for (auto _ : state) {
     auto [tx, rx] = xpp::sync::mpsc::channel<int>(4);
     tx.try_send(42);
-    int val = rx.recv().wait().unwrap();
+    int val = rx.recv().await().unwrap();
     benchmark::DoNotOptimize(val);
   }
 }
@@ -64,7 +64,7 @@ static void BM_Mpsc_UnboundedRoundTrip(benchmark::State &state) {
   for (auto _ : state) {
     auto [tx, rx] = xpp::sync::mpsc::channel<int>();
     tx.send(42);
-    int val = rx.recv().wait().unwrap();
+    int val = rx.recv().await().unwrap();
     benchmark::DoNotOptimize(val);
   }
 }
@@ -79,7 +79,7 @@ static void BM_Mpsc_UnboundedString(benchmark::State &state) {
   for (auto _ : state) {
     auto [tx, rx] = xpp::sync::mpsc::channel<std::string>();
     tx.send(std::string("hello world!"));
-    auto val = rx.recv().wait();
+    auto val = rx.recv().await();
     benchmark::DoNotOptimize(val);
   }
 }

@@ -32,7 +32,7 @@ xpp::Promise<void> do_send_recv() {
 TEST(MpscTest, SendRecv) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_send_recv().wait();
+  do_send_recv().await();
 }
 
 xpp::Promise<void> do_multi_producer() {
@@ -51,7 +51,7 @@ xpp::Promise<void> do_multi_producer() {
 TEST(MpscTest, MultiProducer) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_multi_producer().wait();
+  do_multi_producer().await();
 }
 
 xpp::Promise<void> do_buffer_full() {
@@ -69,7 +69,7 @@ xpp::Promise<void> do_buffer_full() {
 TEST(MpscTest, BufferFull) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_buffer_full().wait();
+  do_buffer_full().await();
 }
 
 TEST(MpscTest, TrySendSuccess) {
@@ -138,7 +138,7 @@ xpp::Promise<void> do_try_send_mixed() {
 TEST(MpscTest, TrySendRecvMixed) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_try_send_mixed().wait();
+  do_try_send_mixed().await();
 }
 
 // ── RAII close ──────────────────────────────────────────────────────
@@ -160,7 +160,7 @@ xpp::Promise<void> do_raii_close() {
 TEST(MpscTest, RaiiClose) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_raii_close().wait();
+  do_raii_close().await();
 }
 
 xpp::Promise<void> do_raii_close_recv() {
@@ -182,7 +182,7 @@ xpp::Promise<void> do_raii_close_recv() {
 TEST(MpscTest, RaiiCloseRecv) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_raii_close_recv().wait();
+  do_raii_close_recv().await();
 }
 
 // ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
@@ -203,7 +203,7 @@ TEST(MpscMtTest, CrossThreadSendRecv) {
       tx.close();
       co_return;
     };
-    sender().wait();
+    sender().await();
   });
 
   std::thread tb([&rx] {
@@ -217,7 +217,7 @@ TEST(MpscMtTest, CrossThreadSendRecv) {
       EXPECT_TRUE((co_await rx.recv()).is_none());
       co_return;
     };
-    receiver().wait();
+    receiver().await();
   });
 
   ta.join();
@@ -238,7 +238,7 @@ TEST(MpscMtTest, CrossThreadBufferFull) {
       tx.close();
       co_return;
     };
-    sender().wait();
+    sender().await();
   });
 
   std::thread tb([&rx] {
@@ -252,7 +252,7 @@ TEST(MpscMtTest, CrossThreadBufferFull) {
       EXPECT_TRUE((co_await rx.recv()).is_none());
       co_return;
     };
-    receiver().wait();
+    receiver().await();
   });
 
   ta.join();
@@ -280,7 +280,7 @@ TEST(MpscMtTest, TrySendRecvWorkerThread) {
     }
     co_return;
   };
-  recv_all().wait();
+  recv_all().await();
   worker.join();
 }
 
@@ -313,7 +313,7 @@ TEST(MpscMtTest, MultiProducerThreads) {
     EXPECT_EQ(sum, 3135);
     co_return;
   };
-  consumer().wait();
+  consumer().await();
 
   t1.join();
   t2.join();
@@ -341,7 +341,7 @@ TEST(MpscMtTest, UnboundedCrossThread) {
     EXPECT_TRUE((co_await rx.recv()).is_none());
     co_return;
   };
-  recver().wait();
+  recver().await();
   worker.join();
 }
 

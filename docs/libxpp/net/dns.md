@@ -10,7 +10,7 @@
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto addrs = xpp::net::lookup_host("example.com").wait();
+auto addrs = xpp::net::lookup_host("example.com").await();
 for (const auto &addr : addrs) {
     printf("%s\n", addr.to_string().c_str());
 }
@@ -33,9 +33,9 @@ Resolves to an empty vector on failure (hostname not found, DNS error, etc.).
 ### Resolve and connect
 
 ```cpp
-auto addrs = xpp::net::lookup_host("example.com").wait();
+auto addrs = xpp::net::lookup_host("example.com").await();
 if (!addrs.empty()) {
-    auto conn = xpp::net::TcpStream::connect(addrs[0]).wait();
+    auto conn = xpp::net::TcpStream::connect(addrs[0]).await();
 }
 ```
 
@@ -46,7 +46,7 @@ if (!addrs.empty()) {
 xpp::net::lookup_host("example.com").then([](std::vector<xpp::net::SocketAddr> addrs) {
     if (addrs.empty()) return xpp::resolve(xpp::net::TcpStream());
     return xpp::net::TcpStream::connect(addrs[0]);
-}).wait();
+}).await();
 ```
 
 ## Coroutine Examples

@@ -12,7 +12,7 @@ Satisfies the `AsyncReader` concept — composable with `io::read_all`, `io::cop
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto conn = xpp::net::TcpStream::connect("127.0.0.1:9090").wait().unwrap();
+auto conn = xpp::net::TcpStream::connect("127.0.0.1:9090").await().unwrap();
 xpp::io::BufReader<xpp::net::TcpStream> buf(std::move(conn));
 
 // Small reads: copy from buffer, zero per-call Promise overhead

@@ -8,7 +8,7 @@
 #include <xpp/net/tls.h>
 
 xpp::net::TlsContext ctx(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpStream::connect("example.com:443", ctx).wait();
+auto conn = xpp::net::TcpStream::connect("example.com:443", ctx).await();
 ```
 
 ## API Reference
@@ -67,8 +67,8 @@ When passed to `TcpStream::connect()`, the `xTlsCtx` handle is set in `xTcpConne
 
 ```cpp
 xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpStream::connect("example.com:443", tls).wait();
-conn.write("GET / HTTP/1.0\r\n\r\n", 18).wait();
+auto conn = xpp::net::TcpStream::connect("example.com:443", tls).await();
+conn.write("GET / HTTP/1.0\r\n\r\n", 18).await();
 ```
 
 ### Server with certificate

@@ -21,7 +21,7 @@ Promise<Result<User, DbError>> fetch_user(int id) {
 The calling code unboxes the result at the end of the chain:
 
 ```cpp
-auto result = fetch_user(42).wait();
+auto result = fetch_user(42).await();
 if (result.is_ok()) {
     auto &user = result.unwrap();
 } else {

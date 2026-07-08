@@ -14,7 +14,7 @@ Satisfies the `AsyncWriter` concept — composable with `io::copy`. Takes owners
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto conn = xpp::net::TcpStream::connect("127.0.0.1:9090").wait().unwrap();
+auto conn = xpp::net::TcpStream::connect("127.0.0.1:9090").await().unwrap();
 xpp::io::BufWriter<xpp::net::TcpStream> buf(std::move(conn));
 
 // Small writes accumulate — no syscalls yet

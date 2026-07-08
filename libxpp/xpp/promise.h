@@ -157,7 +157,9 @@ public:
 
   /// @deprecated Use await() instead.
   XPP_DEPRECATED("use await() instead")
-  ValueType wait() { return await(); }
+  ValueType wait() {
+    return await();
+  }
 
 private:
   _::OwnPromiseNode<T> m_node;

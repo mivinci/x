@@ -131,7 +131,7 @@ TEST(BroadcastMtTest, WorkerSendLoopRecv) {
     }
     co_return;
   };
-  recver().wait();
+  recver().await();
   worker.join();
 }
 
@@ -157,7 +157,7 @@ TEST(BroadcastMtTest, MultipleWorkerSenders) {
     }
     co_return;
   };
-  recver().wait();
+  recver().await();
   t1.join();
   t2.join();
 }

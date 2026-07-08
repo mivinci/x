@@ -152,7 +152,7 @@ Call stack for nested `wait()`:
 wait()  (outer)
   poll()  →  None
   xEventLoopRun()  →  timer fires → resolve → then() callback
-    .then(fn)  →  fn calls inner_promise.wait()
+    .then(fn)  →  fn calls inner_promise.await()
       wait()  (inner)
         poll()  →  Some(result)  →  return
     fn returns result

@@ -51,7 +51,7 @@ xpp::Promise<void> do_buf_reader_small() {
 TEST(BufReaderTest, SmallReads) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_buf_reader_small().wait();
+  do_buf_reader_small().await();
 }
 
 xpp::Promise<void> do_buf_reader_large_bypass() {
@@ -81,7 +81,7 @@ xpp::Promise<void> do_buf_reader_large_bypass() {
 TEST(BufReaderTest, LargeBypass) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_buf_reader_large_bypass().wait();
+  do_buf_reader_large_bypass().await();
 }
 
 xpp::Promise<void> do_buf_reader_with_read_all() {
@@ -111,5 +111,5 @@ xpp::Promise<void> do_buf_reader_with_read_all() {
 TEST(BufReaderTest, WithReadAll) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_buf_reader_with_read_all().wait();
+  do_buf_reader_with_read_all().await();
 }

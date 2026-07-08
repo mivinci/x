@@ -20,21 +20,21 @@ using namespace xpp;
 TEST(PromiseWorkTest, BasicWork) {
   EventLoop loop;
   WaitScope scope(loop);
-  int       result = work([] { return 42; }).wait();
+  int       result = work([] { return 42; }).await();
   EXPECT_EQ(result, 42);
 }
 
 TEST(PromiseWorkTest, WorkWithString) {
   EventLoop   loop;
   WaitScope   scope(loop);
-  std::string result = work([] { return std::string("from thread pool"); }).wait();
+  std::string result = work([] { return std::string("from thread pool"); }).await();
   EXPECT_EQ(result, "from thread pool");
 }
 
 TEST(PromiseWorkTest, WorkWithThenChain) {
   EventLoop loop;
   WaitScope scope(loop);
-  int       result = work([] { return 10; }).then([](int x) { return x * 3; }).wait();
+  int       result = work([] { return 10; }).then([](int x) { return x * 3; }).await();
   EXPECT_EQ(result, 30);
 }
 
@@ -45,7 +45,7 @@ TEST(PromiseWorkTest, WorkWithSleep) {
   int       result = work([] {
                  std::this_thread::sleep_for(std::chrono::milliseconds(50));
                  return 99;
-               }).wait();
+               }).await();
   auto      ms =
     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start)
       .count();
@@ -61,6 +61,6 @@ TEST(PromiseWorkTest, WorkRaceWithTimer) {
                       return 200;
                     }),
                           after(10).then([] { return -1; }))
-                 .wait();
+                 .await();
   EXPECT_EQ(result, -1);
 }

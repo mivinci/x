@@ -43,7 +43,7 @@ xpp::Promise<void> do_take_within_limit() {
 TEST(TakeTest, WithinLimit) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_take_within_limit().wait();
+  do_take_within_limit().await();
 }
 
 xpp::Promise<void> do_take_read_zero() {
@@ -76,5 +76,5 @@ xpp::Promise<void> do_take_read_zero() {
 TEST(TakeTest, ReadZeroAfterLimit) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_take_read_zero().wait();
+  do_take_read_zero().await();
 }

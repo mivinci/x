@@ -39,5 +39,5 @@ xpp::Promise<void> do_split_concurrent_read_write() {
 TEST(SplitTest, ConcurrentReadWrite) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_split_concurrent_read_write().wait();
+  do_split_concurrent_read_write().await();
 }

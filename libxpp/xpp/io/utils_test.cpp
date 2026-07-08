@@ -44,7 +44,7 @@ xpp::Promise<void> do_read_all_tcp() {
 TEST(IoUtilCoroutineTest, ReadAllTcp) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_read_all_tcp().wait();
+  do_read_all_tcp().await();
 }
 
 /* ── copy TCP → File ──────────────────────────────────────────────── */
@@ -82,7 +82,7 @@ xpp::Promise<void> do_copy_tcp_to_file() {
 TEST(IoUtilCoroutineTest, CopyTcpToFile) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_copy_tcp_to_file().wait();
+  do_copy_tcp_to_file().await();
 }
 
 /* ── File cursor read ─────────────────────────────────────────────── */
@@ -112,5 +112,5 @@ xpp::Promise<void> do_file_cursor_read() {
 TEST(IoUtilCoroutineTest, FileCursorRead) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_file_cursor_read().wait();
+  do_file_cursor_read().await();
 }

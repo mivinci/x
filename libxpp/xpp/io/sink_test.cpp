@@ -20,7 +20,7 @@ TEST(SinkTest, WriteReturnsLen) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
   xpp::io::Sink  s;
-  ssize_t        n = s.write("hello", 5).wait();
+  ssize_t        n = s.write("hello", 5).await();
   EXPECT_EQ(n, 5);
 }
 
@@ -47,5 +47,5 @@ xpp::Promise<void> do_copy_to_sink() {
 TEST(SinkTest, CopyToSink) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_copy_to_sink().wait();
+  do_copy_to_sink().await();
 }

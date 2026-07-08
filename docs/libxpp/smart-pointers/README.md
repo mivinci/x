@@ -106,7 +106,7 @@ Promise<Own<Data>> fetch() {
 }
 
 // Own → Box: take ownership, guarantee non-null downstream
-auto boxed = fetch().wait()
+auto boxed = fetch().await()
   .into_nonnull()   // Option<Box<Data>>
   .unwrap();        // Box<Data>
 ```

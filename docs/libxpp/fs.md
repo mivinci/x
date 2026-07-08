@@ -2,29 +2,29 @@
 
 ## Introduction
 
-`xpp::fs::File` provides Promise-based async file I/O that composes with `.then()`, `co_await`, `all()`, and `race()`. It wraps libx's `xfs` module, which offloads filesystem operations to a thread pool — callbacks never block the event loop.
-
-Design: pread/pwrite with explicit offset (no seek), RAII destructor closes synchronously, buffer overloads for both C-style and `Span<uint8_t>`. Free functions cover directory operations (`create_dir`, `remove_dir`, `rename`, `exists`).
+`xpp::fs::File` provides Promise-based async file I/O that composes with `.then()`, `co_await`, `.await()`, and fibers. It wraps libx's `xfs` module, which offloads filesystem operations to a thread pool — callbacks never block the event loop.
 
 ```cpp
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto file = xpp::fs::File::open("data.txt").wait();
-auto content = file.read_to_string().wait();
-std::cout << content << std::endl;
+// Direct .await() — blocks until done, drives event loop
+auto file    = xpp::fs::File::open("data.txt").await();
+auto content = file.read_to_string().await();
 // ~File() closes synchronously
-```
 
-With coroutines:
+// With fiber — non-blocking suspend
+xpp::fiber([]() {
+    auto file = xpp::fs::File::open("data.txt").await();
+    auto data = file.read_all().await();
+    xpp::fs::write("out.txt", data.data(), data.size()).await();
+}).await();
 
-```cpp
+// With coroutines (C++20)
 xpp::Promise<void> process() {
     auto file = co_await xpp::fs::File::open("data.txt");
     auto data = co_await file.read_all();
-    co_await xpp::fs::File::create("out.txt").then([&](xpp::fs::File out) {
-        return out.write_all(data.data(), data.size());
-    });
+    co_await xpp::fs::write("out.txt", data.data(), data.size());
 }
 ```
 
@@ -164,9 +164,9 @@ Single-operation I/O (read, write, open, close) goes through `xFsReqSubmit` — 
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto file = xpp::fs::File::open("data.txt").wait();
+auto file = xpp::fs::File::open("data.txt").await();
 char buf[4096];
-ssize_t n = file.read(buf, sizeof(buf), 0).wait();
+ssize_t n = file.read(buf, sizeof(buf), 0).await();
 // ~File() closes synchronously
 ```
 
@@ -174,21 +174,21 @@ ssize_t n = file.read(buf, sizeof(buf), 0).wait();
 
 ```cpp
 uint8_t data[] = {0x01, 0x02, 0x03};
-auto file = xpp::fs::File::create("out.bin").wait();
-file.write(xpp::Span<uint8_t>(data, 3), 0).wait();
+auto file = xpp::fs::File::create("out.bin").await();
+file.write(xpp::Span<uint8_t>(data, 3), 0).await();
 ```
 
 ### Read entire file
 
 ```cpp
-auto content = xpp::fs::read("config.json").wait();
+auto content = xpp::fs::read("config.json").await();
 // content is std::vector<uint8_t>
 ```
 
 ### Check existence
 
 ```cpp
-if (xpp::fs::exists("settings.json").wait()) {
+if (xpp::fs::exists("settings.json").await()) {
     // file exists
 }
 ```
@@ -196,10 +196,10 @@ if (xpp::fs::exists("settings.json").wait()) {
 ### Directory operations
 
 ```cpp
-xpp::fs::create_dir("output").wait();
-xpp::fs::write("output/data.txt", buf, len).wait();
-xpp::fs::rename("output/data.txt", "output/result.txt").wait();
-xpp::fs::remove_dir("output").wait(); // fails if not empty
+xpp::fs::create_dir("output").await();
+xpp::fs::write("output/data.txt", buf, len).await();
+xpp::fs::rename("output/data.txt", "output/result.txt").await();
+xpp::fs::remove_dir("output").await(); // fails if not empty
 ```
 
 ### Coroutine
@@ -225,7 +225,7 @@ xpp::fs::File::open("input.txt")
     .then([](std::string content) {
         return xpp::fs::write("output.txt", content.data(), content.size());
     })
-    .wait();
+    .await();
 ```
 
 ## Comparison

@@ -98,7 +98,7 @@ err.raw_xerrno();    // xErrno_Ok
 
 ```cpp
 xpp::io::Result<xpp::net::UdpSocket> r =
-    xpp::net::UdpSocket::bind("127.0.0.1:9090").wait();
+    xpp::net::UdpSocket::bind("127.0.0.1:9090").await();
 
 if (r.is_err()) {
     xpp::io::Error e = r.unwrap_err();

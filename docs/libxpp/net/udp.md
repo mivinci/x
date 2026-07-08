@@ -10,11 +10,11 @@
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto server_r = xpp::net::UdpSocket::bind("127.0.0.1:9090").wait();
+auto server_r = xpp::net::UdpSocket::bind("127.0.0.1:9090").await();
 auto server = std::move(server_r).unwrap();
 
 char buf[64];
-auto result = server.recv_from(buf, sizeof(buf)).wait();
+auto result = server.recv_from(buf, sizeof(buf)).await();
 // result.first  == bytes read
 // result.second == peer SocketAddr
 ```
@@ -61,17 +61,17 @@ auto result = server.recv_from(buf, sizeof(buf)).wait();
 ### UDP Echo
 
 ```cpp
-auto server_r = xpp::net::UdpSocket::bind("127.0.0.1:9090").wait();
+auto server_r = xpp::net::UdpSocket::bind("127.0.0.1:9090").await();
 auto server = std::move(server_r).unwrap();
 
-auto client_r = xpp::net::UdpSocket::bind("127.0.0.1:0").wait();
+auto client_r = xpp::net::UdpSocket::bind("127.0.0.1:0").await();
 auto client = std::move(client_r).unwrap();
 
 auto target = server.local_addr().unwrap();
-client.send_to("ping", 4, target).wait();
+client.send_to("ping", 4, target).await();
 
 char buf[64];
-auto result = server.recv_from(buf, sizeof(buf)).wait();
+auto result = server.recv_from(buf, sizeof(buf)).await();
 // result.first == 4, result.second is client's address
 ```
 

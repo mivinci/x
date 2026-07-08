@@ -13,6 +13,6 @@ TEST(EmptyTest, ReadReturnsZero) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
   xpp::io::Empty e;
-  ssize_t        n = e.read(nullptr, 10).wait();
+  ssize_t        n = e.read(nullptr, 10).await();
   EXPECT_EQ(n, 0);
 }

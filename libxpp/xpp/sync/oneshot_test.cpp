@@ -22,7 +22,7 @@ xpp::Promise<void> do_send_recv() {
 TEST(OneshotTest, SendRecv) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_send_recv().wait();
+  do_send_recv().await();
 }
 
 xpp::Promise<void> do_string() {
@@ -36,7 +36,7 @@ xpp::Promise<void> do_string() {
 TEST(OneshotTest, String) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
-  do_string().wait();
+  do_string().await();
 }
 
 // ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
@@ -56,7 +56,7 @@ TEST(OneshotMtTest, SendFromWorkerRecvOnLoop) {
     EXPECT_EQ(val, 42);
     co_return;
   };
-  recver().wait();
+  recver().await();
   worker.join();
 }
 
@@ -72,7 +72,7 @@ TEST(OneshotMtTest, SendOnLoopRecvInWorker) {
       EXPECT_EQ(val, 99);
       co_return;
     };
-    recver().wait();
+    recver().await();
   });
 
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -93,7 +93,7 @@ TEST(OneshotMtTest, ResolveBeforeAwait) {
       EXPECT_EQ(val, 77);
       co_return;
     };
-    recver().wait();
+    recver().await();
   });
 
   worker.join();
@@ -113,7 +113,7 @@ TEST(OneshotMtTest, MoveOnlyType) {
     EXPECT_EQ(*val, 42);
     co_return;
   };
-  recver().wait();
+  recver().await();
   worker.join();
 }
 

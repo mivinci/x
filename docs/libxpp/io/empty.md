@@ -10,7 +10,7 @@ Satisfies the `AsyncReader` concept — composable with `io::read_all`, `io::cop
 #include <xpp/io/empty.h>
 
 xpp::io::Empty e;
-ssize_t n = e.read(nullptr, 10).wait();
+ssize_t n = e.read(nullptr, 10).await();
 // n == 0
 ```
 
@@ -43,13 +43,13 @@ xpp::Promise<void> process(R &reader) {
 
 // Call with empty — nothing to read
 auto e = xpp::io::empty();
-process(e).wait();  // data is empty vector
+process(e).await();  // data is empty vector
 ```
 
 ### Combined with Take
 
 ```cpp
 xpp::io::Take<xpp::io::Empty> limit(xpp::io::empty(), 0);
-ssize_t n = limit.read(nullptr, 10).wait();
+ssize_t n = limit.read(nullptr, 10).await();
 // n == 0
 ```

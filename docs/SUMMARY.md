@@ -23,6 +23,7 @@
   - [Panic](libxpp/panic.md)
   - [EventLoop & WaitScope](libxpp/event.md)
   - [Promise](libxpp/promise/README.md)
+    - [.await() & Waiting](libxpp/promise/await.md)
     - [then()](libxpp/promise/then.md)
     - [Deferred Resolution](libxpp/promise/deferred.md)
     - [Timers & Timeouts](libxpp/promise/timers.md)

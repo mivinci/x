@@ -65,7 +65,7 @@ TEST_F(IoAsyncFdTest, ReadableImmediate) {
   write(sv[1], "hello", 5); // make sv[0] readable
 
   // Should resolve immediately — data already available
-  fd.readable().wait();
+  fd.readable().await();
   SUCCEED();
 }
 
@@ -82,7 +82,7 @@ TEST_F(IoAsyncFdTest, ReadableDeferred) {
   });
 
   // readable() should block until data arrives
-  fd.readable().wait();
+  fd.readable().await();
   t.join();
   SUCCEED();
 }
@@ -97,7 +97,7 @@ TEST_F(IoAsyncFdTest, ReadFastPath) {
   write(sv[1], "hello", 5);
 
   char    buf[64] = {};
-  ssize_t n       = xpp::io::read(fd, buf, sizeof(buf)).wait();
+  ssize_t n       = xpp::io::read(fd, buf, sizeof(buf)).await();
   EXPECT_EQ(n, 5);
   buf[n] = '\0';
   EXPECT_STREQ(buf, "hello");
@@ -115,7 +115,7 @@ TEST_F(IoAsyncFdTest, ReadSlowPath) {
   });
 
   char    buf[64] = {};
-  ssize_t n       = xpp::io::read(fd, buf, sizeof(buf)).wait();
+  ssize_t n       = xpp::io::read(fd, buf, sizeof(buf)).await();
   EXPECT_EQ(n, 8);
   buf[n] = '\0';
   EXPECT_STREQ(buf, "deferred");
@@ -130,7 +130,7 @@ TEST_F(IoAsyncFdTest, WriteFastPath) {
 
   xpp::io::AsyncFd fd(sv[0]);
 
-  ssize_t n = xpp::io::write(fd, "write test", 10).wait();
+  ssize_t n = xpp::io::write(fd, "write test", 10).await();
   EXPECT_EQ(n, 10);
 
   // Verify on other end
@@ -165,7 +165,7 @@ TEST_F(IoAsyncFdTest, WriteSlowPath) {
     while (::recv(sv[1], buf, sizeof(buf), MSG_DONTWAIT) > 0) {}
   });
 
-  ssize_t n = xpp::io::write(fd, "ok", 2).wait();
+  ssize_t n = xpp::io::write(fd, "ok", 2).await();
   EXPECT_EQ(n, 2);
   t.join();
 }
@@ -179,7 +179,7 @@ TEST_F(IoAsyncFdTest, CloseWakesReadable) {
   xpp::io::AsyncFd fd(sv[0]);
 
   // Schedule close after 50ms via timer — wait() drives the event loop
-  xpp::after(50).then([&fd]() { fd.close(); }).wait();
+  xpp::after(50).then([&fd]() { fd.close(); }).await();
 
   SUCCEED();
 }
@@ -198,7 +198,7 @@ TEST_F(IoAsyncFdTest, MoveConstruct) {
   // b should still work
   write(sv[1], "moved", 5);
   char    buf[64] = {};
-  ssize_t n       = xpp::io::read(b, buf, sizeof(buf)).wait();
+  ssize_t n       = xpp::io::read(b, buf, sizeof(buf)).await();
   EXPECT_EQ(n, 5);
 }
 
@@ -220,6 +220,6 @@ TEST_F(IoAsyncFdTest, PromiseDestroyedBeforeEvent) {
   write(sv[1], "safe", 4);
 
   // Should not crash, readiness is tracked
-  fd.readable().wait();
+  fd.readable().await();
   SUCCEED();
 }

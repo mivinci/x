@@ -129,19 +129,19 @@ static Promise<std::string> void_coro_then_chain() {
 TEST(PromiseCoroutineTest, SimpleReturn) {
   EventLoop loop;
   WaitScope scope(loop);
-  EXPECT_EQ(simple_int().wait(), 42);
+  EXPECT_EQ(simple_int().await(), 42);
 }
 
 TEST(PromiseCoroutineTest, SimpleReturnString) {
   EventLoop loop;
   WaitScope scope(loop);
-  EXPECT_EQ(simple_string().wait(), "hello");
+  EXPECT_EQ(simple_string().await(), "hello");
 }
 
 TEST(PromiseCoroutineTest, ReturnVoid) {
   EventLoop loop;
   WaitScope scope(loop);
-  simple_void().wait();
+  simple_void().await();
   SUCCEED();
 }
 
@@ -153,7 +153,7 @@ TEST(PromiseCoroutineTest, DISABLED_ImplicitReturnVoid) {
   // Coroutine with no co_return — falls off the end, compiler emits return_void().
   EventLoop loop;
   WaitScope scope(loop);
-  implicit_return_void().wait();
+  implicit_return_void().await();
   SUCCEED();
 }
 
@@ -162,7 +162,7 @@ TEST(PromiseCoroutineTest, ReturnVoidAfterYield) {
   // are set correctly even when the coroutine has prior await state.
   EventLoop loop;
   WaitScope scope(loop);
-  return_void_after_yield().wait();
+  return_void_after_yield().await();
   SUCCEED();
 }
 
@@ -172,7 +172,7 @@ TEST(PromiseCoroutineTest, VoidCoroutineThenChain) {
   EventLoop loop;
   WaitScope scope(loop);
   bool      flag = false;
-  simple_void().then([&flag] { flag = true; }).wait();
+  simple_void().then([&flag] { flag = true; }).await();
   EXPECT_TRUE(flag);
 }
 
@@ -180,67 +180,67 @@ TEST(PromiseCoroutineTest, VoidCoroutineCoAwaitInChain) {
   // Co_await a void coroutine from within another coroutine, then chain further.
   EventLoop loop;
   WaitScope scope(loop);
-  EXPECT_EQ(void_coro_then_chain().wait(), "after_void");
+  EXPECT_EQ(void_coro_then_chain().await(), "after_void");
 }
 
 TEST(PromiseCoroutineTest, AwaitResolve) {
   EventLoop loop;
   WaitScope scope(loop);
-  EXPECT_EQ(await_resolve().wait(), 20);
+  EXPECT_EQ(await_resolve().await(), 20);
 }
 
 TEST(PromiseCoroutineTest, MultipleAwaits) {
   EventLoop loop;
   WaitScope scope(loop);
-  EXPECT_EQ(multiple_awaits().wait(), 6);
+  EXPECT_EQ(multiple_awaits().await(), 6);
 }
 
 TEST(PromiseCoroutineTest, AwaitVoid) {
   EventLoop loop;
   WaitScope scope(loop);
-  EXPECT_EQ(await_void().wait(), 42);
+  EXPECT_EQ(await_void().await(), 42);
 }
 
 TEST(PromiseCoroutineTest, AwaitAfter) {
   EventLoop loop;
   WaitScope scope(loop);
-  EXPECT_EQ(await_after().wait(), 99);
+  EXPECT_EQ(await_after().await(), 99);
 }
 
 TEST(PromiseCoroutineTest, AwaitWork) {
   EventLoop loop;
   WaitScope scope(loop);
-  EXPECT_EQ(await_work().wait(), 43);
+  EXPECT_EQ(await_work().await(), 43);
 }
 
 TEST(PromiseCoroutineTest, AwaitAsync) {
   EventLoop loop;
   WaitScope scope(loop);
-  EXPECT_EQ(await_async().wait(), 77);
+  EXPECT_EQ(await_async().await(), 77);
 }
 
 TEST(PromiseCoroutineTest, NestedCoroutines) {
   EventLoop loop;
   WaitScope scope(loop);
-  EXPECT_EQ(outer_coro().wait(), 101);
+  EXPECT_EQ(outer_coro().await(), 101);
 }
 
 TEST(PromiseCoroutineTest, AwaitAll) {
   EventLoop loop;
   WaitScope scope(loop);
-  EXPECT_EQ(await_all().wait(), 12);
+  EXPECT_EQ(await_all().await(), 12);
 }
 
 TEST(PromiseCoroutineTest, AwaitRace) {
   EventLoop loop;
   WaitScope scope(loop);
-  EXPECT_EQ(await_race().wait(), 42);
+  EXPECT_EQ(await_race().await(), 42);
 }
 
 TEST(PromiseCoroutineTest, CoroutineThenChain) {
   EventLoop loop;
   WaitScope scope(loop);
-  int       result = coro_for_then().then([](int x) { return x * 3; }).wait();
+  int       result = coro_for_then().then([](int x) { return x * 3; }).await();
   EXPECT_EQ(result, 30);
 }
 

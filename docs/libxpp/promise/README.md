@@ -4,47 +4,55 @@
 
 ## Introduction
 
-`Promise<T>` provides a type-safe async programming system within the libx event loop. It combines the poll-based model from Rust's `Future` trait with the node-hierarchy and per-chain arena allocation from KJ (Cap'n Proto), plus native C++20 coroutine support — `Promise<T>` itself is the coroutine return type, with no separate `Task<T>`.
+`Promise<T>` provides a type-safe async programming system within the libx event loop. It combines the poll-based model from Rust's `Future` trait with the node-hierarchy and per-chain arena allocation from KJ (Cap'n Proto), plus stackful fiber support via `xpp::fiber()`.
 
-The core API (`.then()`, `.wait()`, `resolve()`, `all()`, `race()`) is C++11. C++20 is required only for `co_await` / `co_return`.
+The core API (`.then()`, `.await()`, `resolve()`, `all()`, `race()`) is C++11. C++20 is required only for `co_await` / `co_return`.
 
-`wait()` drives the event loop on the calling thread, like Tokio's single-threaded `current_thread` runtime — no background thread pool is needed.
+`Promise<T>` supports three equivalent coding styles — pick whichever fits your compiler and preference:
 
-`Promise<T>` supports two equivalent coding styles — pick whichever fits your compiler and preference:
-
-With C++11 `then()` callbacks:
+**C++11 + `.await()`** (works everywhere):
 
 ```cpp
 xpp::Promise<int> compute() {
     return fetch_value()
         .then([](int x) { return x * 2; });
 }
-int result = compute().wait();  // drives event loop, returns 2x  // drives event loop, returns 2x
+int result = compute().await();  // drives event loop if not in fiber
 ```
 
-With C++20 `co_await` / `co_return`:
+**C++11 + fiber** (non-blocking inside `xpp::fiber()`):
+
+```cpp
+int result = xpp::fiber([]() {
+    int x = fetch_value().await();     // fiber suspends, event loop continues
+    return x * 2;
+}).await();
+```
+
+**C++20 `co_await` / `co_return`**:
 
 ```cpp
 xpp::Promise<int> compute() {
     int x = co_await fetch_value();
     co_return x * 2;
 }
-int result = compute().wait();  // drives event loop, returns 2x
+int result = compute().await();
 ```
 
-Both are backed by the same `poll()`-based state machine. `wait()` drives the event loop on the calling thread, like Tokio's single-threaded `current_thread` runtime — no background thread pool is needed.
+All three are backed by the same `poll()`-based state machine.
 
 ## Design Philosophy
 
-1. **One-Shot Polling** — `poll()` returns `Option<T>`: `Some(value)` = ready, `None` = pending. No separate `take()`.
-2. **Single-Threaded Executor** — Like Tokio's `current_thread` runtime. The event loop is both reactor (I/O) and scheduler (timers/callbacks). `wait()` polls futures on the calling thread; no background thread pool needed. `co_await` is optional (C++20).
-3. **Auto-Flatten** — `.then(fn)` returning `Promise<U>` becomes `Promise<U>`, not `Promise<Promise<U>>`.
-4. **Lock-Free Cross-Thread Resolve** — `PromiseResolver` holds `ArcWeak`; `resolve()` silently drops if Promise is destroyed.
-5. **Void-Aware Templates** — `Void` + `FixVoid<T>` maps `void → Void` for uniform generic code.
-6. **Nested `wait()` Is Safe** — `WaitScope` owns the loop binding; nested `Run` calls don't unbind it.
-7. **Per-Chain Arena** — `.then()` chains bump-allocate nodes in a shared 256-byte arena, reducing malloc calls from O(N) to O(1) per chain. Overflow nodes fall back to heap transparently.
-8. **Coroutine-Native** — `Promise<T>` is both a poll-based node container and a C++20 coroutine return type. `co_await` drives the same `poll()` mechanism as `.then()`.
-9. **Adapter Pattern** — External async operations (timers, thread pool, custom I/O) bridge into the poll world via `AdapterPromiseNode` + `PromiseResolver`.
+1. **`.await()` First** — `.await()` is the universal entry point. Outside a fiber it drives `xEventLoopRun()` directly. Inside a fiber (via `xpp::fiber()`) it suspends the fiber via `xFiberYield()` — non-blocking, stackful concurrency without `co_await` syntax.
+2. **One-Shot Polling** — `poll()` returns `Option<T>`: `Some(value)` = ready, `None` = pending. No separate `take()`.
+3. **Single-Threaded Executor** — Like Tokio's `current_thread` runtime. The event loop is both reactor (I/O) and scheduler (timers/callbacks). No background thread pool needed.
+4. **Auto-Flatten** — `.then(fn)` returning `Promise<U>` becomes `Promise<U>`, not `Promise<Promise<U>>`.
+5. **Lock-Free Cross-Thread Resolve** — `PromiseResolver` holds `ArcWeak`; `resolve()` silently drops if Promise is destroyed.
+6. **Void-Aware Templates** — `Void` + `FixVoid<T>` maps `void → Void` for uniform generic code.
+7. **Nested `.await()` Is Safe** — `WaitScope` owns the loop binding; nested `Run` calls don't unbind it.
+8. **Per-Chain Arena** — `.then()` chains bump-allocate nodes in a shared 256-byte arena, reducing malloc calls from O(N) to O(1) per chain. Overflow nodes fall back to heap transparently.
+9. **Coroutine-Native** — `Promise<T>` is both a poll-based node container and a C++20 coroutine return type. `co_await` drives the same `poll()` mechanism as `.then()`.
+10. **Adapter Pattern** — External async operations (timers, thread pool, custom I/O) bridge into the poll world via `AdapterPromiseNode` + `PromiseResolver`.
 
 ## Architecture
 
@@ -53,7 +61,8 @@ graph TD
     subgraph "User API"
         PR["resolve(v)"]
         CHAIN[".then(fn)"]
-        WAIT[".wait()"]
+        AWAIT[".await()"]
+        FIBER["xpp::fiber()"]
         ASYNC["async&lt;T&gt;()"]
         PRR["PromiseResolver&lt;T&gt;"]
         CORO["co_await / co_return"]
@@ -73,6 +82,7 @@ graph TD
         RS["ResolveState&lt;T&gt;<br/>Arc / ArcWeak"]
         AW["AtomicPromiseWaker"]
         ARENA["PromiseArena (256B)<br/>per-chain bump allocator"]
+        FIB["xFiber / xFiberYield<br/>stackful suspend"]
     end
 
     PR --> IMM
@@ -83,21 +93,26 @@ graph TD
     PRR --> RS
     ADAPT --> RS
     CORO --> COROP
-    WAIT --> BASE
+    AWAIT --> BASE
+    FIBER --> FIB
+    FIB --> AWAIT
     BASE --> AW
     RS --> AW
     TRANS -.->|arena-allocated| ARENA
     CHAINP -.->|arena-allocated| ARENA
 
-    style WAIT fill:#4a90d9,color:#fff
+    style AWAIT fill:#4a90d9,color:#fff
+    style FIBER fill:#50b86c,color:#fff
     style RS fill:#e91e63,color:#fff
     style ADAPT fill:#50b86c,color:#fff
     style ARENA fill:#f5a623,color:#fff
     style CORO fill:#9b59b6,color:#fff
+    style FIB fill:#4a90d9,color:#fff
 ```
 
 ## Topics
 
+- [`.await()` & Fiber](await.md) — `.await()` semantics, fiber suspend, event loop integration
 - [then()](then.md) — chaining, auto-flatten, type transformations
 - [Deferred Resolution](deferred.md) — `async()`, `PromiseResolver`, cross-thread resolve
 - [Timers & Timeouts](timers.md) — `after(ms)`, timeout pattern with `race`
@@ -115,7 +130,7 @@ graph TD
 | -------- | ------------- |
 | `auto then(Func fn)` | Chain transform. If `fn` returns `Promise<U>`, auto-flattens to `Promise<U>` |
 | `Promise<void> discard()` | Drop value, return `Promise<void>` |
-| `T wait()` | Block + drive event loop. Moves node out of promise (promise left empty) |
+| `T await()` | Wait for resolve. Fiber-aware: suspends inside `xpp::fiber()`, blocks otherwise |
 | `operator co_await()` | (C++20 only) Await in coroutine. Rvalue-qualified |
 | `operator bool()` | True if non-empty (holds a node) |
 
@@ -133,6 +148,7 @@ graph TD
 | ---------- | ------------- |
 | `resolve(v)` | Immediately-resolved promise. T deduced from argument |
 | `yield()` | Immediately-resolved `Promise<void>` |
+| `fiber(fn)` | Run `fn` in a stackful fiber (64KB stack). Returns `Promise<decltype(fn())>` |
 | `after(ms)` | Resolve after `ms` milliseconds. Returns `Promise<void>` |
 | `defer(fn)` | Defer sync function as promise. T deduced from return type |
 | `work(fn)` | Run func on thread pool. T deduced from return type |

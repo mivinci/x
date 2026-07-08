@@ -17,7 +17,7 @@ xpp::io::AsyncFd io(sv[0]);
 
 write(sv[1], "hello", 5);
 char buf[64] = {};
-ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
+ssize_t n = xpp::io::read(io, buf, sizeof(buf)).await();
 ```
 
 ## Modules

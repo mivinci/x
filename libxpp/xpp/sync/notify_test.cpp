@@ -20,7 +20,7 @@ TEST(NotifyTest, NotifyOneBasic) {
 
   auto p = n.notified();
   n.notify_one();
-  p.wait(); // should complete
+  p.await(); // should complete
 }
 
 // ── N-2: notify_waiters wakes all ───────────────────────────────────
@@ -33,8 +33,8 @@ TEST(NotifyTest, NotifyWaiters) {
   auto p1 = n.notified();
   auto p2 = n.notified();
   n.notify_waiters();
-  p1.wait();
-  p2.wait();
+  p1.await();
+  p2.await();
 }
 
 // ── N-3: reusable ───────────────────────────────────────────────────
@@ -46,11 +46,11 @@ TEST(NotifyTest, Reusable) {
 
   auto p1 = n.notified();
   n.notify_one();
-  p1.wait();
+  p1.await();
 
   auto p2 = n.notified();
   n.notify_one();
-  p2.wait();
+  p2.await();
 }
 
 // ── N-4: notify before notified is no-op ────────────────────────────
@@ -64,7 +64,7 @@ TEST(NotifyTest, NotifyBeforeNotified) {
 
   auto p = n.notified();
   n.notify_one();
-  p.wait();
+  p.await();
 }
 
 // ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
@@ -88,7 +88,7 @@ TEST(NotifyMtTest, WorkerNotifiesLoop) {
     counter = 1;
     co_return;
   };
-  waiter().wait();
+  waiter().await();
   EXPECT_EQ(counter, 1);
   worker.join();
 }
@@ -120,8 +120,8 @@ TEST(NotifyMtTest, MultipleWorkersNotifyWaiters) {
     co_return;
   };
 
-  w1().wait();
-  w2().wait();
+  w1().await();
+  w2().await();
   EXPECT_EQ(c1, 1);
   EXPECT_EQ(c2, 1);
   t1.join();

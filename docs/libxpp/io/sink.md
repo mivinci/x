@@ -10,7 +10,7 @@ Satisfies the `AsyncWriter` concept — composable with `io::copy` and `BufWrite
 #include <xpp/io/sink.h>
 
 xpp::io::Sink s;
-ssize_t n = s.write("hello", 5).wait();
+ssize_t n = s.write("hello", 5).await();
 // n == 5 (data discarded)
 ```
 
@@ -67,5 +67,5 @@ xpp::Promise<void> log_or_discard(xpp::io::AsyncReader auto &reader, W &writer) 
 
 // Call with sink — output is discarded
 auto s = xpp::io::sink();
-log_or_discard(reader, s).wait();
+log_or_discard(reader, s).await();
 ```

@@ -18,7 +18,7 @@ TEST(TimerAdapterTest, AfterBasic) {
   EventLoop loop;
   WaitScope scope(loop);
   auto      start = std::chrono::steady_clock::now();
-  after(50).wait();
+  after(50).await();
   auto ms =
     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start)
       .count();
@@ -28,7 +28,7 @@ TEST(TimerAdapterTest, AfterBasic) {
 TEST(TimerAdapterTest, AfterZeroDelay) {
   EventLoop loop;
   WaitScope scope(loop);
-  after(0).wait();
+  after(0).await();
   SUCCEED();
 }
 
@@ -36,7 +36,7 @@ TEST(TimerAdapterTest, AfterThenChain) {
   EventLoop loop;
   WaitScope scope(loop);
   int       val = 0;
-  after(10).then([&val]() { val = 42; }).wait();
+  after(10).then([&val]() { val = 42; }).await();
   EXPECT_EQ(val, 42);
 }
 
@@ -47,7 +47,7 @@ TEST(TimerAdapterTest, AfterCancelOnEarlyDestruction) {
     auto p = after(10000);
     (void)p;
   }
-  after(10).wait();
+  after(10).await();
   SUCCEED();
 }
 
@@ -55,7 +55,7 @@ TEST(TimerAdapterTest, AfterNestedAfter) {
   EventLoop loop;
   WaitScope scope(loop);
   auto      t0 = std::chrono::steady_clock::now();
-  after(10).then([]() { return after(20); }).wait();
+  after(10).then([]() { return after(20); }).await();
   auto ms =
     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
       .count();
@@ -65,8 +65,8 @@ TEST(TimerAdapterTest, AfterNestedAfter) {
 TEST(TimerAdapterTest, AfterSequentialWaits) {
   EventLoop loop;
   WaitScope scope(loop);
-  after(10).wait();
-  after(10).wait();
+  after(10).await();
+  after(10).await();
   SUCCEED();
 }
 
@@ -76,8 +76,8 @@ TEST(TimerAdapterTest, AfterIndependentTimers) {
   int       a = 0, b = 0;
   auto      pa = after(10).then([&]() { a = 42; });
   auto      pb = after(20).then([&]() { b = 99; });
-  pa.wait();
-  pb.wait();
+  pa.await();
+  pb.await();
   EXPECT_EQ(a, 42);
   EXPECT_EQ(b, 99);
 }

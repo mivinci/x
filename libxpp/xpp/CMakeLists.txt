@@ -28,8 +28,8 @@ if(XPP_BUILD_TESTS)
   foreach(test_src ${XPP_TEST_SOURCES})
     get_filename_component(test_name ${test_src} NAME_WE)
 
-    # When C++ standard < 20 or coroutines are forced off, skip tests that use co_await
-    if(CMAKE_CXX_STANDARD VERSION_LESS 20 OR XPP_HAS_COROUTINES EQUAL 0)
+    # When C++ standard < 20, skip tests that use co_await
+    if(DEFINED CMAKE_CXX_STANDARD AND CMAKE_CXX_STANDARD VERSION_LESS 20)
       if(test_name MATCHES "coroutine" OR
          test_name STREQUAL "list_test" OR
          test_name STREQUAL "utils_test" OR

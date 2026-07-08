@@ -11,12 +11,12 @@ xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
 // Client
-auto conn_r = xpp::net::TcpStream::connect("127.0.0.1:8080").wait();
+auto conn_r = xpp::net::TcpStream::connect("127.0.0.1:8080").await();
 auto conn = std::move(conn_r).unwrap();
-conn.write("hello", 5).wait();
+conn.write("hello", 5).await();
 
 char buf[64];
-ssize_t n = conn.read(buf, sizeof(buf)).wait();
+ssize_t n = conn.read(buf, sizeof(buf)).await();
 ```
 
 ## TcpStream
@@ -55,7 +55,7 @@ Pass `Option<const TlsContext&>` to enable TLS. The handshake is transparent:
 
 ```cpp
 xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpStream::connect("example.com:443", tls).wait();
+auto conn = xpp::net::TcpStream::connect("example.com:443", tls).await();
 // conn.read() / conn.write() transparently encrypt/decrypt
 ```
 
@@ -88,7 +88,7 @@ auto conn = xpp::net::TcpStream::connect("example.com:443", tls).wait();
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto listener_r = xpp::net::TcpListener::bind("0.0.0.0:8080").wait();
+auto listener_r = xpp::net::TcpListener::bind("0.0.0.0:8080").await();
 ASSERT_TRUE(listener_r.is_ok());
 auto listener = std::move(listener_r).unwrap();
 
@@ -102,18 +102,18 @@ auto session = [](xpp::net::TcpStream conn) {
         .then([conn_ptr](ssize_t) mutable {});
 };
 
-session(listener.accept().wait()).wait();
+session(listener.accept().await()).await();
 ```
 
 ### TCP Client with TLS
 
 ```cpp
 xpp::net::TlsContext tls(xpp::net::TlsConfig::client());
-auto conn = xpp::net::TcpStream::connect("example.com:443", tls).wait();
-conn.write("GET / HTTP/1.0\r\n\r\n", 18).wait();
+auto conn = xpp::net::TcpStream::connect("example.com:443", tls).await();
+conn.write("GET / HTTP/1.0\r\n\r\n", 18).await();
 
 char buf[4096];
-ssize_t n = conn.read(buf, sizeof(buf)).wait();
+ssize_t n = conn.read(buf, sizeof(buf)).await();
 ```
 
 ## Coroutine Examples
@@ -171,7 +171,7 @@ xpp::Promise<void> echo_client(uint16_t port) {
 }
 
 // Drive both concurrently:
-xpp::all(echo_server(std::move(listener)), echo_client(port)).wait();
+xpp::all(echo_server(std::move(listener)), echo_client(port)).await();
 ```
 
 ## Implementation Notes

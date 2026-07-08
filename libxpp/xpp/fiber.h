@@ -16,11 +16,11 @@
  * Usage:
  *
  *   auto p = xpp::fiber(65536, []() {
- *     auto a = http_get("/a").wait();  // suspends fiber, not the event loop
- *     auto b = http_get("/b").wait();
+ *     auto a = http_get("/a").await();  // suspends fiber, not the event loop
+ *     auto b = http_get("/b").await();
  *     return a + b;
  *   });
- *   // p is a Promise<int> — .then() / .wait() as usual
+ *   // p is a Promise<int> — .then() / .await() as usual
  *
  *   loop.run();  // drives all I/O and fiber resumes
  *
@@ -148,10 +148,10 @@ template <> struct Runner<void> {
  * If func() calls Promise::wait() on a pending promise, the fiber
  * suspends via xFiberSwitch and the event loop keeps running.  When
  * the promise resolves, the waker switches the fiber back in and
- * execution resumes after .wait().
+ * execution resumes after .await().
  *
  * The returned Promise is safe to use like any other Promise:
- * chain with .then(), race(), or .wait().
+ * chain with .then(), race(), or .await().
  */
 template <typename Func>
 auto fiber(size_t stack_size, Func &&func) -> Promise<decltype(std::declval<Func>()())> {
@@ -193,7 +193,7 @@ auto fiber(size_t stack_size, Func &&func) -> Promise<decltype(std::declval<Func
   xFiberMain();
   xFiberSwitch(ctx->handle);
   // Back here: fiber either finished (func() returned) or suspended
-  // on its first .wait() call.  In both cases the Promise is live —
+  // on its first .await() call.  In both cases the Promise is live —
   // resolved or pending.
 
   return std::move(promise);

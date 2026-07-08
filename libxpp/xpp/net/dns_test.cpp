@@ -18,7 +18,7 @@ TEST(DnsResolveTest, ResolveLocalhost) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto addrs = lookup_host("localhost").wait();
+  auto addrs = lookup_host("localhost").await();
   EXPECT_FALSE(addrs.empty());
 }
 
@@ -26,6 +26,6 @@ TEST(DnsResolveTest, ResolveInvalidReturnsEmpty) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto addrs = lookup_host("nonexistent-host-xyz123.invalid").wait();
+  auto addrs = lookup_host("nonexistent-host-xyz123.invalid").await();
   EXPECT_TRUE(addrs.empty());
 }

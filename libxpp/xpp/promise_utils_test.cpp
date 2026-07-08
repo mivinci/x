@@ -29,7 +29,7 @@ TEST(TryNextTest, FirstSucceedsImmediate) {
     count++;
     return xpp::resolve(Result<int, int>(ok, x * 2));
   })();
-  int  result = r.wait().unwrap();
+  int  result = r.await().unwrap();
   EXPECT_EQ(result, 20);
   EXPECT_EQ(count, 1);
 }
@@ -48,7 +48,7 @@ TEST(TryNextTest, SecondSucceeds) {
     }
     return xpp::resolve(Result<int, int>(ok, x));
   })();
-  int  result = r.wait().unwrap();
+  int  result = r.await().unwrap();
   EXPECT_EQ(result, 20);
   EXPECT_EQ(count, 2);
 }
@@ -64,7 +64,7 @@ TEST(TryNextTest, AllFailReturnsLastError) {
     count++;
     return xpp::resolve(Result<int, int>(err, -x));
   })();
-  int  errval = r.wait().unwrap_err();
+  int  errval = r.await().unwrap_err();
   EXPECT_EQ(errval, -30); // last error
   EXPECT_EQ(count, 3);
 }
@@ -78,7 +78,7 @@ TEST(TryNextTest, SingleItemSucceeds) {
   auto r = xpp::try_next(std::move(items), [&](int x) -> Promise<Result<int, int>> {
     return xpp::resolve(Result<int, int>(ok, x));
   })();
-  EXPECT_EQ(r.wait().unwrap(), 99);
+  EXPECT_EQ(r.await().unwrap(), 99);
 }
 
 TEST(TryNextTest, SingleItemFails) {
@@ -90,7 +90,7 @@ TEST(TryNextTest, SingleItemFails) {
   auto r = xpp::try_next(std::move(items), [&](int x) -> Promise<Result<int, int>> {
     return xpp::resolve(Result<int, int>(err, x));
   })();
-  EXPECT_EQ(r.wait().unwrap_err(), 7);
+  EXPECT_EQ(r.await().unwrap_err(), 7);
 }
 
 /* ───────────────────── try_next: deferred ───────────────────── */
@@ -109,7 +109,7 @@ TEST(TryNextTest, DeferredFirstSucceeds) {
                   [p = std::move(async_result.first)](int) mutable -> Promise<Result<int, int>> {
                     return std::move(p);
                   })();
-  EXPECT_EQ(result.wait().unwrap(), 42);
+  EXPECT_EQ(result.await().unwrap(), 42);
 }
 
 TEST(TryNextTest, DeferredSecondSucceeds) {
@@ -133,7 +133,7 @@ TEST(TryNextTest, DeferredSecondSucceeds) {
                                 if (count == 1) return std::move(p1);
                                 return std::move(p2);
                               })();
-  EXPECT_EQ(result.wait().unwrap(), 99);
+  EXPECT_EQ(result.await().unwrap(), 99);
   EXPECT_EQ(count, 2);
 }
 
@@ -152,7 +152,7 @@ TEST(TryNextTest, StringItems) {
       }
       return xpp::resolve(Result<std::string, int>(err, 0));
     })();
-  EXPECT_EQ(r.wait().unwrap(), "b");
+  EXPECT_EQ(r.await().unwrap(), "b");
 }
 
 /* ───────────────────── try_next: multi-type Result ───────────────── */
@@ -170,5 +170,5 @@ TEST(TryNextTest, OkAndErrDifferentTypes) {
     }
     return xpp::resolve(Result<std::string, int>(err, x));
   })();
-  EXPECT_EQ(r.wait().unwrap(), "success");
+  EXPECT_EQ(r.await().unwrap(), "success");
 }

@@ -22,7 +22,7 @@ Calls `fn(item)` on each item in `items` sequentially. Returns the first `ok` re
 std::vector<SocketAddr> addrs = co_await resolve_host("example.com");
 auto stream = xpp::try_next(std::move(addrs), [&](const SocketAddr &a) {
     return TcpStream::connect_with_conf(a.ip().c_str(), a.port(), conf.get());
-})().wait();
+})().await();
 
 // Returns first ok, or last error (ConnectionRefused from final address)
 ```
@@ -37,7 +37,7 @@ std::vector<int> items = {10, 20, 30};
 auto result = xpp::try_next(std::move(items), [](int x) -> Promise<Result<int, int>> {
     if (x == 20) return xpp::resolve(Result<int, int>(ok, x * 10));
     return xpp::resolve(Result<int, int>(err, -x));
-})().wait();
+})().await();
 // result == 200 (20 × 10), only tried 10 (failed) and 20 (ok)
 ```
 
@@ -50,7 +50,7 @@ std::vector<int> items = {1, 2, 3};
 
 auto err = xpp::try_next(std::move(items), [](int x) -> Promise<Result<int, int>> {
     return xpp::resolve(Result<int, int>(err, x));
-})().wait();
+})().await();
 // err == 3, all three were tried
 ```
 
@@ -75,7 +75,7 @@ auto result = xpp::try_next(std::move(items), [&, p1 = std::move(ar1.first),
     call_count++;
     if (call_count == 1) return std::move(p1);
     return std::move(p2);
-})().wait();
+})().await();
 // result == 99 (second item succeeded after the first failed)
 ```
 

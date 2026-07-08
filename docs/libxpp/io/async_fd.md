@@ -17,7 +17,7 @@ xpp::io::AsyncFd io(sv[0]);
 // Fast path: data already available
 write(sv[1], "hello", 5);
 char buf[64] = {};
-ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
+ssize_t n = xpp::io::read(io, buf, sizeof(buf)).await();
 // n == 5
 ```
 
@@ -88,7 +88,7 @@ AsyncFd (per-fd, registered once)
 ```cpp
 xpp::io::AsyncFd io(fd);
 char buf[1024];
-ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
+ssize_t n = xpp::io::read(io, buf, sizeof(buf)).await();
 ```
 
 ### Read with then() chain
@@ -97,7 +97,7 @@ ssize_t n = xpp::io::read(io, buf, sizeof(buf)).wait();
 xpp::io::read(io, buf, 1024).then([](ssize_t n) {
     // process n bytes
     return n;
-}).wait();
+}).await();
 ```
 
 ### Wait for readability without reading
@@ -105,7 +105,7 @@ xpp::io::read(io, buf, 1024).then([](ssize_t n) {
 ```cpp
 io.readable().then([&]() {
     // fd is readable, do something custom
-}).wait();
+}).await();
 ```
 
 ### Close wakes pending waiters

@@ -19,7 +19,7 @@
  *      — no timer, no active source registered.
  *   2. Start a 30ms timer that resolves the inner promise.
  *   3. Start a 60ms timer that resolves the outer promise.
- *   4. outer.then() calls inner.wait() — nests xEventLoopRun.
+ *   4. outer.then() calls inner.await() — nests xEventLoopRun.
  *   5. Inner wait's Run consumes the 30ms timer → inner resolves.
  *   6. Inner wait returns.
  *   7. Outer Run continues → 60ms timer should fire → outer resolves.
@@ -77,10 +77,10 @@ TEST(PromiseDeadlockTest, NestedWaitDeferredOuter) {
                  .then([&inner_p](int outer_val) {
                    /* Outer has resolved (60ms timer fired). Now wait for inner.
                     * But inner already resolved at 30ms — this should be immediate. */
-                   int inner_val = inner_p.wait();
+                   int inner_val = inner_p.await();
                    return outer_val + inner_val;
                  })
-                 .wait();
+                 .await();
 
   EXPECT_EQ(result, 107); /* 7 + 100 */
 
@@ -157,10 +157,10 @@ TEST(PromiseDeadlockTest, OuterResolvedInsideNestedWait) {
    */
   int result = outer_p
                  .then([&inner_p](int outer_val) {
-                   int inner_val = inner_p.wait();
+                   int inner_val = inner_p.await();
                    return outer_val + inner_val;
                  })
-                 .wait();
+                 .await();
 
   EXPECT_EQ(result, 49); /* 7 + 42 */
 
@@ -179,7 +179,7 @@ TEST(PromiseDeadlockTest, OuterResolvedInsideNestedWait) {
  *     checking alive?
  *
  * Flow:
- *   outer.wait() → poll → None → xEventLoopRun
+ *   outer.await() → poll → None → xEventLoopRun
  *     drain_done: empty (nothing posted yet)
  *     poll_io: waits for timer (30ms)
  *     drain_done: empty
@@ -239,10 +239,10 @@ TEST(PromiseDeadlockTest, PureAdapterNoTimerNestedWait) {
                     * Inner wait's Run will drain the timer, resolve both,
                     * post both done flags. Inner wait picks up its flag.
                     * Then outer wait needs to pick up its flag. */
-                   int inner_val = inner_p.wait();
+                   int inner_val = inner_p.await();
                    return outer_val + inner_val;
                  })
-                 .wait();
+                 .await();
 
   EXPECT_EQ(result, 49);
 
@@ -255,7 +255,7 @@ TEST(PromiseDeadlockTest, PureAdapterNoTimerNestedWait) {
  *
  * Flow:
  *   1. Start timer (30ms) → resolves inner
- *   2. outer.wait() → poll → None → Run
+ *   2. outer.await() → poll → None → Run
  *      Run polls, waits for timer
  *      Timer fires → resolves inner → posts done_inner
  *      But nobody resolves outer!
@@ -307,10 +307,10 @@ TEST(PromiseDeadlockTest, OuterResolvedByInnerThenCallback) {
     outer_r.resolve(42);
     return 0;
   });
-  chain.wait();
+  chain.await();
 
   /* Now outer should be resolved. wait() should return immediately. */
-  EXPECT_EQ(outer_p.wait(), 42);
+  EXPECT_EQ(outer_p.await(), 42);
 
   if (timer) xTimerStop(timer);
 }

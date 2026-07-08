@@ -21,20 +21,20 @@ Waits for all input promises, collecting results into a `std::tuple`.
 auto [status, body] = xpp::all(
     fetch_status(url),   // Promise<int>
     fetch_body(url)      // Promise<std::string>
-).wait();
+).await();
 
 // All-void — returns void
 xpp::all(
     prefetch(0),
     prefetch(1),
     prefetch(2)
-).then([] { start_playback(); }).wait();
+).then([] { start_playback(); }).await();
 
 // With void + value — Void in tuple, ignored
 auto [_, val] = xpp::all(
     yield(),
     resolve(42)
-).wait();
+).await();
 // val == 42
 ```
 
@@ -50,13 +50,13 @@ Resolves with the first ready promise. All losing branches are destroyed.
 auto result = xpp::race(
     fetch_async(url),                                        // Promise<int>
     xpp::after(5000).then([] { return -1; })  // timeout
-).wait();
+).await();
 
 // N CDNs, take fastest
-auto fastest = xpp::race(fetch(cdn1), fetch(cdn2), fetch(cdn3)).wait();
+auto fastest = xpp::race(fetch(cdn1), fetch(cdn2), fetch(cdn3)).await();
 
 // Void race
-xpp::race(after(10), after(50)).wait();
+xpp::race(after(10), after(50)).await();
 // resolves at ~10ms
 ```
 

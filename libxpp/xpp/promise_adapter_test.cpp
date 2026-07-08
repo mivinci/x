@@ -28,7 +28,7 @@ TEST(PromiseResolverTest, ResolveBeforeWait) {
   auto p  = std::move(pr.first);
   auto r  = std::move(pr.second);
   r.resolve(42);
-  EXPECT_EQ(p.wait(), 42);
+  EXPECT_EQ(p.await(), 42);
 }
 
 TEST(PromiseResolverTest, ResolveDeferred) {
@@ -37,7 +37,7 @@ TEST(PromiseResolverTest, ResolveDeferred) {
   auto      pr = async<int>();
   auto      r  = std::move(pr.second);
   auto      t  = schedule_resolve(r, 99, 10);
-  EXPECT_EQ(pr.first.wait(), 99);
+  EXPECT_EQ(pr.first.await(), 99);
 }
 
 TEST(PromiseResolverTest, ResolveVoid) {
@@ -46,7 +46,7 @@ TEST(PromiseResolverTest, ResolveVoid) {
   auto      pr = async<void>();
   auto      r  = std::move(pr.second);
   auto      t  = schedule_resolve(r, 10);
-  pr.first.wait();
+  pr.first.await();
   SUCCEED();
 }
 
@@ -72,7 +72,7 @@ TEST(PromiseResolverTest, DoubleResolve) {
   auto r  = std::move(pr.second);
   r.resolve(42);
   r.resolve(99);
-  EXPECT_EQ(p.wait(), 42);
+  EXPECT_EQ(p.await(), 42);
 }
 
 TEST(PromiseResolverTest, CrossThreadResolve) {
@@ -84,7 +84,7 @@ TEST(PromiseResolverTest, CrossThreadResolve) {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     r.resolve(std::string("from another thread"));
   });
-  EXPECT_EQ(pr.first.wait(), "from another thread");
+  EXPECT_EQ(pr.first.await(), "from another thread");
   worker.join();
 }
 
@@ -97,7 +97,7 @@ TEST(PromiseResolverTest, IsPending) {
   EXPECT_TRUE(r.is_pending());
   r.resolve(42);
   EXPECT_FALSE(r.is_pending());
-  p.wait();
+  p.await();
 }
 
 /* ───────────────────── Promise::adapt test ───────────────────── */
@@ -134,7 +134,7 @@ TEST(PromiseAdaptTest, CustomAdapter) {
     WaitScope scope(loop);
     auto      p = adapt<int, CountingAdapter>(42);
     EXPECT_EQ(CountingAdapter::construct_count, 1);
-    EXPECT_EQ(p.wait(), 42);
+    EXPECT_EQ(p.await(), 42);
   }
   EXPECT_EQ(CountingAdapter::destruct_count, 1);
 }

@@ -13,10 +13,10 @@ xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
 // Copy from TcpStream to File
-auto stream = xpp::net::TcpStream::connect("127.0.0.1:9090").wait().unwrap();
-auto file = xpp::fs::File::create("output.bin").wait();
+auto stream = xpp::net::TcpStream::connect("127.0.0.1:9090").await().unwrap();
+auto file = xpp::fs::File::create("output.bin").await();
 
-xpp::io::copy(stream, file).wait();
+xpp::io::copy(stream, file).await();
 ```
 
 ## API Reference
