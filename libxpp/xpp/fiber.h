@@ -164,7 +164,7 @@ auto fiber(size_t stack_size, Func &&func) -> Promise<decltype(std::declval<Func
   // User state — lambda + resolver, destroyed by Context::destroy
   struct State {
     typename std::decay<Func>::type func;
-    decltype(resolver)              resolver;
+    decltype(pair.second)           resolver;
   };
 
   // Allocate Context + State in one block
