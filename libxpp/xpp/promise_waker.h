@@ -135,9 +135,11 @@ inline void PromiseWaker::wake() const {
     *m_done = true;
 #if XPP_FIBER
     if (m_fiber) {
-      // Post the fiber switch to the event loop boundary.  Don't
-      // switch inline — wake() may be called from deep inside
-      // poll() / resolve(), where swapcontext is unsafe.
+      // Defer the switch to the event loop boundary.  Doing
+      // swapcontext inline would drop the main stack mid-frame
+      // (leaving resolve() / callback / lock scopes half-finished).
+      // Posting lets the call chain unwind cleanly, then the loop
+      // picks up on_fiber_wake on a shallow stack frame.
       xEventLoopPost(m_loop, &on_fiber_wake, const_cast<PromiseWaker *>(this));
     }
 #endif
