@@ -6,22 +6,14 @@
 
 ## Example — `.await()`
 
+Echo server with fiber:
+
 ```cpp
 #include <xpp/net/tcp.h>
 
 xpp::EventLoop loop;
 xpp::WaitScope scope(loop);
 
-auto conn = xpp::net::TcpStream::connect("127.0.0.1:8080").await().unwrap();
-conn.write("hello", 5).await();
-
-char buf[64];
-ssize_t n = conn.read(buf, sizeof(buf)).await();
-```
-
-With fiber — echo server:
-
-```cpp
 xpp::fiber([]() {
   auto listener = xpp::net::TcpListener::bind("127.0.0.1:8080").await().unwrap();
   auto [conn, addr] = listener.accept().await();
@@ -37,12 +29,21 @@ xpp::fiber([]() {
 
 ## Example — `co_await` (C++20)
 
+Same echo server in coroutine style:
+
 ```cpp
-xpp::Promise<void> client_demo() {
-  auto conn = co_await xpp::net::TcpStream::connect("127.0.0.1:8080");
-  co_await conn.unwrap().write("hello", 5);
-  char buf[64];
-  ssize_t n = co_await conn.unwrap().read(buf, sizeof(buf));
+#include <xpp/net/tcp.h>
+
+xpp::Promise<void> echo_server() {
+  auto listener = (co_await xpp::net::TcpListener::bind("127.0.0.1:8080")).unwrap();
+  auto [conn, addr] = co_await listener.accept();
+
+  char buf[1024];
+  while (true) {
+    ssize_t n = co_await conn.read(buf, sizeof(buf));
+    if (n <= 0) break;
+    co_await conn.write(buf, static_cast<size_t>(n));
+  }
 }
 ```
 
