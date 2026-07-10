@@ -14,9 +14,9 @@
  *   });
  *   ts.start();
  *
- *   auto resp = ts.get("/hello");
- *   EXPECT_EQ(resp.status, 200);
- *   EXPECT_EQ(resp.body, "Hello!");
+ *   auto result = ts.get("/hello").await();
+ *   auto &resp  = result.unwrap();
+ *   EXPECT_EQ(resp.status(), 200);
  */
 
 #ifndef XPP_HTTP_TEST_SERVER_H
@@ -36,12 +36,6 @@
 
 namespace xpp {
 namespace http {
-
-/// Synchronous result of a TestServer request.
-struct TestResponse {
-  int         status = 0;
-  std::string body;
-};
 
 class TestServer {
 public:
@@ -72,8 +66,12 @@ public:
 
   // ── Convenience request helpers ──────────────────────────────────
 
-  /// GET request.  Drives the event loop until the response is complete.
-  TestResponse get(const char *path);
+  /// GET request.  Returns Promise<Result<Response>> — call .await()
+  /// inside a WaitScope to block the fiber until the response arrives.
+  auto get(const char *path) {
+    auto req = Request::builder().method(Method::Get).url(url(path)).body().unwrap();
+    return m_client.send(std::move(req));
+  }
 
 private:
   static uint16_t find_free_port() {
@@ -94,11 +92,12 @@ private:
     return p;
   }
 
-  Router                    m_router;
-  uint16_t                  m_port = 0;
-  Server                    m_server;
-  Promise<Result<void>>     m_shutdown;
-  xEventLoop                m_loop  = nullptr;
+  Router                m_router;
+  uint16_t              m_port   = 0;
+  Client                m_client = Client::builder().build();
+  Server                m_server;
+  Promise<Result<void>> m_shutdown;
+  xEventLoop            m_loop   = nullptr;
 };
 
 /* ── TestServer::start ────────────────────────────────────────────── */
@@ -115,24 +114,6 @@ inline void TestServer::start() {
 
 inline void TestServer::stop() {
   m_server = Server();
-}
-
-/* ── TestServer::get ──────────────────────────────────────────────── */
-
-inline TestResponse TestServer::get(const char *path) {
-  TestResponse resp;
-
-  auto client = Client::builder().build();
-  auto req    = Request::builder().method(Method::Get).url(url(path)).body().unwrap();
-
-  auto result = client.send(std::move(req)).await();
-  if (result.is_ok()) {
-    auto &r     = result.unwrap();
-    resp.status = r.status();
-    auto body_result = r.text().await();
-    if (body_result.is_ok()) resp.body = body_result.unwrap();
-  }
-  return resp;
 }
 
 } // namespace http

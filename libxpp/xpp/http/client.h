@@ -173,10 +173,28 @@ struct SendAdapter {
     };
 
     auto builder = Response::builder().status(self->m_status);
+
+    /* Parse response headers from the raw C buffer. */
     if (ctx->headers && ctx->headers_len) {
-      builder.header("_raw_headers",
-                     std::string(ctx->headers, ctx->headers_len));
+      std::string raw(ctx->headers, ctx->headers_len);
+      size_t      pos = 0;
+      while (pos < raw.size()) {
+        size_t crlf = raw.find("\r\n", pos);
+        if (crlf == std::string::npos) break;
+        std::string line = raw.substr(pos, crlf - pos);
+        pos              = crlf + 2;
+        size_t colon     = line.find(':');
+        if (colon == std::string::npos) continue;
+        std::string key   = line.substr(0, colon);
+        std::string value = line.substr(colon + 1);
+        /* Trim leading whitespace from value. */
+        size_t start = 0;
+        while (start < value.size() && (value[start] == ' ' || value[start] == '\t')) start++;
+        if (start > 0) value = value.substr(start);
+        builder.header(std::move(key), std::move(value));
+      }
     }
+
     auto resp = builder.body(ReadFnWrapper{std::move(read_fn)}).build();
 
     self->m_resolver.resolve(Result<Response>(xpp::ok, std::move(resp)));

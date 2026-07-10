@@ -1,8 +1,9 @@
 /*
  * server_test.cpp — Tests for xpp::http server module.
  *
- * Uses TestServer (Go httptest-style): one-line setup, ts.get()
- * returns TestResponse{status, body} — synchronous, no .await().
+ * Uses TestServer (Go httptest-style): ts.get() returns
+ * Promise<Result<Response>> — each test .await()s and uses
+ * Response API (status(), text(), header()) as needed.
  */
 
 #include <string>
@@ -25,6 +26,17 @@ struct StringReader {
     return static_cast<ssize_t>(n);
   }
 };
+
+/* ── Helper — drain a GET response into {status, body} ──────────── */
+
+static std::pair<int, std::string> drain(xpp::http::TestServer &ts, const char *path) {
+  auto result = ts.get(path).await();
+  EXPECT_TRUE(result.is_ok()) << "GET " << path << " failed";
+  auto &resp = result.unwrap();
+  auto  body = resp.text().await();
+  EXPECT_TRUE(body.is_ok());
+  return {resp.status(), body.unwrap()};
+}
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Unit tests
@@ -62,15 +74,14 @@ TEST_F(ServerIntegrationTest, HelloWorld) {
   });
   ts.start();
 
-  auto resp = ts.get("/hello");
-  EXPECT_EQ(resp.status, 200);
-  EXPECT_EQ(resp.body, "Hello from xpp!");
+  auto [status, body] = drain(ts, "/hello");
+  EXPECT_EQ(status, 200);
+  EXPECT_EQ(body, "Hello from xpp!");
 }
 
 TEST_F(ServerIntegrationTest, StatusAndHeaders) {
   xpp::http::TestServer ts;
   ts.router().route("GET /json", [](xpp::http::IncomingRequest &) {
-    const char *body = "{}";
     return xpp::http::Response::builder()
       .status(201)
       .header("Content-Type", "application/json")
@@ -80,9 +91,17 @@ TEST_F(ServerIntegrationTest, StatusAndHeaders) {
   });
   ts.start();
 
-  auto resp = ts.get("/json");
-  EXPECT_EQ(resp.status, 201);
-  EXPECT_EQ(resp.body, "{}");
+  // Use raw Response to verify headers
+  auto result = ts.get("/json").await();
+  ASSERT_TRUE(result.is_ok());
+  auto &resp = result.unwrap();
+  EXPECT_EQ(resp.status(), 201);
+  EXPECT_EQ(resp.header("content-type").unwrap(), "application/json");
+  EXPECT_EQ(resp.header("x-custom").unwrap(), "v1");
+
+  auto body = resp.text().await();
+  ASSERT_TRUE(body.is_ok());
+  EXPECT_EQ(body.unwrap(), "{}");
 }
 
 TEST_F(ServerIntegrationTest, RouteParams) {
@@ -97,9 +116,9 @@ TEST_F(ServerIntegrationTest, RouteParams) {
   });
   ts.start();
 
-  auto resp = ts.get("/users/42");
-  EXPECT_EQ(resp.status, 200);
-  EXPECT_EQ(resp.body, "user:42");
+  auto [status, body] = drain(ts, "/users/42");
+  EXPECT_EQ(status, 200);
+  EXPECT_EQ(body, "user:42");
 }
 
 // One-byte-at-a-time reader for the streaming test.
@@ -125,15 +144,13 @@ TEST_F(ServerIntegrationTest, TryReadBody) {
   });
   ts.start();
 
-  auto resp = ts.get("/try-read");
-  EXPECT_EQ(resp.status, 200);
-  EXPECT_EQ(resp.body, "hello-try-read");
+  auto [status, body] = drain(ts, "/try-read");
+  EXPECT_EQ(status, 200);
+  EXPECT_EQ(body, "hello-try-read");
 }
 
 struct EmptyReader {
-  ssize_t try_read(char *, size_t) {
-    return 0;
-  }
+  ssize_t try_read(char *, size_t) { return 0; }
 };
 
 TEST_F(ServerIntegrationTest, TryReadBodyEmpty) {
@@ -143,9 +160,9 @@ TEST_F(ServerIntegrationTest, TryReadBodyEmpty) {
   });
   ts.start();
 
-  auto resp = ts.get("/try-read-empty");
-  EXPECT_EQ(resp.status, 200);
-  EXPECT_EQ(resp.body, "");
+  auto [status, body] = drain(ts, "/try-read-empty");
+  EXPECT_EQ(status, 200);
+  EXPECT_EQ(body, "");
 }
 
 TEST_F(ServerIntegrationTest, EmptyBody) {
@@ -155,9 +172,9 @@ TEST_F(ServerIntegrationTest, EmptyBody) {
   });
   ts.start();
 
-  auto resp = ts.get("/empty");
-  EXPECT_EQ(resp.status, 200);
-  EXPECT_EQ(resp.body, "");
+  auto [status, body] = drain(ts, "/empty");
+  EXPECT_EQ(status, 200);
+  EXPECT_EQ(body, "");
 }
 
 TEST_F(ServerIntegrationTest, LargeBody) {
@@ -171,9 +188,9 @@ TEST_F(ServerIntegrationTest, LargeBody) {
   });
   ts.start();
 
-  auto resp = ts.get("/large");
-  EXPECT_EQ(resp.status, 200);
-  EXPECT_EQ(resp.body, large);
+  auto [status, body] = drain(ts, "/large");
+  EXPECT_EQ(status, 200);
+  EXPECT_EQ(body, large);
 }
 
 TEST_F(ServerIntegrationTest, MultipleRequests) {
@@ -181,7 +198,6 @@ TEST_F(ServerIntegrationTest, MultipleRequests) {
   int                   counter = 0;
   ts.router().route("GET /count", [&counter](xpp::http::IncomingRequest &) {
     counter++;
-    std::string s = std::to_string(counter);
     return xpp::http::Response::builder()
       .status(200)
       .body(StringReader{std::to_string(counter)})
@@ -190,9 +206,9 @@ TEST_F(ServerIntegrationTest, MultipleRequests) {
   ts.start();
 
   for (int i = 1; i <= 5; i++) {
-    auto resp = ts.get("/count");
-    EXPECT_EQ(resp.status, 200);
-    EXPECT_EQ(resp.body, std::to_string(i));
+    auto [status, body] = drain(ts, "/count");
+    EXPECT_EQ(status, 200);
+    EXPECT_EQ(body, std::to_string(i));
   }
   EXPECT_EQ(counter, 5);
 }
@@ -210,11 +226,11 @@ TEST_F(ServerIntegrationTest, CustomStatusCodes) {
   });
   ts.start();
 
-  auto r1 = ts.get("/404");
-  EXPECT_EQ(r1.status, 404);
+  auto [s1, b1] = drain(ts, "/404");
+  EXPECT_EQ(s1, 404);
 
-  auto r2 = ts.get("/500");
-  EXPECT_EQ(r2.status, 500);
+  auto [s2, b2] = drain(ts, "/500");
+  EXPECT_EQ(s2, 500);
 }
 
 TEST_F(ServerIntegrationTest, SequentialHandlers) {
@@ -227,7 +243,7 @@ TEST_F(ServerIntegrationTest, SequentialHandlers) {
   });
   ts.start();
 
-  EXPECT_EQ(ts.get("/a").body, "a");
-  EXPECT_EQ(ts.get("/b").body, "b");
-  EXPECT_EQ(ts.get("/a").body, "a");
+  auto [_, a1] = drain(ts, "/a"); EXPECT_EQ(a1, "a");
+  auto [__, b] = drain(ts, "/b"); EXPECT_EQ(b, "b");
+  auto [___, a2] = drain(ts, "/a"); EXPECT_EQ(a2, "a");
 }
