@@ -6,13 +6,11 @@
  * test_server.h - xpp::http::TestServer — in-process HTTP test server.
  *
  * Go httptest-style helper.  Server + client share the same event
- * loop — run_until() drives both accept/handler and curl I/O via
- * the proven C xHttpClient path (avoids PromiseWaker/X_RUN_ONCE
- * re-entrancy issues across test boundaries).
+ * loop — Client::send() drives curl I/O via the fiber scheduler.
  *
  *   xpp::http::TestServer ts;
  *   ts.router().route("GET /hello", [](IncomingRequest &req) {
- *     return Response::ok("Hello!").into_promise();
+ *     return Response::builder().status(200).body(...).into_promise();
  *   });
  *   ts.start();
  *
@@ -29,13 +27,11 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <atomic>
 #include <string>
 #include <utility>
 
-#include <x/base/test_helper.h>
-#include <x/http/client.h>
-
+#include <xpp/http/client.h>
+#include <xpp/http/request.h>
 #include <xpp/http/server.h>
 
 namespace xpp {
@@ -105,27 +101,6 @@ private:
   xEventLoop                m_loop  = nullptr;
 };
 
-// ── Internal helpers for get() ─────────────────────────────────────
-
-namespace _ {
-struct GetCtx {
-  std::string       body;
-  int               status = 0;
-  std::atomic<bool> done{false};
-};
-
-inline int  get_on_data(const char *data, size_t len, void *arg) {
-  static_cast<GetCtx *>(arg)->body.append(data, len);
-  return 0;
-}
-
-inline void get_on_done(xHttpCtx *ctx, void *arg) {
-  auto *c     = static_cast<GetCtx *>(arg);
-  c->status   = static_cast<int>(ctx->status_code);
-  c->done.store(true, std::memory_order_release);
-}
-} // namespace _
-
 /* ── TestServer::start ────────────────────────────────────────────── */
 
 inline void TestServer::start() {
@@ -145,21 +120,19 @@ inline void TestServer::stop() {
 /* ── TestServer::get ──────────────────────────────────────────────── */
 
 inline TestResponse TestServer::get(const char *path) {
-  _::GetCtx   ctx;
-  xHttpClient client = xHttpClientCreate(nullptr);
+  TestResponse resp;
 
-  auto             url_str = url(path);
-  xHttpRequestConf conf    = {};
-  conf.url                 = url_str.c_str();
-  conf.method              = xHttpMethod_GET;
-  conf.on_data             = _::get_on_data;
-  conf.on_done             = _::get_on_done;
+  auto client = Client::builder().build();
+  auto req    = Request::builder().method(Method::Get).url(url(path)).body().unwrap();
 
-  xHttpClientDo(client, &conf, &ctx);
-  run_until(m_loop, ctx.done);
-
-  xHttpClientDestroy(client);
-  return {ctx.status, std::move(ctx.body)};
+  auto result = client.send(std::move(req)).await();
+  if (result.is_ok()) {
+    auto &r     = result.unwrap();
+    resp.status = r.status();
+    auto body_result = r.text().await();
+    if (body_result.is_ok()) resp.body = body_result.unwrap();
+  }
+  return resp;
 }
 
 } // namespace http
