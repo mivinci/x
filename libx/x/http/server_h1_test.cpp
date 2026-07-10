@@ -407,8 +407,13 @@ TEST_F(HttpServerTest, LargeBodyMultiChunk) {
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
-  EXPECT_NE(response.find("Content-Length: 10000"), std::string::npos);
-  EXPECT_NE(response.find(std::string(10000, 'X')), std::string::npos);
+  /* Chunked encoding — server owns framing, not Content-Length. */
+  EXPECT_NE(response.find("Transfer-Encoding: chunked"), std::string::npos);
+  /* Body content spans multiple chunks; verify the 0 terminator and
+   * that X's exist on both sides of a chunk boundary. */
+  EXPECT_NE(response.find("0\r\n\r\n"), std::string::npos);
+  EXPECT_NE(response.find("XXXX"), std::string::npos);           // first chunk
+  EXPECT_NE(response.rfind("XXXX"), std::string::npos);          // last chunk
 }
 
 /* ───────────────────── Multiple requests sequential ───────────────── */
@@ -658,10 +663,11 @@ TEST_F(HttpServerTest, LargeStreamingBody) {
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
-  // Verify full body length
-  auto header_end = response.find("\r\n\r\n");
-  ASSERT_NE(header_end, std::string::npos);
-  EXPECT_EQ(response.size() - header_end - 4, 20000u);
+  /* Chunked encoding — verify terminator and body content. */
+  EXPECT_NE(response.find("Transfer-Encoding: chunked"), std::string::npos);
+  EXPECT_NE(response.find("0\r\n\r\n"), std::string::npos);
+  EXPECT_NE(response.find("YYYY"), std::string::npos);           // first chunk
+  EXPECT_NE(response.rfind("YYYY"), std::string::npos);          // last chunk
 }
 
 /* ───────────────────── request_aborted → 500 ──────────────────────── */

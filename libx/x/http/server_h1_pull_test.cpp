@@ -669,11 +669,18 @@ TEST_F(HttpServerTest, LargeBodyWithCustomHeaders) {
   EXPECT_NE(resp.find("200 OK"), std::string::npos);
   EXPECT_NE(resp.find("X-Custom-A: alpha"), std::string::npos);
   EXPECT_NE(resp.find("X-Custom-B: beta-beta-beta"), std::string::npos);
-  EXPECT_NE(resp.find("Content-Length: 64000"), std::string::npos);
+  /* Server owns the framing — uses Transfer-Encoding: chunked,
+   * not Content-Length. */
+  EXPECT_NE(resp.find("Transfer-Encoding: chunked"), std::string::npos);
+  EXPECT_EQ(resp.find("Content-Length"), std::string::npos);
 
+  /* Verify body starts with Z and ends with Z (chunked framing in between). */
   auto header_end = resp.find("\r\n\r\n");
   ASSERT_NE(header_end, std::string::npos);
-  EXPECT_EQ(resp.size() - header_end - 4, 64000u);
+  std::string body = resp.substr(header_end + 4);
+  EXPECT_NE(body.find("ZZZZ"), std::string::npos);              // first chunk
+  EXPECT_NE(body.rfind("ZZZZ"), std::string::npos);             // last chunk
+  EXPECT_NE(body.find("0\r\n\r\n"), std::string::npos);          // chunk terminator
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

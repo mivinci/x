@@ -103,20 +103,32 @@ static inline std::string recv_all(int fd, int timeout_ms = 2000) {
     if (n <= 0) break;
     result.append(buf, static_cast<size_t>(n));
 
-    if (result.find("\r\n\r\n") != std::string::npos) {
-      auto cl_pos = result.find("Content-Length: ");
-      if (cl_pos != std::string::npos) {
-        size_t cl_start = cl_pos + 16;
-        size_t cl_end   = result.find("\r\n", cl_start);
-        if (cl_end != std::string::npos) {
-          int    content_len = std::stoi(result.substr(cl_start, cl_end - cl_start));
-          size_t body_start  = result.find("\r\n\r\n") + 4;
-          if (result.size() >= body_start + static_cast<size_t>(content_len)) break;
-        }
-      } else {
-        break;
+    /* Headers received — decide when to stop. */
+    auto hdr_end = result.find("\r\n\r\n");
+    if (hdr_end == std::string::npos) continue;
+
+    std::string headers = result.substr(0, hdr_end);
+
+    /* Content-Length — read exact byte count. */
+    auto cl_pos = headers.find("Content-Length: ");
+    if (cl_pos != std::string::npos) {
+      size_t cl_start = cl_pos + 16;
+      size_t cl_end   = headers.find("\r\n", cl_start);
+      if (cl_end != std::string::npos) {
+        int    content_len = std::stoi(headers.substr(cl_start, cl_end - cl_start));
+        size_t body_start  = hdr_end + 4;
+        if (result.size() >= body_start + static_cast<size_t>(content_len)) break;
+        continue;
       }
     }
+
+    /* Transfer-Encoding: chunked — read until "0\r\n\r\n" terminator. */
+    if (headers.find("Transfer-Encoding: chunked") != std::string::npos) {
+      if (result.find("0\r\n\r\n", hdr_end) != std::string::npos) break;
+      continue;
+    }
+
+    /* No known framing — read until connection closes. */
   }
   return result;
 }

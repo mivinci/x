@@ -227,8 +227,7 @@ static int h1_write_data(struct xHttpStream_ *stream, const char *data, size_t l
   struct xHttpResponseWriter_ *w    = &stream->writer;
 
   if (!w->streaming) {
-    w->streaming     = 1;
-    conn->keep_alive = 0;
+    w->streaming = 1;
 
     xIOBuffer *wb = &conn->write_buf;
 
@@ -237,12 +236,26 @@ static int h1_write_data(struct xHttpStream_ *stream, const char *data, size_t l
                          xHttpStatusReason(w->status_code));
     xIOBufferAppend(wb, status_line, (size_t)slen);
 
-    xIOBufferAppendStr(wb, "Connection: close\r\n");
+    /* Chunked transfer encoding — the canonical way to stream a
+     * response body of unknown length in HTTP/1.1 (RFC 7230 §4.1).
+     * Each write_data call emits one chunk; end_stream emits the
+     * terminating "0\r\n\r\n". */
+    xIOBufferAppendStr(wb, "Transfer-Encoding: chunked\r\n");
 
-    /* Skip user-supplied "Connection" header — see h1_send_response. */
+    /* Connection header according to keep-alive state. */
+    if (conn->keep_alive) {
+      xIOBufferAppendStr(wb, "Connection: keep-alive\r\n");
+    } else {
+      xIOBufferAppendStr(wb, "Connection: close\r\n");
+    }
+
+    /* Skip user-supplied "Connection", "Content-Length", and
+     * "Transfer-Encoding" headers — the server owns the framing. */
     struct xHttpHeader_ *h = w->headers;
     while (h) {
-      if (strcasecmp(h->key, "Connection") != 0) {
+      if (strcasecmp(h->key, "Connection") != 0 &&
+          strcasecmp(h->key, "Content-Length") != 0 &&
+          strcasecmp(h->key, "Transfer-Encoding") != 0) {
         xIOBufferAppendStr(wb, h->key);
         xIOBufferAppendStr(wb, ": ");
         xIOBufferAppendStr(wb, h->value);
@@ -255,13 +268,23 @@ static int h1_write_data(struct xHttpStream_ *stream, const char *data, size_t l
   }
 
   if (data && len > 0) {
-    xIOBufferAppend(&conn->write_buf, data, len);
+    xIOBuffer *wb = &conn->write_buf;
+
+    /* Emit one chunk: <hex-size>\r\n<data>\r\n */
+    char hex[32];
+    int  hlen = snprintf(hex, sizeof(hex), "%zx\r\n", len);
+    xIOBufferAppend(wb, hex, (size_t)hlen);
+    xIOBufferAppend(wb, data, len);
+    xIOBufferAppendStr(wb, "\r\n");
   }
 
   return 0;
 }
 
 static int h1_end_stream(struct xHttpStream_ *stream) {
+  /* Terminate chunked body: "0\r\n\r\n" (RFC 7230 §4.1).
+   * Flushing is the caller's responsibility — see xHttpServerBodyRefill. */
+  xIOBufferAppendStr(&stream->conn->write_buf, "0\r\n\r\n");
   stream->writer.sent = 1;
   return 0;
 }
