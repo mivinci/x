@@ -56,7 +56,9 @@ static int echo_on_req(xHttpCtx *ctx, void *arg) {
   auto *c = static_cast<EchoCtx *>(arg);
   xHttpCtxSetStatus(ctx, 200);
   xHttpCtxSetHeader(ctx, "Content-Type", "application/octet-stream");
-  xHttpCtxSetHeader(ctx, "Content-Length", std::to_string(c->body.size()).c_str());
+  // Don't set Content-Length here — body is not yet available
+  // (on_data is called later during body pump).  on_read will
+  // signal EOF and the server will use chunked encoding.
   return 0;
 }
 static size_t echo_on_read(char *buf, size_t bufsize, void *arg) {
@@ -180,7 +182,7 @@ TEST_F(HttpClientTest, GetHelloWorld) {
  *  POST request with body echo (TryRead body)
  * ═══════════════════════════════════════════════════════════════════ */
 
-TEST_F(HttpClientTest, DISABLED_PostEcho) {
+TEST_F(HttpClientTest, PostEcho) {
   EchoCtx echo;
   route_pull_echo("POST /echo", &echo);
 
@@ -302,7 +304,7 @@ TEST_F(HttpClientTest, StreamingBodyViaText) {
  *  POST with binary body echo
  * ═══════════════════════════════════════════════════════════════════ */
 
-TEST_F(HttpClientTest, DISABLED_PostBinaryBody) {
+TEST_F(HttpClientTest, PostBinaryBody) {
   EchoCtx echo;
   route_pull_echo("POST /echo-bin", &echo);
 
