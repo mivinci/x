@@ -904,8 +904,6 @@ void xHttpStreamResolve(struct xHttpStream_ *stream) {
 static void server_finalize_empty_response(struct xHttpConn_ *conn) {
   struct xHttpStream_         *stream = conn->stream;
   struct xHttpResponseWriter_ *w      = &stream->writer;
-  const xHttpRouteInfo        *info   = stream->route_info;
-  void                        *arg    = info ? info->arg : NULL;
 
   if (!w->sent && !w->streaming) {
     w->sent = 1;
@@ -913,10 +911,6 @@ static void server_finalize_empty_response(struct xHttpConn_ *conn) {
     conn_try_flush(conn);
   }
   conn_after_response(conn);
-
-  if (info && info->on_done) {
-    info->on_done(&stream->ctx, arg);
-  }
 }
 
 void xHttpServerBodyRefill(struct xHttpConn_ *conn) {
@@ -994,11 +988,24 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
   }
 
   /* Pull model: if the route has an on_read callback, start the body
-   * pump.  Otherwise send an empty headers-only response. */
+   * pump.  If there is an on_done (WebSocket upgrade, SSE hijack,
+   * or legacy callback), call it first.  If the handler hijacked
+   * the connection, the connection is now owned by the protocol layer
+   * (e.g. xWsUpgrade).  Otherwise fall through to send the response. */
   if (stream->route_info->on_read) {
     stream->body_pumping = 1;
     xHttpServerBodyRefill(conn);
   } else {
+    if (stream->route_info->on_done) {
+      stream->route_info->on_done(&stream->ctx, stream->route_info->arg);
+      if (conn->hijacked) { /* xWsUpgrade sets this inside on_done */
+        /* WS upgrade — connection is now owned by the WS layer. */
+        xIOBufferDeinit(&conn->read_buf);
+        xIOBufferDeinit(&conn->write_buf);
+        free(conn);
+        return;
+      }
+    }
     server_finalize_empty_response(conn);
   }
 }
