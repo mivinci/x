@@ -31,13 +31,12 @@
 #ifndef XPP_HTTP_REQUEST_H
 #define XPP_HTTP_REQUEST_H
 
-#include <map>
 #include <string>
-
-#include <xpp/io/traits.h>
 #include <utility>
 
 #include <xpp/http/error.h>
+#include <xpp/http/header.h>
+#include <xpp/io/traits.h>
 #include <xpp/option.h>
 #include <xpp/result.h>
 
@@ -80,7 +79,7 @@ public:
   }
 
   RequestBuilder &header(const std::string &key, const std::string &value) {
-    m_headers.emplace(key, value);
+    m_headers.insert(key, value);
     return *this;
   }
 
@@ -89,15 +88,14 @@ public:
 
   /// Terminal — body via TryRead reader.  The reader must satisfy
   /// `try_read(char*, size_t) → ssize_t` (e.g. bytes::Reader).
-  template <XPP_REQUIRES_TRYREAD(R)>
-  Result<Request> body(R &&reader);
+  template <XPP_REQUIRES_TRY_READ(R)> Result<Request> body(R &&reader);
 
 private:
   friend class Request;
 
   Method                                  m_method = Method::Get;
   std::string                             m_url;
-  std::multimap<std::string, std::string> m_headers;
+  HeaderMap m_headers;
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -108,15 +106,23 @@ private:
 
 class Request {
 public:
-  static RequestBuilder builder() { return RequestBuilder(); }
+  static RequestBuilder builder() {
+    return RequestBuilder();
+  }
 
-  Method method() const { return m_method; }
-  const std::string &url() const { return m_url; }
-  const std::multimap<std::string, std::string> &headers() const {
+  Method method() const {
+    return m_method;
+  }
+  const std::string &url() const {
+    return m_url;
+  }
+  const HeaderMap &headers() const {
     return m_headers;
   }
 
-  bool has_body() const { return m_read_fn.is_some(); }
+  bool has_body() const {
+    return m_read_fn.is_some();
+  }
 
   /// Take ownership of the TryRead reader (moved out, one-shot).
   Option<std::function<ssize_t(char *, size_t)>> take_try_read() {
@@ -126,15 +132,14 @@ public:
 private:
   friend class RequestBuilder;
 
-  Method                                  m_method;
-  std::string                             m_url;
-  std::multimap<std::string, std::string> m_headers;
+  Method                                         m_method;
+  std::string                                    m_url;
+  HeaderMap m_headers;
   Option<std::function<ssize_t(char *, size_t)>> m_read_fn;
 
   Request() = default;
 
-  Request(Method m, std::string url,
-          std::multimap<std::string, std::string> headers,
+  Request(Method m, std::string url, HeaderMap headers,
           Option<std::function<ssize_t(char *, size_t)>> read_fn)
       : m_method(m), m_url(std::move(url)), m_headers(std::move(headers)),
         m_read_fn(std::move(read_fn)) {}
@@ -145,19 +150,17 @@ private:
 // ═════════════════════════════════════════════════════════════════════
 
 inline Result<Request> RequestBuilder::body() {
-  return Result<Request>(xpp::ok,
-    Request(m_method, std::move(m_url), std::move(m_headers), {}));
+  return Result<Request>(xpp::ok, Request(m_method, std::move(m_url), std::move(m_headers), {}));
 }
 
-template <XPP_REQUIRES_TRYREAD(R)>
-Result<Request> RequestBuilder::body(R &&reader) {
+template <XPP_REQUIRES_TRY_READ(R)> Result<Request> RequestBuilder::body(R &&reader) {
   auto fn = Option<std::function<ssize_t(char *, size_t)>>(
     [r = std::forward<R>(reader)](char *buf, size_t cap) mutable -> ssize_t {
       return r.try_read(buf, cap);
     });
   // Treat as "has body" regardless of size — the reader may produce 0 bytes
   return Result<Request>(xpp::ok,
-    Request(m_method, std::move(m_url), std::move(m_headers), std::move(fn)));
+                         Request(m_method, std::move(m_url), std::move(m_headers), std::move(fn)));
 }
 
 } // namespace http

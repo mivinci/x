@@ -97,14 +97,16 @@ TEST(ResponseTest, StatusAccessor) {
   EXPECT_EQ(resp.status(), 200);
 }
 
-TEST(ResponseTest, HeaderCaseSensitive) {
+TEST(ResponseTest, HeaderCaseInsensitive) {
   auto resp = xpp::http::Response::builder()
     .header("Content-Type", "text/plain")
     .body(StringReader{""})
     .build();
 
-  EXPECT_TRUE(resp.header("content-type").is_none());
+  // Keys are lowercased — lookup is case-insensitive.
+  EXPECT_TRUE(resp.header("content-type").is_some());
   EXPECT_EQ(resp.header("Content-Type").unwrap(), "text/plain");
+  EXPECT_EQ(resp.header("CONTENT-TYPE").unwrap(), "text/plain");
 }
 
 TEST(ResponseTest, BuilderReturnsBuilder) {

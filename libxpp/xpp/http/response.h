@@ -26,21 +26,21 @@
 #ifndef XPP_HTTP_RESPONSE_H
 #define XPP_HTTP_RESPONSE_H
 
-#include <map>
 #include <string>
 #include <utility>
 
 #include <xpp/bytes/bytes.h>
-#include <xpp/io/traits.h>
+#include <xpp/http/header.h>
 #include <xpp/bytes/bytes_mut.h>
 #include <xpp/compiler.h>
 #include <xpp/http/error.h>
+#include <xpp/io/traits.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
 #include <xpp/result.h>
 #include <xpp/sync/mpsc.h>
 
-#include <x/http/client.h>  // xHttpCtx
+#include <x/http/client.h> // xHttpCtx
 
 namespace xpp {
 namespace http {
@@ -52,7 +52,7 @@ namespace http {
 // Writer is defined in server.h; Response::stream() captures a
 // std::function<void(Writer &)> that is later invoked by write_to().
 class Writer;
-class Response;  // forward-declared for ResponseBuilder
+class Response; // forward-declared for ResponseBuilder
 
 /* ── ResponseBuilder ──────────────────────────────────────────────── */
 
@@ -66,7 +66,7 @@ public:
   }
 
   ResponseBuilder &header(std::string key, std::string value) {
-    m_headers.emplace(std::move(key), std::move(value));
+    m_headers.insert(std::move(key), std::move(value));
     return *this;
   }
 
@@ -78,8 +78,7 @@ public:
   ///
   /// Accepts any type satisfying the TryRead concept (duck-typing in
   /// C++11, concept-checked in C++20 via xpp::io::TryRead).
-  template <XPP_REQUIRES_TRYREAD(R)>
-  ResponseBuilder &body(R &&reader) {
+  template <XPP_REQUIRES_TRY_READ(R)> ResponseBuilder &body(R &&reader) {
     m_read_fn = Option<std::function<ssize_t(char *, size_t)>>(
       [r = std::forward<R>(reader)](char *buf, size_t cap) mutable -> ssize_t {
         return r.try_read(buf, cap);
@@ -94,8 +93,8 @@ public:
 private:
   friend class Response;
 
-  int                                           m_status   = 200;
-  std::multimap<std::string, std::string>       m_headers;
+  int                                            m_status = 200;
+  HeaderMap m_headers;
   Option<std::function<ssize_t(char *, size_t)>> m_read_fn;
 };
 
@@ -108,25 +107,29 @@ private:
 
 class Response {
 public:
-  static ResponseBuilder builder() { return ResponseBuilder(); }
+  static ResponseBuilder builder() {
+    return ResponseBuilder();
+  }
 
-  Response() = default;
+  Response()                                = default;
   Response(Response &&) noexcept            = default;
   Response &operator=(Response &&) noexcept = default;
 
-  int status() const { return m_status; }
-
-  Option<std::string> header(const std::string &name) const {
-    auto it = m_headers.find(name);
-    if (it != m_headers.end()) return Option<std::string>(it->second);
-    return none;
+  int status() const {
+    return m_status;
   }
 
-  const std::multimap<std::string, std::string> &headers() const {
+  Option<std::string> header(const std::string &name) const {
+    return m_headers.get(name);
+  }
+
+  const HeaderMap &headers() const {
     return m_headers;
   }
 
-  bool has_body() const { return m_read_fn.is_some(); }
+  bool has_body() const {
+    return m_read_fn.is_some();
+  }
 
   Option<std::function<ssize_t(char *, size_t)>> take_try_read() {
     return std::move(m_read_fn);
@@ -140,9 +143,9 @@ public:
     if (reader.is_none()) {
       return xpp::resolve(Result<std::string>(xpp::ok, std::string()));
     }
-    auto fn = std::move(reader).unwrap_unchecked();
+    auto        fn = std::move(reader).unwrap_unchecked();
     std::string result;
-    char buf[4096];
+    char        buf[4096];
     while (true) {
       ssize_t n = fn(buf, sizeof(buf));
       if (n <= 0) break;
@@ -154,15 +157,12 @@ public:
 private:
   friend class ResponseBuilder;
 
-  Response(int                                            status,
-           std::multimap<std::string, std::string>        headers,
+  Response(int status, HeaderMap headers,
            Option<std::function<ssize_t(char *, size_t)>> read_fn)
-    : m_status(std::move(status)),
-      m_headers(std::move(headers)),
-      m_read_fn(std::move(read_fn)) {}
+      : m_status(std::move(status)), m_headers(std::move(headers)), m_read_fn(std::move(read_fn)) {}
 
-  int                                           m_status = 200;
-  std::multimap<std::string, std::string>       m_headers;
+  int                                            m_status = 200;
+  HeaderMap m_headers;
   Option<std::function<ssize_t(char *, size_t)>> m_read_fn;
 };
 

@@ -20,11 +20,11 @@
 namespace xpp {
 namespace io {
 
-template <XPP_REQUIRES_READ_WRITE(T)> class WriteHalf;
+template <XPP_REQUIRES_ASYNC_READ_WRITE(T)> class WriteHalf;
 
 /** @brief Read half of a split ReadWriter. Satisfies AsyncRead.
  *  @tparam T Inner type satisfying both AsyncRead and AsyncWrite. */
-template <XPP_REQUIRES_READ_WRITE(T)> class ReadHalf {
+template <XPP_REQUIRES_ASYNC_READ_WRITE(T)> class ReadHalf {
 public:
   ReadHalf()                                = default;
   ReadHalf(ReadHalf &&) noexcept            = default;
@@ -46,7 +46,7 @@ private:
 
 /** @brief Write half of a split ReadWriter. Satisfies AsyncWrite.
  *  @tparam T Inner type satisfying both AsyncRead and AsyncWrite. */
-template <XPP_REQUIRES_READ_WRITE(T)> class WriteHalf {
+template <XPP_REQUIRES_ASYNC_READ_WRITE(T)> class WriteHalf {
 public:
   WriteHalf()                                 = default;
   WriteHalf(WriteHalf &&) noexcept            = default;
@@ -75,9 +75,9 @@ private:
  *  @tparam T Inner type satisfying AsyncReadWrite.
  *  @param stream The stream to split (ownership is shared via Shared<T>).
  *  @return A pair of (read_half, write_half) sharing the same underlying stream. */
-template <XPP_REQUIRES_READ_WRITE(T)> std::pair<ReadHalf<T>, WriteHalf<T>> split(T stream) {
-  auto s = Shared<T>::make(std::move(stream));
-  auto rh = ReadHalf<T>(s);  // copy first (refcount +1)
+template <XPP_REQUIRES_ASYNC_READ_WRITE(T)> std::pair<ReadHalf<T>, WriteHalf<T>> split(T stream) {
+  auto s  = Shared<T>::make(std::move(stream));
+  auto rh = ReadHalf<T>(s); // copy first (refcount +1)
   auto wh = WriteHalf<T>(std::move(s));
   return std::make_pair(std::move(rh), std::move(wh));
 }

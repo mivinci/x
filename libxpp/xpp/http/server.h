@@ -71,11 +71,9 @@ public:
     return m_path;
   }
 
-  /// Look up a header by name (case-sensitive for now).
+  /// Look up a header by name (case-insensitive).
   Option<std::string> header(const std::string &name) const {
-    auto it = m_headers.find(name);
-    if (it != m_headers.end()) return Option<std::string>(it->second);
-    return none;
+    return m_headers.get(name);
   }
 
   /// Look up a route parameter (e.g. "id" for "/users/:id").
@@ -95,7 +93,7 @@ public:
   xHttpCtx                               *m_ctx;
   std::string                             m_method;
   std::string                             m_path;
-  std::multimap<std::string, std::string> m_headers;
+  HeaderMap m_headers;
 
   IncomingRequest(xHttpCtx *ctx, const char *method, const char *path)
       : m_ctx(ctx), m_method(method), m_path(path) {}
@@ -116,7 +114,7 @@ public:
           std::string val = s.substr(colon + 1);
           // trim leading space from value
           if (!val.empty() && val[0] == ' ') val.erase(0, 1);
-          m_headers.emplace(std::move(key), std::move(val));
+          m_headers.insert(std::move(key), std::move(val));
         }
       }
       if (raw < end) ++raw; // skip '\n'

@@ -59,7 +59,7 @@ concept AsyncReadWrite = AsyncRead<T> && AsyncWrite<T>;
 #endif // XPP_HAS_CONCEPT
 
 /* ═══════════════════════════════════════════════════════════════════
- *  XPP_REQUIRES_TRYREAD(R)
+ *  XPP_REQUIRES_TRY_READ(R)
  *
  *  Template parameter constraint requiring try_read(char*, size_t).
  *  In C++20 mode this expands to a concept (io::TryRead R); in
@@ -67,20 +67,20 @@ concept AsyncReadWrite = AsyncRead<T> && AsyncWrite<T>;
  *  a readable error at instantiation time when try_read is missing.
  *
  *  Usage:
- *    template <XPP_REQUIRES_TRYREAD(R)>
+ *    template <XPP_REQUIRES_TRY_READ(R)>
  *    void foo(R &&reader) { ... }
  * ══════════════════════════════════════════════════════════════════ */
 
 #if defined(XPP_HAS_CONCEPT) && XPP_HAS_CONCEPT
-#define XPP_REQUIRES_TRYREAD(R)       io::TryRead R
-#define XPP_REQUIRES_ASYNC_READ(R)    io::AsyncRead R
-#define XPP_REQUIRES_ASYNC_WRITE(W)   io::AsyncWrite W
-#define XPP_REQUIRES_READ_WRITE(T)    io::AsyncReadWrite T
+#define XPP_REQUIRES_TRY_READ(R)         io::TryRead R
+#define XPP_REQUIRES_ASYNC_READ(R)       io::AsyncRead R
+#define XPP_REQUIRES_ASYNC_WRITE(W)      io::AsyncWrite W
+#define XPP_REQUIRES_ASYNC_READ_WRITE(T) io::AsyncReadWrite T
 #else
-#define XPP_REQUIRES_TRYREAD(R)       class R
-#define XPP_REQUIRES_ASYNC_READ(R)    class R
-#define XPP_REQUIRES_ASYNC_WRITE(W)   class W
-#define XPP_REQUIRES_READ_WRITE(T)    class T
+#define XPP_REQUIRES_TRY_READ(R)         class R
+#define XPP_REQUIRES_ASYNC_READ(R)       class R
+#define XPP_REQUIRES_ASYNC_WRITE(W)      class W
+#define XPP_REQUIRES_ASYNC_READ_WRITE(T) class T
 #endif
 
 } // namespace io
