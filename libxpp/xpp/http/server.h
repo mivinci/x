@@ -64,7 +64,7 @@ public:
   const std::string &path() const { return m_path; }
 
   /// Look up a header by name (case-insensitive).
-  Option<std::string> header(const std::string &name) const { return m_headers.get(name); }
+  Option<const std::string &> header(const std::string &name) const { return m_headers.get(name); }
 
   /// Look up a route parameter (e.g. "id" for "/users/:id").
   std::string param(const std::string &name) const {

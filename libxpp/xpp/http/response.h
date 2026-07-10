@@ -115,7 +115,7 @@ public:
 
   int status() const { return m_status; }
 
-  Option<std::string> header(const std::string &name) const { return m_headers.get(name); }
+  Option<const std::string &> header(const std::string &name) const { return m_headers.get(name); }
 
   const HeaderMap &headers() const { return m_headers; }
 

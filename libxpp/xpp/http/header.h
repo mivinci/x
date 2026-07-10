@@ -34,11 +34,7 @@ public:
   /* ── Mutators ──────────────────────────────────────────────────── */
 
   /// Insert a header.  @p key is lowercased.
-  void insert(const std::string &key, const std::string &value) {
-    m_map.emplace(lower(key), value);
-  }
-
-  void insert(std::string &&key, std::string &&value) {
+  void insert(std::string key, std::string value) {
     m_map.emplace(lower(key), std::move(value));
   }
 
@@ -47,10 +43,10 @@ public:
 
   /* ── Query ──────────────────────────────────────────────────────── */
 
-  /// Get the first value for @p key, or none.
-  Option<std::string> get(const std::string &key) const {
+  /// Get the first value for @p key, or none (zero-copy, points into map).
+  Option<const std::string &> get(const std::string &key) const {
     auto it = m_map.find(lower(key));
-    if (it != m_map.end()) return Option<std::string>(it->second);
+    if (it != m_map.end()) return Option<const std::string &>(it->second);
     return none;
   }
 
