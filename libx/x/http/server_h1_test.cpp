@@ -87,10 +87,10 @@ TEST_F(HttpServerTest, BasicGetRequest) {
 
 /* ───────────────────── POST request with body ───────────────────── */
 
-TEST_F(HttpServerTest, DISABLED_PostRequestWithBody) {
+TEST_F(HttpServerTest, PostRequestWithBody) {
   PullCtx ctx;
-  ctx.body = "echo"; // ensure body pump sends something meaningful
-  route_pull("POST /echo", &ctx);
+  ctx.body = ""; // will be filled from on_data
+  route_pull_with_data("POST /echo", &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -98,7 +98,7 @@ TEST_F(HttpServerTest, DISABLED_PostRequestWithBody) {
 
   std::string body = R"({"key":"value"})";
   std::string req  = "POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
-                  + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body;
+                  + std::to_string(body.size()) + "\r\n\r\n" + body;
   ASSERT_TRUE(send_str(fd, req));
   run_for(loop, 100);
 

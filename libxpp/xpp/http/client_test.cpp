@@ -1,7 +1,8 @@
 /*
  * client_test.cpp — Tests for xpp::http::Client.
  *
- * Uses TestServer (Go httptest-style) for server setup.
+ * Uses TestServer (Go httptest-style) for server setup, plus a
+ * route_raw helper for POST echo tests that need on_data access.
  */
 
 #include <string>
@@ -13,6 +14,8 @@
 #include <xpp/http/client.h>
 #include <xpp/http/test_server.h>
 #include <xpp/promise.h>
+
+#include <x/http/server.h>
 
 using namespace xpp::http;
 
@@ -32,15 +35,12 @@ struct StringReader {
   }
 };
 
-/// Helper: drain a TryRead body into a std::string.
-template <class R>
-static std::string drain_body(R &&reader) {
-  std::string s;
-  char        buf[4096];
-  ssize_t     n;
-  while ((n = reader.try_read(buf, sizeof(buf))) > 0) s.append(buf, (size_t)n);
-  return s;
-}
+/* ── EchoCtx — used by route_with_data for POST body echo ────────── */
+
+struct EchoCtx {
+  std::string body;
+  size_t      offset = 0;
+};
 
 /* ── Fixture ──────────────────────────────────────────────────────── */
 
@@ -48,6 +48,46 @@ class HttpClientTest : public ::testing::Test {
 protected:
   xpp::EventLoop m_loop;
   xpp::WaitScope m_scope{m_loop};
+
+  /// Register a route that needs on_data (POST body collection).
+  /// The handler receives a shared_ptr<string> that will hold the
+  /// accumulated request body — usable from on_read after on_data
+  /// has finished.
+  void route_with_data(const char *pattern, EchoCtx *echo) {
+    xHttpRouteConf conf = {};
+    conf.pattern        = pattern;
+    conf.on_request     = echo_on_request;
+    conf.on_read        = echo_on_read;
+    conf.on_data        = echo_on_data;
+    conf.arg            = echo;
+    ASSERT_EQ(xHttpMuxHandle(m_mux, &conf), xErrno_Ok);
+  }
+
+  /// Access the raw mux for route_with_data.  TestServer's router
+  /// owns it — we grab a copy of the handle for raw route registration.
+  void bind_mux(xHttpMux mux) { m_mux = mux; }
+
+private:
+  static int echo_on_request(xHttpCtx *ctx, void *arg) {
+    auto *c = static_cast<EchoCtx *>(arg);
+    xHttpCtxSetStatus(ctx, 200);
+    xHttpCtxSetHeader(ctx, "Content-Type", "application/octet-stream");
+    return 0;
+  }
+  static size_t echo_on_read(char *buf, size_t bufsize, void *arg) {
+    auto *c = static_cast<EchoCtx *>(arg);
+    if (c->offset >= c->body.size()) return 0;
+    size_t n = std::min(bufsize, c->body.size() - c->offset);
+    std::memcpy(buf, c->body.data() + c->offset, n);
+    c->offset += n;
+    return n;
+  }
+  static int echo_on_data(const char *data, size_t len, void *arg) {
+    static_cast<EchoCtx *>(arg)->body.append(data, len);
+    return 0;
+  }
+
+  xHttpMux m_mux = nullptr; // borrow from TestServer's router
 };
 
 
@@ -93,16 +133,13 @@ TEST_F(HttpClientTest, GetHelloWorld) {
  *  POST request with body echo
  * ═══════════════════════════════════════════════════════════════════ */
 
-TEST_F(HttpClientTest, DISABLED_PostEcho) {
+TEST_F(HttpClientTest, PostEcho) {
   xpp::http::TestServer ts;
-  ts.router().route("POST /echo", [](xpp::http::IncomingRequest &req) {
-    auto body = drain_body(req.body());
-    return xpp::http::Response::builder()
-      .status(200)
-      .header("Content-Type", "application/octet-stream")
-      .body(StringReader{std::move(body)})
-      .into_promise();
-  });
+  EchoCtx               echo;
+  // Register the raw route before start() so on_data is wired.
+  // We grab the mux from the router, register, then start.
+  bind_mux(ts.router().raw());
+  route_with_data("POST /echo", &echo);
   ts.start();
 
   auto        client  = xpp::http::Client::builder().build();
@@ -206,16 +243,11 @@ TEST_F(HttpClientTest, StreamingBodyViaText) {
  *  POST with binary body echo
  * ═══════════════════════════════════════════════════════════════════ */
 
-TEST_F(HttpClientTest, DISABLED_PostBinaryBody) {
+TEST_F(HttpClientTest, PostBinaryBody) {
   xpp::http::TestServer ts;
-  ts.router().route("POST /echo-bin", [](xpp::http::IncomingRequest &req) {
-    auto body = drain_body(req.body());
-    return xpp::http::Response::builder()
-      .status(200)
-      .header("Content-Type", "application/octet-stream")
-      .body(StringReader{std::move(body)})
-      .into_promise();
-  });
+  EchoCtx               echo;
+  bind_mux(ts.router().raw());
+  route_with_data("POST /echo-bin", &echo);
   ts.start();
 
   auto                 client  = xpp::http::Client::builder().build();

@@ -42,6 +42,7 @@ XDEF_HANDLE(xHttpMux);
  * Callbacks:
  *   - @p on_request: called when request headers are parsed. Handler sets
  *     status/headers on @p ctx and returns 0 (OK) or non-0 (abort).
+ *   - @p on_data: called for each request body chunk (POST/PUT).
  *   - @p on_read: called when the server needs response body data. Mirror of
  *     client-side xHttpReadFunc. Return >0 bytes, 0 for EOF, <0 to pause.
  *   - @p on_done: called when the response is fully sent.
@@ -50,6 +51,7 @@ XDEF_HANDLE(xHttpMux);
  */
 XDEF_STRUCT(xHttpRouteInfo) {
   xHttpInitFunc       on_request; /**< Called once after headers (may be NULL) */
+  xHttpDataFunc       on_data;    /**< Per body chunk callback (may be NULL)    */
   xHttpReadFunc on_read;    /**< Pull response body (may be NULL)         */
   xHttpDoneFunc       on_done;    /**< Called when response fully sent          */
   void               *arg;        /**< User argument forwarded to callbacks      */
@@ -95,6 +97,7 @@ XDEF_STRUCT(xHttpServerConf) {
 XDEF_STRUCT(xHttpRouteConf) {
   const char         *pattern;    /**< "METHOD /path" or "/path" (any method)   */
   xHttpInitFunc       on_request; /**< Called after headers (may be NULL)       */
+  xHttpDataFunc       on_data;    /**< Per body chunk callback (may be NULL)    */
   xHttpReadFunc on_read;    /**< Pull response body (may be NULL)         */
   xHttpDoneFunc       on_done;    /**< Called at request completion (may be NULL) */
   void               *arg;        /**< User argument forwarded to callbacks      */
@@ -189,26 +192,6 @@ XCAPI(xErrno) xHttpCtxSetHeader(xHttpCtx *ctx, const char *key, const char *valu
  * @return Pointer to the value, or NULL if not found.
  */
 XCAPI(const char *) xHttpCtxParam(xHttpCtx *ctx, const char *name, size_t *len);
-
-/* ── Request Body (pull model) ─────────────────────────────────────────── */
-
-/**
- * @brief Read a chunk of request body via TryRead semantics.
- *
- * Body data is pre-buffered during HTTP parsing (llhttp on_body → stream buffer).
- * Handler calls this from on_request after the full body has arrived.
- *
- * @param buf  Output buffer.
- * @param cap  Output buffer capacity.
- * @return     >0 bytes, 0 = EOF, <0 = error.
- */
-XCAPI(ssize_t) xHttpCtxBodyRead(xHttpCtx *ctx, char *buf, size_t cap);
-
-/**
- * @brief Total request body length (available after parsing completes).
- * @return Body size in bytes, 0 if no body was sent.
- */
-XCAPI(size_t) xHttpCtxBodyLen(xHttpCtx *ctx);
 
 /* ── TLS ───────────────────────────────────────────────────────────────── */
 

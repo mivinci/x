@@ -204,8 +204,6 @@ xHttpClientDoSse
 xHttpClientGet
 xHttpClientGetSse
 xHttpClientPost
-xHttpCtxBodyLen
-xHttpCtxBodyRead
 xHttpCtxParam
 xHttpCtxSetHeader
 xHttpCtxSetStatus

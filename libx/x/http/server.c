@@ -256,6 +256,7 @@ xErrno xHttpMuxHandle(xHttpMux mux, const xHttpRouteConf *conf) {
   route->method          = method_str;
   route->path            = strdup(path);
   route->info.on_request = conf->on_request;
+  route->info.on_data    = conf->on_data;
   route->info.on_read    = conf->on_read;
   route->info.on_done    = conf->on_done;
   route->info.arg        = conf->arg;
@@ -610,13 +611,6 @@ void xHttpStreamReset(struct xHttpStream_ *stream) {
   stream->writer.headers_tail = NULL;
   stream->writer.sent         = 0;
   stream->writer.streaming    = 0;
-
-  /* Free request body buffer (kept alive during request, freed on reset) */
-  free(stream->req_body);
-  stream->req_body     = NULL;
-  stream->req_body_len = 0;
-  stream->req_body_cap = 0;
-  stream->req_body_off = 0;
 }
 
 static void conn_init_parser(struct xHttpConn_ *conn) {
@@ -1070,28 +1064,6 @@ const char *xHttpCtxParam(xHttpCtx *ctx, const char *name, size_t *len) {
     }
   }
   return NULL;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- *  Request body (TryRead pull model)
- * ═══════════════════════════════════════════════════════════════════════════ */
-
-ssize_t xHttpCtxBodyRead(xHttpCtx *ctx, char *buf, size_t cap) {
-  if (!ctx || !ctx->internal_) return -1;
-  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
-
-  size_t remain = stream->req_body_len - stream->req_body_off;
-  if (remain == 0) return 0; /* EOF */
-
-  size_t n = cap < remain ? cap : remain;
-  memcpy(buf, stream->req_body + stream->req_body_off, n);
-  stream->req_body_off += n;
-  return (ssize_t)n;
-}
-
-size_t xHttpCtxBodyLen(xHttpCtx *ctx) {
-  if (!ctx || !ctx->internal_) return 0;
-  return ((struct xHttpStream_ *)ctx->internal_)->req_body_len;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

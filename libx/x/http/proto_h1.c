@@ -106,26 +106,17 @@ static int on_body(llhttp_t *parser, const char *at, size_t len) {
   /* If there's a pending error or request was aborted, skip body */
   if (stream->pending_error || stream->request_aborted) return HPE_OK;
 
-  /* No route resolved yet — discard body */
-  if (!stream->route_info) return HPE_OK;
+  /* If no route or no on_data callback, discard body */
+  if (!stream->route_info || !stream->route_info->on_data) return HPE_OK;
 
-  /* Expand buffer if needed (start at 4096, double each time). */
-  if (stream->req_body_len + len > stream->req_body_cap) {
-    size_t new_cap = stream->req_body_cap ? stream->req_body_cap * 2 : 4096;
-    while (new_cap < stream->req_body_len + len)
-      new_cap *= 2;
-    char *p = (char *)realloc(stream->req_body, new_cap);
-    if (!p) {
-      stream->pending_error        = 500;
-      stream->pending_error_reason = "Internal Server Error";
-      return HPE_USER;
-    }
-    stream->req_body     = p;
-    stream->req_body_cap = new_cap;
+  /* Deliver body chunk to on_data */
+  int rc = stream->route_info->on_data(at, len, stream->route_info->arg);
+  if (rc != 0) {
+    stream->pending_error        = 413;
+    stream->pending_error_reason = "Content Too Large";
+    return HPE_USER;
   }
 
-  memcpy(stream->req_body + stream->req_body_len, at, len);
-  stream->req_body_len += len;
   return HPE_OK;
 }
 

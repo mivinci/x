@@ -140,8 +140,8 @@ struct PullCtx {
   std::atomic<int> call_count{0};
   std::string      last_method;
   std::string      last_url;
-  std::string      body;          // body to send via on_read
-  std::string      received_body; // request body, read from xHttpCtxBodyRead
+  std::string      body;         // body to send via on_read
+  std::string      received_body; // request body collected via on_data
   int              status = 200;
   std::multimap<std::string, std::string> headers;
 
@@ -167,14 +167,6 @@ static inline int pull_on_request(xHttpCtx *ctx, void *arg) {
   c->last_method = ctx->method ? ctx->method : "";
   c->last_url    = ctx->url ? ctx->url : "";
   xHttpCtxSetStatus(ctx, c->status);
-
-  /* Read request body (pre-buffered by C layer). */
-  c->received_body.clear();
-  char    buf[4096];
-  ssize_t n;
-  while ((n = xHttpCtxBodyRead(ctx, buf, sizeof(buf))) > 0) {
-    c->received_body.append(buf, (size_t)n);
-  }
   for (auto &[k, v] : c->headers) {
     xHttpCtxSetHeader(ctx, k.c_str(), v.c_str());
   }
@@ -197,6 +189,13 @@ static inline size_t pull_on_read(char *buf, size_t bufsize, void *arg) {
   std::memcpy(buf, c->body.data() + c->offset, n);
   c->offset += n;
   return n;
+}
+
+/** on_data: collect request body */
+static inline int pull_on_data(const char *data, size_t len, void *arg) {
+  auto *c = static_cast<PullCtx *>(arg);
+  c->received_body.append(data, len);
+  return 0;
 }
 
 /* ───────────────────── Fixture ───────────────────── */
@@ -248,6 +247,17 @@ protected:
     conf.pattern        = pattern;
     conf.on_request     = pull_on_request;
     conf.on_read        = pull_on_read;
+    conf.arg            = arg;
+    ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
+  }
+
+  /** Register a pull-model route with on_data for POST body. */
+  void route_pull_with_data(const char *pattern, void *arg = nullptr) {
+    xHttpRouteConf conf = {};
+    conf.pattern        = pattern;
+    conf.on_request     = pull_on_request;
+    conf.on_read        = pull_on_read;
+    conf.on_data        = pull_on_data;
     conf.arg            = arg;
     ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
   }

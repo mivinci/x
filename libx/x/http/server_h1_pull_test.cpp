@@ -60,7 +60,7 @@ TEST_F(HttpServerTest, OnDoneFiresAfterBodyPump) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "GET /done HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -92,7 +92,7 @@ TEST_F(HttpServerTest, OnDoneFiresForEmptyBody) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "GET /empty-done HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -122,7 +122,7 @@ TEST_F(HttpServerTest, OnDoneFiresForHeadersOnlyNoRead) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "GET /no-body HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -149,7 +149,7 @@ TEST_F(HttpServerTest, PipelinedRequestsKeepAlive) {
 
   // First request
   ASSERT_TRUE(send_str(fd, "GET /pipe HTTP/1.1\r\nHost: x\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
   std::string resp1 = recv_all(fd, 1000);
   EXPECT_NE(resp1.find("200 OK"), std::string::npos);
   EXPECT_NE(resp1.find("pipelined"), std::string::npos);
@@ -202,7 +202,7 @@ TEST_F(HttpServerTest, QueryStringPassedToHandler) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "GET /search?q=hello&page=2 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -218,9 +218,9 @@ TEST_F(HttpServerTest, QueryStringPassedToHandler) {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-TEST_F(HttpServerTest, DISABLED_PutRequestWithBody) {
+TEST_F(HttpServerTest, PutRequestWithBody) {
   PullCtx ctx;
-  route_pull("PUT /resource", &ctx);
+  route_pull_with_data("PUT /resource", &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -231,7 +231,7 @@ TEST_F(HttpServerTest, DISABLED_PutRequestWithBody) {
                      "Content-Length: " + std::to_string(body.size())
                    + "\r\nConnection: close\r\n\r\n" + body;
   ASSERT_TRUE(send_str(fd, req));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -264,7 +264,7 @@ TEST_F(HttpServerTest, DeleteRequestReachesHandler) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "DELETE /item HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -289,7 +289,7 @@ TEST_F(HttpServerTest, Http10WithoutHostHeader) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "GET /h10 HTTP/1.0\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -308,7 +308,7 @@ TEST_F(HttpServerTest, Http10WithConnectionClose) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "GET /h10close HTTP/1.0\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -396,7 +396,7 @@ TEST_F(HttpServerTest, TrailingSlashRouteMatch) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "GET /users/ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -419,7 +419,7 @@ TEST_F(HttpServerTest, TrailingSlashExplicitRoute) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "GET /items/ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -445,7 +445,7 @@ TEST_F(HttpServerTest, UrlEncodedPath) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "GET /hello%2Dworld HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -466,9 +466,9 @@ TEST_F(HttpServerTest, UrlEncodedPath) {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-TEST_F(HttpServerTest, DISABLED_ChunkedTransferEncodingRequestBody) {
+TEST_F(HttpServerTest, ChunkedTransferEncodingRequestBody) {
   PullCtx ctx;
-  route_pull("POST /chunked-in", &ctx);
+  route_pull_with_data("POST /chunked-in", &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -503,13 +503,13 @@ TEST_F(HttpServerTest, DISABLED_ChunkedTransferEncodingRequestBody) {
 
 TEST_F(HttpServerTest, PostWithZeroContentLength) {
   PullCtx ctx;
-  route_pull("POST /zero-cl", &ctx);
+  route_pull_with_data("POST /zero-cl", &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "POST /zero-cl HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -551,7 +551,7 @@ TEST_F(HttpServerTest, ParamRouteNonexistentParam) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "GET /items/7 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -582,7 +582,7 @@ TEST_F(HttpServerTest, OnReadIdempotentAfterEof) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "GET /eof HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);
@@ -624,7 +624,7 @@ TEST_F(HttpServerTest, SamePathDifferentMethods) {
     int fd = connect_to(port);
     ASSERT_GE(fd, 0);
     ASSERT_TRUE(send_str(fd, "GET /dual HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"));
-    run_for(loop, 500);
+    run_for(loop, 100);
     std::string resp = recv_all(fd);
     close(fd);
     EXPECT_EQ(get_ctx.call_count.load(), 1);
@@ -637,7 +637,7 @@ TEST_F(HttpServerTest, SamePathDifferentMethods) {
     int fd = connect_to(port);
     ASSERT_GE(fd, 0);
     ASSERT_TRUE(send_str(fd, "POST /dual HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
-    run_for(loop, 500);
+    run_for(loop, 100);
     std::string resp = recv_all(fd);
     close(fd);
     EXPECT_EQ(post_ctx.call_count.load(), 1);
@@ -700,7 +700,7 @@ TEST_F(HttpServerTest, DefaultStatus200WhenNotSet) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
   ASSERT_TRUE(send_str(fd, "GET /default-status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-  run_for(loop, 500);
+  run_for(loop, 100);
 
   std::string resp = recv_all(fd);
   close(fd);

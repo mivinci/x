@@ -332,7 +332,9 @@ protected:
     xHttpRouteConf conf = {};
     conf.pattern        = pattern;
     conf.on_request     = echo_on_request;
-    conf.on_read        = echo_on_read;    conf.arg            = arg;
+    conf.on_read        = echo_on_read;
+    conf.on_data        = echo_on_data;
+    conf.arg            = arg;
     ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
   }
 
@@ -408,7 +410,9 @@ TEST_F(HttpsIntegrationTest, GetWithSkipVerify) {
   RespCtx          ctx{};
   std::string      u    = url("/hello");
   xHttpRequestConf conf = {};
-  conf.url              = u.c_str();  conf.on_done          = on_resp;
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
   xErrno err            = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -435,7 +439,9 @@ TEST_F(HttpsIntegrationTest, PostWithSkipVerify) {
   xHttpRequestConf conf = {};
   conf.url              = u.c_str();
   conf.on_read          = on_read_provide;
-  conf.content_length   = strlen(body);  conf.on_done          = on_resp;
+  conf.content_length   = strlen(body);
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
   xErrno err            = xHttpClientPost(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -467,7 +473,9 @@ TEST_F(HttpsIntegrationTest, DoWithCustomHeaders) {
   config.method         = xHttpMethod_PUT;
   config.on_read        = on_read_provide;
   config.content_length = strlen(body);
-  config.headers        = hdrs;  config.on_done        = on_resp;
+  config.headers        = hdrs;
+  config.on_data        = on_data_collect;
+  config.on_done        = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -525,7 +533,9 @@ TEST_F(HttpsIntegrationTest, GetWithCorrectCaPath) {
   RespCtx          ctx{};
   std::string      u    = url("/hello");
   xHttpRequestConf conf = {};
-  conf.url              = u.c_str();  conf.on_done          = on_resp;
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
   xErrno err            = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -551,7 +561,9 @@ TEST_F(HttpsIntegrationTest, SelfSignedCertRejectedWithoutSkipVerify) {
   RespCtx          ctx{};
   std::string      u    = url("/hello");
   xHttpRequestConf conf = {};
-  conf.url              = u.c_str();  conf.on_done          = on_resp;
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
   xErrno err            = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok); /* submission succeeds, failure is async */
 
@@ -577,7 +589,9 @@ TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
   RespCtx          ctx{};
   std::string      u    = url("/hello");
   xHttpRequestConf conf = {};
-  conf.url              = u.c_str();  conf.on_done          = on_resp;
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
   xErrno err            = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -624,7 +638,9 @@ TEST_F(HttpsIntegrationTest, ConcurrentHttpsRequests) {
 
   for (int i = 0; i < N; i++) {
     xHttpRequestConf conf = {};
-    conf.url              = u.c_str();    conf.on_done          = multi_cb;
+    conf.url              = u.c_str();
+    conf.on_data          = multi_on_data;
+    conf.on_done          = multi_cb;
     xErrno err            = xHttpClientGet(client, &conf, &ctxs[i]);
     ASSERT_EQ(err, xErrno_Ok);
   }
@@ -816,7 +832,9 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
   RespCtx          ctx{};
   std::string      u    = url("/secure");
   xHttpRequestConf conf = {};
-  conf.url              = u.c_str();  conf.on_done          = on_resp;
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
   err                   = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -854,7 +872,9 @@ TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
   RespCtx          ctx{};
   std::string      u    = url("/secure");
   xHttpRequestConf conf = {};
-  conf.url              = u.c_str();  conf.on_done          = on_resp;
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_resp;
   err                   = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -881,7 +901,9 @@ TEST_F(HttpsIntegrationTest, HttpsRequestTimeout) {
   memset(&config, 0, sizeof(config));
   config.url        = "https://10.255.255.1:443/timeout";
   config.method     = xHttpMethod_GET;
-  config.timeout_ms = 500; /* 500ms timeout */  config.on_done    = on_resp;
+  config.timeout_ms = 500; /* 500ms timeout */
+  config.on_data    = on_data_collect;
+  config.on_done    = on_resp;
 
   xErrno err = xHttpClientDo(client, &config, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -971,7 +993,9 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
   RespCtx          ctx1{};
   std::string      u1    = url("/hello");
   xHttpRequestConf conf1 = {};
-  conf1.url              = u1.c_str();  conf1.on_done          = on_resp;
+  conf1.url              = u1.c_str();
+  conf1.on_data          = on_data_collect;
+  conf1.on_done          = on_resp;
   xErrno err             = xHttpClientGet(client, &conf1, &ctx1);
   ASSERT_EQ(err, xErrno_Ok);
   run_until(client_loop, ctx1.done, 5000);
@@ -985,7 +1009,9 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
   RespCtx          ctx2{};
   std::string      u2    = url("/hello");
   xHttpRequestConf conf2 = {};
-  conf2.url              = u2.c_str();  conf2.on_done          = on_resp;
+  conf2.url              = u2.c_str();
+  conf2.on_data          = on_data_collect;
+  conf2.on_done          = on_resp;
   err                    = xHttpClientGet(client, &conf2, &ctx2);
   ASSERT_EQ(err, xErrno_Ok);
   run_until(client_loop, ctx2.done, 5000);
