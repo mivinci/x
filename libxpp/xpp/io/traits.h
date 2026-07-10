@@ -72,9 +72,15 @@ concept AsyncReadWrite = AsyncRead<T> && AsyncWrite<T>;
  * ══════════════════════════════════════════════════════════════════ */
 
 #if defined(XPP_HAS_CONCEPT) && XPP_HAS_CONCEPT
-#define XPP_REQUIRES_TRYREAD(R) io::TryRead R
+#define XPP_REQUIRES_TRYREAD(R)       io::TryRead R
+#define XPP_REQUIRES_ASYNC_READ(R)    io::AsyncRead R
+#define XPP_REQUIRES_ASYNC_WRITE(W)   io::AsyncWrite W
+#define XPP_REQUIRES_READ_WRITE(T)    io::AsyncReadWrite T
 #else
-#define XPP_REQUIRES_TRYREAD(R) class R
+#define XPP_REQUIRES_TRYREAD(R)       class R
+#define XPP_REQUIRES_ASYNC_READ(R)    class R
+#define XPP_REQUIRES_ASYNC_WRITE(W)   class W
+#define XPP_REQUIRES_READ_WRITE(T)    class T
 #endif
 
 } // namespace io

@@ -45,7 +45,7 @@ constexpr size_t kBufSize = 8192;
  *
  * @tparam R Reader type satisfying AsyncRead (e.g., TcpStream, fs::File)
  */
-template <AsyncRead R> Promise<std::vector<uint8_t>> read_all(R &reader) {
+template <XPP_REQUIRES_ASYNC_READ(R)> Promise<std::vector<uint8_t>> read_all(R &reader) {
   std::vector<uint8_t> result;
   uint8_t              buf[8192];
   while (true) {
@@ -62,7 +62,7 @@ template <AsyncRead R> Promise<std::vector<uint8_t>> read_all(R &reader) {
  * @tparam R Reader type satisfying AsyncRead
  * @tparam W Writer type satisfying AsyncWrite
  */
-template <AsyncRead R, AsyncWrite W> Promise<void> copy(R &reader, W &writer) {
+template <XPP_REQUIRES_ASYNC_READ(R), XPP_REQUIRES_ASYNC_WRITE(W)> Promise<void> copy(R &reader, W &writer) {
   uint8_t buf[_::kBufSize];
   while (true) {
     ssize_t n = co_await reader.read(buf, sizeof(buf));
