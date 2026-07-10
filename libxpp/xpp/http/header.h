@@ -65,9 +65,15 @@ public:
   iterator       end()         { return m_map.end();   }
   // clang-format on
 
-  /// Range of entries for @p key (for multi-valued headers like Set-Cookie).
-  std::pair<const_iterator, const_iterator> equal_range(const std::string &key) const {
+  /// All values for @p key (multi-valued headers like Set-Cookie).
+  /// Returns an iterator pair — use in range-for via the Values proxy below.
+  std::pair<const_iterator, const_iterator> get_all(const std::string &key) const {
     return m_map.equal_range(lower(key));
+  }
+
+  /// STL-compatible alias for get_all().
+  std::pair<const_iterator, const_iterator> equal_range(const std::string &key) const {
+    return get_all(key);
   }
 
   const Map &raw() const { return m_map; }
