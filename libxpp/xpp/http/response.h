@@ -31,6 +31,7 @@
 #include <utility>
 
 #include <xpp/bytes/bytes.h>
+#include <xpp/io/traits.h>
 #include <xpp/bytes/bytes_mut.h>
 #include <xpp/compiler.h>
 #include <xpp/http/error.h>
@@ -77,13 +78,7 @@ public:
   ///
   /// Accepts any type satisfying the TryRead concept (duck-typing in
   /// C++11, concept-checked in C++20 via xpp::io::TryRead).
-#if XPP_HAS_CONCEPT
-  template <io::TryRead R>
-#else
-  template <class R,
-    class = decltype(std::declval<R&>().try_read(
-      std::declval<char*>(), std::declval<size_t>()))>
-#endif
+  template <XPP_REQUIRES_TRYREAD(R)>
   ResponseBuilder &body(R &&reader) {
     m_read_fn = Option<std::function<ssize_t(char *, size_t)>>(
       [r = std::forward<R>(reader)](char *buf, size_t cap) mutable -> ssize_t {

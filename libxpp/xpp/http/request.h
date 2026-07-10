@@ -33,6 +33,8 @@
 
 #include <map>
 #include <string>
+
+#include <xpp/io/traits.h>
 #include <utility>
 
 #include <xpp/http/error.h>
@@ -87,9 +89,7 @@ public:
 
   /// Terminal — body via TryRead reader.  The reader must satisfy
   /// `try_read(char*, size_t) → ssize_t` (e.g. bytes::Reader).
-  template <class R,
-    class = decltype(std::declval<R &>().try_read(
-      std::declval<char *>(), std::declval<size_t>()))>
+  template <XPP_REQUIRES_TRYREAD(R)>
   Result<Request> body(R &&reader);
 
 private:
@@ -149,7 +149,7 @@ inline Result<Request> RequestBuilder::body() {
     Request(m_method, std::move(m_url), std::move(m_headers), {}));
 }
 
-template <class R, class>
+template <XPP_REQUIRES_TRYREAD(R)>
 Result<Request> RequestBuilder::body(R &&reader) {
   auto fn = Option<std::function<ssize_t(char *, size_t)>>(
     [r = std::forward<R>(reader)](char *buf, size_t cap) mutable -> ssize_t {

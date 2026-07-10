@@ -58,6 +58,25 @@ concept AsyncReadWrite = AsyncRead<T> && AsyncWrite<T>;
 
 #endif // XPP_HAS_CONCEPT
 
+/* ═══════════════════════════════════════════════════════════════════
+ *  XPP_REQUIRES_TRYREAD(R)
+ *
+ *  Template parameter constraint requiring try_read(char*, size_t).
+ *  In C++20 mode this expands to a concept (io::TryRead R); in
+ *  C++11..17 mode it is a plain class R — the compiler will produce
+ *  a readable error at instantiation time when try_read is missing.
+ *
+ *  Usage:
+ *    template <XPP_REQUIRES_TRYREAD(R)>
+ *    void foo(R &&reader) { ... }
+ * ══════════════════════════════════════════════════════════════════ */
+
+#if defined(XPP_HAS_CONCEPT) && XPP_HAS_CONCEPT
+#define XPP_REQUIRES_TRYREAD(R) io::TryRead R
+#else
+#define XPP_REQUIRES_TRYREAD(R) class R
+#endif
+
 } // namespace io
 } // namespace xpp
 
