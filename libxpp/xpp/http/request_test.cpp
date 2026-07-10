@@ -125,9 +125,8 @@ TEST(RequestTest, Headers) {
 
   // Keys are lowercased (case-insensitive).  Both X-Custom headers are stored as "x-custom".
   auto &hdrs = result.headers();
-  auto  range = hdrs.equal_range("x-custom");
   int   count = 0;
-  for (auto it = range.first; it != range.second; ++it)
+  for (auto &v : hdrs.get_all("x-custom"))
     ++count;
   EXPECT_EQ(count, 2);
 }

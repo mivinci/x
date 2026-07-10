@@ -65,15 +65,42 @@ public:
   iterator       end()         { return m_map.end();   }
   // clang-format on
 
-  /// All values for @p key (multi-valued headers like Set-Cookie).
-  /// Returns an iterator pair — use in range-for via the Values proxy below.
-  std::pair<const_iterator, const_iterator> get_all(const std::string &key) const {
-    return m_map.equal_range(lower(key));
-  }
+  /// Range-for view over all values for a key (zero-copy, values only).
+  class Values {
+  public:
+    class const_iterator {
+      Map::const_iterator m_it;
 
-  /// STL-compatible alias for get_all().
-  std::pair<const_iterator, const_iterator> equal_range(const std::string &key) const {
-    return get_all(key);
+    public:
+      explicit const_iterator(Map::const_iterator it) : m_it(it) {}
+      const std::string &operator*() const { return m_it->second; }
+      const_iterator    &operator++() {
+        ++m_it;
+        return *this;
+      }
+      bool operator!=(const const_iterator &o) const { return m_it != o.m_it; }
+
+    private:
+      friend class Values;
+      Map::const_iterator base() const { return m_it; }
+    };
+
+    Values(Map::const_iterator b, Map::const_iterator e) : m_begin(b), m_end(e) {}
+
+    const_iterator begin() const { return const_iterator(m_begin); }
+    const_iterator end() const { return const_iterator(m_end); }
+
+    bool empty() const { return m_begin == m_end; }
+
+  private:
+    Map::const_iterator m_begin;
+    Map::const_iterator m_end;
+  };
+
+  /// All values for @p key (multi-valued headers like Set-Cookie).
+  Values get_all(const std::string &key) const {
+    auto r = m_map.equal_range(lower(key));
+    return Values(r.first, r.second);
   }
 
   const Map &raw() const { return m_map; }
