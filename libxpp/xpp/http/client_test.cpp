@@ -108,9 +108,9 @@ protected:
   void route_pull(const char *pattern, const std::string &body, int status = 200,
                   const char *ctype = "text/plain") {
     xHttpRouteConf conf = {};
-    conf.pattern = pattern;
-    conf.on_request = [](xHttpCtx *ctx2, void *arg) -> int {
-      auto *p = static_cast<std::tuple<int, std::string, std::string>*>(arg);
+    conf.pattern        = pattern;
+    conf.on_request     = [](xHttpCtx *ctx2, void *arg) -> int {
+      auto *p = static_cast<std::tuple<int, std::string, std::string> *>(arg);
       xHttpCtxSetStatus(ctx2, std::get<0>(*p));
       auto &ct = std::get<2>(*p);
       if (!ct.empty()) xHttpCtxSetHeader(ctx2, "Content-Type", ct.c_str());
@@ -119,28 +119,31 @@ protected:
       return 0;
     };
     conf.on_read = [](char *buf, size_t, void *arg) -> size_t {
-      auto *p = static_cast<std::tuple<int, std::string, std::string>*>(arg);
+      auto         *p   = static_cast<std::tuple<int, std::string, std::string> *>(arg);
       static size_t off = 0;
-      auto &b = std::get<1>(*p);
-      if (off >= b.size()) { off = 0; return 0; }
-      size_t n = std::min((size_t)4096, b.size() - off);
+      auto         &b   = std::get<1>(*p);
+      if (off >= b.size()) {
+        off = 0;
+        return 0;
+      }
+      size_t n = std::min(static_cast<size_t>(4096), b.size() - off);
       std::memcpy(buf, b.data() + off, n);
       off += n;
       return n;
     };
     static std::tuple<int, std::string, std::string> store;
-    store = {status, body, ctype ? std::string(ctype) : std::string()};
+    store    = {status, body, ctype ? std::string(ctype) : std::string()};
     conf.arg = &store;
     ASSERT_EQ(xHttpMuxHandle(m_mux, &conf), xErrno_Ok);
   }
 
   void route_pull_echo(const char *pattern, EchoCtx *echo) {
     xHttpRouteConf conf = {};
-    conf.pattern    = pattern;
-    conf.on_request = echo_on_req;
-    conf.on_read    = echo_on_read;
-    conf.on_data    = echo_on_data;
-    conf.arg        = echo;
+    conf.pattern        = pattern;
+    conf.on_request     = echo_on_req;
+    conf.on_read        = echo_on_read;
+    conf.on_data        = echo_on_data;
+    conf.arg            = echo;
     ASSERT_EQ(xHttpMuxHandle(m_mux, &conf), xErrno_Ok);
   }
 
@@ -166,7 +169,7 @@ TEST_F(HttpClientTest, GetHelloWorld) {
   route_pull("/hello", "Hello, xpp!");
 
   auto client = xpp::http::Client::builder().build();
-  auto req = Request::builder().method(Method::Get).url(url("/hello")).body().unwrap();
+  auto req    = Request::builder().method(Method::Get).url(url("/hello")).body().unwrap();
   auto result = client.send(std::move(req)).await();
 
   ASSERT_TRUE(result.is_ok()) << "GET /hello failed";
@@ -186,15 +189,15 @@ TEST_F(HttpClientTest, PostEcho) {
   EchoCtx echo;
   route_pull_echo("POST /echo", &echo);
 
-  auto client = xpp::http::Client::builder().build();
+  auto        client  = xpp::http::Client::builder().build();
   std::string payload = "echo this back";
-  auto req = Request::builder()
-    .method(Method::Post)
-    .url(url("/echo"))
-    .header("Content-Length", std::to_string(payload.size()))
-    .body(xpp::bytes::Reader(xpp::bytes::Bytes::copy(
-      reinterpret_cast<const uint8_t *>(payload.data()), payload.size())))
-    .unwrap();
+  auto        req     = Request::builder()
+               .method(Method::Post)
+               .url(url("/echo"))
+               .header("Content-Length", std::to_string(payload.size()))
+               .body(xpp::bytes::Reader(xpp::bytes::Bytes::copy(
+                 reinterpret_cast<const uint8_t *>(payload.data()), payload.size())))
+               .unwrap();
   auto result = client.send(std::move(req)).await();
 
   ASSERT_TRUE(result.is_ok());
@@ -213,8 +216,8 @@ TEST_F(HttpClientTest, PostEcho) {
 TEST_F(HttpClientTest, StatusCode) {
   {
     xHttpRouteConf rc = {};
-    rc.pattern = "/status/404";
-    rc.on_request = [](xHttpCtx *ctx, void *) -> int {
+    rc.pattern        = "/status/404";
+    rc.on_request     = [](xHttpCtx *ctx, void *) -> int {
       int code = 200;
       if (ctx->url) {
         const char *slash = strrchr(ctx->url, '/');
@@ -229,7 +232,7 @@ TEST_F(HttpClientTest, StatusCode) {
   }
 
   auto client = xpp::http::Client::builder().build();
-  auto req = Request::builder().method(Method::Get).url(url("/status/404")).body().unwrap();
+  auto req    = Request::builder().method(Method::Get).url(url("/status/404")).body().unwrap();
   auto result = client.send(std::move(req)).await();
 
   ASSERT_TRUE(result.is_ok());
@@ -243,8 +246,8 @@ TEST_F(HttpClientTest, StatusCode) {
 TEST_F(HttpClientTest, EmptyBody) {
   {
     xHttpRouteConf rc = {};
-    rc.pattern = "/empty";
-    rc.on_request = [](xHttpCtx *ctx, void *) -> int {
+    rc.pattern        = "/empty";
+    rc.on_request     = [](xHttpCtx *ctx, void *) -> int {
       xHttpCtxSetStatus(ctx, 200);
       return 0;
     };
@@ -253,7 +256,7 @@ TEST_F(HttpClientTest, EmptyBody) {
   }
 
   auto client = xpp::http::Client::builder().build();
-  auto req = Request::builder().method(Method::Get).url(url("/empty")).body().unwrap();
+  auto req    = Request::builder().method(Method::Get).url(url("/empty")).body().unwrap();
   auto result = client.send(std::move(req)).await();
 
   ASSERT_TRUE(result.is_ok());
@@ -272,23 +275,28 @@ TEST_F(HttpClientTest, EmptyBody) {
 TEST_F(HttpClientTest, StreamingBodyViaText) {
   {
     xHttpRouteConf rc = {};
-    rc.pattern = "/chunked";
-    rc.on_request = [](xHttpCtx *ctx, void *) -> int {
+    rc.pattern        = "/chunked";
+    rc.on_request     = [](xHttpCtx *ctx, void *) -> int {
       xHttpCtxSetStatus(ctx, 200);
       xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
       return 0;
     };
     rc.on_read = [](char *buf, size_t, void *) -> size_t {
       static const char *chunks = "chunk-1 chunk-2 chunk-3";
-      static size_t off = 0;
-      if (off >= 23) { off = 0; return 0; }
-      buf[0] = chunks[off]; off++; return 1;
+      static size_t      off    = 0;
+      if (off >= 23) {
+        off = 0;
+        return 0;
+      }
+      buf[0] = chunks[off];
+      off++;
+      return 1;
     };
     ASSERT_EQ(xHttpMuxHandle(m_mux, &rc), xErrno_Ok);
   }
 
   auto client = xpp::http::Client::builder().build();
-  auto req = Request::builder().method(Method::Get).url(url("/chunked")).body().unwrap();
+  auto req    = Request::builder().method(Method::Get).url(url("/chunked")).body().unwrap();
   auto result = client.send(std::move(req)).await();
 
   ASSERT_TRUE(result.is_ok());
@@ -310,12 +318,12 @@ TEST_F(HttpClientTest, PostBinaryBody) {
 
   auto                 client  = xpp::http::Client::builder().build();
   std::vector<uint8_t> payload = {0x00, 0x01, 0x02, 0xFE, 0xFF};
-  auto req = Request::builder()
-    .method(Method::Post)
-    .url(url("/echo-bin"))
-    .header("Content-Length", std::to_string(payload.size()))
-    .body(xpp::bytes::Reader(xpp::bytes::Bytes::from(std::vector<uint8_t>(payload))))
-    .unwrap();
+  auto                 req     = Request::builder()
+               .method(Method::Post)
+               .url(url("/echo-bin"))
+               .header("Content-Length", std::to_string(payload.size()))
+               .body(xpp::bytes::Reader(xpp::bytes::Bytes::from(std::vector<uint8_t>(payload))))
+               .unwrap();
   auto result = client.send(std::move(req)).await();
 
   ASSERT_TRUE(result.is_ok());
@@ -323,5 +331,6 @@ TEST_F(HttpClientTest, PostBinaryBody) {
 
   auto body = result.unwrap().text().await();
   ASSERT_TRUE(body.is_ok());
-  EXPECT_EQ(body.unwrap(), std::string(reinterpret_cast<const char *>(payload.data()), payload.size()));
+  EXPECT_EQ(body.unwrap(),
+            std::string(reinterpret_cast<const char *>(payload.data()), payload.size()));
 }
