@@ -204,12 +204,9 @@ xHttpClientDoSse
 xHttpClientGet
 xHttpClientGetSse
 xHttpClientPost
-xHttpCtxEndStream
 xHttpCtxParam
-xHttpCtxSend
 xHttpCtxSetHeader
 xHttpCtxSetStatus
-xHttpCtxWrite
 xHttpMuxCreate
 xHttpMuxDestroy
 xHttpMuxHandle
@@ -220,6 +217,7 @@ xHttpServerCreate
 xHttpServerDestroy
 xHttpServerListen
 xHttpServerListenTls
+xHttpServerPort
 xHttpServerSetMaxHeaderSize
 xIOBlockAcquire
 xIOBlockPoolDrain
