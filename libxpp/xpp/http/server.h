@@ -77,6 +77,24 @@ public:
   /// Raw header string (for logging, etc.)
   const char *headers_raw() const { return m_ctx->headers; }
 
+  /// Request body reader (TryRead pull model).
+  /// Body is pre-buffered by the server during HTTP parsing.
+  /// try_read returns >0 bytes, 0 for EOF, <0 for error.
+  class Body {
+  public:
+    ssize_t try_read(char *buf, size_t cap) {
+      return xHttpCtxBodyRead(m_ctx, buf, cap);
+    }
+    /// Total body length (0 if no body was sent).
+    size_t len() const { return xHttpCtxBodyLen(m_ctx); }
+  private:
+    friend class IncomingRequest;
+    xHttpCtx *m_ctx;
+    explicit Body(xHttpCtx *ctx) : m_ctx(ctx) {}
+  };
+
+  Body body() { return Body(m_ctx); }
+
   friend class Router;
   xHttpCtx   *m_ctx;
   std::string m_method;

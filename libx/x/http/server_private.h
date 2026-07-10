@@ -140,6 +140,12 @@ XDEF_STRUCT(xHttpStream_) {
   /* Per-request context (built from stream state, passed to callbacks) */
   xHttpCtx ctx;
 
+  /* Request body buffer (collected by on_body during llhttp_execute) */
+  char   *req_body;        /**< Body buffer (malloc'd)              */
+  size_t  req_body_len;    /**< Bytes currently in req_body         */
+  size_t  req_body_cap;    /**< Allocated capacity                  */
+  size_t  req_body_off;    /**< Read offset for xHttpCtxBody       */
+
   /* Stream state */
   int         request_complete;     /**< Request fully parsed          */
   int         pending_error;        /**< Error status to send          */

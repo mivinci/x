@@ -142,15 +142,26 @@ static int h2_on_data_chunk_recv_callback(nghttp2_session *session, uint8_t flag
   /* If there's a pending error or request was aborted, skip body */
   if (stream->pending_error || stream->request_aborted) return 0;
 
-  /* If no route or no on_data callback, discard body */
-  if (!stream->route_info || !stream->route_info->on_data) return 0;
+  /* Collect body into stream's internal buffer (same as H1 on_body). */
+  if (!stream->route_info) return 0;
 
-  int rc = stream->route_info->on_data((const char *)data, len, stream->route_info->arg);
-  if (rc != 0) {
-    stream->pending_error        = 413;
-    stream->pending_error_reason = "Content Too Large";
+  /* Expand buffer if needed */
+  if (stream->req_body_len + len > stream->req_body_cap) {
+    size_t new_cap = stream->req_body_cap ? stream->req_body_cap * 2 : 4096;
+    while (new_cap < stream->req_body_len + len)
+      new_cap *= 2;
+    char *p = (char *)realloc(stream->req_body, new_cap);
+    if (!p) {
+      stream->pending_error        = 500;
+      stream->pending_error_reason = "Internal Server Error";
+      return 0;
+    }
+    stream->req_body     = p;
+    stream->req_body_cap = new_cap;
   }
 
+  memcpy(stream->req_body + stream->req_body_len, data, len);
+  stream->req_body_len += len;
   return 0;
 }
 
