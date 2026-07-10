@@ -397,6 +397,16 @@ xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port) {
     return xErrno_SysError;
   }
 
+  /* Retrieve the actual port (port=0 → kernel-assigned). */
+  {
+    socklen_t alen = sizeof(addr);
+    if (getsockname(fd, (struct sockaddr *)&addr, &alen) == 0) {
+      s->listen_port = ntohs(addr.sin_port);
+    } else {
+      s->listen_port = port;
+    }
+  }
+
   if (listen(fd, SOMAXCONN) < 0) {
     close(fd);
     return xErrno_SysError;
@@ -412,6 +422,11 @@ xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port) {
   s->listen_fd   = fd;
 
   return xErrno_Ok;
+}
+
+uint16_t xHttpServerPort(xHttpServer server) {
+  if (!server) return 0;
+  return ((struct xHttpServer_ *)server)->listen_port;
 }
 
 void xHttpServerDestroy(xHttpServer server) {

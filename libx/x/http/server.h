@@ -119,6 +119,14 @@ XCAPI(xHttpServer) xHttpServerCreate(const xHttpServerConf *conf);
 XCAPI(xErrno) xHttpServerListen(xHttpServer server, const char *host, uint16_t port);
 
 /**
+ * @brief Return the actual listening port (use after xHttpServerListen).
+ *
+ * When @p port in xHttpServerListen is 0, the kernel assigns a free port.
+ * This function returns the assigned port (or 0 if not yet listening).
+ */
+XCAPI(uint16_t) xHttpServerPort(xHttpServer server);
+
+/**
  * @brief Destroy an HTTP server and release all resources. Safe to call NULL.
  */
 XCAPI(void) xHttpServerDestroy(xHttpServer server);

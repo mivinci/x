@@ -183,6 +183,7 @@ XDEF_STRUCT(xHttpServer_) {
   xEventLoop loop;        /**< Event loop                       */
   xSocket    listen_sock; /**< Listening socket                  */
   int        listen_fd;   /**< Listening socket fd (raw)         */
+  uint16_t   listen_port; /**< Actual port after bind (port=0)   */
 
   /* TLS listening socket (separate port) */
   xSocket tls_listen_sock; /**< TLS listening socket              */

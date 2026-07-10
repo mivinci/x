@@ -253,6 +253,9 @@ public:
    *  is destroyed (RAII — on_shutdown callback). */
   Promise<Result<void>> serve(Router &router);
 
+  /** Return the actual listening port (valid after serve() is called). */
+  uint16_t port() const { return xHttpServerPort(m_server.get()); }
+
 private:
   struct Deleter {
     void deallocate(void *p, Layout) const noexcept {

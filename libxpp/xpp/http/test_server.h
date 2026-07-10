@@ -22,13 +22,7 @@
 #ifndef XPP_HTTP_TEST_SERVER_H
 #define XPP_HTTP_TEST_SERVER_H
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
 #include <string>
-#include <utility>
 
 #include <xpp/http/client.h>
 #include <xpp/http/request.h>
@@ -74,24 +68,6 @@ public:
   }
 
 private:
-  static uint16_t find_free_port() {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return 0;
-    struct sockaddr_in addr = {};
-    addr.sin_family         = AF_INET;
-    addr.sin_addr.s_addr    = htonl(INADDR_LOOPBACK);
-    addr.sin_port           = 0;
-    if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
-      close(fd);
-      return 0;
-    }
-    socklen_t len = sizeof(addr);
-    getsockname(fd, reinterpret_cast<struct sockaddr *>(&addr), &len);
-    uint16_t p = ntohs(addr.sin_port);
-    close(fd);
-    return p;
-  }
-
   Router                m_router;
   uint16_t              m_port   = 0;
   Client                m_client = Client::builder().build();
@@ -104,10 +80,9 @@ private:
 
 inline void TestServer::start() {
   m_loop   = static_cast<xEventLoop>(xEventLoopCurrent());  // NOLINT
-  m_port   = find_free_port();
-  m_server = Server::bind(("127.0.0.1:" + std::to_string(m_port)).c_str())
-               .unwrap();
+  m_server = Server::bind("127.0.0.1:0").unwrap();          // port 0 → kernel-assigned
   m_shutdown = m_server.serve(m_router);
+  m_port     = m_server.port();                              // actual port from bind+listen
 }
 
 /* ── TestServer::stop ─────────────────────────────────────────────── */
