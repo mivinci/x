@@ -62,10 +62,12 @@ public:
 
   /* ── Iteration ──────────────────────────────────────────────────── */
 
+  // clang-format off
   const_iterator begin() const { return m_map.begin(); }
-  const_iterator end() const { return m_map.end(); }
-  iterator       begin() { return m_map.begin(); }
-  iterator       end() { return m_map.end(); }
+  const_iterator end()   const { return m_map.end();   }
+  iterator       begin()       { return m_map.begin(); }
+  iterator       end()         { return m_map.end();   }
+  // clang-format on
 
   /// Range of entries for @p key (for multi-valued headers like Set-Cookie).
   std::pair<const_iterator, const_iterator> equal_range(const std::string &key) const {
