@@ -23,7 +23,7 @@ DerivePointerAlignment: false
 
 # ── Braces ────────────────────────────────────────────────────────────────
 BreakBeforeBraces: Attach
-AllowShortFunctionsOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Inline
 AllowShortIfStatementsOnASingleLine: WithoutElse
 AllowShortLoopsOnASingleLine: false
 AllowShortBlocksOnASingleLine: Empty

@@ -44,14 +44,10 @@ public:
     // TODO: integrate with pull model — buffer data for on_read to consume.
     m_buf.append(data, len);
   }
-  void write(const std::string &s) {
-    write(s.c_str(), s.size());
-  }
+  void write(const std::string &s) { write(s.c_str(), s.size()); }
 
   /// Move accumulated data out for the server to send.
-  std::string take_buffer() {
-    return std::move(m_buf);
-  }
+  std::string take_buffer() { return std::move(m_buf); }
 
 private:
   xHttpCtx   *m_ctx;
@@ -64,17 +60,11 @@ private:
 
 class IncomingRequest {
 public:
-  const std::string &method() const {
-    return m_method;
-  }
-  const std::string &path() const {
-    return m_path;
-  }
+  const std::string &method() const { return m_method; }
+  const std::string &path() const { return m_path; }
 
   /// Look up a header by name (case-insensitive).
-  Option<std::string> header(const std::string &name) const {
-    return m_headers.get(name);
-  }
+  Option<std::string> header(const std::string &name) const { return m_headers.get(name); }
 
   /// Look up a route parameter (e.g. "id" for "/users/:id").
   std::string param(const std::string &name) const {
@@ -85,15 +75,13 @@ public:
   }
 
   /// Raw header string (for logging, etc.)
-  const char *headers_raw() const {
-    return m_ctx->headers;
-  }
+  const char *headers_raw() const { return m_ctx->headers; }
 
   friend class Router;
-  xHttpCtx                               *m_ctx;
-  std::string                             m_method;
-  std::string                             m_path;
-  HeaderMap m_headers;
+  xHttpCtx   *m_ctx;
+  std::string m_method;
+  std::string m_path;
+  HeaderMap   m_headers;
 
   IncomingRequest(xHttpCtx *ctx, const char *method, const char *path)
       : m_ctx(ctx), m_method(method), m_path(path) {}
@@ -133,7 +121,7 @@ namespace _ {
 /// Per-route state stored on the heap. Passed as `arg` to the C
 /// callbacks (on_request, on_read).
 struct RouteState {
-  Handler handler;
+  Handler                                       handler;
   Option<std::function<size_t(char *, size_t)>> body_reader;
 
   explicit RouteState(Handler h) : handler(std::move(h)) {}
@@ -156,9 +144,7 @@ public:
   Router &operator=(const Router &) = delete;
 
   /// Access the raw xHttpMux handle (for Server integration).
-  xHttpMux raw() const {
-    return m_mux.get();
-  }
+  xHttpMux raw() const { return m_mux.get(); }
 
   /// Register a route with a handler.
   ///
@@ -212,7 +198,7 @@ private:
 
     // Store body for on_read to pull.
     if (reply.has_body()) {
-      auto inner = std::move(reply.take_try_read()).unwrap_unchecked();
+      auto inner      = std::move(reply.take_try_read()).unwrap_unchecked();
       rs->body_reader = Option<std::function<size_t(char *, size_t)>>(
         [fn = std::move(inner)](char *buf, size_t size) -> size_t {
           ssize_t n = fn(buf, size);
@@ -247,10 +233,8 @@ public:
 
   Server() = default;
   Server(Server &&other) noexcept
-    : m_server(std::move(other.m_server)),
-      m_host(std::move(other.m_host)),
-      m_port(other.m_port),
-      m_shutdown_resolver(std::move(other.m_shutdown_resolver)) {
+      : m_server(std::move(other.m_server)), m_host(std::move(other.m_host)), m_port(other.m_port),
+        m_shutdown_resolver(std::move(other.m_shutdown_resolver)) {
     XPP_ASSERT(!m_shutdown_resolver.is_some(),
                "cannot move a Server while serving — call serve() after the move");
   }
@@ -260,8 +244,7 @@ public:
       m_host              = std::move(other.m_host);
       m_port              = other.m_port;
       m_shutdown_resolver = std::move(other.m_shutdown_resolver);
-      XPP_ASSERT(!m_shutdown_resolver.is_some(),
-                 "cannot move a Server while serving");
+      XPP_ASSERT(!m_shutdown_resolver.is_some(), "cannot move a Server while serving");
     }
     return *this;
   }
@@ -282,10 +265,10 @@ private:
   // m_shutdown_resolver MUST be declared before m_server so it outlives
   // the OwnedHandle — when m_server destructor fires on_shutdown, the
   // resolver is still alive.
-  Option<PromiseResolver<Result<void>>>  m_shutdown_resolver;
-  OwnedHandle<Deleter>                   m_server;
-  std::string                            m_host;
-  uint16_t                               m_port = 0;
+  Option<PromiseResolver<Result<void>>> m_shutdown_resolver;
+  OwnedHandle<Deleter>                  m_server;
+  std::string                           m_host;
+  uint16_t                              m_port = 0;
 };
 
 /* ── Server::bind ─────────────────────────────────────────────────── */
@@ -305,7 +288,7 @@ inline Result<Server> Server::bind(const char *addr) {
 /* ── Server::serve ────────────────────────────────────────────────── */
 
 Promise<Result<void>> Server::serve(Router &router) {
-  auto [p, r] = async<Result<void>>();
+  auto [p, r]         = async<Result<void>>();
   m_shutdown_resolver = Option<PromiseResolver<Result<void>>>(std::move(r));
 
   xHttpServerConf conf = {};
@@ -316,7 +299,7 @@ Promise<Result<void>> Server::serve(Router &router) {
     static_cast<Server *>(arg)->m_shutdown_resolver.unwrap_unchecked().resolve(
       xpp::Result<void, Error>(xpp::ok));
   };
-  conf.shutdown_arg    = this;
+  conf.shutdown_arg = this;
 
   OwnedHandle<Deleter> h(xHttpServerCreate(&conf));
   if (!h.get()) {

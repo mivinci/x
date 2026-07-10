@@ -93,9 +93,9 @@ public:
 private:
   friend class Request;
 
-  Method                                  m_method = Method::Get;
-  std::string                             m_url;
-  HeaderMap m_headers;
+  Method      m_method = Method::Get;
+  std::string m_url;
+  HeaderMap   m_headers;
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -106,35 +106,23 @@ private:
 
 class Request {
 public:
-  static RequestBuilder builder() {
-    return RequestBuilder();
-  }
+  static RequestBuilder builder() { return RequestBuilder(); }
 
-  Method method() const {
-    return m_method;
-  }
-  const std::string &url() const {
-    return m_url;
-  }
-  const HeaderMap &headers() const {
-    return m_headers;
-  }
+  Method             method() const { return m_method; }
+  const std::string &url() const { return m_url; }
+  const HeaderMap   &headers() const { return m_headers; }
 
-  bool has_body() const {
-    return m_read_fn.is_some();
-  }
+  bool has_body() const { return m_read_fn.is_some(); }
 
   /// Take ownership of the TryRead reader (moved out, one-shot).
-  Option<std::function<ssize_t(char *, size_t)>> take_try_read() {
-    return std::move(m_read_fn);
-  }
+  Option<std::function<ssize_t(char *, size_t)>> take_try_read() { return std::move(m_read_fn); }
 
 private:
   friend class RequestBuilder;
 
   Method                                         m_method;
   std::string                                    m_url;
-  HeaderMap m_headers;
+  HeaderMap                                      m_headers;
   Option<std::function<ssize_t(char *, size_t)>> m_read_fn;
 
   Request() = default;

@@ -25,7 +25,7 @@ namespace http {
 
 class HeaderMap {
 public:
-  using Map = std::multimap<std::string, std::string>;
+  using Map            = std::multimap<std::string, std::string>;
   using iterator       = Map::iterator;
   using const_iterator = Map::const_iterator;
 
@@ -43,9 +43,7 @@ public:
   }
 
   /// Erase all headers matching @p key (case-insensitive).
-  void erase(const std::string &key) {
-    m_map.erase(lower(key));
-  }
+  void erase(const std::string &key) { m_map.erase(lower(key)); }
 
   /* ── Query ──────────────────────────────────────────────────────── */
 
@@ -57,19 +55,17 @@ public:
   }
 
   /// True if any header matches @p key.
-  bool contains(const std::string &key) const {
-    return m_map.find(lower(key)) != m_map.end();
-  }
+  bool contains(const std::string &key) const { return m_map.find(lower(key)) != m_map.end(); }
 
   bool   empty() const { return m_map.empty(); }
-  size_t size()  const { return m_map.size(); }
+  size_t size() const { return m_map.size(); }
 
   /* ── Iteration ──────────────────────────────────────────────────── */
 
   const_iterator begin() const { return m_map.begin(); }
-  const_iterator end()   const { return m_map.end(); }
-  iterator       begin()       { return m_map.begin(); }
-  iterator       end()         { return m_map.end(); }
+  const_iterator end() const { return m_map.end(); }
+  iterator       begin() { return m_map.begin(); }
+  iterator       end() { return m_map.end(); }
 
   /// Range of entries for @p key (for multi-valued headers like Set-Cookie).
   std::pair<const_iterator, const_iterator> equal_range(const std::string &key) const {

@@ -30,10 +30,10 @@
 #include <utility>
 
 #include <xpp/bytes/bytes.h>
-#include <xpp/http/header.h>
 #include <xpp/bytes/bytes_mut.h>
 #include <xpp/compiler.h>
 #include <xpp/http/error.h>
+#include <xpp/http/header.h>
 #include <xpp/io/traits.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
@@ -94,7 +94,7 @@ private:
   friend class Response;
 
   int                                            m_status = 200;
-  HeaderMap m_headers;
+  HeaderMap                                      m_headers;
   Option<std::function<ssize_t(char *, size_t)>> m_read_fn;
 };
 
@@ -107,33 +107,21 @@ private:
 
 class Response {
 public:
-  static ResponseBuilder builder() {
-    return ResponseBuilder();
-  }
+  static ResponseBuilder builder() { return ResponseBuilder(); }
 
   Response()                                = default;
   Response(Response &&) noexcept            = default;
   Response &operator=(Response &&) noexcept = default;
 
-  int status() const {
-    return m_status;
-  }
+  int status() const { return m_status; }
 
-  Option<std::string> header(const std::string &name) const {
-    return m_headers.get(name);
-  }
+  Option<std::string> header(const std::string &name) const { return m_headers.get(name); }
 
-  const HeaderMap &headers() const {
-    return m_headers;
-  }
+  const HeaderMap &headers() const { return m_headers; }
 
-  bool has_body() const {
-    return m_read_fn.is_some();
-  }
+  bool has_body() const { return m_read_fn.is_some(); }
 
-  Option<std::function<ssize_t(char *, size_t)>> take_try_read() {
-    return std::move(m_read_fn);
-  }
+  Option<std::function<ssize_t(char *, size_t)>> take_try_read() { return std::move(m_read_fn); }
 
   // ── Convenience body accessors (client side) ─────────────────────
 
@@ -157,12 +145,11 @@ public:
 private:
   friend class ResponseBuilder;
 
-  Response(int status, HeaderMap headers,
-           Option<std::function<ssize_t(char *, size_t)>> read_fn)
+  Response(int status, HeaderMap headers, Option<std::function<ssize_t(char *, size_t)>> read_fn)
       : m_status(std::move(status)), m_headers(std::move(headers)), m_read_fn(std::move(read_fn)) {}
 
   int                                            m_status = 200;
-  HeaderMap m_headers;
+  HeaderMap                                      m_headers;
   Option<std::function<ssize_t(char *, size_t)>> m_read_fn;
 };
 
