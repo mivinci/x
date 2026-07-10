@@ -16,12 +16,14 @@
 
 #include <atomic>
 #include <cstring>
+#include <map>
 #include <string>
 
 #include <gtest/gtest.h>
 
 #include <x/base/test_helper.h>
 #include <x/http/server.h>
+#include "server_test_compat.h"
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -119,20 +121,70 @@ static inline std::string recv_all(int fd, int timeout_ms = 2000) {
   return result;
 }
 
-/* ───────────────────── Shared context structs ───────────────────── */
+/* ───────────────────── Pull model context structs ───────────────────── */
 
-struct HandlerCtx {
+/** Base context for pull-model handlers. */
+struct PullCtx {
   std::atomic<int> call_count{0};
   std::string      last_method;
   std::string      last_url;
-  std::string      last_body;
+  std::string      body;         // body to send via on_read
+  std::string      received_body; // request body collected via on_data
+  int              status = 200;
+  std::multimap<std::string, std::string> headers;
+
+  // Internal state for on_read pumping
+  size_t offset = 0;
 };
 
-struct ParamHandlerCtx {
+struct ParamPullCtx {
   std::atomic<int> call_count{0};
   std::string      param_id;
   std::string      param_action;
+  std::string      body;
+  int              status = 200;
+  size_t           offset = 0;
 };
+
+/* ───────────────────── Pull model callbacks ───────────────────── */
+
+/** on_request: set status + headers from PullCtx */
+static inline int pull_on_request(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<PullCtx *>(arg);
+  c->call_count.fetch_add(1, std::memory_order_release);
+  c->last_method = ctx->method ? ctx->method : "";
+  c->last_url    = ctx->url ? ctx->url : "";
+  xHttpCtxSetStatus(ctx, c->status);
+  for (auto &[k, v] : c->headers) {
+    xHttpCtxSetHeader(ctx, k.c_str(), v.c_str());
+  }
+  // Auto Content-Length if body is set and no explicit Content-Length
+  if (!c->body.empty()) {
+    bool has_cl = c->headers.find("Content-Length") != c->headers.end()
+               || c->headers.find("content-length") != c->headers.end();
+    if (!has_cl) {
+      xHttpCtxSetHeader(ctx, "Content-Length", std::to_string(c->body.size()).c_str());
+    }
+  }
+  return 0;
+}
+
+/** on_read: pump body from PullCtx in chunks */
+static inline size_t pull_on_read(char *buf, size_t bufsize, void *arg) {
+  auto *c = static_cast<PullCtx *>(arg);
+  if (c->offset >= c->body.size()) return 0;
+  size_t n = std::min(bufsize, c->body.size() - c->offset);
+  std::memcpy(buf, c->body.data() + c->offset, n);
+  c->offset += n;
+  return n;
+}
+
+/** on_data: collect request body */
+static inline int pull_on_data(const char *data, size_t len, void *arg) {
+  auto *c = static_cast<PullCtx *>(arg);
+  c->received_body.append(data, len);
+  return 0;
+}
 
 /* ───────────────────── Fixture ───────────────────── */
 
@@ -177,7 +229,28 @@ protected:
     run_for(loop, 20);
   }
 
-  /** Convenience: register a route with on_done only. */
+  /** Register a pull-model route (on_request + on_read). */
+  void route_pull(const char *pattern, void *arg = nullptr) {
+    xHttpRouteConf conf = {};
+    conf.pattern        = pattern;
+    conf.on_request     = pull_on_request;
+    conf.on_read        = pull_on_read;
+    conf.arg            = arg;
+    ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
+  }
+
+  /** Register a pull-model route with on_data for POST body. */
+  void route_pull_with_data(const char *pattern, void *arg = nullptr) {
+    xHttpRouteConf conf = {};
+    conf.pattern        = pattern;
+    conf.on_request     = pull_on_request;
+    conf.on_read        = pull_on_read;
+    conf.on_data        = pull_on_data;
+    conf.arg            = arg;
+    ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
+  }
+
+  /** Backward-compat: route with on_done (legacy push model). */
   void route(const char *pattern, xHttpDoneFunc on_done, void *arg = nullptr) {
     xHttpRouteConf conf = {};
     conf.pattern        = pattern;

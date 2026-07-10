@@ -16,6 +16,34 @@
 
 #include <nghttp2/nghttp2.h>
 
+/* ── Pull model context for H2 tests ────────────────────────────────────── */
+
+struct H2PullCtx {
+  std::atomic<int> call_count{0};
+  std::string      body;
+  int              status = 200;
+  std::multimap<std::string, std::string> headers;
+  size_t           offset = 0;
+};
+
+static int h2_on_request(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<H2PullCtx *>(arg);
+  c->call_count.fetch_add(1);
+  xHttpCtxSetStatus(ctx, c->status);
+  for (auto &[k, v] : c->headers) xHttpCtxSetHeader(ctx, k.c_str(), v.c_str());
+  if (!c->body.empty()) xHttpCtxSetHeader(ctx, "content-length", std::to_string(c->body.size()).c_str());
+  return 0;
+}
+
+static size_t h2_on_read(char *buf, size_t bufsize, void *arg) {
+  auto *c = static_cast<H2PullCtx *>(arg);
+  if (c->offset >= c->body.size()) return 0;
+  size_t n = std::min(bufsize, c->body.size() - c->offset);
+  std::memcpy(buf, c->body.data() + c->offset, n);
+  c->offset += n;
+  return n;
+}
+
 /* ── H2 client helper ──────────────────────────────────────────────────── */
 
 /**
@@ -320,10 +348,11 @@ protected:
     run_for(loop, 20);
   }
 
-  void route(const char *pattern, xHttpDoneFunc on_done, void *arg = nullptr) {
+  void route(const char *pattern, void *arg = nullptr) {
     xHttpRouteConf conf = {};
     conf.pattern        = pattern;
-    conf.on_done        = on_done;
+    conf.on_request     = h2_on_request;
+    conf.on_read        = h2_on_read;
     conf.arg            = arg;
     ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
   }
@@ -331,14 +360,11 @@ protected:
 
 /* ── H2 Tests ──────────────────────────────────────────────────────────── */
 
-static void h2_hello_handler(xHttpCtx *ctx, void *arg) {
-  (void)arg;
-  xHttpCtxSetHeader(ctx, "content-type", "text/plain");
-  xHttpCtxSend(ctx, "hello h2", 8);
-}
-
 TEST_F(HttpServerH2Test, PriorKnowledgeGetRequest) {
-  route("GET /hello", h2_hello_handler);
+  H2PullCtx ctx;
+  ctx.body = "hello h2";
+  ctx.headers.emplace("content-type", "text/plain");
+  route("GET /hello", &ctx);
   listen_and_pump();
 
   H2Client client;
@@ -391,7 +417,10 @@ TEST_F(HttpServerH2Test, H2NotFoundReturns404) {
 }
 
 TEST_F(HttpServerH2Test, H1AndH2Coexist) {
-  route("GET /hello", h2_hello_handler);
+  H2PullCtx ctx;
+  ctx.body = "hello h2";
+  ctx.headers.emplace("content-type", "text/plain");
+  route("GET /hello", &ctx);
   listen_and_pump();
 
   /* First: H1 request */

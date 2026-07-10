@@ -5,25 +5,20 @@
  *
  * client.h - xpp::http::Client: Promise-based async HTTP client.
  *
- * Wraps libx xHttpClient via OwnedHandle. Request pipeline via
- * ClientAdapter (heap, self-delete). Response resolved at header time.
+ * Wraps libx xHttpClient via OwnedHandle.  Build a Request with
+ * Request::builder().method(Method::Post).url(url).body(...).unwrap(),
+ * then send:
+ *
+ *   auto client  = Client::builder().build();
+ *   auto req     = Request::builder().method(Method::Post).url(url).body("hello").unwrap();
+ *   auto resp    = co_await client.send(req);
+ *   co_await resp.text();
  *
  * Body data flows through a single mpsc channel:
- *   on_data → try_send(chunk) → [channel] → chunk() / text() / bytes()
+ *   on_data → try_send(chunk) → [channel] → Response::chunk()/text()/bytes()
  *   on_done → close channel
  *
  * No buffering in the adapter — the channel is the single source of truth.
- *
- * The entry point:
- *
- *   auto client  = Client::builder().build();
- *   auto resp    = client.get(url).send().await().unwrap();
- *   // Buffered:  auto text = resp.text().await().unwrap();
- *   // Streaming: while (auto c = resp.chunk().await()) { ... }
- *
- * For bodies: .body(bytes::Bytes) for static data.
- *
- * Aligned with reqwest API.
  */
 
 #ifndef XPP_HTTP_CLIENT_H
@@ -35,57 +30,16 @@
 #include <vector>
 
 #include <xpp/bytes/bytes.h>
-#include <xpp/bytes/reader.h>
 #include <xpp/handle.h>
 #include <xpp/http/error.h>
+#include <xpp/http/request.h>
 #include <xpp/http/response.h>
 #include <xpp/promise.h>
-#include <xpp/sync/mpsc.h>
 
 #include <x/http/client.h>
 
 namespace xpp {
 namespace http {
-
-enum class Method {
-  Get,
-  Post,
-  Put,
-  Delete,
-  Patch,
-  Head
-};
-
-// ═════════════════════════════════════════════════════════════════════
-
-class RequestBuilder {
-public:
-  RequestBuilder &header(const std::string &key, const std::string &value) {
-    m_headers.emplace(key, value);
-    return *this;
-  }
-
-  /// Set request body from bytes.
-  RequestBuilder &body(bytes::Bytes data) {
-    m_body     = std::move(data);
-    m_has_body = true;
-    return *this;
-  }
-
-  Promise<Result<Response>> send();
-
-private:
-  friend class Client;
-  xHttpClient                             m_client;
-  Method                                  m_method;
-  std::string                             m_url;
-  std::multimap<std::string, std::string> m_headers;
-  bytes::Bytes                            m_body;
-  bool                                    m_has_body = false;
-
-  RequestBuilder(xHttpClient c, Method m, std::string url)
-      : m_client(c), m_method(m), m_url(std::move(url)) {}
-};
 
 // ═════════════════════════════════════════════════════════════════════
 
@@ -98,13 +52,9 @@ public:
   Client(Client &&) noexcept            = default;
   Client &operator=(Client &&) noexcept = default;
 
-  RequestBuilder get(std::string url) {
-    return RequestBuilder(m_client.get(), Method::Get, std::move(url));
-  }
-
-  RequestBuilder post(std::string url) {
-    return RequestBuilder(m_client.get(), Method::Post, std::move(url));
-  }
+  /// Send a built Request.  Returns a Promise that resolves when
+  /// response headers arrive; body is consumed via Response::text() etc.
+  Promise<Result<Response>> send(Request req);
 
 private:
   friend class ClientBuilder;
@@ -143,8 +93,6 @@ inline ClientBuilder Client::builder() {
 // ═════════════════════════════════════════════════════════════════════
 // ClientAdapter (internal)
 //
-// @tparam R  TryRead type for request body (bytes::Reader for static).
-//
 // Body data flows through a single mpsc channel:
 //   on_data → try_send(chunk) → channel → Response::chunk()/text()/bytes()
 //   on_done → close channel
@@ -154,39 +102,84 @@ inline ClientBuilder Client::builder() {
 
 namespace _ {
 
-template <class R> struct ClientAdapter {
-  PromiseResolver<Result<Response>> m_resolver;
-  R                                 m_reader;
-  sync::mpsc::Sender<bytes::Bytes>  m_body_tx;
-  Response                          m_response;
+/// Wraps a std::function<ssize_t(char*,size_t)> into a TryRead object.
+struct ReadFnWrapper {
+  std::function<ssize_t(char *, size_t)> fn;
+  ssize_t try_read(char *buf, size_t cap) { return fn(buf, cap); }
+};
 
-  ClientAdapter(PromiseResolver<Result<Response>> r, R reader, sync::mpsc::Sender<bytes::Bytes> tx)
-      : m_resolver(std::move(r)), m_reader(std::move(reader)), m_body_tx(std::move(tx)) {}
+struct SendAdapter {
+  PromiseResolver<Result<Response>>                  m_resolver;
+  Option<std::function<ssize_t(char *, size_t)>>     m_reader;
+  int                                                m_status = 0;
+
+  struct BodyBuf {
+    std::deque<bytes::Bytes> chunks;
+  };
+  std::shared_ptr<BodyBuf>                           m_buf;
+
+  SendAdapter(PromiseResolver<Result<Response>> r,
+              Option<std::function<ssize_t(char *, size_t)>> reader)
+      : m_resolver(std::move(r)), m_reader(std::move(reader)),
+        m_buf(std::make_shared<BodyBuf>()) {}
 
   static int on_response(xHttpCtx *ctx, void *arg) {
-    auto *self = static_cast<ClientAdapter *>(arg);
-    self->m_response.set_status(static_cast<int>(ctx->status_code));
-    self->m_resolver.resolve(Result<Response>(xpp::ok, std::move(self->m_response)));
+    auto *self   = static_cast<SendAdapter *>(arg);
+    self->m_status = static_cast<int>(ctx->status_code);
     return 0;
   }
 
   static int on_data(const char *data, size_t len, void *arg) {
-    auto *self = static_cast<ClientAdapter *>(arg);
-    self->m_body_tx.try_send(bytes::Bytes::copy(reinterpret_cast<const uint8_t *>(data), len));
+    auto *self = static_cast<SendAdapter *>(arg);
+    self->m_buf->chunks.push_back(bytes::Bytes::copy(
+      reinterpret_cast<const uint8_t *>(data), len));
     return 0;
   }
 
   static size_t on_read(char *buf, size_t bufsize, void *arg) {
-    auto   *self = static_cast<ClientAdapter *>(arg);
-    ssize_t n    = self->m_reader.try_read(buf, bufsize);
-    if (n > 0) return static_cast<size_t>(n);
-    if (n < 0) return bytes::_::kReadFuncPause;
+    auto *self = static_cast<SendAdapter *>(arg);
+    if (self->m_reader.is_some()) {
+      ssize_t n = self->m_reader.unwrap_unchecked()(buf, bufsize);
+      if (n > 0) return static_cast<size_t>(n);
+      if (n < 0) return 0; // EAGAIN-like → pause
+    }
     return 0;
   }
 
   static void on_done(xHttpCtx *ctx, void *arg) {
-    auto *self = static_cast<ClientAdapter *>(arg);
-    self->m_body_tx.close();
+    auto *self = static_cast<SendAdapter *>(arg);
+
+    // Build a TryRead body from the buffered chunks.
+    auto buf = self->m_buf; // shared_ptr copy
+    auto read_fn = [buf](char *b, size_t cap) mutable -> ssize_t {
+      static size_t off = 0;
+      while (!buf->chunks.empty()) {
+        auto &front = buf->chunks.front();
+        size_t remain = front.size() - off;
+        if (remain > 0) {
+          size_t n = std::min(cap, remain);
+          std::memcpy(b, front.data() + off, n);
+          off += n;
+          if (off >= front.size()) {
+            buf->chunks.pop_front();
+            off = 0;
+          }
+          return static_cast<ssize_t>(n);
+        }
+        buf->chunks.pop_front();
+        off = 0;
+      }
+      return 0; // EOF
+    };
+
+    auto builder = Response::builder().status(self->m_status);
+    if (ctx->headers && ctx->headers_len) {
+      builder.header("_raw_headers",
+                     std::string(ctx->headers, ctx->headers_len));
+    }
+    auto resp = builder.body(ReadFnWrapper{std::move(read_fn)}).build();
+
+    self->m_resolver.resolve(Result<Response>(xpp::ok, std::move(resp)));
     delete self;
   }
 };
@@ -195,31 +188,36 @@ template <class R> struct ClientAdapter {
 
 // ═════════════════════════════════════════════════════════════════════
 
-inline Promise<Result<Response>> RequestBuilder::send() {
-  // Body channel — 8 chunks of back-pressure.
-  auto [body_tx, body_rx] = sync::mpsc::channel<bytes::Bytes>(8);
-
+inline Promise<Result<Response>> Client::send(Request req) {
   auto [p, r] = async<Result<Response>>();
 
-  bool  has_body = m_has_body;
-  auto *adapter  = new _::ClientAdapter<bytes::Reader>(
-    std::move(r), bytes::Reader(std::move(m_body)), std::move(body_tx));
-
-  adapter->m_response.set_body_channel(std::move(body_rx));
+  bool has_body = req.has_body();
+  auto *adapter = new _::SendAdapter(
+    std::move(r),
+    has_body ? std::move(req.take_try_read().unwrap_unchecked())
+             : Option<std::function<ssize_t(char *, size_t)>>());
 
   xHttpRequestConf conf{};
-  conf.url         = m_url.c_str();
-  conf.method      = static_cast<xHttpMethod>(m_method);
-  conf.on_response = _::ClientAdapter<bytes::Reader>::on_response;
-  conf.on_data     = _::ClientAdapter<bytes::Reader>::on_data;
-  conf.on_done     = _::ClientAdapter<bytes::Reader>::on_done;
+  conf.url         = req.url().c_str();
+  conf.method      = static_cast<xHttpMethod>(req.method());
+  conf.on_response = _::SendAdapter::on_response;
+  conf.on_data     = _::SendAdapter::on_data;
+  conf.on_done     = _::SendAdapter::on_done;
 
   if (has_body) {
-    conf.on_read = _::ClientAdapter<bytes::Reader>::on_read;
+    conf.on_read = _::SendAdapter::on_read;
+    // Extract Content-Length if set by the request builder
+    for (auto &kv : req.headers()) {
+      if (strcasecmp(kv.first.c_str(), "Content-Length") == 0) {
+        conf.content_length = static_cast<ssize_t>(std::stoll(kv.second));
+        break;
+      }
+    }
   }
 
+  // Build header array from Request
   std::vector<std::string> hstrs;
-  for (auto &kv : m_headers)
+  for (auto &kv : req.headers())
     hstrs.push_back(kv.first + ": " + kv.second);
   std::vector<const char *> hptrs;
   hptrs.reserve(hstrs.size() + 1);
@@ -228,10 +226,10 @@ inline Promise<Result<Response>> RequestBuilder::send() {
   hptrs.push_back(nullptr);
   conf.headers = hptrs.data();
 
-  xErrno err = xHttpClientDo(m_client, &conf, adapter);
+  xErrno err = xHttpClientDo(m_client.get(), &conf, adapter);
   if (err != xErrno_Ok) {
-    adapter->m_body_tx.close();
-    adapter->m_resolver.resolve(Result<Response>(xpp::err, Error::request("xHttpClientDo failed")));
+    adapter->m_resolver.resolve(
+      Result<Response>(xpp::err, Error::request("xHttpClientDo failed")));
     delete adapter;
   }
   return std::move(p);

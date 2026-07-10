@@ -1,65 +1,30 @@
 /*
  * server_test.cpp — Tests for xpp::http server module.
+ *
+ * Uses TestServer (Go httptest-style): one-line setup, ts.get()
+ * returns TestResponse{status, body} — synchronous, no .await().
  */
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
-#include <cstring>
 #include <string>
 #include <utility>
 
 #include <gtest/gtest.h>
+#include <xpp/http/test_server.h>
 
-#include <xpp/event.h>
-#include <xpp/http/server.h>
+/* ── StringReader — TryRead adapter for string-based test bodies ─── */
 
-#include <x/http/client.h>
+struct StringReader {
+  std::string    data;
+  mutable size_t off = 0;
 
-/* ── Helpers ──────────────────────────────────────────────────────── */
-
-static uint16_t find_free_port() {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (fd < 0) return 0;
-  struct sockaddr_in addr = {};
-  addr.sin_family         = AF_INET;
-  addr.sin_addr.s_addr    = htonl(INADDR_LOOPBACK);
-  addr.sin_port           = 0;
-  if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
-    close(fd);
-    return 0;
+  ssize_t try_read(char *buf, size_t cap) {
+    if (off >= data.size()) return 0;
+    size_t n = std::min(cap, data.size() - off);
+    std::memcpy(buf, data.data() + off, n);
+    off += n;
+    return static_cast<ssize_t>(n);
   }
-  socklen_t len = sizeof(addr);
-  getsockname(fd, reinterpret_cast<struct sockaddr *>(&addr), &len);
-  uint16_t port = ntohs(addr.sin_port);
-  close(fd);
-  return port;
-}
-
-/* ── Client helpers ───────────────────────────────────────────────── */
-
-struct ClientCtx {
-  std::string       body;
-  std::atomic<bool> done{false};
 };
-
-static int client_on_data(const char *data, size_t len, void *arg) {
-  static_cast<ClientCtx *>(arg)->body.append(data, len);
-  return 0;
-}
-
-static void client_on_done(xHttpCtx *ctx, void *arg) {
-  auto *c = static_cast<ClientCtx *>(arg);
-  c->done.store(true);
-}
-
-static void run_until(xEventLoop loop, std::atomic<bool> &done, int timeout_ms = 5000) {
-  for (int i = 0; i < timeout_ms / 10 && !done.load(); i++) {
-    xEventLoopRun(loop, X_RUN_ONCE);
-  }
-}
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Unit tests
@@ -70,140 +35,199 @@ TEST(ServerTest, CreateRouter) {
   SUCCEED();
 }
 
-TEST(ServerTest, RouterMove) {
-  xpp::http::Router a;
-  a.route("/hello", [](xpp::http::Request &) {});
-  xpp::http::Router b = std::move(a);
-  SUCCEED();
+TEST(ServerTest, BindInvalidAddr) {
+  auto result = xpp::http::Server::bind("not-an-address");
+  EXPECT_TRUE(result.is_err());
 }
 
 /* ═══════════════════════════════════════════════════════════════════
- *  Integration tests (server + client)
+ *  Integration tests
  * ═══════════════════════════════════════════════════════════════════ */
 
 class ServerIntegrationTest : public ::testing::Test {
 protected:
-  xEventLoop         m_loop   = nullptr;
-  xpp::http::Server  m_server;
-  uint16_t           m_port   = 0;
-
-  void SetUp() override {
-    m_loop = xEventLoopCreate();
-    ASSERT_NE(m_loop, nullptr);
-    xEventLoopEnter(m_loop);
-
-    m_port = find_free_port();
-    ASSERT_NE(m_port, 0);
-  }
-
-  void TearDown() override {
-    // Destroy server first (OwnedHandle destructor cleans up xHttpServer)
-    m_server = {};
-    if (m_loop) {
-      xEventLoopLeave();
-      xEventLoopDestroy(m_loop);
-    }
-  }
-
-  void serve(xpp::http::Router &router) {
-    auto addr     = std::string("127.0.0.1:") + std::to_string(m_port);
-    auto result   = xpp::http::Server::bind(addr.c_str(), router);
-    ASSERT_TRUE(result.is_ok()) << "bind failed";
-    m_server      = std::move(result).unwrap();
-    m_server.listen();
-
-    // Pump the event loop to accept connections
-    for (int i = 0; i < 20; i++)
-      xEventLoopRun(m_loop, X_RUN_ONCE);
-  }
-
-  std::string url(const char *path) const {
-    return "http://127.0.0.1:" + std::to_string(m_port) + path;
-  }
+  xpp::EventLoop m_loop;
+  xpp::WaitScope m_scope{m_loop};
 };
 
 TEST_F(ServerIntegrationTest, HelloWorld) {
-  xpp::http::Router router;
-  router.route("GET /hello", [](xpp::http::Request &req) {
+  xpp::http::TestServer ts;
+  ts.router().route("GET /hello", [](xpp::http::IncomingRequest &req) {
     EXPECT_EQ(req.method(), "GET");
     EXPECT_EQ(req.path(), "/hello");
-    req.respond().status(200).body("Hello from xpp!");
+    return xpp::http::Response::builder()
+      .status(200)
+      .body(StringReader{"Hello from xpp!"})
+      .into_promise();
   });
-  serve(router);
+  ts.start();
 
-  // Send a client request
-  xHttpClient client = xHttpClientCreate(nullptr);
-  ASSERT_NE(client, nullptr);
-
-  ClientCtx ctx;
-  auto      url_str = url("/hello");
-  xHttpRequestConf conf = {};
-  conf.url      = url_str.c_str();
-  conf.method   = xHttpMethod_GET;
-  conf.on_data  = client_on_data;
-  conf.on_done  = client_on_done;
-  ASSERT_EQ(xHttpClientDo(client, &conf, &ctx), xErrno_Ok);
-
-  run_until(m_loop, ctx.done);
-  EXPECT_TRUE(ctx.done.load());
-  EXPECT_EQ(ctx.body, "Hello from xpp!");
-
-  xHttpClientDestroy(client);
+  auto resp = ts.get("/hello");
+  EXPECT_EQ(resp.status, 200);
+  EXPECT_EQ(resp.body, "Hello from xpp!");
 }
 
 TEST_F(ServerIntegrationTest, StatusAndHeaders) {
-  xpp::http::Router router;
-  router.route("GET /json", [](xpp::http::Request &req) {
-    req.respond()
+  xpp::http::TestServer ts;
+  ts.router().route("GET /json", [](xpp::http::IncomingRequest &) {
+    const char *body = "{}";
+    return xpp::http::Response::builder()
       .status(201)
       .header("Content-Type", "application/json")
       .header("X-Custom", "v1")
-      .body("{}");
+      .body(StringReader{"{}"})
+      .into_promise();
   });
-  serve(router);
+  ts.start();
 
-  xHttpClient client = xHttpClientCreate(nullptr);
-  ASSERT_NE(client, nullptr);
-
-  ClientCtx ctx;
-  auto      url_str = url("/json");
-  xHttpRequestConf conf = {};
-  conf.url      = url_str.c_str();
-  conf.method   = xHttpMethod_GET;
-  conf.on_data  = client_on_data;
-  conf.on_done  = client_on_done;
-  ASSERT_EQ(xHttpClientDo(client, &conf, &ctx), xErrno_Ok);
-
-  run_until(m_loop, ctx.done);
-  EXPECT_TRUE(ctx.done.load());
-  EXPECT_EQ(ctx.body, "{}");
-
-  xHttpClientDestroy(client);
+  auto resp = ts.get("/json");
+  EXPECT_EQ(resp.status, 201);
+  EXPECT_EQ(resp.body, "{}");
 }
 
 TEST_F(ServerIntegrationTest, RouteParams) {
-  xpp::http::Router router;
-  router.route("GET /users/:id", [](xpp::http::Request &req) {
-    auto id = req.param("id");
-    req.respond().status(200).body("user:" + id);
+  xpp::http::TestServer ts;
+  ts.router().route("GET /users/:id", [](xpp::http::IncomingRequest &req) {
+    std::string id  = req.param("id");
+    std::string msg = "user:" + id;
+    return xpp::http::Response::builder()
+      .status(200)
+      .body(StringReader{std::move(msg)})
+      .into_promise();
   });
-  serve(router);
+  ts.start();
 
-  xHttpClient client = xHttpClientCreate(nullptr);
-  ASSERT_NE(client, nullptr);
+  auto resp = ts.get("/users/42");
+  EXPECT_EQ(resp.status, 200);
+  EXPECT_EQ(resp.body, "user:42");
+}
 
-  ClientCtx ctx;
-  auto      url_str = url("/users/42");
-  xHttpRequestConf conf = {};
-  conf.url      = url_str.c_str();
-  conf.method   = xHttpMethod_GET;
-  conf.on_data  = client_on_data;
-  conf.on_done  = client_on_done;
-  ASSERT_EQ(xHttpClientDo(client, &conf, &ctx), xErrno_Ok);
+// One-byte-at-a-time reader for the streaming test.
+struct OneByteReader {
+  const char    *data;
+  size_t         len;
+  mutable size_t off = 0;
 
-  run_until(m_loop, ctx.done);
-  EXPECT_TRUE(ctx.done.load());
-  EXPECT_EQ(ctx.body, "user:42");
+  ssize_t try_read(char *buf, size_t cap) {
+    if (off >= len) return 0;
+    size_t n = std::min(cap, static_cast<size_t>(1));
+    buf[0]   = data[off];
+    off++;
+    return static_cast<ssize_t>(n);
+  }
+};
 
-  xHttpClientDestroy(client);
+TEST_F(ServerIntegrationTest, TryReadBody) {
+  xpp::http::TestServer ts;
+  ts.router().route("GET /try-read", [](xpp::http::IncomingRequest &) {
+    OneByteReader reader{"hello-try-read", 14};
+    return xpp::http::Response::builder().status(200).body(std::move(reader)).into_promise();
+  });
+  ts.start();
+
+  auto resp = ts.get("/try-read");
+  EXPECT_EQ(resp.status, 200);
+  EXPECT_EQ(resp.body, "hello-try-read");
+}
+
+struct EmptyReader {
+  ssize_t try_read(char *, size_t) {
+    return 0;
+  }
+};
+
+TEST_F(ServerIntegrationTest, TryReadBodyEmpty) {
+  xpp::http::TestServer ts;
+  ts.router().route("GET /try-read-empty", [](xpp::http::IncomingRequest &) {
+    return xpp::http::Response::builder().status(200).body(EmptyReader{}).into_promise();
+  });
+  ts.start();
+
+  auto resp = ts.get("/try-read-empty");
+  EXPECT_EQ(resp.status, 200);
+  EXPECT_EQ(resp.body, "");
+}
+
+TEST_F(ServerIntegrationTest, EmptyBody) {
+  xpp::http::TestServer ts;
+  ts.router().route("GET /empty", [](xpp::http::IncomingRequest &) {
+    return xpp::http::Response::builder().status(200).into_promise();
+  });
+  ts.start();
+
+  auto resp = ts.get("/empty");
+  EXPECT_EQ(resp.status, 200);
+  EXPECT_EQ(resp.body, "");
+}
+
+TEST_F(ServerIntegrationTest, LargeBody) {
+  xpp::http::TestServer ts;
+  std::string           large(10240, 'x');
+  ts.router().route("GET /large", [large](xpp::http::IncomingRequest &) {
+    return xpp::http::Response::builder()
+      .status(200)
+      .body(StringReader{std::move(large)})
+      .into_promise();
+  });
+  ts.start();
+
+  auto resp = ts.get("/large");
+  EXPECT_EQ(resp.status, 200);
+  EXPECT_EQ(resp.body, large);
+}
+
+TEST_F(ServerIntegrationTest, MultipleRequests) {
+  xpp::http::TestServer ts;
+  int                   counter = 0;
+  ts.router().route("GET /count", [&counter](xpp::http::IncomingRequest &) {
+    counter++;
+    std::string s = std::to_string(counter);
+    return xpp::http::Response::builder()
+      .status(200)
+      .body(StringReader{std::to_string(counter)})
+      .into_promise();
+  });
+  ts.start();
+
+  for (int i = 1; i <= 5; i++) {
+    auto resp = ts.get("/count");
+    EXPECT_EQ(resp.status, 200);
+    EXPECT_EQ(resp.body, std::to_string(i));
+  }
+  EXPECT_EQ(counter, 5);
+}
+
+TEST_F(ServerIntegrationTest, CustomStatusCodes) {
+  xpp::http::TestServer ts;
+  ts.router().route("GET /404", [](xpp::http::IncomingRequest &) {
+    return xpp::http::Response::builder()
+      .status(404)
+      .body(StringReader{"not found"})
+      .into_promise();
+  });
+  ts.router().route("GET /500", [](xpp::http::IncomingRequest &) {
+    return xpp::http::Response::builder().status(500).body(StringReader{"boom"}).into_promise();
+  });
+  ts.start();
+
+  auto r1 = ts.get("/404");
+  EXPECT_EQ(r1.status, 404);
+
+  auto r2 = ts.get("/500");
+  EXPECT_EQ(r2.status, 500);
+}
+
+TEST_F(ServerIntegrationTest, SequentialHandlers) {
+  xpp::http::TestServer ts;
+  ts.router().route("GET /a", [](xpp::http::IncomingRequest &) {
+    return xpp::http::Response::builder().status(200).body(StringReader{"a"}).into_promise();
+  });
+  ts.router().route("GET /b", [](xpp::http::IncomingRequest &) {
+    return xpp::http::Response::builder().status(200).body(StringReader{"b"}).into_promise();
+  });
+  ts.start();
+
+  EXPECT_EQ(ts.get("/a").body, "a");
+  EXPECT_EQ(ts.get("/b").body, "b");
+  EXPECT_EQ(ts.get("/a").body, "a");
 }

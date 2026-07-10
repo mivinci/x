@@ -1,122 +1,68 @@
 /*
- * Copyright 2025 The libx++ Authors. All rights reserved.
- * Use of this source code is governed by a MIT license that can be
- * found in the LICENSE file.
+ * Copyright 2025-2026 The libxpp Authors. All rights reserved.
  *
- * server.h - xpp::http server: Router, Request, ResponseBuilder, Server.
+ * server.h — HTTP server (xpp-style RAII wrapper around libx xHttpServer)
  *
- * Wraps libx xHttpServer / xHttpMux / xHttpCtx. Handler bridge via
- * ServerAdapter (heap-stored per route, one per route registration).
- *
- * Entry point (Server TBD):
- *
- *   Router router;
- *   router.route("/hello", [](Request &req) {
- *     req.respond().status(200).body("Hello, world!");
- *   });
- *
- * Aligned with axum request/response patterns.
+ * Uses the pull model: handlers return Reply headers + optional body;
+ * the server pulls body data via the xHttpServer read callback.
  */
 
 #ifndef XPP_HTTP_SERVER_H
 #define XPP_HTTP_SERVER_H
 
-#include <cstddef>
-#include <cstdlib>
-#include <cstring>
 #include <functional>
-#include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <xpp/bytes/bytes.h>
-#include <xpp/event.h>
 #include <xpp/handle.h>
-#include <xpp/http/error.h>
+#include <xpp/http/response.h>
+#include <xpp/io/traits.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
+#include <xpp/result.h>
 
-#include <x/http/server.h>
+#include <x/base/error.h>
+#include <x/http/client.h> /* xHttpCtx, xHttpInitFunc, ... */
+#include <x/http/server.h> /* xHttpServer, xHttpServerConf, xHttpRouteConf, xHttpServerReadFunc */
 
 namespace xpp {
 namespace http {
 
 // ═════════════════════════════════════════════════════════════════════
-// ResponseBuilder
-// ═════════════════════════════════════════════════════════════════════
-
-class ResponseBuilder {
-public:
-  ResponseBuilder &status(int code) {
-    xHttpCtxSetStatus(m_ctx, code);
-    return *this;
-  }
-
-  ResponseBuilder &header(const std::string &key, const std::string &value) {
-    xHttpCtxSetHeader(m_ctx, key.c_str(), value.c_str());
-    return *this;
-  }
-
-  /// Send a complete buffered response. Must be called at most once.
-  void body(const std::string &s) {
-    xHttpCtxSend(m_ctx, s.data(), s.size());
-  }
-
-  void body(bytes::Bytes b) {
-    xHttpCtxSend(m_ctx, reinterpret_cast<const char *>(b.data()), b.size());
-  }
-
-  /// Begin a streaming response. The callback receives a Writer that
-  /// can call write() repeatedly. End of stream is signaled by destroying
-  /// the Writer (implicitly calls xHttpCtxEndStream via RAII).
-  void stream(std::function<void(class Writer &)> fn);
-
-private:
-  friend class Request;
-  explicit ResponseBuilder(xHttpCtx *ctx) : m_ctx(ctx) {}
-  xHttpCtx *m_ctx;
-};
-
-// ═════════════════════════════════════════════════════════════════════
-// Writer — streaming response body
+// Writer — thin wrapper for streaming response body (server side).
+//
+// TODO: re-integrate with the pull model (currently streaming bodies
+// are buffered before being sent).
 // ═════════════════════════════════════════════════════════════════════
 
 class Writer {
 public:
+  explicit Writer(xHttpCtx *ctx) : m_ctx(ctx) {}
+
+  void write(const char *data, size_t len) {
+    // TODO: integrate with pull model — buffer data for on_read to consume.
+    m_buf.append(data, len);
+  }
   void write(const std::string &s) {
-    xHttpCtxWrite(m_ctx, s.data(), s.size());
+    write(s.c_str(), s.size());
   }
 
-  void write(bytes::Bytes b) {
-    xHttpCtxWrite(m_ctx, reinterpret_cast<const char *>(b.data()), b.size());
+  /// Move accumulated data out for the server to send.
+  std::string take_buffer() {
+    return std::move(m_buf);
   }
-
-  ~Writer() {
-    xHttpCtxEndStream(m_ctx);
-  }
-
-  Writer(Writer &&)                 = delete;
-  Writer &operator=(Writer &&)      = delete;
-  Writer(const Writer &)            = delete;
-  Writer &operator=(const Writer &) = delete;
 
 private:
-  friend class ResponseBuilder;
-  explicit Writer(xHttpCtx *ctx) : m_ctx(ctx) {}
-  xHttpCtx *m_ctx;
+  xHttpCtx   *m_ctx;
+  std::string m_buf;
 };
 
-inline void ResponseBuilder::stream(std::function<void(Writer &)> fn) {
-  Writer w(m_ctx);
-  fn(w);
-}
-
 // ═════════════════════════════════════════════════════════════════════
-// Request — server-side request (method, url, headers, params)
+// IncomingRequest — server-side request (method, url, headers, params)
 // ═════════════════════════════════════════════════════════════════════
 
-class Request {
+class IncomingRequest {
 public:
   const std::string &method() const {
     return m_method;
@@ -125,33 +71,33 @@ public:
     return m_path;
   }
 
-  /// Extract a route parameter (e.g. "/users/:id" → param("id") = "42").
-  std::string param(const std::string &name) const {
-    size_t      len = 0;
-    const char *val = xHttpCtxParam(m_ctx, name.c_str(), &len);
-    return val ? std::string(val, len) : std::string();
-  }
-
-  /// Look up a request header by name.
+  /// Look up a header by name (case-sensitive for now).
   Option<std::string> header(const std::string &name) const {
     auto it = m_headers.find(name);
     if (it != m_headers.end()) return Option<std::string>(it->second);
     return none;
   }
 
-  /// Build a response.
-  ResponseBuilder respond() {
-    return ResponseBuilder(m_ctx);
+  /// Look up a route parameter (e.g. "id" for "/users/:id").
+  std::string param(const std::string &name) const {
+    size_t      len   = 0;
+    const char *value = xHttpCtxParam(m_ctx, name.c_str(), &len);
+    if (value && len > 0) return std::string(value, len);
+    return {};
   }
 
-private:
+  /// Raw header string (for logging, etc.)
+  const char *headers_raw() const {
+    return m_ctx->headers;
+  }
+
   friend class Router;
   xHttpCtx                               *m_ctx;
   std::string                             m_method;
   std::string                             m_path;
   std::multimap<std::string, std::string> m_headers;
 
-  Request(xHttpCtx *ctx, const char *method, const char *path)
+  IncomingRequest(xHttpCtx *ctx, const char *method, const char *path)
       : m_ctx(ctx), m_method(method), m_path(path) {}
 
   /// Parse NUL-terminated request headers into m_headers.
@@ -163,7 +109,7 @@ private:
       while (raw < end && *raw != '\n')
         ++raw;
       if (raw > line) {
-        std::string s(line, raw - line);
+        std::string s(line, static_cast<size_t>(raw - line));
         auto        colon = s.find(':');
         if (colon != std::string::npos) {
           std::string key = s.substr(0, colon);
@@ -182,14 +128,16 @@ private:
 // Router
 // ═════════════════════════════════════════════════════════════════════
 
-using Handler = std::function<void(Request &)>;
+using Handler = std::function<Promise<Result<Response>>(IncomingRequest &)>;
 
 namespace _ {
 
-/// Per-route state stored on the heap. The pointer is passed as `arg`
-/// to xHttpMuxHandle and forwarded to the C callback (on_done).
+/// Per-route state stored on the heap. Passed as `arg` to the C
+/// callbacks (on_request, on_read).
 struct RouteState {
   Handler handler;
+  Option<std::function<size_t(char *, size_t)>> body_reader;
+
   explicit RouteState(Handler h) : handler(std::move(h)) {}
 };
 
@@ -216,6 +164,10 @@ public:
 
   /// Register a route with a handler.
   ///
+  /// The handler returns Promise<Result<Response>>.  sync handlers use
+  /// Response::ok("x").into_promise().  The Router extracts the
+  /// status/headers in on_request, and provides body data via on_read.
+  ///
   /// Pattern examples: "/hello", "GET /hello", "POST /echo", "/users/:id".
   Router &route(const std::string &pattern, Handler handler) {
     auto *rs = new _::RouteState(std::move(handler));
@@ -223,7 +175,8 @@ public:
 
     xHttpRouteConf conf = {};
     conf.pattern        = pattern.c_str();
-    conf.on_done        = on_request;
+    conf.on_request     = on_request;
+    conf.on_read        = on_read;
     conf.arg            = rs;
     xHttpMuxHandle(m_mux.get(), &conf);
     return *this;
@@ -240,45 +193,84 @@ private:
   OwnedHandle<Deleter>         m_mux;
   std::vector<_::RouteState *> m_routes; // owned, one per route()
 
-  /// C callback: build Request, invoke Handler, response is written
-  /// synchronously before this function returns.
-  static void on_request(xHttpCtx *ctx, void *arg) {
-    auto   *rs = static_cast<_::RouteState *>(arg);
-    Request req(ctx, ctx->method, ctx->url);
-    // Parse request headers
+  // ── xHttpInitFunc: called after request headers are parsed ───────
+  static int on_request(xHttpCtx *ctx, void *arg) {
+    auto           *rs = static_cast<_::RouteState *>(arg);
+    IncomingRequest req(ctx, ctx->method, ctx->url);
     if (ctx->headers && ctx->headers_len) {
       req.parse_headers(ctx->headers, ctx->headers_len);
     }
-    rs->handler(req);
+
+    auto result = rs->handler(req).await();
+    if (result.is_err()) return -1;
+
+    Response &reply = result.unwrap();
+
+    // Write status + headers to xHttpCtx.
+    xHttpCtxSetStatus(ctx, reply.status());
+    for (auto &[key, value] : reply.headers()) {
+      xHttpCtxSetHeader(ctx, key.c_str(), value.c_str());
+    }
+
+    // Store body for on_read to pull.
+    if (reply.has_body()) {
+      auto inner = std::move(reply.take_try_read()).unwrap_unchecked();
+      rs->body_reader = Option<std::function<size_t(char *, size_t)>>(
+        [fn = std::move(inner)](char *buf, size_t size) -> size_t {
+          ssize_t n = fn(buf, size);
+          return n > 0 ? static_cast<size_t>(n) : 0;
+        });
+    } else {
+      xHttpCtxSetHeader(ctx, "Content-Length", "0");
+    }
+
+    return 0;
+  }
+
+  // ── xHttpReadFunc: pull response body data ───────────────────────
+  static size_t on_read(char *buf, size_t bufsize, void *arg) {
+    auto *rs = static_cast<_::RouteState *>(arg);
+
+    if (rs->body_reader.is_some()) {
+      return rs->body_reader.unwrap_unchecked()(buf, bufsize);
+    }
+
+    return 0; // no body → EOF
   }
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// Server — wraps xHttpServer lifecycle.
-//
-//   Server::bind(":8080", router).serve();   // test setup
-  // Future: Server::bind(":8080", router).run();  // serve + event loop
-//   Server::bind(":8080", router).serve();    // production (TBD)
-//
-// bind() creates the server (xHttpServerCreate + OwnedHandle),
-// listen() calls xHttpServerListen, serve() wraps listen() + event loop.
+// Server — thin RAII wrapper around xHttpServer.
 // ═════════════════════════════════════════════════════════════════════
 
 class Server {
 public:
-  /// Create the server, attach the router, parse "host:port".
-  /// Returns Err(Builder) on invalid address or server creation failure.
-  static Result<Server> bind(const char *addr, Router &router);
+  static Result<Server> bind(const char *addr);
 
-  Server()                                     = default;
-  Server(Server &&) noexcept            = default;
-  Server &operator=(Server &&) noexcept = default;
+  Server() = default;
+  Server(Server &&other) noexcept
+    : m_server(std::move(other.m_server)),
+      m_host(std::move(other.m_host)),
+      m_port(other.m_port),
+      m_shutdown_resolver(std::move(other.m_shutdown_resolver)) {
+    XPP_ASSERT(!m_shutdown_resolver.is_some(),
+               "cannot move a Server while serving — call serve() after the move");
+  }
+  Server &operator=(Server &&other) noexcept {
+    if (this != &other) {
+      m_server            = std::move(other.m_server);
+      m_host              = std::move(other.m_host);
+      m_port              = other.m_port;
+      m_shutdown_resolver = std::move(other.m_shutdown_resolver);
+      XPP_ASSERT(!m_shutdown_resolver.is_some(),
+                 "cannot move a Server while serving");
+    }
+    return *this;
+  }
 
-  /// Start listening. Does NOT run the event loop.
-  Server &listen();
-
-  /// Access the raw xHttpServer handle (for event loop integration).
-  xHttpServer raw() const { return m_server.get(); }
+  /** Start listening and return a Promise that resolves when the server
+   *  is destroyed (RAII — on_shutdown callback). */
+  Promise<Result<void>> serve(Router &router);
 
 private:
   struct Deleter {
@@ -286,14 +278,21 @@ private:
       if (p) xHttpServerDestroy(static_cast<xHttpServer>(p));
     }
   };
-  Server(const Server &)                        = delete;
-  Server &operator=(const Server &)             = delete;
-  OwnedHandle<Deleter> m_server;
-  std::string           m_host;
-  uint16_t              m_port = 0;
+  Server(const Server &)            = delete;
+  Server &operator=(const Server &) = delete;
+
+  // m_shutdown_resolver MUST be declared before m_server so it outlives
+  // the OwnedHandle — when m_server destructor fires on_shutdown, the
+  // resolver is still alive.
+  Option<PromiseResolver<Result<void>>>  m_shutdown_resolver;
+  OwnedHandle<Deleter>                   m_server;
+  std::string                            m_host;
+  uint16_t                               m_port = 0;
 };
 
-inline Result<Server> Server::bind(const char *addr, Router &router) {
+/* ── Server::bind ─────────────────────────────────────────────────── */
+
+inline Result<Server> Server::bind(const char *addr) {
   const char *colon = std::strrchr(addr, ':');
   if (!colon) return Result<Server>(xpp::err, Error::builder("invalid address"));
 
@@ -302,20 +301,43 @@ inline Result<Server> Server::bind(const char *addr, Router &router) {
   if (srv.m_host.empty()) srv.m_host = "0.0.0.0";
   srv.m_port = static_cast<uint16_t>(std::strtoul(colon + 1, nullptr, 10));
 
-  xHttpServerConf conf = {};
-  conf.resolve  = xHttpMuxResolve;
-  conf.router   = router.raw();
-  conf.idle_timeout_ms = 60000;
-
-  OwnedHandle<Deleter> h(xHttpServerCreate(&conf));
-  if (!h.get()) return Result<Server>(xpp::err, Error::builder("server creation failed"));
-  srv.m_server = std::move(h);
   return Result<Server>(xpp::ok, std::move(srv));
 }
 
-inline Server &Server::listen() {
-  xHttpServerListen(m_server.get(), m_host.c_str(), m_port);
-  return *this;
+/* ── Server::serve ────────────────────────────────────────────────── */
+
+Promise<Result<void>> Server::serve(Router &router) {
+  auto [p, r] = async<Result<void>>();
+  m_shutdown_resolver = Option<PromiseResolver<Result<void>>>(std::move(r));
+
+  xHttpServerConf conf = {};
+  conf.resolve         = xHttpMuxResolve;
+  conf.router          = router.raw();
+  conf.idle_timeout_ms = 60000;
+  conf.on_shutdown     = [](void *arg) {
+    static_cast<Server *>(arg)->m_shutdown_resolver.unwrap_unchecked().resolve(
+      xpp::Result<void, Error>(xpp::ok));
+  };
+  conf.shutdown_arg    = this;
+
+  OwnedHandle<Deleter> h(xHttpServerCreate(&conf));
+  if (!h.get()) {
+    m_shutdown_resolver.unwrap_unchecked().resolve(
+      Result<void>(xpp::err, Error::builder("failed to create server")));
+    m_shutdown_resolver = none;
+    return std::move(p);
+  }
+
+  xErrno err = xHttpServerListen(h.get(), m_host.c_str(), m_port);
+  if (err != xErrno_Ok) {
+    m_shutdown_resolver.unwrap_unchecked().resolve(
+      Result<void>(xpp::err, Error::builder("listen failed")));
+    m_shutdown_resolver = none;
+    return std::move(p); // h destroyed, on_shutdown fires but resolver is moved out
+  }
+
+  m_server = std::move(h);
+  return std::move(p);
 }
 
 } // namespace http

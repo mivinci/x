@@ -116,10 +116,22 @@ protected:
     unlink(key_path.c_str());
   }
 
-  void route(const char *pattern, xHttpDoneFunc on_done) {
+  void route(const char *pattern) {
     xHttpRouteConf conf = {};
     conf.pattern        = pattern;
-    conf.on_done        = on_done;
+    conf.on_request     = [](xHttpCtx *ctx, void *) -> int {
+      xHttpCtxSetStatus(ctx, 200);
+      xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+      xHttpCtxSetHeader(ctx, "Content-Length", "10");
+      return 0;
+    };
+    conf.on_read        = [](char *buf, size_t, void *) -> size_t {
+      static const char *msg = "Hello TLS!";
+      static size_t off = 0;
+      if (off >= strlen(msg)) { off = 0; return 0; }
+      buf[0] = msg[off++];
+      return 1;
+    }; 
     ASSERT_EQ(xHttpMuxHandle(mux, &conf), xErrno_Ok);
   }
 
@@ -270,17 +282,8 @@ protected:
 
 /* ── Basic TLS connection ─────────────────────────────────────────────── */
 
-static void tls_hello_handler(xHttpCtx *ctx, void *arg) {
-  (void)arg;
-  const char *body = "Hello TLS!";
-  xHttpCtxSetStatus(ctx, 200);
-  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
-  xHttpCtxWrite(ctx, body, strlen(body));
-  xHttpCtxEndStream(ctx);
-}
-
 TEST_F(HttpServerTlsTest, BasicTlsConnection) {
-  route("GET /hello", tls_hello_handler);
+  route("GET /hello");
   listen_tls_and_start();
 
   TlsConn conn = connect_tls("http/1.1");
@@ -299,7 +302,7 @@ TEST_F(HttpServerTlsTest, BasicTlsConnection) {
 /* ── ALPN negotiation: http/1.1 ───────────────────────────────────────── */
 
 TEST_F(HttpServerTlsTest, AlpnNegotiatesH1) {
-  route("GET /alpn", tls_hello_handler);
+  route("GET /alpn");
   listen_tls_and_start();
 
   TlsConn conn = connect_tls("http/1.1");
@@ -343,7 +346,7 @@ TEST_F(HttpServerTlsTest, InvalidKeyPathReturnsError) {
 /* ── Simultaneous HTTP and HTTPS ──────────────────────────────────────── */
 
 TEST_F(HttpServerTlsTest, SimultaneousHttpAndHttps) {
-  route("GET /dual", tls_hello_handler);
+  route("GET /dual");
 
   /* Start plain HTTP */
   xErrno err = xHttpServerListen(server, "127.0.0.1", port);

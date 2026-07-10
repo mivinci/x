@@ -257,6 +257,7 @@ xErrno xHttpMuxHandle(xHttpMux mux, const xHttpRouteConf *conf) {
   route->path            = strdup(path);
   route->info.on_request = conf->on_request;
   route->info.on_data    = conf->on_data;
+  route->info.on_read    = conf->on_read;
   route->info.on_done    = conf->on_done;
   route->info.arg        = conf->arg;
 
@@ -355,6 +356,8 @@ xHttpServer xHttpServerCreate(const xHttpServerConf *conf) {
       conf->idle_timeout_ms > 0 ? conf->idle_timeout_ms : XHTTP_DEFAULT_IDLE_TIMEOUT_MS;
     s->max_header_size =
       conf->max_header_size > 0 ? conf->max_header_size : XHTTP_DEFAULT_MAX_HEADER_SIZE;
+    s->on_shutdown  = conf->on_shutdown;
+    s->shutdown_arg = conf->shutdown_arg;
   } else {
     s->resolve         = NULL;
     s->router          = NULL;
@@ -447,6 +450,10 @@ void xHttpServerDestroy(xHttpServer server) {
   /* Free auxiliary data */
   if (s->aux_free) {
     s->aux_free(s->aux_data);
+  }
+
+  if (s->on_shutdown) {
+    s->on_shutdown(s->shutdown_arg);
   }
 
   free(s);
@@ -692,6 +699,11 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
      * and we must not touch it — bail out before the Read/handshake paths
      * below turn this into a use-after-free. */
     if (conn_write_ready(conn)) return;
+
+    /* After draining the write buffer, refill if we're pumping a body. */
+    if (conn->stream && conn->stream->body_pumping) {
+      xHttpServerBodyRefill(conn);
+    }
   }
 
   if (!conn->handshake_done && conn->transport.handshake) {
@@ -866,9 +878,69 @@ void xHttpStreamResolve(struct xHttpStream_ *stream) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- *  Request dispatch
+ *  Request dispatch (pull model)
+ *
+ *  After on_request returns, the server either:
+ *    - Starts a body pump when route->on_read is set
+ *    - Sends a headers-only response when there is no on_read
  * ═══════════════════════════════════════════════════════════════════════════
  */
+
+static void server_finalize_empty_response(struct xHttpConn_ *conn) {
+  struct xHttpStream_         *stream = conn->stream;
+  struct xHttpResponseWriter_ *w      = &stream->writer;
+  const xHttpRouteInfo        *info   = stream->route_info;
+  void                        *arg    = info ? info->arg : NULL;
+
+  if (!w->sent && !w->streaming) {
+    w->sent = 1;
+    conn->proto.send_response(stream, w->status_code, w->headers, NULL, 0);
+    conn_try_flush(conn);
+  }
+  conn_after_response(conn);
+
+  if (info && info->on_done) {
+    info->on_done(&stream->ctx, arg);
+  }
+}
+
+void xHttpServerBodyRefill(struct xHttpConn_ *conn) {
+  struct xHttpStream_   *stream = conn->stream;
+  const xHttpRouteInfo  *info   = stream->route_info;
+
+  /* Loop: drain → pull → write → repeat, until EAGAIN or EOF. */
+  while (stream->body_pumping) {
+    /* Drain what's already in the write buffer. */
+    conn_try_flush(conn);
+    if (!xIOBufferEmpty(&conn->write_buf)) return; /* backpressure — wait */
+
+    /* Pull from the handler. */
+    char    buf[4096];
+    size_t  n = info->on_read(buf, sizeof(buf), info->arg);
+
+    if (n > 0) {
+      conn->proto.write_data(stream, buf, n);
+      /* Continue the loop — conn_try_flush will be called at the top
+       * of the next iteration. */
+    } else {
+      /* Body complete — if no data was written yet (streaming not
+       * entered), send an empty-body response so headers are emitted. */
+      if (!stream->writer.streaming) {
+        stream->writer.sent = 1;
+        conn->proto.send_response(stream, stream->writer.status_code,
+                                   stream->writer.headers, NULL, 0);
+        conn_try_flush(conn);
+      } else {
+        conn->proto.end_stream(stream);
+        conn_try_flush(conn);
+      }
+      stream->body_pumping = 0;
+      conn_after_response(conn);
+      if (info->on_done) info->on_done(&stream->ctx, info->arg);
+      return;
+    }
+  }
+}
 
 static void conn_dispatch_request(struct xHttpConn_ *conn) {
   struct xHttpStream_ *stream = conn->stream;
@@ -884,7 +956,7 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
     return;
   }
 
-  /* If on_request aborted, send 500 if nothing was sent */
+  /* If on_request aborted, send 500 */
   if (stream->request_aborted) {
     if (!stream->writer.sent && !stream->writer.streaming) {
       xHttpConnSendError(conn, 500, "Internal Server Error");
@@ -893,31 +965,12 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
     return;
   }
 
-  /* Call on_done if present.
-   *
-   * on_done may call xHttpCtxSend / xHttpCtxEndStream, which internally
-   * call conn_after_response.  If the connection is not keep-alive,
-   * conn_after_response will close and free conn.  Save the hijacked
-   * flag BEFORE calling on_done so we can safely clean up a hijacked
-   * connection without touching freed memory. */
-  if (stream->route_info && stream->route_info->on_done) {
-    int hijacked = conn->hijacked;
-    stream->route_info->on_done(&stream->ctx, stream->route_info->arg);
-
-    /* If the handler hijacked the connection (e.g. WebSocket upgrade
-     * in on_request), clean up and return.  conn is still valid here
-     * because hijacked connections don't call conn_after_response. */
-    if (hijacked) {
-      xIOBufferDeinit(&conn->read_buf);
-      xIOBufferDeinit(&conn->write_buf);
-      free(conn);
-    }
-    /* If not hijacked, conn may have been freed by conn_after_response
-     * (called from xHttpCtxSend/xHttpCtxEndStream).  Don't touch it. */
+  if (!stream->route_info) {
+    conn_after_response(conn);
     return;
   }
 
-  /* No on_done handler — check hijacked directly. */
+  /* Hijacked connections (WebSocket) are handled separately. */
   if (conn->hijacked) {
     xIOBufferDeinit(&conn->read_buf);
     xIOBufferDeinit(&conn->write_buf);
@@ -925,14 +978,18 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
     return;
   }
 
-  /* If handler already sent (xHttpCtxSend finalizes internally) or
-   * is streaming (waits for xHttpCtxEndStream), nothing to do.
-   * If nothing was sent, the connection stays open — the handler
-   * may send a response later from a callback. */
+  /* Pull model: if the route has an on_read callback, start the body
+   * pump.  Otherwise send an empty headers-only response. */
+  if (stream->route_info->on_read) {
+    stream->body_pumping = 1;
+    xHttpServerBodyRefill(conn);
+  } else {
+    server_finalize_empty_response(conn);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- *  xHttpCtx write functions
+ *  xHttpCtx header helpers (called inside on_request)
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
@@ -973,50 +1030,6 @@ xErrno xHttpCtxSetHeader(xHttpCtx *ctx, const char *key, const char *value) {
   return xErrno_Ok;
 }
 
-xErrno xHttpCtxSend(xHttpCtx *ctx, const char *body, size_t body_len) {
-  if (!ctx) return xErrno_InvalidArg;
-  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
-  if (!stream) return xErrno_InvalidArg;
-  struct xHttpResponseWriter_ *w = &stream->writer;
-
-  if (w->sent || w->streaming) return xErrno_InvalidState;
-  w->sent = 1;
-
-  struct xHttpConn_ *conn = stream->conn;
-  conn->proto.send_response(stream, w->status_code, w->headers, body, body_len);
-  conn_try_flush(conn);
-  conn_after_response(conn);
-
-  return xErrno_Ok;
-}
-
-xErrno xHttpCtxWrite(xHttpCtx *ctx, const char *data, size_t len) {
-  if (!ctx) return xErrno_InvalidArg;
-  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
-  if (!stream) return xErrno_InvalidArg;
-  struct xHttpResponseWriter_ *w = &stream->writer;
-
-  if (w->sent) return xErrno_InvalidState;
-
-  struct xHttpConn_ *conn = stream->conn;
-  conn->proto.write_data(stream, data, len);
-  conn_try_flush(conn);
-
-  return xErrno_Ok;
-}
-
-xErrno xHttpCtxEndStream(xHttpCtx *ctx) {
-  if (!ctx || !ctx->internal_) return xErrno_InvalidArg;
-  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
-  struct xHttpConn_   *conn   = stream->conn;
-
-  if (stream->writer.streaming && !stream->writer.sent) {
-    conn->proto.end_stream(stream);
-    conn_try_flush(conn);
-  }
-  conn_after_response(conn);
-  return xErrno_Ok;
-}
 
 const char *xHttpCtxParam(xHttpCtx *ctx, const char *name, size_t *len) {
   if (!ctx || !name || !ctx->internal_) return NULL;
@@ -1029,6 +1042,50 @@ const char *xHttpCtxParam(xHttpCtx *ctx, const char *name, size_t *len) {
     }
   }
   return NULL;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  Legacy push helpers — internal use only, NOT in public header.
+ *  Used by test files that haven't migrated to pull model yet.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+xErrno xHttpCtxSend(xHttpCtx *ctx, const char *body, size_t body_len) {
+  if (!ctx) return xErrno_InvalidArg;
+  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
+  if (!stream) return xErrno_InvalidArg;
+  struct xHttpResponseWriter_ *w = &stream->writer;
+  if (w->sent || w->streaming) return xErrno_InvalidState;
+  w->sent = 1;
+  struct xHttpConn_ *conn = stream->conn;
+  conn->proto.send_response(stream, w->status_code, w->headers, body, body_len);
+  conn_try_flush(conn);
+  conn_after_response(conn);
+  return xErrno_Ok;
+}
+
+xErrno xHttpCtxWrite(xHttpCtx *ctx, const char *data, size_t len) {
+  if (!ctx) return xErrno_InvalidArg;
+  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
+  if (!stream) return xErrno_InvalidArg;
+  struct xHttpResponseWriter_ *w = &stream->writer;
+  if (w->sent) return xErrno_InvalidState;
+  struct xHttpConn_ *conn = stream->conn;
+  conn->proto.write_data(stream, data, len);
+  conn_try_flush(conn);
+  return xErrno_Ok;
+}
+
+xErrno xHttpCtxEndStream(xHttpCtx *ctx) {
+  if (!ctx || !ctx->internal_) return xErrno_InvalidArg;
+  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
+  struct xHttpConn_   *conn   = stream->conn;
+  if (stream->writer.streaming && !stream->writer.sent) {
+    conn->proto.end_stream(stream);
+    conn_try_flush(conn);
+  }
+  conn_after_response(conn);
+  return xErrno_Ok;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1062,7 +1119,7 @@ static void conn_try_flush(struct xHttpConn_ *conn) {
     if (n == 0) break;
   }
 
-  /* Buffer fully drained */
+  /* Buffer fully drained — go back to read mode. */
   if (xIOBufferEmpty(&conn->write_buf)) {
     if (conn->writing) {
       conn->writing = 0;

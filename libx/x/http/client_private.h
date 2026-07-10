@@ -10,7 +10,6 @@
 #define XHTTP_CLIENT_PRIVATE_H
 
 #include <stdlib.h>
-#include <string.h>
 
 #include <curl/curl.h>
 

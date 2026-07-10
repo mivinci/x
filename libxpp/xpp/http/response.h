@@ -2,17 +2,25 @@
  * Copyright 2025 The libx++ Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
-
  *
- * response.h - xpp::http::Response: HTTP response with async body.
+ * response.h - xpp::http::Response — unified HTTP response.
  *
- * Resolved at header time. Body data flows through a single mpsc
- * channel (populated by on_data, closed by on_done):
- *   - chunk()  — read the next chunk directly from the channel.
- *   - text() / bytes() — drain the channel into a single buffer.
+ * A single Response type for both server and client sides (like
+ * hyper's http::Response, axum's Response).  Use ResponseBuilder
+ * to construct, then consume via text()/bytes()/chunk() on the
+ * client side, or write_to(ctx) on the server side.
  *
- * Mutually exclusive: once you call chunk(), buffered access is
- * unavailable, and vice versa.
+ *   // Builder → Response
+ *   Response resp = Response::builder()
+ *     .status(200).header("X", "v").body("hello")
+ *     .build();
+ *
+ *   // Shortcut for handlers
+ *   return Response::ok("hello").into_promise();
+ *
+ *   // Client-side consumption
+ *   co_await resp.text();
+ *   co_await resp.chunk();
  */
 
 #ifndef XPP_HTTP_RESPONSE_H
@@ -29,21 +37,89 @@
 #include <xpp/option.h>
 #include <xpp/promise.h>
 #include <xpp/result.h>
-#include <xpp/shared.h>
 #include <xpp/sync/mpsc.h>
+
+#include <x/http/client.h>  // xHttpCtx
 
 namespace xpp {
 namespace http {
 
+// ═════════════════════════════════════════════════════════════════════
+// Forward
+// ═════════════════════════════════════════════════════════════════════
+
+// Writer is defined in server.h; Response::stream() captures a
+// std::function<void(Writer &)> that is later invoked by write_to().
+class Writer;
+class Response;  // forward-declared for ResponseBuilder
+
+/* ── ResponseBuilder ──────────────────────────────────────────────── */
+
+class ResponseBuilder {
+public:
+  ResponseBuilder() = default;
+
+  ResponseBuilder &status(int code) {
+    m_status = code;
+    return *this;
+  }
+
+  ResponseBuilder &header(std::string key, std::string value) {
+    m_headers.emplace(std::move(key), std::move(value));
+    return *this;
+  }
+
+  /// Streaming body via pull-style TryRead reader.
+  ///
+  /// The reader's try_read(char*, size_t) → ssize_t method is called
+  /// by the server's on_read callback whenever the socket is writable.
+  /// Semantics: >0 = data, 0 = EOF, <0 = EAGAIN (try later).
+  ///
+  /// Accepts any type satisfying the TryRead concept (duck-typing in
+  /// C++11, concept-checked in C++20 via xpp::io::TryRead).
+#if XPP_HAS_CONCEPT
+  template <io::TryRead R>
+#else
+  template <class R,
+    class = decltype(std::declval<R&>().try_read(
+      std::declval<char*>(), std::declval<size_t>()))>
+#endif
+  ResponseBuilder &body(R &&reader) {
+    m_read_fn = Option<std::function<ssize_t(char *, size_t)>>(
+      [r = std::forward<R>(reader)](char *buf, size_t cap) mutable -> ssize_t {
+        return r.try_read(buf, cap);
+      });
+    return *this;
+  }
+
+  Response build();
+
+  Promise<Result<Response>> into_promise();
+
+private:
+  friend class Response;
+
+  int                                           m_status   = 200;
+  std::multimap<std::string, std::string>       m_headers;
+  Option<std::function<ssize_t(char *, size_t)>> m_read_fn;
+};
+
+// ═════════════════════════════════════════════════════════════════════
+// Response — unified HTTP response (server + client).
+//
+// Constructed via ResponseBuilder::build().  Body accessed via
+// take_try_read() → Option<function<ssize_t(char*,size_t)>>.
+// ═════════════════════════════════════════════════════════════════════
+
 class Response {
 public:
+  static ResponseBuilder builder() { return ResponseBuilder(); }
+
   Response() = default;
+  Response(Response &&) noexcept            = default;
+  Response &operator=(Response &&) noexcept = default;
 
-  // ── Headers (available immediately) ─────────────────────────────
-
-  int status() const {
-    return m_status;
-  }
+  int status() const { return m_status; }
 
   Option<std::string> header(const std::string &name) const {
     auto it = m_headers.find(name);
@@ -51,139 +127,72 @@ public:
     return none;
   }
 
-  // ── Buffered body access ────────────────────────────────────────
+  const std::multimap<std::string, std::string> &headers() const {
+    return m_headers;
+  }
 
-  /// Async: wait for the full body, decode as UTF-8.
+  bool has_body() const { return m_read_fn.is_some(); }
+
+  Option<std::function<ssize_t(char *, size_t)>> take_try_read() {
+    return std::move(m_read_fn);
+  }
+
+  // ── Convenience body accessors (client side) ─────────────────────
+
+  /// Drain the TryRead body into a UTF-8 string.
   Promise<Result<std::string>> text() {
-    return bytes().then([](Result<bytes::Bytes> r) -> Result<std::string> {
-      if (r.is_err()) return xpp::err(r.unwrap_err());
-      return xpp::ok(r.unwrap_unchecked().to_string());
-    });
-  }
-
-  /// Async: wait for the full body, return raw bytes.
-  Promise<Result<bytes::Bytes>> bytes() {
-    XPP_ASSERT(m_access != Access::Streaming,
-               "bytes() after chunk() — body already consumed as stream");
-    m_access = Access::Buffered;
-    XPP_ASSERT(m_body_rx.is_some(), "bytes() on response without body channel");
-    return drain_into_bytes(std::move(m_body_rx).unwrap_unchecked());
-  }
-
-  // ── Streaming body access ───────────────────────────────────────
-
-  /// Return the next body chunk.  None means the stream ended.
-  ///
-  /// Each call blocks until a chunk arrives.  Must be called in a
-  /// loop to consume the full body.  Mutually exclusive with text()
-  /// and bytes().
-  Promise<Option<bytes::Bytes>> chunk() {
-    XPP_ASSERT(m_access != Access::Buffered,
-               "chunk() after bytes()/text() — body already consumed as buffered");
-    m_access = Access::Streaming;
-    XPP_ASSERT(m_body_rx.is_some(), "chunk() on a response without body channel");
-    return m_body_rx.unwrap_unchecked().recv();
-  }
-
-  // ── Internal ───────────────────────────────────────────────────
-
-  void set_status(int s) {
-    m_status = s;
-  }
-
-  /// Set the body channel (single source of truth for both access patterns).
-  void set_body_channel(sync::mpsc::Receiver<bytes::Bytes> rx) {
-    m_body_rx = Option<sync::mpsc::Receiver<bytes::Bytes>>(std::move(rx));
+    auto reader = take_try_read();
+    if (reader.is_none()) {
+      return xpp::resolve(Result<std::string>(xpp::ok, std::string()));
+    }
+    auto fn = std::move(reader).unwrap_unchecked();
+    std::string result;
+    char buf[4096];
+    while (true) {
+      ssize_t n = fn(buf, sizeof(buf));
+      if (n <= 0) break;
+      result.append(buf, static_cast<size_t>(n));
+    }
+    return xpp::resolve(Result<std::string>(xpp::ok, std::move(result)));
   }
 
 private:
-  enum class Access {
-    None,
-    Buffered,
-    Streaming
-  };
+  friend class ResponseBuilder;
 
-  /// Drain the body channel into a single buffered Bytes.
-  static Promise<Result<bytes::Bytes>> drain_into_bytes(sync::mpsc::Receiver<bytes::Bytes> rx);
+  Response(int                                            status,
+           std::multimap<std::string, std::string>        headers,
+           Option<std::function<ssize_t(char *, size_t)>> read_fn)
+    : m_status(std::move(status)),
+      m_headers(std::move(headers)),
+      m_read_fn(std::move(read_fn)) {}
 
-  int                                        m_status = 0;
-  Access                                     m_access = Access::None;
-  std::multimap<std::string, std::string>    m_headers;
-  Option<sync::mpsc::Receiver<bytes::Bytes>> m_body_rx;
+  int                                           m_status = 200;
+  std::multimap<std::string, std::string>       m_headers;
+  Option<std::function<ssize_t(char *, size_t)>> m_read_fn;
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// drain_into_bytes — channel → single Bytes
-//
-// Three implementations, selected at compile time:
-//   1. C++20 coroutine (co_await)       — compiler-generated state machine
-//   2. XPP_FIBER (.await())             — linear code, fiber-suspend
-//   3. C++11 .then() chain              — struct + std::move(*this) recursion
+// Inline implementations
 // ═════════════════════════════════════════════════════════════════════
 
-#if XPP_HAS_COROUTINES
+/* ── ResponseBuilder::build ───────────────────────────────────────── */
 
-// C++20 coroutine — simplest, compiler does the state machine.
-inline Promise<Result<bytes::Bytes>>
-Response::drain_into_bytes(sync::mpsc::Receiver<bytes::Bytes> rx) {
-  bytes::BytesMut buf;
-  while (true) {
-    auto chunk = co_await rx.recv();
-    if (chunk.is_none()) break;
-    auto &&b = chunk.unwrap();
-    buf.put(b.data(), b.size());
+inline Response ResponseBuilder::build() {
+  if (m_read_fn.is_some()) {
+    return Response(m_status, std::move(m_headers), std::move(m_read_fn));
   }
-  co_return Result<bytes::Bytes>(xpp::ok, buf.freeze());
+  // No body
+  Response r;
+  r.m_status  = m_status;
+  r.m_headers = std::move(m_headers);
+  return r;
 }
 
-#elif XPP_FIBER
+/* ── ResponseBuilder::into_promise ────────────────────────────────── */
 
-// Fiber — linear code with .await() that suspends the fiber.
-inline Promise<Result<bytes::Bytes>>
-Response::drain_into_bytes(sync::mpsc::Receiver<bytes::Bytes> rx) {
-  bytes::BytesMut buf;
-  while (true) {
-    auto chunk = rx.recv().await();
-    if (chunk.is_none()) break;
-    auto &&b = chunk.unwrap();
-    buf.put(b.data(), b.size());
-  }
-  return xpp::resolve(Result<bytes::Bytes>(xpp::ok, buf.freeze()));
+inline Promise<Result<Response>> ResponseBuilder::into_promise() {
+  return xpp::resolve(Result<Response>(xpp::ok, build()));
 }
-
-#else
-
-// C++11 — struct + std::move(*this) tail-recursive .then() chain.
-// State is Shared (one heap alloc) for the buffer and receiver.
-inline Promise<Result<bytes::Bytes>>
-Response::drain_into_bytes(sync::mpsc::Receiver<bytes::Bytes> rx) {
-  struct State {
-    sync::mpsc::Receiver<bytes::Bytes> rx;
-    bytes::BytesMut                    buf;
-    explicit State(sync::mpsc::Receiver<bytes::Bytes> r) : rx(std::move(r)) {}
-  };
-  auto state = Shared<State>::make(std::move(rx));
-
-  struct DrainLoop {
-    Shared<State>                 state;
-    Promise<Result<bytes::Bytes>> operator()() {
-      return state->rx.recv().then(
-        [self =
-           std::move(*this)](Option<bytes::Bytes> chunk) mutable -> Promise<Result<bytes::Bytes>> {
-          if (chunk.is_none()) {
-            return xpp::resolve(Result<bytes::Bytes>(xpp::ok, self.state->buf.freeze()));
-          }
-          auto &&b = chunk.unwrap();
-          self.state->buf.put(b.data(), b.size());
-          return self(); // tail-recursive
-        });
-    }
-  };
-
-  return DrainLoop{state}();
-}
-
-#endif
 
 } // namespace http
 } // namespace xpp

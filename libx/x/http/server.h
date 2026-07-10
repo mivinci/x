@@ -38,17 +38,23 @@ XDEF_HANDLE(xHttpMux);
  * @brief Route information returned by the resolver.
  *
  * Returned by @ref xHttpResolveFunc after the request headers are parsed.
- * The library calls @p on_request (if non-NULL) right after resolution,
- * streams the body via @p on_data (if non-NULL), and finally invokes
- * @p on_done when the request is fully received.
+ *
+ * Callbacks:
+ *   - @p on_request: called when request headers are parsed. Handler sets
+ *     status/headers on @p ctx and returns 0 (OK) or non-0 (abort).
+ *   - @p on_data: called for each request body chunk (POST/PUT).
+ *   - @p on_read: called when the server needs response body data. Mirror of
+ *     client-side xHttpReadFunc. Return >0 bytes, 0 for EOF, <0 to pause.
+ *   - @p on_done: called when the response is fully sent.
  *
  * All callbacks receive @p arg as the user-provided context.
  */
 XDEF_STRUCT(xHttpRouteInfo) {
-  xHttpInitFunc on_request; /**< Called once after headers (may be NULL) */
-  xHttpDataFunc on_data;    /**< Per body chunk callback (may be NULL)    */
-  xHttpDoneFunc on_done;    /**< Called when request is complete           */
-  void         *arg;        /**< User argument forwarded to callbacks      */
+  xHttpInitFunc       on_request; /**< Called once after headers (may be NULL) */
+  xHttpDataFunc       on_data;    /**< Per body chunk callback (may be NULL)    */
+  xHttpReadFunc on_read;    /**< Pull response body (may be NULL)         */
+  xHttpDoneFunc       on_done;    /**< Called when response fully sent          */
+  void               *arg;        /**< User argument forwarded to callbacks      */
 };
 
 /**
@@ -67,6 +73,9 @@ XDEF_STRUCT(xHttpRouteInfo) {
  */
 typedef const xHttpRouteInfo *(*xHttpResolveFunc)(void *router, xHttpCtx *ctx);
 
+/** @brief Called by xHttpServerDestroy to notify the caller that the server is gone. */
+typedef void (*xHttpServerShutdownFunc)(void *arg);
+
 /**
  * @brief Configuration for creating an HTTP server.
  *
@@ -74,21 +83,24 @@ typedef const xHttpRouteInfo *(*xHttpResolveFunc)(void *router, xHttpCtx *ctx);
  * default idle timeout and header size).
  */
 XDEF_STRUCT(xHttpServerConf) {
-  xHttpResolveFunc resolve;         /**< Resolver callback (may be NULL)   */
-  void            *router;          /**< Opaque router passed to @p resolve */
-  int              idle_timeout_ms; /**< 0 = default (60000 ms)             */
-  size_t           max_header_size; /**< 0 = default (8192 bytes)           */
+  xHttpResolveFunc        resolve;       /**< Resolver callback (may be NULL)    */
+  void                   *router;        /**< Opaque router passed to @p resolve */
+  int                      idle_timeout_ms; /**< 0 = default (60000 ms)          */
+  size_t                   max_header_size; /**< 0 = default (8192 bytes)        */
+  xHttpServerShutdownFunc  on_shutdown;  /**< Called when server is destroyed    */
+  void                   *shutdown_arg;  /**< Opaque arg passed to on_shutdown   */
 };
 
 /**
  * @brief Configuration for registering a route with @ref xHttpMux.
  */
 XDEF_STRUCT(xHttpRouteConf) {
-  const char   *pattern;    /**< "METHOD /path" or "/path" (any method)   */
-  xHttpInitFunc on_request; /**< Called after headers (may be NULL)       */
-  xHttpDataFunc on_data;    /**< Per body chunk callback (may be NULL)    */
-  xHttpDoneFunc on_done;    /**< Called at request completion (may be NULL) */
-  void         *arg;        /**< User argument forwarded to callbacks      */
+  const char         *pattern;    /**< "METHOD /path" or "/path" (any method)   */
+  xHttpInitFunc       on_request; /**< Called after headers (may be NULL)       */
+  xHttpDataFunc       on_data;    /**< Per body chunk callback (may be NULL)    */
+  xHttpReadFunc on_read;    /**< Pull response body (may be NULL)         */
+  xHttpDoneFunc       on_done;    /**< Called at request completion (may be NULL) */
+  void               *arg;        /**< User argument forwarded to callbacks      */
 };
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
@@ -153,39 +165,15 @@ XCAPI(const xHttpRouteInfo *) xHttpMuxResolve(void *router, xHttpCtx *ctx);
 
 /**
  * @brief Set the HTTP response status code (default 200).
+ *
+ * Must be called inside on_request, before the server starts the body pump.
  */
 XCAPI(void) xHttpCtxSetStatus(xHttpCtx *ctx, int code);
 
 /**
- * @brief Add a response header. Must be called before xHttpCtxSend().
+ * @brief Add a response header. Must be called inside on_request.
  */
 XCAPI(xErrno) xHttpCtxSetHeader(xHttpCtx *ctx, const char *key, const char *value);
-
-/**
- * @brief Send a complete HTTP response (status + headers + body).
- *
- * Mutually exclusive with xHttpCtxWrite(). May only be called once.
- */
-XCAPI(xErrno) xHttpCtxSend(xHttpCtx *ctx, const char *body, size_t body_len);
-
-/**
- * @brief Write streaming response data (no Content-Length).
- *
- * On the first call, flushes status line + headers. Subsequent calls
- * append data. Mutually exclusive with xHttpCtxSend(). The stream is
- * auto-ended when xHttpCtxEndStream is called.
- */
-XCAPI(xErrno) xHttpCtxWrite(xHttpCtx *ctx, const char *data, size_t len);
-
-/**
- * @brief End a streaming response and finalize the connection.
- *
- * Must be called after xHttpCtxWrite() to signal that the response
- * is complete.  For xHttpCtxSend(), finalization is implicit.
- * If a handler returns without calling send/write/endstream, the
- * connection stays open until idle timeout or explicit close.
- */
-XCAPI(xErrno) xHttpCtxEndStream(xHttpCtx *ctx);
 
 /**
  * @brief Look up a path parameter by name.

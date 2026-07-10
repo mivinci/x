@@ -90,6 +90,7 @@ XDEF_STRUCT(xHttpResponseWriter_) {
   struct xHttpHeader_ *headers_tail; /**< Tail for O(1) append            */
   int                  sent;         /**< Whether response has been sent  */
   int                  streaming;    /**< Whether in streaming mode       */
+  int                  body_started; /**< Whether body pump has started   */
   struct xHttpStream_ *stream;       /**< Back-pointer to the stream      */
 };
 
@@ -144,6 +145,7 @@ XDEF_STRUCT(xHttpStream_) {
   int         pending_error;        /**< Error status to send          */
   const char *pending_error_reason; /**< Error reason string        */
   int         closed_by_peer;       /**< H2: stream closed by nghttp2  */
+  int         body_pumping;         /**< Body pump in progress      */
 };
 
 /* ───────────────────── Connection ───────────────────── */
@@ -200,6 +202,8 @@ XDEF_STRUCT(xHttpServer_) {
   /* Configuration */
   int    idle_timeout_ms;
   size_t max_header_size;
+  xHttpServerShutdownFunc on_shutdown;
+  void                   *shutdown_arg;
 
   /* Auxiliary data (set by convenience wrappers like xWsServe) */
   void *aux_data;
@@ -234,6 +238,9 @@ XCAPI(void) xHttpConnHijack(struct xHttpConn_ *conn);
 
 /* Internal flush helper (returns 1 if connection was closed) */
 XCAPI(int) xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
+
+/* Body pump: pull from on_read when the write buffer drains (server.c) */
+XCAPI(void) xHttpServerBodyRefill(struct xHttpConn_ *conn);
 
 /* Route parsing helpers (used by mux) */
 XCAPI(int)  xHttpRouteParseSegments_(const char *path, struct xHttpRouteSegment_ **out);

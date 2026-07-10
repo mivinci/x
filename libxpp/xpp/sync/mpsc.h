@@ -260,7 +260,7 @@ template <class T> Promise<void> Sender<T>::send(T value) {
 }
 
 template <class T> Promise<Option<T>> Receiver<T>::recv() {
-  if (!m_chan) return xpp::resolve(none);
+  if (!m_chan) return xpp::resolve(Option<T>());
 
   while (true) {
     auto v = m_chan->m_rx.try_pop();
@@ -272,7 +272,7 @@ template <class T> Promise<Option<T>> Receiver<T>::recv() {
       return xpp::resolve(xpp::some(std::move(v).unwrap()));
     }
 
-    if (closed() && m_chan->m_rx.empty()) return xpp::resolve(none);
+    if (closed() && m_chan->m_rx.empty()) return xpp::resolve(Option<T>());
 
     auto pr               = xpp::async<void>();
     m_chan->m_read_waiter = std::move(pr.second);
@@ -331,7 +331,7 @@ template <class T> Promise<void> Sender<T>::send(T value) {
  * m_chan is Shared<Chan>, stored by value in the struct (8 bytes).
  */
 template <class T> Promise<Option<T>> Receiver<T>::recv() {
-  if (!m_chan) return xpp::resolve(none);
+  if (!m_chan) return xpp::resolve(Option<T>());
 
   struct RecvLoop {
     Shared<Chan> chan;
@@ -348,7 +348,7 @@ template <class T> Promise<Option<T>> Receiver<T>::recv() {
         return xpp::resolve(xpp::some(std::move(v).unwrap()));
       }
 
-      if (c->m_closed.load(std::memory_order_acquire) && c->m_rx.empty()) return xpp::resolve(none);
+      if (c->m_closed.load(std::memory_order_acquire) && c->m_rx.empty()) return xpp::resolve(Option<T>());
 
       auto pr          = xpp::async<void>();
       c->m_read_waiter = std::move(pr.second);
@@ -556,7 +556,7 @@ template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
 /* ═══ C++11 + fiber: linear while + .await() ═════════════════════════ */
 
 template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
-  if (!m_chan) return xpp::resolve(none);
+  if (!m_chan) return xpp::resolve(Option<T>());
 
   while (true) {
     auto v = m_chan->m_rx.try_pop();
@@ -568,7 +568,7 @@ template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
       return xpp::resolve(xpp::some(std::move(v).unwrap()));
     }
 
-    if (closed() && m_chan->m_rx.empty()) return xpp::resolve(none);
+    if (closed() && m_chan->m_rx.empty()) return xpp::resolve(Option<T>());
 
     auto pr               = xpp::async<void>();
     m_chan->m_read_waiter = std::move(pr.second);
@@ -579,7 +579,7 @@ template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
 #else // !XPP_FIBER
 
 template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
-  if (!m_chan) return xpp::resolve(none);
+  if (!m_chan) return xpp::resolve(Option<T>());
 
   struct RecvLoop {
     Shared<Chan> chan;
@@ -596,7 +596,7 @@ template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
         return xpp::resolve(xpp::some(std::move(v).unwrap()));
       }
 
-      if (c->m_closed.load(std::memory_order_acquire) && c->m_rx.empty()) return xpp::resolve(none);
+      if (c->m_closed.load(std::memory_order_acquire) && c->m_rx.empty()) return xpp::resolve(Option<T>());
 
       auto pr          = xpp::async<void>();
       c->m_read_waiter = std::move(pr.second);
