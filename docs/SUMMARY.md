@@ -75,6 +75,7 @@
     - [Dynamic Array](libx/base/array.md)
     - [Dynamic String](libx/base/string.md)
     - [MPSC Queue](libx/base/mpsc.md)
+    - [Pub/Sub Relay](libx/base/relay.md)
     - [Atomic Operations](libx/base/atomic.md)
     - [Logging](libx/base/log.md)
     - [Stack Trace](libx/base/backtrace.md)
