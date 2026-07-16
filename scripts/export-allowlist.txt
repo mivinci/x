@@ -329,6 +329,11 @@ xRandomBytes
 xRead
 xReadAll
 xReadFull
+xRelayCreate
+xRelayDestroy
+xRelayEmit
+xRelayOff
+xRelayOn
 xRelease
 xRetain
 xRingBufferCap
