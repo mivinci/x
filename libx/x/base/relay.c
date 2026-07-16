@@ -96,16 +96,16 @@ static void dispatch_fn(void *arg) {
 
 xRelay *xRelayCreate(void) {
   xRelay *r = (xRelay *)calloc(1, sizeof(xRelay));
-  if (!r) abort();
+  if (!r) return NULL;
 
   xListInit(&r->subs);
   xMutexInit(&r->lock);
   return r;
 }
 
-void xRelayOn(xRelay *r, xRelayFunc fn, void *arg) {
+xErrno xRelayOn(xRelay *r, xRelayFunc fn, void *arg) {
   xRelaySub_ *sub = (xRelaySub_ *)calloc(1, sizeof(xRelaySub_));
-  if (!sub) abort();
+  if (!sub) return xErrno_NoMemory;
 
   sub->loop = xEventLoopCurrent(); /* may be NULL — xRelayEmit handles it */
   sub->fn   = fn;
@@ -114,6 +114,7 @@ void xRelayOn(xRelay *r, xRelayFunc fn, void *arg) {
   xMutexLock(&r->lock);
   xListAddTail(&r->subs, &sub->node);
   xMutexUnlock(&r->lock);
+  return xErrno_Ok;
 }
 
 void xRelayOff(xRelay *r, xRelayFunc fn, void *arg) {
@@ -149,8 +150,9 @@ void xRelayEmit(xRelay *r, const void *data, size_t size) {
   int n = 0;
   xMutexLock(&r->lock);
   xList *pos;
-  xListForEach(pos, &r->subs)
+  xListForEach(pos, &r->subs) {
     n++;
+  }
 
   if (n == 0) {
     xMutexUnlock(&r->lock);
@@ -164,7 +166,7 @@ void xRelayEmit(xRelay *r, const void *data, size_t size) {
                         : (xRelaySub_ **)calloc((size_t)n, sizeof(xRelaySub_ *));
   if (!snap) {
     xMutexUnlock(&r->lock);
-    abort(); /* OOM — fail loudly, relay state is still consistent */
+    return;
   }
 
   /* Fill the snapshot. */
@@ -202,7 +204,7 @@ void xRelayEmit(xRelay *r, const void *data, size_t size) {
        * this dispatch struct after invoking the subscriber.
        */
       xRelayDispatch_ *d = (xRelayDispatch_ *)calloc(1, sizeof(xRelayDispatch_));
-      if (!d) abort();
+      if (!d) { continue; }
 
       d->fn  = sub->fn;
       d->arg = sub->arg;
@@ -210,7 +212,7 @@ void xRelayEmit(xRelay *r, const void *data, size_t size) {
 
       if (size > 0 && data != NULL) {
         d->data = malloc(size);
-        if (!d->data) abort();
+        if (!d->data) { free(d); continue; }
         memcpy(d->data, data, size);
       }
 

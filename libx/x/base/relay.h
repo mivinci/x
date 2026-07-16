@@ -82,8 +82,8 @@ typedef struct xRelay_ xRelay;
 /**
  * @brief Create a new relay with zero subscribers.
  *
- * @return Heap-allocated relay handle.  Never returns NULL
- *         (aborts on OOM via xAlloc).  Pair with xRelayDestroy().
+ * @return Heap-allocated relay handle, or NULL on OOM.
+ *         Pair with xRelayDestroy().
  */
 XCAPI(xRelay*) xRelayCreate(void);
 
@@ -105,8 +105,9 @@ XCAPI(xRelay*) xRelayCreate(void);
  * @param r    Relay handle.
  * @param fn   Callback function.
  * @param arg  Opaque user pointer forwarded to @p fn.
+ * @return     xErrno_Ok on success, xErrno_NoMemory on OOM.
  */
-XCAPI(void) xRelayOn(xRelay *r, xRelayFunc fn, void *arg);
+XCAPI(xErrno) xRelayOn(xRelay *r, xRelayFunc fn, void *arg);
 
 /**
  * @brief Remove the first subscriber matching {fn, arg}.

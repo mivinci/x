@@ -62,8 +62,8 @@ graph TD
 
 | Function | Signature | Description | Thread Safety |
 | --- | --- | --- | --- |
-| `xRelayCreate` | `xRelay *xRelayCreate(void)` | Create a new relay with zero subscribers. Returns heap-allocated handle. | **Thread-safe** (single-threaded creation) |
-| `xRelayOn` | `void xRelayOn(xRelay *r, xRelayFunc fn, void *arg)` | Subscribe `fn` with `arg`. The current event loop is recorded. | **Thread-safe** |
+| `xRelayCreate` | `xRelay *xRelayCreate(void)` | Create a new relay with zero subscribers. Returns NULL on OOM. | **Thread-safe** (single-threaded creation) |
+| `xRelayOn` | `xErrno xRelayOn(xRelay *r, xRelayFunc fn, void *arg)` | Subscribe `fn` with `arg`. The current event loop is recorded. Returns `xErrno_Ok` or `xErrno_NoMemory`. | **Thread-safe** |
 | `xRelayOff` | `void xRelayOff(xRelay *r, xRelayFunc fn, void *arg)` | Remove the first subscriber matching `{fn, arg}`. No-op if not found. | **Thread-safe** |
 | `xRelayEmit` | `void xRelayEmit(xRelay *r, const void *data, size_t size)` | Emit data to all subscribers. Same-loop callbacks fire synchronously; cross-loop callbacks are posted. | **Thread-safe** |
 | `xRelayDestroy` | `void xRelayDestroy(xRelay *r)` | Free all subscribers and internal resources. Pending cross-loop dispatches are still delivered. | **Thread-safe** (single call) |
@@ -97,8 +97,9 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
     xEventLoopEnter(loop);
 
-    /* Create the relay. */
+    /* Create the relay — check for OOM. */
     g_sensor_relay = xRelayCreate();
+    if (!g_sensor_relay) { xEventLoopLeave(); xEventLoopDestroy(loop); return 1; }
 
     /* Modules subscribe — all on the same event loop. */
     xRelayOn(g_sensor_relay, on_reading, "Display");
