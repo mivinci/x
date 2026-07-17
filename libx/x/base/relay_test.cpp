@@ -10,7 +10,6 @@
 #include <cstring>
 #include <string>
 #include <thread>
-#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -509,4 +508,181 @@ TEST_F(RelayTest, EmitWithManySubscribers) {
 
   for (int i = 0; i < kN; i++)
     EXPECT_EQ(counts[i].load(), 1) << "subscriber " << i;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  UAF stress: cross-thread Emit + Off race
+ *
+ *  Target: the TOCTOU race where a concurrent xRelayOff frees a
+ *  subscriber node between Emit Phase 1 (snapshot) and Phase 2
+ *  (dispatch).  Before the snapshot-by-value fix, the Phase 2 loop
+ *  dereferenced a dangling pointer.  ASan catches this.
+ *
+ *  Strategy: one thread rapidly emits, another thread rapidly
+ *  unsubscribes.  High churn + many iterations to widen the race
+ *  window.  Each subscriber has a unique {fn, arg} pair so Off
+ *  can target specific entries.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST_F(RelayTest, StressCrossThreadEmitOffRace) {
+  constexpr int kSubs = 20;
+  constexpr int kIters = 2000;
+
+  std::atomic<bool> stop{false};
+
+  /* Unique arg pointers so Off can target individual subscribers. */
+  std::atomic<int> counts[kSubs] = {};
+  auto fn = [](void *, void *arg) {
+    static_cast<std::atomic<int> *>(arg)->fetch_add(1);
+  };
+
+  /* Subscribe all on the main loop. */
+  for (int i = 0; i < kSubs; i++) {
+    xRelayOn(r, fn, &counts[i]);
+  }
+
+  /* Off thread — rapidly unsubscribes, freeing subscriber nodes. */
+  std::thread remover([this, &stop, &counts, fn]() {
+    for (int i = 0; !stop.load(); i++) {
+      int idx = i % kSubs;
+      xRelayOff(this->r, fn, &counts[idx]); /* may be no-op if already removed */
+    }
+  });
+
+  /* Main thread — emit at high frequency.
+   * Same-loop callbacks fire synchronously inside the emit loop.
+   * Concurrent xRelayOff from the remover thread can free subscriber
+   * nodes while this emit loop is mid-iteration.  Snapshot-by-value
+   * makes this safe — the emit loop never touches freed memory. */
+  for (int i = 0; i < kIters; i++) {
+    int v = i;
+    xRelayEmit(r, &v, sizeof(v));
+
+    /* Periodically re-subscribe to keep churn high. */
+    if (i % 10 == 0) {
+      for (int j = 0; j < kSubs; j++) {
+        counts[j].store(0);
+        xRelayOn(r, fn, &counts[j]);
+      }
+    }
+  }
+
+  stop.store(true);
+  remover.join();
+  SUCCEED();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  UAF stress: same-loop Off-other-subscriber from callback
+ *
+ *  Target: a subscriber callback calls xRelayOff on a DIFFERENT
+ *  subscriber that appears later in the snapshot.  Before the
+ *  snapshot-by-value fix, this freed the target node while the
+ *  emit loop still held a pointer to it — use-after-free on the
+ *  same thread.
+ *
+ *  Strategy: subscriber #0's callback unsubscribes subscriber #1.
+ *  Repeat many times.  If there were a UAF, ASan would catch it
+ *  (the emit loop accesses freed memory when it reaches #1).
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST_F(RelayTest, StressOffOtherSubscriberFromCallback) {
+  xRelay *captured_r = r;
+
+  /* Subscriber #1 — the one that gets unsubscribed from callback. */
+  std::atomic<int> sub1_calls{0};
+  auto fn1 = [](void *, void *arg) {
+    static_cast<std::atomic<int> *>(arg)->fetch_add(1);
+  };
+
+  /* subscriber #0 — removes subscriber #1 on first fire. */
+  static xRelayFunc fn0 = [](void *, void *arg) {
+    auto *ctx = static_cast<std::pair<xRelay *, std::pair<std::atomic<int> *, xRelayFunc> *> *>(arg);
+    xRelayOff(ctx->first, ctx->second->second, ctx->second->first);
+  };
+
+  std::pair<std::atomic<int> *, xRelayFunc> sub1_ctx{&sub1_calls, fn1};
+  std::pair<xRelay *, std::pair<std::atomic<int> *, xRelayFunc> *> sub0_ctx{captured_r, &sub1_ctx};
+
+  /* Subscribe order: #0 first, #1 second.
+   * In the linked list, #1 comes AFTER #0.
+   * When #0's callback fires and removes #1, the emit loop
+   * hasn't reached #1's entry yet. */
+  xRelayOn(r, fn0, &sub0_ctx);
+  xRelayOn(r, fn1, &sub1_calls);
+
+  constexpr int kIters = 10000;
+  for (int i = 0; i < kIters; i++) {
+    int v = i;
+
+    /* Re-register subscriber #1 (it gets removed by #0 each iteration). */
+    if (i > 0) {
+      xRelayOn(r, fn1, &sub1_calls);
+    }
+
+    sub1_calls.store(0);
+    xRelayEmit(r, &v, sizeof(v));
+
+    /*
+     * After the first iteration, #0 unsubscribes #1 every time.
+     * #1 should not be called (or at most once if it fires before
+     * being unsubscribed — depends on list insertion order).
+     */
+  }
+
+  SUCCEED();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Same-loop Off-other subscriber: multi-subscriber variant
+ *
+ *  20 subscribers, subscriber #0 removes ALL others in its callback.
+ *  This exercises the case where all subsequent snapshot entries
+ *  point to freed nodes.  More aggressive than the 2-subscriber test.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST_F(RelayTest, StressOffAllOtherSubscribersFromCallback) {
+  xRelay *captured_r = r;
+
+  std::atomic<int> calls[20] = {};
+  xRelayFunc fn_inc = [](void *, void *arg) {
+    static_cast<std::atomic<int> *>(arg)->fetch_add(1);
+  };
+
+  /* Subscriber #0 removes all others. */
+  static xRelayFunc fn_wipe = [](void *, void *arg) {
+    auto *ctx = static_cast<std::pair<xRelay *, std::pair<std::atomic<int> *, xRelayFunc> *> *>(arg);
+    for (int k = 1; k < 20; k++) {
+      xRelayOff(ctx->first, ctx->second[k].second, ctx->second[k].first);
+    }
+  };
+
+  std::pair<std::atomic<int> *, xRelayFunc> ctxs[20];
+  for (int i = 0; i < 20; i++) {
+    ctxs[i] = {&calls[i], fn_inc};
+  }
+
+  std::pair<xRelay *, std::pair<std::atomic<int> *, xRelayFunc> *> wipe_ctx{captured_r, ctxs};
+
+  xRelayOn(r, fn_wipe, &wipe_ctx);  /* subscriber #0 — the wiper */
+  for (int i = 1; i < 20; i++) {
+    xRelayOn(r, fn_inc, &calls[i]); /* subscribers #1..#19 */
+  }
+
+  constexpr int kIters = 500;
+  for (int i = 0; i < kIters; i++) {
+    int v = i;
+
+    /* Re-register #1..#19 (they were wiped last iteration). */
+    if (i > 0) {
+      xRelayOn(r, fn_wipe, &wipe_ctx);
+      for (int j = 1; j < 20; j++) {
+        xRelayOn(r, fn_inc, &calls[j]);
+      }
+    }
+
+    xRelayEmit(r, &v, sizeof(v));
+  }
+
+  SUCCEED();
 }

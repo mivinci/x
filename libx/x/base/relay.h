@@ -42,19 +42,18 @@
  *   }
  *
  * Thread safety: all APIs are internally synchronised with a mutex.
- * Emit holds the lock only long enough to snapshot the subscriber list;
- * callback execution happens outside the critical section.
+ * Emit holds the lock only long enough to snapshot the subscriber
+ * list; callback execution happens outside the critical section.  The
+ * snapshot copies subscriber metadata {loop, fn, arg} by value, so
+ * concurrent xRelayOff (cross-thread) and in-callback xRelayOff
+ * (same-loop) are safe — callbacks never dereference freed memory.
  */
 
 #ifndef XBASE_RELAY_H
 #define XBASE_RELAY_H
 
-#include <stddef.h>
-
 #include <x/base/base.h>
-#include <x/base/event.h>
-#include <x/base/list.h>
-#include <x/base/thread.h>
+#include <x/base/error.h>
 
 /**
  * @brief Callback invoked on xRelayEmit.
@@ -85,7 +84,7 @@ typedef struct xRelay_ xRelay;
  * @return Heap-allocated relay handle, or NULL on OOM.
  *         Pair with xRelayDestroy().
  */
-XCAPI(xRelay*) xRelayCreate(void);
+XCAPI(xRelay *) xRelayCreate(void);
 
 /**
  * @brief Subscribe @p fn with @p arg.

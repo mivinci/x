@@ -207,7 +207,9 @@ int main(void) {
 
 - **`xRelayOff` before destroying a subscriber's loop.** If a subscriber's event loop is being torn down, unsubscribe first. Otherwise, a concurrent emit may `xEventLoopPost` to a destroyed loop.
 
-- **Don't modify the subscriber list from within a callback on the same loop.** Subscribe/unsubscribe operations take a mutex and will block if the emit is holding it for the snapshot. This is safe (the mutex prevents deadlocks) but adds latency to the callback.
+- **Self-unsubscribe from a same-loop callback is safe.** A subscriber can call `xRelayOff(r, self_fn, self_arg)` from within its own emit callback. This is the canonical pattern for fire-once subscribers.
+
+- **Unsubscribing other subscribers from a same-loop callback is also safe** — the emit snapshot copies subscriber metadata by value, so freeing another subscriber's node mid-dispatch is harmless. However, callers should be aware that `xRelayOff` acquires a mutex, which adds latency to the callback path.
 
 ## Thread Safety
 
