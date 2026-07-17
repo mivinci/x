@@ -34,6 +34,7 @@ jobs:
   test:
     name: ${{ matrix.os }} / ${{ matrix.tls }} / C++${{ matrix.cxx_std }} / MT=${{ matrix.mt }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -191,6 +192,7 @@ jobs:
   export-check:
     name: Symbol visibility (shared build)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -238,6 +240,7 @@ jobs:
   clang-tidy:
     name: clang-tidy (lint)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
