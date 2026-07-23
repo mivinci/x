@@ -67,5 +67,4 @@ Testing/
 bench_results
 *.pem
 build-bench
-openspec
 docs/api/
