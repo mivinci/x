@@ -12,7 +12,7 @@
 
 
 #ifdef X_HAS_NGHTTP3
-include "proto_h3.h"
+#include "proto_h3.h"
 #include "server_private.h"
 
 #include <arpa/inet.h>
@@ -318,13 +318,13 @@ void xHttpQuicConnScheduleTimer(struct xHttpConn_ *conn) {
   ngtcp2_tstamp now = h3_timestamp();
   int64_t delay_ms   = expiry > now ? (int64_t)((expiry - now) / 1000000) : 0;
 
-  conn->quic_timer = xEventLoopTimerAfter(
-    s->loop, h3_on_quic_timer, conn, delay_ms);
+  conn->quic_timer = xTimerStart(h3_on_quic_timer, conn, delay_ms, NULL, 
+    s->loop);
 }
 
 void xHttpQuicConnCancelTimer(struct xHttpConn_ *conn) {
   if (conn->quic_timer) {
-    xEventLoopTimerCancel(conn->server->loop, conn->quic_timer);
+    xTimerStop(conn->quic_timer);
     conn->quic_timer = NULL;
   }
 }
@@ -559,8 +559,7 @@ xErrno xHttpServerListenH3(xHttpServer server, const char *host,
   }
 
   /* Wrap in xSocket for event loop integration */
-  s->h3_listen_sock = xSocketCreateFromFd(
-    s->loop, fd, xEvent_Read, h3_on_listen_event, server);
+  s->h3_listen_sock = xSocketCreateFromFd(fd, xEvent_Read, h3_on_listen_event, server);
   if (!s->h3_listen_sock) {
     close(fd);
     return xErrno_NoMemory;
@@ -572,7 +571,7 @@ xErrno xHttpServerListenH3(xHttpServer server, const char *host,
   /* Create TLS context for QUIC */
   s->h3_tls_ctx = xTlsCtxCreate(config);
   if (!s->h3_tls_ctx) {
-    xSocketDestroy(s->loop, s->h3_listen_sock);
+    xSocketDestroy(s->h3_listen_sock);
     s->h3_listen_sock = NULL;
     s->h3_listen_fd   = -1;
     close(fd);
@@ -584,7 +583,7 @@ xErrno xHttpServerListenH3(xHttpServer server, const char *host,
   if (!s->h3_quic_conns) {
     xTlsCtxDestroy(s->h3_tls_ctx);
     s->h3_tls_ctx = NULL;
-    xSocketDestroy(s->loop, s->h3_listen_sock);
+    xSocketDestroy(s->h3_listen_sock);
     s->h3_listen_sock = NULL;
     s->h3_listen_fd   = -1;
     close(fd);
@@ -619,7 +618,7 @@ void xHttpServerQuicCleanup(struct xHttpServer_ *s) {
 
   if (s->h3_listen_fd >= 0) {
     if (s->h3_listen_sock) {
-      xSocketDestroy(s->loop, s->h3_listen_sock);
+      xSocketDestroy(s->h3_listen_sock);
       s->h3_listen_sock = NULL;
     }
     s->h3_listen_fd = -1;

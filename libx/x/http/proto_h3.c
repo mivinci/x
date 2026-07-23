@@ -12,7 +12,7 @@
 
 
 #ifdef X_HAS_NGHTTP3
-include "proto_h3.h"
+#include "proto_h3.h"
 #include "server_private.h"
 
 #include <ctype.h>
@@ -273,15 +273,30 @@ static int h3_recv_data(nghttp3_conn *h3_conn, int64_t stream_id,
                          const uint8_t *data, size_t datalen,
                          void *user_data, void *stream_user_data) {
   (void)h3_conn;
-  (void)stream_id;
   (void)user_data;
 
   xH3StreamData *sd = (xH3StreamData *)stream_user_data;
   if (!sd || !sd->stream) return 0;
 
-  if (!sd->stream->body) sd->stream->body = xBufferCreate(1024);
-  if (!sd->stream->body) return NGHTTP3_ERR_CALLBACK_FAILURE;
-  xBufferAppend(&sd->stream->body, (const char *)data, datalen);
+  struct xHttpStream_ *stream = sd->stream;
+
+  /* Lazy route resolution (if headers arrived before data) */
+  if (!stream->on_request_done && !stream->pending_error) {
+    xHttpStreamResolve(stream);
+  }
+
+  /* Stream body chunk directly to the handler's on_data callback.
+   * No buffering — same pattern as H2 (proto_h2.c:146). */
+  if (stream->pending_error || stream->request_aborted) return 0;
+  if (!stream->route_info || !stream->route_info->on_data) return 0;
+
+  int rc = stream->route_info->on_data(
+    (const char *)data, datalen, stream->route_info->arg);
+  if (rc != 0) {
+    stream->pending_error        = 413;
+    stream->pending_error_reason = "Content Too Large";
+  }
+
   return 0;
 }
 
@@ -294,9 +309,16 @@ static int h3_end_stream_cb(nghttp3_conn *h3_conn, int64_t stream_id,
 
   xH3StreamData *sd = (xH3StreamData *)stream_user_data;
   if (sd && sd->stream) {
-    sd->stream->request_complete = 1;
+    struct xHttpStream_ *stream = sd->stream;
+
+    /* Lazy resolution — may not have been resolved if request had no body */
+    if (!stream->on_request_done && !stream->pending_error) {
+      xHttpStreamResolve(stream);
+    }
+
+    stream->request_complete = 1;
     if (h3->pending_count < XHTTP_H3_MAX_PENDING_DISPATCH) {
-      h3->pending_dispatch[h3->pending_count++] = sd->stream;
+      h3->pending_dispatch[h3->pending_count++] = stream;
     }
   }
   return 0;

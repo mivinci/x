@@ -180,7 +180,7 @@ XDEF_STRUCT(xHttpConn_) {
   uint8_t remote_cid[20]; /**< Remote Connection ID bytes           */
   size_t  remote_cid_len; /**< Remote CID length                     */
   struct sockaddr_storage remote_addr; /**< Peer UDP address        */
-  xEventTimer quic_timer;    /**< QUIC expiry / loss timer          */
+  xTimer  quic_timer;        /**< QUIC expiry / loss timer          */
   int         quic_closing;  /**< QUIC connection closing flag      */
 
   /* Linked list of active connections */
