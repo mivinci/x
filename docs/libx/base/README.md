@@ -113,6 +113,7 @@ graph TD
 | [`io.h`](io.md) | [io.md](io.md) | Abstract I/O interfaces (Reader, Writer, Seeker, Closer) with convenience helpers (xReadFull, xReadAll, xWritev, etc.) |
 | `list.h` | [list.md](list.md) | Intrusive doubly-linked circular list — zero-allocation, inline implementation derived from Linux kernel's `list.h` |
 | `array.h` | [array.md](array.md) | Generic auto-growing array — type-erased contiguous storage with optional lifecycle callbacks (retain/release/equal) |
+| [`arena.h`](arena.md) | [arena.md](arena.md) | Fixed-capacity bump allocator — O(1) allocation, O(1) ownership check, no per-object free; ideal for phase-scoped data (parse trees, request buffers) |
 | `hex.h` | [hex.md](hex.md) | Hex (base16) encode/decode — binary to/from ASCII hex string (lower-case output, case-insensitive decode) |
 | `base64.h` | [base64.md](base64.md) | Base64 encode/decode (RFC 4648) — standard and URL-safe alphabets, with or without `=` padding |
 | `random.h` | [random.md](random.md) | Cross-platform cryptographically secure random bytes — `getrandom` / `getentropy` / `BCryptGenRandom` with `/dev/urandom` fallback |
@@ -132,6 +133,7 @@ graph TD
 | Manage non-blocking TCP/UDP connections | [`socket.h`](socket.md) — wraps socket + event loop + idle timeout |
 | Allocate objects with automatic cleanup | [`memory.h`](memory.md) — `XMALLOC(T)` + `xRetain`/`xRelease` |
 | Pool many small fixed-size objects with minimal overhead | [`slab.h`](slab.md) — `xSlab` (ST) / `xSlabMt` (MT) object pool with intrusive freelist |
+| Allocate many objects with a shared lifetime and free them all at once | [`arena.h`](arena.md) — `xArena` bump allocator; one `xArenaDestroy()` or `xArenaReset()` reclaims everything |
 | Report errors from library internals | [`log.h`](log.md) — thread-local callback, or stderr fallback |
 | Capture a stack trace for debugging | [`backtrace.h`](backtrace.md) — `xBacktrace()` fills a buffer |
 | Handle error codes uniformly | [`error.h`](error.md) — `xErrno` enum + `xstrerror()` |
