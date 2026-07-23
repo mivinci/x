@@ -878,3 +878,72 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
   EXPECT_EQ(ctx_h2c.status_code, 200);
   EXPECT_EQ(ctx_h2c.body, "hello");
 }
+
+/* ───────────────────── H3 Client Config (fallback to H1/H2) ───────────────────── */
+
+TEST_F(IntegrationTest, H3ConfigGet) {
+  route("GET /hello", hello_handler);
+  listen_and_pump();
+
+  RespCtx     ctx;
+  std::string url = make_url("/hello");
+  xHttpClient client = xHttpClientCreate(NULL);
+  ASSERT_NE(client, nullptr);
+
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url          = url.c_str();
+  config.method       = xHttpMethod_GET;
+  config.http_version = xHttpVersion_H3;
+  config.on_data      = on_data_collect;
+  config.on_done      = on_resp;
+
+  xErrno err = xHttpClientDo(client, &config, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  run_until(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "H3 config request timed out";
+  /* H3 falls back to H1/H2 when server doesn't support H3 */
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  EXPECT_EQ(ctx.body, "hello");
+
+  xHttpClientDestroy(client);
+}
+
+TEST_F(IntegrationTest, H3ConfigPost) {
+  EchoBodyCtx echo_ctx;
+  route_with_data("POST /echo", echo_body_on_data, echo_body_on_done, &echo_ctx);
+  listen_and_pump();
+
+  RespCtx     ctx;
+  std::string url = make_url("/echo");
+
+  xHttpClient client = xHttpClientCreate(NULL);
+  ASSERT_NE(client, nullptr);
+
+  std::string post_body = "test-data";
+  ctx.upload_data = post_body;
+
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url          = url.c_str();
+  config.method       = xHttpMethod_POST;
+  config.http_version = xHttpVersion_H3;
+  config.on_data      = on_data_collect;
+  config.on_done      = on_resp;
+  config.on_read      = on_read_provide;
+
+  xErrno err = xHttpClientDo(client, &config, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  run_until(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "H3 POST request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  EXPECT_EQ(ctx.body, post_body);
+
+  xHttpClientDestroy(client);
+}

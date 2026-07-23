@@ -318,8 +318,7 @@ void xHttpQuicConnScheduleTimer(struct xHttpConn_ *conn) {
   ngtcp2_tstamp now = h3_timestamp();
   int64_t delay_ms   = expiry > now ? (int64_t)((expiry - now) / 1000000) : 0;
 
-  conn->quic_timer = xTimerStart(h3_on_quic_timer, conn, delay_ms, NULL, 
-    s->loop);
+  conn->quic_timer = xTimerStart(h3_on_quic_timer, conn, NULL, (uint64_t)delay_ms, 0);
 }
 
 void xHttpQuicConnCancelTimer(struct xHttpConn_ *conn) {

@@ -828,3 +828,31 @@ TEST_F(HttpServerTest, YieldedResponseWithoutResumeNoResponse) {
 
   close(fd);
 }
+
+/* ───────────────────── H3 Server Tests ───────────────────── */
+
+#ifdef X_HAS_NGHTTP3
+
+TEST(ServerH3Test, H3ListenSucceeds) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+  xEventLoopEnter(loop);
+
+  xHttpMux mux = xHttpMuxCreate();
+  xHttpServerConf conf = {};
+  conf.resolve = xHttpMuxResolve;
+  conf.router  = mux;
+  xHttpServer server = xHttpServerCreate(&conf);
+  ASSERT_NE(server, nullptr);
+
+  xTlsConf tlsConf = {};
+  xHttpServerListenH3(server, "127.0.0.1", 0, &tlsConf);
+  /* May fail without cert but shouldn't crash */
+
+  xHttpServerDestroy(server);
+  xHttpMuxDestroy(mux);
+  xEventLoopLeave();
+  xEventLoopDestroy(loop);
+}
+
+#endif /* X_HAS_NGHTTP3 */

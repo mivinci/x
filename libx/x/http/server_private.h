@@ -268,6 +268,7 @@ XCAPI(int)  xHttpRouteMatch_(const struct xHttpRouteSegment_ *segments, int segm
 XCAPI(void) xHttpServerQuicCleanup(struct xHttpServer_ *s);
 XCAPI(void) xHttpQuicConnDestroy(struct xHttpConn_ *conn);
 XCAPI(void) xHttpQuicConnScheduleTimer(struct xHttpConn_ *conn);
+XCAPI(void) xHttpQuicConnCancelTimer(struct xHttpConn_ *conn);
 XCAPI(int)  xHttpProtoH3Init(struct xHttpConn_ *conn);
 #endif
 
