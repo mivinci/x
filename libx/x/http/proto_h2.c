@@ -232,7 +232,9 @@ static int h2_on_stream_close_callback(nghttp2_session *session, int32_t stream_
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-static int h2_on_data(struct xHttpConn_ *conn, const char *buf, size_t len) {
+static int h2_on_data(struct xHttpConn_ *conn, const char *buf, size_t len,
+                       int64_t stream_id) {
+  (void)stream_id;
   xHttpProtoH2 *h2 = (xHttpProtoH2 *)conn->proto.state;
 
   h2->pending_count = 0;

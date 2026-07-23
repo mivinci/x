@@ -394,6 +394,9 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config, xSs
       case xHttpVersion_H2C:
         curl_ver = CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE;
         break;
+      case xHttpVersion_H3:
+        curl_ver = CURL_HTTP_VERSION_3;
+        break;
       default:
         break;
       }

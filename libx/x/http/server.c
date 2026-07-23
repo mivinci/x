@@ -8,8 +8,11 @@
 
 #include "proto_h1.h"
 #include "proto_h2.h"
+#include "proto_h3.h"
 #include "server_private.h"
 #include "ws_private.h"
+
+#include <x/base/map.h>
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -344,6 +347,16 @@ xHttpServer xHttpServerCreate(const xHttpServerConf *conf) {
   s->tls_listen_sock = NULL;
   s->tls_listen_fd   = -1;
   s->tls_ctx         = NULL;
+
+  /* H3 / QUIC */
+  s->h3_listen_fd    = -1;
+  s->h3_listen_sock  = NULL;
+  s->h3_port         = 0;
+  s->h3_tls_ctx      = NULL;
+  s->h3_quic_conns   = NULL;
+  s->h3_enabled      = 0;
+  s->alt_svc[0]      = '\0';
+
   s->conns           = NULL;
   s->ws_conns        = NULL;
 
@@ -443,6 +456,11 @@ void xHttpServerDestroy(xHttpServer server) {
     xTlsCtxDestroy(s->tls_ctx);
     s->tls_ctx = NULL;
   }
+
+  /* H3 / QUIC cleanup */
+#ifdef X_HAS_NGHTTP3
+  xHttpServerQuicCleanup(s);
+#endif
 
   /* Free auxiliary data */
   if (s->aux_free) {
@@ -642,6 +660,23 @@ void xHttpConnClose(struct xHttpConn_ *conn) {
     conn->stream = NULL;
   }
 
+  /* QUIC connection cleanup */
+#ifdef X_HAS_NGHTTP3
+  if (conn->is_quic) {
+    if (conn->conn_id_len > 0 && conn->server->h3_quic_conns) {
+      char cid_hex[41];
+      static const char hex[] = "0123456789abcdef";
+      for (size_t i = 0; i < conn->conn_id_len; i++) {
+        cid_hex[i * 2]     = hex[(conn->conn_id[i] >> 4) & 0xf];
+        cid_hex[i * 2 + 1] = hex[conn->conn_id[i] & 0xf];
+      }
+      cid_hex[conn->conn_id_len * 2] = '\0';
+      xMapDel(conn->server->h3_quic_conns, cid_hex);
+    }
+    xHttpQuicConnDestroy(conn);
+  }
+#endif
+
   free(conn);
 }
 
@@ -782,7 +817,7 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
       xIOBufferCopyTo(&conn->read_buf, linear);
       xIOBufferConsume(&conn->read_buf, buf_len);
 
-      int rc = conn->proto.on_data(conn, linear, buf_len);
+      int rc = conn->proto.on_data(conn, linear, buf_len, 0);
       free(linear);
 
       if (rc < 0) {
@@ -982,7 +1017,23 @@ xErrno xHttpCtxSend(xHttpCtx *ctx, const char *body, size_t body_len) {
   if (w->sent || w->streaming) return xErrno_InvalidState;
   w->sent = 1;
 
-  struct xHttpConn_ *conn = stream->conn;
+  struct xHttpConn_   *conn   = stream->conn;
+  struct xHttpServer_ *s      = conn->server;
+
+  /* Inject Alt-Svc header for H3 discovery on TLS connections (RFC 9114). */
+  if (s->h3_enabled && conn->handshake_done && !conn->is_quic) {
+    struct xHttpHeader_ *h = (struct xHttpHeader_ *)calloc(1, sizeof(struct xHttpHeader_));
+    if (h) {
+      h->key   = strdup("Alt-Svc");
+      h->value = strdup(s->alt_svc[0] ? s->alt_svc : "h3=\":443\"; ma=3600");
+      if (h->key && h->value) {
+        if (w->headers_tail) { w->headers_tail->next = h; }
+        else { w->headers = h; }
+        w->headers_tail = h;
+      } else { free(h->key); free(h->value); free(h); }
+    }
+  }
+
   conn->proto.send_response(stream, w->status_code, w->headers, body, body_len);
   conn_try_flush(conn);
   conn_after_response(conn);

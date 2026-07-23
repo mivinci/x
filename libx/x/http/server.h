@@ -209,4 +209,20 @@ typedef xTlsConf xHttpTlsServerConf;
 XCAPI(xErrno) xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
                                    const xTlsConf *config);
 
+/**
+ * @brief Start listening for HTTP/3 (QUIC) connections on a UDP socket.
+ *
+ * @param server  HTTP server (must have been created with xHttpServerCreate).
+ * @param host    IP address (e.g. "127.0.0.1"), or NULL for all interfaces.
+ * @param port    UDP port number.
+ * @param config  TLS configuration (must provide cert + key for TLS 1.3).
+ * @return        xErrno_Ok on success, xErrno_NotSupported if H3 not compiled.
+ *
+ * Can be called alongside xHttpServerListen() and xHttpServerListenTls().
+ * When H3 is enabled, TLS responses on H1TLS/H2 automatically include
+ * Alt-Svc: h3=":<port>" (RFC 9114 section 3.1.1).
+ */
+XCAPI(xErrno) xHttpServerListenH3(xHttpServer server, const char *host, uint16_t port,
+                                  const xTlsConf *config);
+
 #endif /* XHTTP_SERVER_H */
