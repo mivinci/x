@@ -68,9 +68,9 @@
 - [ ] 9.8 Implement rate limiting (60 req/s per IP) and field validation (fid/peer_id length caps, have_pct clamp)
 - [ ] 9.9 Implement per-file peer cap (max 256) and global file cap (max 1024)
 
-## 10. Signal Server (xdl/signal.c) — UDP stateless relay
+## 10. Relay Server (xdl/relay.c) — UDP stateless relay
 
-- [ ] 10.1 Create UDP socket on `signal_port`, bind, register with event loop for `recvfrom()`
+- [ ] 10.1 Create UDP socket on `relay_port`, bind, register with event loop for `recvfrom()`
 - [ ] 10.2 Implement `recvfrom()` handler — parse JSON, dispatch by `type`: heartbeat vs relay
 - [ ] 10.3 Implement `heartbeat` handler — always respond with `heartbeat_ack` containing queued messages; update `last_addr` and `last_beat_ms` from source address
 - [ ] 10.4 Implement relay handler — extract `to` field, enqueue message in target peer's ring buffer (max 256)
@@ -108,12 +108,12 @@
 - [ ] 13.4 Test `DELETE /file/:fid/peer/:peer_id` removes peer gracefully
 - [ ] 13.5 Test rate limiting blocks excessive requests
 - [ ] 13.6 Test field validation (missing fid, invalid have_pct, oversized fields)
-- [ ] 13.7 Test Signal Server auth flow (hello → hello_ack)
-- [ ] 13.8 Test Signal Server relay (offer/answer/candidate forwarding)
-- [ ] 13.9 Test Signal Server sender mismatch rejection
-- [ ] 13.10 Test Signal Server duplicate peer_id replacement
-- [ ] 13.11 Test Signal Server ping/pong timeout disconnection
-- [ ] 13.12 Test Signal Server oversized message rejection
+- [ ] 13.7 Test Relay Server auth flow (hello → hello_ack)
+- [ ] 13.8 Test Relay Server relay (offer/answer/candidate forwarding)
+- [ ] 13.9 Test Relay Server sender mismatch rejection
+- [ ] 13.10 Test Relay Server duplicate peer_id replacement
+- [ ] 13.11 Test Relay Server ping/pong timeout disconnection
+- [ ] 13.12 Test Relay Server oversized message rejection
 
 ## 14. Polish
 

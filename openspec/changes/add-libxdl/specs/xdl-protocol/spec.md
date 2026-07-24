@@ -2,30 +2,30 @@
 
 ### Requirement: Seed protocol — announce
 
-Peers SHALL announce themselves to the Seed Server via `PUT /file/:fid/peer/:peer_id` every 5 seconds. The request body SHALL contain `signal_addr` and `have_pct`. `fid` and `peer_id` are URL path parameters. The response SHALL be `{"status":"ok"}` — it does NOT return the peer list. Use `GET /file/:fid/peer` separately for discovery.
+Peers SHALL announce themselves to the Seed Server via `PUT /file/:fid/peer/:peer_id` every 5 seconds. The request body SHALL contain `relay_addr` and `have_pct`. `fid` and `peer_id` are URL path parameters. The response SHALL be `{"status":"ok"}` — it does NOT return the peer list. Use `GET /file/:fid/peer` separately for discovery.
 
 #### Scenario: Announce with progress update
 
-- **WHEN** a peer sends `PUT /file/abc123/peer/alice {"signal_addr":"signal1:8081","have_pct":45.7}`
+- **WHEN** a peer sends `PUT /file/abc123/peer/alice {"relay_addr":"relay1:8081","have_pct":45.7}`
 - **THEN** the server returns `{"status":"ok"}`
 
 #### Scenario: Seeder announces completion
 
-- **WHEN** a peer sends `PUT /file/abc123/peer/alice {"signal_addr":"signal1:8081","have_pct":100.0}`
+- **WHEN** a peer sends `PUT /file/abc123/peer/alice {"relay_addr":"relay1:8081","have_pct":100.0}`
 - **THEN** the peer is listed as a full seeder for subsequent peer queries
 
 ### Requirement: Seed protocol — discovery
 
-Clients SHALL query peers via `GET /file/:fid/peer`. The response SHALL contain a JSON array of `{peer_id, signal_addr}` for each active peer. No IP addresses, P2P ports, or progress data are returned. Connectivity is established through the Signal Server, not via direct connection.
+Clients SHALL query peers via `GET /file/:fid/peer`. The response SHALL contain a JSON array of `{peer_id, relay_addr}` for each active peer. No IP addresses, P2P ports, or progress data are returned. Connectivity is established through the Relay Server, not via direct connection.
 
 #### Scenario: Query peers for a file
 
 - **WHEN** a client sends `GET /file/abc123/peer`
-- **THEN** the response contains `{"fid":"abc123","peers":[{"peer_id":"bob","signal_addr":"signal1:8081"}]}`
+- **THEN** the response contains `{"fid":"abc123","peers":[{"peer_id":"bob","relay_addr":"relay1:8081"}]}`
 
-### Requirement: Signal protocol — relay format
+### Requirement: Relay protocol — relay format
 
-Signal messages SHALL be JSON text sent over UDP. The server is stateless — each packet is a self-contained operation. Due to NAT, the server cannot push messages proactively: peers periodically send a `heartbeat` message, and the server responds with `heartbeat_ack` containing any queued relay messages. The server ALWAYS responds to heartbeat (even if `messages` is empty), so peers can distinguish "nothing pending" from "packet lost".
+Relay messages SHALL be JSON text sent over UDP. The server is stateless — each packet is a self-contained operation. Due to NAT, the server cannot push messages proactively: peers periodically send a `heartbeat` message, and the server responds with `heartbeat_ack` containing any queued relay messages. The server ALWAYS responds to heartbeat (even if `messages` is empty), so peers can distinguish "nothing pending" from "packet lost".
 
 Each relay message SHALL contain a `type` field and `from`/`to` fields identifying the sender and recipient.
 
@@ -50,7 +50,7 @@ Each relay message SHALL contain a `type` field and `from`/`to` fields identifyi
 
 #### Scenario: Offer relay
 
-- **WHEN** alice sends `{"type":"offer","from":"alice","to":"bob","sdp":"v=0\r\n..."}` via UDP to signal server
+- **WHEN** alice sends `{"type":"offer","from":"alice","to":"bob","sdp":"v=0\r\n..."}` via UDP to relay server
 - **THEN** the server forwards the identical message to bob's last known UDP address (or enqueues it)
 
 #### Scenario: Answer relay

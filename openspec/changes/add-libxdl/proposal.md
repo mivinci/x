@@ -19,8 +19,8 @@ libx lacks a reusable, business-agnostic async download engine. `libdlproxy` has
 ### New Capabilities
 
 - `xdl-client`: Client-side async download engine. Each task downloads one file with concurrent I/O, streaming SHA1 verification, checkpoint/resume via piece-level bitmap, configurable retry, seek-driven scheduling, and progress reporting. Operates on a dedicated internal thread.
-- `xdl-server`: Server-side infrastructure. **Seed Server** (HTTP/3, stateful) maintains a peer × file registry via `PUT /file/:fid/peer/:peer_id` and `GET /file/:fid/peer` — returns only `peer_id` + `signal_addr`, no IP addresses. **Signal Server** (UDP, stateless) relays SDP/ICE messages between peers with short-TTL queuing. Two separate deployable services.
-- `xdl-protocol`: Communication protocols. Defines HTTP/JSON Seed protocol, UDP/JSON Signal protocol, and DataChannel binary protocol (Handshake, BitField, Request, Piece, HAVE).
+- `xdl-server`: Server-side infrastructure. **Seed Server** (HTTP/3, stateful) maintains a peer × file registry via `PUT /file/:fid/peer/:peer_id` and `GET /file/:fid/peer` — returns only `peer_id` + `relay_addr`, no IP addresses. **Relay Server** (UDP, stateless) relays SDP/ICE messages between peers with short-TTL queuing. Two separate deployable services.
+- `xdl-protocol`: Communication protocols. Defines HTTP/JSON Seed protocol, UDP/JSON Relay protocol, and DataChannel binary protocol (Handshake, BitField, Request, Piece, HAVE).
 
 ### Modified Capabilities
 

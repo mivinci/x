@@ -70,7 +70,7 @@ struct xdl_task_conf {
     const char   *url;          // HTTP source URL (NULL = HTTP disabled)
     const char   *fid;          // file id for seed server (NULL = P2P disabled)
     const char   *seed_url;     // Seed server URL, e.g. http://seed.example.com
-    const char   *signal_url;   // Signal server URL, e.g. ws://signal.example.com/ws
+    const char   *relay_url;   // Relay server URL, e.g. relay1.example.com:8081
     const char   *dest;
     const char   *sha1_hex;     // 40-char hex, NULL = skip verification
     long          timeout_ms;   // default 30000
@@ -94,7 +94,7 @@ The library selects the scheduler based on which fields are set:
 struct xdl_p2p_conf {
     const char *fid;          // file id for seed server
     const char *seed_url;
-    const char *signal_url;
+    const char *relay_url;
     int         max_peers;
 };
 
