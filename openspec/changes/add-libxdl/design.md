@@ -50,7 +50,7 @@ Additional internal modules:
 - `magnet.h/c` — Magnet URI parser (~100 lines). Parses `magnet:?xt=urn:btih:<info_hash>&dn=<name>&tr=<tracker_url>`. Extracts info_hash (hex→bytes), display name, and tracker list.
 
 Internal data structures reuse libx containers:
-- `xMap` — peer_id → p2p_peer lookup (hash table, string keys)
+- `xMap` — peer_id → xdl_peer lookup (hash table, string keys)
 - `xArray` — dynamically sized peer list, pending request queues
 - `xList` — intrusive linked list for per-block retry/pending chains
 - `xHeap` — priority queue for seek-window block scheduling (if needed)
@@ -62,24 +62,40 @@ Internal data structures reuse libx containers:
 
 ### Run modes: `XDL_MODE_INHERIT` / `XDL_MODE_THREAD`
 
-Same pattern as libdlproxy:
 - `INHERIT`: reuse caller's `xEventLoopCurrent()`. Requires caller to pump the loop.
-- `THREAD`: `xdl_init()` spawns a dedicated worker thread that blocks on `xEventLoopRun(RUN_DEFAULT)`, and starts a global tick timer (1000ms) that iterates all active tasks and calls each `task->sched->on_tick(task)`.
+- `THREAD`: `xdl_init()` spawns a dedicated worker thread that blocks on `xEventLoopRun(RUN_DEFAULT)`.
 
-First version ships `XDL_MODE_THREAD` only.
+Per-task scheduling is driven independently — each task's scheduler registers its own tick timer via `xEventTimerStart` in `on_start`, and cancels it in `on_stop`. A global management timer (1000ms) handles housekeeping: task completion scanning, cleanup.
 
 ### Global P2P module
 
-`xdl_init` creates a single global P2P module that manages the peer identity and Tracker communication for all tasks:
+`xdl_init` creates a global P2P module with its own announce timer (independent of per-task scheduler ticks):
 
 ```c
+typedef struct xdl_p2p     xdl_p2p_t;
+typedef struct xdl_peer    xdl_peer_t;
+
 struct xdl_p2p {
     char    peer_id[33];        // user-provided via xdl_conf (max 32 chars + NUL)
     char   *tracker_url;        // from xdl_conf
     int     announce_ttl_ms;    // server-assigned TTL
 
+    xMap   *peers;              // remote_peer_id → xdl_peer_t
     xMap   *sources;            // info_hash → xdl_source_p2p (for signal routing)
     xTimer *announce_timer;     // global timer, not per-task
+};
+
+struct xdl_peer {
+    xPeerConnection  *pc;       // one per remote peer (shared across torrents)
+    xMap             *channels; // info_hash → xdl_peer_channel
+};
+
+struct xdl_peer_channel {
+    xDataChannel  *dc;          // labeled by info_hash
+    xBitmap        bitfield;    // peer's block bitmap for this torrent
+    int            reqs_pending; // in-flight piece requests on this channel
+    int            state;       // HELLO / BITFIELD / ACTIVE / DEAD
+    uint64_t       last_recv_ms;
 };
 ```
 
@@ -126,9 +142,11 @@ p2p_global_tick():
 
 ```c
 struct xdl_conf {
-    int         mode;          // XDL_MODE_INHERIT or XDL_MODE_THREAD
-    const char *peer_id;       // peer identifier (user-provided, e.g. from SaaS auth)
-    const char *tracker_url;   // global fallback tracker URL (required for P2P)
+    int         mode;           // XDL_MODE_INHERIT or XDL_MODE_THREAD
+    const char *peer_id;        // peer identifier (caller-provided)
+    const char *tracker_url;    // global fallback tracker URL
+    size_t      cache_bytes;    // ring buffer size, default 64MB, 0 = passthrough
+    int         concurrency;    // global in-flight cap, default 32
 };
 
 int xdl_init(const xdl_conf_t *conf);
@@ -146,6 +164,8 @@ struct xdl_task_conf {
     const char    *magnet;       // magnet URI (optional if urls or torrent is set)
     xdl_torrent_t *torrent;      // direct torrent reference (optional, useful for tests)
     const char    *urls;         // CDN HTTP URLs, semicolon-separated (optional)
+    const char    *sha1;         // file-level SHA1 hex (40 chars, optional, HTTP-only)
+    xdl_schedule_vtable_t *sched; // custom scheduler (optional, NULL = default)
     const char    *dir;          // output directory
     long           timeout_ms;   // default 30000
     int            max_peers;    // max P2P connections, default 8
@@ -185,6 +205,18 @@ magnet:?xt=urn:btih:<info_hash_hex>&dn=<display_name>&tr=<tracker_url>&tr=<track
 | `dn` | No | Display name (for progress/logging, overridden by torrent `info.name`) |
 | `tr` | No | Tracker URL(s). Multiple `tr` parameters for redundancy. |
 
+**Responsibilities**:
+
+```
+xdl_task_create:  malloc task, parse magnet URI, create source instances
+                  (xdl_source_http_create / xdl_source_p2p_create), create
+                  scheduler (conf.sched or xdl_schedule_default_create).
+
+xdl_task_start:   open sources (source->open → HEAD probe / p2p register),
+                  resume_load from .resume, start scheduler
+                  (sched->on_start → registers its own tick timer).
+```
+
 **Flow on `xdl_task_start`**:
 
 ```
@@ -211,7 +243,12 @@ xdl_task_start(task):
     # Common:
     6. resume_load() → restore block bitmap if valid
     7. Start scheduler tick
-```
+
+SHA1 verification has two modes:
+- Per-block (magnet/torrent): `conf.torrent` or fetched `.torrent` provides `block_hashes`.
+  Each block is verified against its SHA1 as it arrives.
+- File-level (HTTP-only, urls only): `conf.sha1` provides a single hex string.
+  `xSha1Final` runs once after the full file is downloaded. Optional — omitted if confidence is not required.
 
 ### Torrent struct (`xdl_torrent_t`)
 
@@ -296,9 +333,10 @@ task = xdl_task_create(&(xdl_task_conf_t){
     .dir = "./dl", .max_peers = 8, .cb = on_progress
 });
 
-// HTTP-only (CDN download, no tracker)
+// HTTP-only with file-level SHA1 verification
 task = xdl_task_create(&(xdl_task_conf_t){
     .urls = "https://cdn.example.com/ubuntu.iso",
+    .sha1 = "a1b2c3d4e5f6...",          // optional, 40-char hex
     .dir = "./dl", .cb = on_progress
 });
 ```
@@ -308,52 +346,139 @@ task = xdl_task_create(&(xdl_task_conf_t){
 Each task has its own `xdl_source_p2p` that handles **data transfer only**. Announce, peer discovery, and signaling are handled by the global P2P module.
 
 ```c
-// Internal config (not exposed to user)
 struct xdl_p2p_conf {
-    uint8_t  info_hash[20];   // SHA1(bencode(info)) — file identifier
-    int      max_peers;
+    xdl_p2p_t *p2p;          // global P2P module (from xdl_state)
+    uint8_t    info_hash[20];
+    int        max_peers;
 };
 
-xdl_source_vtable_t *xdl_source_p2p(const xdl_p2p_conf_t *conf);
+xdl_source_vtable_t *xdl_source_p2p_create(const xdl_p2p_conf_t *conf);
+```
+
+| Method | What it does |
+|--------|-------------|
+| `open(self)` | Register this source in the global P2P module keyed by `info_hash`. No network I/O — announce happens on next global tick. |
+| `fetch(self, offset, len, on_data, on_done)` | Decompose block into pieces (16KB each). For each piece, find an ACTIVE peer channel with the block in its bitfield and `reqs_pending < 4`. Send `block_req` via DataChannel. Returns 0 if at least one piece dispatched, -1 if no peer has capacity. When all pieces arrive → SHA1 verify → `on_done(offset, len, ok)`. SHA1 mismatch → retry block (max 3). |
+| `close(self)` | Send `bye_req` to all peer channels. On `bye_rsp` or timeout → close DataChannel. Unregister from global P2P module. |
+
+DataChannel lifecycle events (`on_dc_ready`, `on_bitfield`, `on_have`, `on_block`, `on_disconnect`) are callbacks from the global P2P module — described in [Source vtable](#source-vtable).
+
+### HTTP source: `xdl_source_http_create()`
+
+```c
+xdl_source_vtable_t *xdl_source_http_create(const char **urls, int url_count, long timeout_ms);
+```
+
+| Method | What it does |
+|--------|-------------|
+| `open(self)` | Send HEAD request to probe Content-Length. Determine block count. If Content-Length missing, use single-GET fallback mode. No block dispatch yet. |
+| `fetch(self, offset, len, on_data, on_done)` | Issue `Range: bytes=offset-(offset+len-1)` to the CDN URL. Returns 0 on success (request sent), -1 if `in_flight >= max_in_flight`. Calls `on_data` per chunk for streaming SHA1 + cache write. Calls `on_done(offset, len, ok)` on HTTP completion or error. |
+| `close(self)` | Cancel all in-flight HTTP requests via curl multi handle. |
+
+### Source ↔ Scheduler interaction
+
+```
+xdl_task_start:
+  ┌─ http_source->open(self)
+  │    → HEAD /file.bin → Content-Length: 100MB
+  │    → block_count = 100MB / 256KB = 400
+  │    → allocate block bitmap
+  │
+  ├─ p2p_source->open(self)
+  │    → register(source) in global P2P module
+  │    → no network I/O (announce happens on next global tick)
+  │
+  ├─ resume_load → restore bitmap → populate pending queue
+  │
+  └─ sched->on_start(self)
+       → xdl_schedule_default_t registers a tick_ms timer on event loop
+
+══════════ Main loop ══════════
+
+tick timer fires → sched->on_tick(self):
+
+  for each pending block:
+    ┌─ seek window 内 ──────────────────────────┐
+    │  http_source->fetch(offset, len, cb)       │
+    │    → curl Range GET → HTTP/2 stream        │
+    │    → on_data(chunk) per TCP segment        │
+    │    → on_done(ok) when complete/timeout     │
+    │    → returns 0 (dispatched) or -1 (full)   │
+    └────────────────────────────────────────────┘
+
+    ┌─ seek window 外 ──────────────────────────┐
+    │  p2p_source->fetch(offset, len, cb)        │
+    │    → decompose block into pieces           │
+    │    → find peers with block in bitfield     │
+    │    → send block_req via DataChannel        │
+    │    → returns 0 (dispatched) or -1 (full)   │
+    └────────────────────────────────────────────┘
+
+when block complete (http or p2p):
+  → on_done(offset, len, ok)
+    → sched->on_block_done(self, offset, len, ok)
+      ok:  block_mark_complete, resume_save, xRelayEmit
+      err: requeue (retry ≤ 3)
+
+══════════ Stop ══════════
+
+xdl_task_stop:
+  ┌─ http_source->close(self)   → cancel curl requests
+  ├─ p2p_source->close(self)    → send bye_req, unregister
+  └─ sched->on_stop(self)       → cancel tick timer
 ```
 
 #### Internal state
 
 ```c
-struct p2p_peer {
-    xPeerConnection  pc;
-    xDataChannel     dc;
-    uint8_t         *bitfield;      // copy of peer's block bitmap
-    int              reqs_pending;  // in-flight block requests to this peer
-    int              state;         // IDLE/HANDSHAKE/BITFIELD/ACTIVE/DEAD
-    uint64_t         last_recv_ms;
-};
-
 struct p2p_source {
     xdl_p2p_conf_t   conf;
     xdl_task_t      *task;
-    xArray          *peers;         // xArray of struct p2p_peer
-    xMap            *peer_by_id;    // peer_id -> index (for HAVE/DISCONNECT lookup)
 };
 ```
 
-#### DataChannel message protocol (binary frames)
+All peer state lives in `xdl_peer_channel` in the global P2P module. The source accesses it via `p2p_module->peers[peer_id]->channels[info_hash]`.
 
-Messages are sent via `xDataChannelSendBinary` on reliable ordered channels:
+#### DataChannel message protocol (8-byte fixed header)
+
+All messages share an 8-byte header, transport-agnostic (WebRTC DataChannel, raw UDP, etc.):
 
 ```
-Handshake  : [0x01][20B info_hash][32B peer_id_utf8]
-BitField   : [0x02][4B block_count LE][N bytes bitmap]   // N = ceil(block_count/8)
-Request    : [0x03][4B block_index LE][4B offset LE][4B length LE]
-Block      : [0x04][4B block_index LE][4B offset LE][N bytes data]
-HAVE       : [0x05][4B block_index LE]
-Cancel     : [0x06][4B block_index LE]
-Disconnect : [0x07]
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  ver  |  cmd  |              seq              |    reserved   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|            length              |                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               |
+|                    payload (length bytes)                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-All multi-byte integers are little-endian. `Request` and `Block` use `offset` + `length` to specify a byte range within a block — this enables a single block to be fetched from multiple peers in parallel pieces.
+| Field | Size | Description |
+|-------|------|-------------|
+| version | 4 bit | Protocol version, current = 0 |
+| cmd | 4 bit | Message type |
+| seq | 2B LE | Monotonic sequence number |
+| reserved | 1B | Reserved, MUST be 0 |
+| length | 3B LE | Payload length, max 16 MiB (0 = no payload) |
+| payload | length bytes | Command-specific body |
 
-Block is the scheduler's unit of dispatch: the scheduler assigns an entire block to a source (HTTP or P2P). The P2P source internally decomposes the block fetch into piece-level requests across peers.
+Messages (payload only, header omitted for brevity):
+
+```
+hello_req    : [20B info_hash][N bytes peer_id]                 // handshake + heartbeat
+hello_rsp    : [20B info_hash][N bytes peer_id]                 // ack
+bitfield_req : [4B block_count LE][N bytes bitmap]              // my bitmap
+bitfield_rsp : [4B block_count LE][N bytes bitmap]              // your bitmap
+block_req    : [4B block_index LE][2B start_piece LE][2B count LE]
+block_rsp    : [4B block_index LE][2B start_piece LE][N bytes data]
+have_req     : [4B block_index LE]                              // notification, no response
+bye_req      : (empty)                                          // half-close
+bye_rsp      : (empty)                                          // ack, then close
+```
+
+Bitmaps use `xBitmap` from `xbase` — raw bytes from `xBitmapData()` sent directly as payload.
 
 #### PeerConnection and DataChannel lifecycle
 
@@ -366,17 +491,20 @@ Global P2P module state:
 
 PeerConnection establishment (called from global tick):
 
-  p2p_ensure_peer(remote_peer_id, info_hash):
-    if peers[remote_peer_id] exists:
-      → pc = peers[remote_peer_id]
-      → xDataChannelCreate(pc, label = info_hash)   // no new ICE needed
+  p2p_ensure_channel(remote_peer_id, info_hash):
+    peer = p2p_module->peers[remote_peer_id]
+    if peer exists:
+      if peer->channels[info_hash] exists → return channel
+      else:
+        → dc = xDataChannelCreate(peer->pc, label = info_hash)  // no new ICE
+        → peer->channels[info_hash] = {dc, bitfield={}, reqs=0, state=HELLO}
     else:
       → pc = xPeerConnectionCreate()
-      → xDataChannelCreate(pc, label = info_hash, reliable + ordered)
+      → dc = xDataChannelCreate(pc, label = info_hash, reliable + ordered)
       → offer = xPeerConnectionCreateOffer(pc)
       → xPeerConnectionSetLocalDescription(pc, offer)
       → POST /relay {peer_id: remote, signal: {type:"offer", from:peer_id, sdp:offer}}
-      → peers[remote_peer_id] = pc  (tentative, confirmed on connected)
+      → peers[remote_peer_id] = {pc, channels={info_hash → {dc, state=HELLO}}}
 
 Signal handling (from PUT response inbox):
 
@@ -406,8 +534,8 @@ ICE + DTLS complete → pc state = connected:
     → same routing: dc label → info_hash → source → on_dc_ready
 
   on_dc_ready:
-    → send Handshake[info_hash][peer_id]
-    → receive BitField → peer state → ACTIVE
+    → send handshake[info_hash][peer_id]
+    → receive bitfield → peer state → ACTIVE
     → ready for block requests
 ```
 
@@ -418,50 +546,17 @@ PeerConnection reuse is the key optimization: if Alice and Bob already have a co
 #### Peer state machine
 
 ```
-IDLE  --xP2P connected--> HANDSHAKE --recv Handshake--> BITFIELD --recv BitField--> ACTIVE
+IDLE  --DC established--> hello --recv hello_rsp--> bitfield --recv bitfield_rsp--> ACTIVE
                                                                               |
 DEAD  <-- disconnect/timeout/error -- (any state)                             |
                                                                               |
                                                                       recv Block -> on_data/on_done
-                                                                      recv HAVE  -> update peer->bitfield
+                                                                      recv have_req → update channel->bitfield
 ```
 
 #### Data transfer (per source)
 
-Announce, peer discovery, and signaling are handled by the global P2P module's tick (see above). The per-task P2P source only handles data transfer and peer BitField tracking:
-
-#### fetch(offset, len, on_data, on_done) implementation
-
-```
-p2p_source_fetch(task, block_offset, block_len, on_data, on_done):
-    block_index = block_offset / BLOCK_SIZE
-
-    // Decompose block into piece-level requests
-    for offset = 0; offset < block_len; offset += PIECE_SIZE:
-        length = min(PIECE_SIZE, block_len - offset)
-
-        for peer in peers (ACTIVE):
-            if peer->bitfield[block_index] && peer->reqs_pending < 4:
-                peer->reqs_pending++
-                send Request{block_index, offset, length} via dc
-                register on_data, on_done callbacks for this piece
-                break
-
-        // no available peer → this piece stays pending
-        // internal tick will retry on next cycle
-```
-
-On Block message received:
-1. `on_data(data, len)` — SHA1 update + cache write
-2. Track received pieces for this block. When all pieces received:
-   - `xSha1Final` → compare against `block_hashes[block_index]`
-   - If match: `on_done(block_offset, block_len, ok=true)` — notify scheduler
-   - If mismatch: re-queue block for retry
-3. peer->reqs_pending--
-4. send HAVE{block_index} to all other ACTIVE peers (SHA1 verified)
-5. next pending piece dispatched from queue
-
-On peer disconnect or Request timeout: `on_done(offset, len, ok=false)` with retry counter. Scheduler requeues this block, next tick re-dispatches to another peer.
+Announce, peer discovery, and signaling are handled by the global P2P module's tick. The per-task P2P source handles data transfer (see source vtable methods above): block decomposition into pieces, peer selection, DataChannel request/response, SHA1 verification, and HAVE propagation.
 
 ### Seek API
 
@@ -539,137 +634,169 @@ struct xdl_task {
     xRelay     *progress_relay;
     int         phase;
 
-    struct xdl_schedule_vtable *sched;
-    struct xdl_cache_vtable    *cache;
-    void *sched_state;
-    void *cache_state;
+    struct xdl_schedule_vtable *sched;   // per-task scheduler (default or custom)
+    xdl_cache_t   *cache;               // ring buffer (ring_bytes=0 → passthrough)
 };
 ```
 
-### Scheduler vtable — tick-driven
+### Scheduler (per-task)
+
+Each task has its own scheduler instance implementing `xdl_schedule_vtable_t`. A default implementation (`xdl_schedule_default_t`) is provided and used when `conf.sched` is NULL.
 
 ```c
 struct xdl_schedule_vtable {
-    void  (*on_start)     (xdl_task_t *task);
-    void  (*on_block_done)(xdl_task_t *task, uint64_t offset, size_t len, bool ok);
-    void  (*on_tick)      (xdl_task_t *task);
-    void  (*on_stop)      (xdl_task_t *task);
-    long   tick_ms;
+    void (*on_start)     (void *self);
+    void (*on_tick)      (void *self);
+    void (*on_block_done)(void *self, uint64_t offset, uint32_t len, bool ok);
+    void (*on_stop)      (void *self);
+    long   tick_ms;                    // suggested tick interval
 };
 ```
 
-`on_tick` is the unified driver. Every `tick_ms` (1000ms default), the scheduler:
-
-1. Scans all tasks' pending blocks
-2. For each source with a free concurrency slot, picks the highest-priority block and calls `source->fetch()`
-3. Within the seek window `[seek-2MB, seek+8MB]`: blocks assigned to HTTP source; outside: P2P source
-
-`on_block_done` records completion (bitmap update, resume save, relay emit). For the HTTP-only scheduler, `on_block_done` MAY immediately dispatch the next pending block to avoid tick-gap throughput loss (no tick required because there's no P2P coordination to consider). The hybrid scheduler keeps tick-only dispatch to prevent source-selection oscillation.
+#### Default implementation: `xdl_schedule_default_t`
 
 ```c
-// HTTP scheduler (single source, tick_ms = 1000, immediate dispatch on on_block_done):
-xdl_schedule_vtable_t *xdl_schedule_http(xdl_source_vtable_t *http);
-
-// Hybrid scheduler (tick_ms = 1000):
-//   - Blocks within [seek - pre, seek + post] go to HTTP source
-//   - Blocks outside the window go to P2P source
-//   - Pure sequential download: pre=0, post=SIZE_MAX (entire file via HTTP)
-//   - Stream playback: pre=2MB, post=8MB (seek-close blocks via HTTP)
-//   - min_p2p_slots: reserved P2P concurrency (default 4) — prevents HTTP from
-//     consuming all global slots and starving P2P
-xdl_schedule_vtable_t *xdl_schedule_hybrid(
-    xdl_source_vtable_t *http, xdl_source_vtable_t *p2p,
-    uint64_t pre_bytes, uint64_t post_bytes, int min_p2p_slots);
-```
-
-Scheduler state (per-task in `sched_state`):
-
-```c
-// HTTP
-struct http_sched_state {
-    xdl_source_vtable_t *http;
-    xdl_block_t *pending_head, *pending_tail;
-    int in_flight, max_concurrency;
+struct xdl_schedule_default {
+    xdl_schedule_vtable_t  vt;        // vtable (on_start/on_tick/on_block_done/on_stop)
+    xdl_source_vtable_t   *http;      // optional
+    xdl_source_vtable_t   *p2p;       // optional
+    int   concurrency;                // total in-flight cap
+    int   http_cap;                   // default concurrency / 2
+    int   p2p_cap;                    // default concurrency / 2
+    int   http_in_flight;
+    int   p2p_in_flight;
+    xdl_pending_block_t   *pending_head, *pending_tail;
+    uint64_t  seek_point;             // per-task, 0 = sequential
 };
 
-// Hybrid
-struct hybrid_sched_state {
-    xdl_source_vtable_t *http, *p2p;
-    uint64_t pre_bytes, post_bytes;
-    int in_flight_http, in_flight_p2p;
-    int min_p2p_slots;
-};
+XCAPI_LOCAL(xdl_schedule_vtable_t *)
+xdl_schedule_default_create(xdl_source_vtable_t *http,
+                            xdl_source_vtable_t *p2p,
+                            int concurrency);
 ```
 
-### Source vtable — protocol I/O
+**on_tick(self)** (called every `tick_ms`):
+
+```
+xdl_schedule_default_on_tick(self):
+    sched = (xdl_schedule_default_t *)self
+    gather task's pending blocks, sort by seek window
+
+    for each pending block:
+        in_window = |block.offset - sched->seek_point| within window
+
+        // HTTP: seek window 内的 block 优先
+        if in_window && sched->http:
+            if sched->http_in_flight < sched->http_cap:
+                rc = sched->http->fetch(sched->http, offset, len, on_data, on_block_done)
+                if rc == 0: sched->http_in_flight++, continue
+
+        // P2P: window 外优先，window 内作为 fallback
+        if sched->p2p:
+            if sched->p2p_in_flight < sched->p2p_cap:
+                rc = sched->p2p->fetch(sched->p2p, offset, len, on_data, on_block_done)
+                if rc == 0: sched->p2p_in_flight++, continue
+
+        // both full → break, wait for next tick
+```
+
+**on_block_done(self, offset, len, ok)**:
+
+```
+xdl_schedule_default_on_block_done(self, offset, len, ok):
+    decrement source's in_flight counter
+    if ok: block_mark_complete, resume_save, xRelayEmit(progress)
+    else:  requeue (max 3 retries)
+```
+
+When `http` or `p2p` is NULL, the corresponding branch is skipped. A task with only HTTP source simply never enters the P2P branch, and vice versa.
+
+Custom schedulers implement `xdl_schedule_vtable_t` directly. The caller passes a custom instance via `xdl_task_conf_t.sched`; if NULL, `xdl_task_start` creates a `xdl_schedule_default_t`.
+
+### Source vtable
+
+Each P2P source implements the standard source vtable. Additionally, the global P2P module calls into it for DataChannel lifecycle events.
 
 ```c
 struct xdl_source_vtable {
     const char *name;
 
-    void (*open)(xdl_task_t *task);
-    bool (*has_free_slot)(xdl_source_vtable_t *src);
-
-    void (*fetch)(xdl_task_t *task, uint64_t offset, size_t len,
-                  void (*on_data)(xdl_task_t *task, const uint8_t *data, size_t len),
-                  void (*on_done)(xdl_task_t *task, uint64_t offset, size_t len, bool ok));
-
-    void (*close)(xdl_task_t *task);
+    void (*open)(void *self);
+    int  (*fetch)(void *self, uint64_t offset, uint32_t len,
+                  void (*on_data)(const uint8_t *data, uint32_t len, void *arg),
+                  void (*on_done)(uint64_t offset, uint32_t len, bool ok, void *arg));
+    void (*close)(void *self);
 };
-
-xdl_source_vtable_t *xdl_source_http(const char *url, long timeout_ms);
-xdl_source_vtable_t *xdl_source_p2p(const xdl_p2p_conf_t *conf);
 ```
 
-Each source manages its own concurrency internally. HTTP source uses `in_flight` and curl multi handle. P2P source manages peer connections and block request queues. The scheduler and source communicate only through `fetch(on_data, on_done)` — the source calls back when data arrives.
+`open` / `fetch` / `close` receive `self` as the first argument — the instance pointer passed through at creation time. `on_data` / `on_done` callbacks receive `arg` for the caller's context.
 
-```
-sched->on_tick(task):
-    window = [task->seek_point - pre_bytes, task->seek_point + post_bytes]
+#### source_p2p methods
 
-    for each pending block:
-        if in_range(block, window):
-            if http && http->has_free_slot():
-                http->fetch(task, block.offset, block.len,
-                            http_on_data, http_on_block_done)
-        else:
-            if p2p && p2p->has_free_slot():
-                p2p->fetch(task, block.offset, block.len,
-                           http_on_data, http_on_block_done)
-            else if http && http->has_free_slot()
-                 && (total_slots - in_flight_http) >= min_p2p_slots:
-                // P2P has no free slot but reservation is satisfied —
-                // spill window-exterior blocks to HTTP
-                http->fetch(task, block.offset, block.len,
-                            http_on_data, http_on_block_done)
+All methods receive `void *self` — cast back to `xdl_source_p2p_t *` internally.
 
-http_on_block_done(task, offset, len, ok):
-    block_mark_done(...)           // update block bitmap
-    resume_save(task)               // persist bitmap to .resume
-    xRelayEmit(progress)            // notify
-    task->sched->on_block_done(task, offset, len, ok)
-    // HTTP-only scheduler: may immediately try_dispatch() here
-    // Hybrid scheduler: waits for next tick
-```
+**open(self)**: Register this source in the global P2P module keyed by `info_hash`. No network I/O.
 
-### Cache vtable
+**fetch(self, offset, len, on_data, on_done) → int**: Decompose the block at `offset` into pieces (`piece_size = 16KB`). Find ACTIVE peer channels with `reqs_pending < 4` and the block in their bitfield. Send `block_req` via DataChannel. Returns 0 if at least one piece was dispatched, -1 if no peer had capacity. When all pieces complete → SHA1 vs `block_hashes[block_index]` → `on_done(offset, len, ok)`. On SHA1 mismatch → retry (max 3 attempts).
+
+**close(self)**: Unregister from global P2P module. Send `bye_req` to all peer channels. On `bye_rsp` or timeout → close DataChannel.
+
+#### Callbacks from global P2P module (not on vtable)
+
+Global P2P module calls these directly on the source when DataChannel or signaling events occur:
+
+**on_dc_ready(dc, peer_id)**: A DataChannel labeled with this source's `info_hash` is ready. Send `hello_req{info_hash, peer_id}`. Wait for `hello_rsp` → bitfield exchange → peer state to ACTIVE.
+
+**on_bitfield(peer, bitfield)**: Store peer's block bitmap. Transition state bitfield → ACTIVE. Pending piece requests to this peer can now be dispatched.
+
+**on_have(peer, block_index)**: Set `peer.bitfield[block_index] = 1` via `xBitmapSet`. If there are pending pieces waiting for this block, try to dispatch them to this peer.
+
+**on_block(peer, block_index, offset, data, len)**: Piece data received. Call `on_data(data, len)` for streaming SHA1 + cache write. Track completion. When all pieces for a block complete → SHA1 verify → `on_done(ok)`. Send `have_req{block_index}` to all other ACTIVE peers.
+
+**on_disconnect(peer)**: Peer disconnected or timed out. Mark as DEAD. Cancel pending requests to this peer, invoke `on_done(offset, len, ok=false)` for in-flight blocks so the scheduler can re-dispatch.
+
+### Cache (ring buffer)
+
+Single ring buffer implementation using one contiguous memory allocation. Cache size controls behavior:
+
+- `ring_bytes = 0` → passthrough, reads/writes go directly to storage (no caching)
+- `ring_bytes > 0` → ring buffer of `ring_bytes / block_size` slots, FIFO eviction
 
 ```c
-struct xdl_cache_vtable {
-    void (*read)(xdl_task_t *task, uint64_t offset, size_t len,
-                 void (*done)(xdl_task_t *task, const uint8_t *data, size_t len));
-    void (*write)(xdl_task_t *task, uint64_t offset,
-                  const uint8_t *data, size_t len,
-                  void (*done)(xdl_task_t *task, xErrno err));
-    void (*flush)(xdl_task_t *task);
+struct xdl_cache {
+    xdl_storage_t *storage;       // fallback for reads/writes
+    uint8_t  *buffer;             // single contiguous allocation (max_blocks * block_size)
+    uint32_t *block_indexes;      // max_blocks entries, UINT32_MAX = empty
+    uint32_t  max_blocks;         // 0 = passthrough
+    uint32_t  block_size;
+    uint32_t  head;               // next write position
 };
 
-// Passthrough — writes go directly to storage
-xdl_cache_vtable_t *xdl_cache_direct(xdl_storage_vtable_t *storage);
+XCAPI_LOCAL(xdl_cache_t *)
+xdl_cache_create(xdl_storage_t *storage, uint32_t block_size, size_t ring_bytes);
 
-// Ring buffer — recent blocks cached for P2P seed reads
-xdl_cache_vtable_t *xdl_cache_ring(xdl_storage_vtable_t *storage, size_t ring_bytes);
+XCAPI_LOCAL(void) xdl_cache_read(xdl_cache_t *c, uint64_t offset, size_t len,
+                                  void (*done)(void *arg, const uint8_t *data, size_t len),
+                                  void *arg);
+XCAPI_LOCAL(void) xdl_cache_write(xdl_cache_t *c, uint64_t offset,
+                                  const uint8_t *data, size_t len,
+                                  void (*done)(void *arg, xErrno err), void *arg);
+XCAPI_LOCAL(void) xdl_cache_destroy(xdl_cache_t *c);
 ```
+
+**Read flow**:
+1. If `max_blocks == 0`: passthrough to `storage->read`
+2. `target = offset / block_size`, scan `block_indexes[0..max_blocks)` for match
+3. Hit → return `buffer + index * block_size + offset % block_size`
+4. Miss → `storage->read` → memcpy into `buffer[head % max_blocks]` → return
+
+**Write flow**:
+1. `storage->write` first (persist to disk)
+2. Do NOT actively cache — only peer read requests populate the ring (avoids caching cold blocks)
+
+**Eviction**: FIFO via `head` pointer. When head wraps, the oldest slot is overwritten with no free/malloc — purely memcpy.
+
+Default `ring_bytes` = 64MB (~261 blocks at 256KB). Set to 0 for HTTP-only downloads where caching provides no benefit (no P2P peer reads).
 
 ### Storage vtable
 
@@ -681,7 +808,7 @@ struct xdl_storage_vtable {
     void (*write)(xdl_task_t *task, uint64_t offset,
                   const uint8_t *data, size_t len,
                   void (*done)(xdl_task_t *task, xErrno err));
-    void (*finalize)(xdl_task_t *task, bool success);
+    void (*flush)(xdl_task_t *task, bool success);
 };
 
 xdl_storage_vtable_t *xdl_storage_file(void);
@@ -839,7 +966,7 @@ HTTP 403 and 404 are not retried. All other failures retry up to 3 times per blo
 | Re-reading partial file on resume may block event loop | Use `xWorkSubmit` for re-hash if files > 50 MB |
 | `.resume` corruption after crash | Magic + info_hash validation catches mismatches -> delete `.resume`, start fresh |
 | Unit tests need real network timing | Use timeouts and progress counters. Mock HTTP callbacks for offline tests. |
-| Malicious peer sends fake BitField to drain request slots | Future: rate-limit how many consecutive timeouts a peer can cause before marking DEAD. MVP accepts the waste; SHA1 catches bogus data. |
+| Malicious peer sends fake bitfield to drain request slots | Future: rate-limit how many consecutive timeouts a peer can cause before marking DEAD. MVP accepts the waste; SHA1 catches bogus data. |
 | Tracker has no auth or rate limiting | MVP: trusted LAN/private network. Production: add shared-secret auth header to `PUT /announce`. |
 | DataChannel messages from unverified peers | Handshake info_hash validation is the only gate — sufficient for closed groups, insufficient for open deployment. |
 | Bencoding parser is a new internal module | Minimal implementation (~200 lines). Well-defined format with existing reference implementations. |

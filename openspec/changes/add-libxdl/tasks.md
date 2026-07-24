@@ -19,7 +19,7 @@
 
 ## 4. Public API header (xdl/xdl.h)
 
-- [ ] 4.1 Define `xdl_conf_t` (mode, tracker_url), `xdl_task_conf_t` (magnet, dir, timeout_ms, max_peers, cb, arg), `xdl_task_t`, `xdl_task_cb_t`, `xdl_progress`, phase enum, run mode enum
+- [ ] 4.1 Define `xdl_conf_t` (mode, peer_id, tracker_url, cache_bytes, concurrency), `xdl_task_conf_t` (magnet, torrent, urls, sha1, sched, dir, timeout_ms, max_peers, cb, arg), `xdl_task_t`, `xdl_task_cb_t`, `xdl_progress`, phase enum, run mode enum
 - [ ] 4.2 Declare `xdl_init(conf)` / `xdl_destroy()` for global lifecycle
 - [ ] 4.3 Declare `xdl_task_create(const xdl_task_conf_t *conf)` / `xdl_task_start` / `xdl_task_pause` / `xdl_task_resume` / `xdl_task_stop` / `xdl_task_destroy`
 - [ ] 4.4 Declare `xdl_task_seek(xdl_task_t *task, uint64_t offset)` returning int
@@ -57,27 +57,27 @@
 
 ## 9. Scheduler (xdl/sched.c)
 
-- [ ] 9.1 Implement `xdl_schedule_http(http_source)` — HTTP-only scheduler: on_tick dispatches blocks to single HTTP source, up to max_in_flight (default 32)
-- [ ] 9.2 Implement `xdl_schedule_hybrid(http_source, p2p_source, pre, post, min_p2p)` — hybrid scheduler: blocks in [seek-pre, seek+post] → HTTP, outside → P2P
-- [ ] 9.3 Implement `on_tick(task)`: scan pending blocks, dispatch highest-priority to available sources, respect source concurrency limits
-- [ ] 9.4 Implement `on_block_done(task, offset, len, ok)`: block_mark_complete, resume_save, xRelayEmit
+- [ ] 9.1 Implement `xdl_schedule_default_create(http, p2p, concurrency)` — create default scheduler, zero or one source may be NULL
+- [ ] 9.2 Implement `on_start(self)`: register `tick_ms` timer on event loop
+- [ ] 9.3 Implement `on_tick(self)`: scan pending blocks, HTTP source eats seek-window blocks first, P2P eats the rest; both sources checked via `fetch()` return value
+- [ ] 9.4 Implement `on_block_done(self, offset, len, ok)`: block_mark_complete, resume_save, xRelayEmit; on error requeue (max 3 retries)
+- [ ] 9.5 Implement `on_stop(self)`: cancel tick timer
 
-## 10. HTTP source (xdl/http_source.c)
+## 10. HTTP source (xdl/source_http.c)
 
-- [ ] 10.1 Implement `xdl_source_http(url, timeout_ms)` — create HTTP source vtable with libcurl multi handle
-- [ ] 10.2 Implement `http_source_fetch(task, offset, len, on_data, on_done)` — HEAD→Content-Length validation → `Range: bytes=offset-(offset+len-1)` → async GET via `xHttpClientDo`
+- [ ] 10.1 Implement `xdl_source_http_create(urls, url_count, timeout_ms)` — create HTTP source vtable with libcurl multi handle
+- [ ] 10.2 Implement `http_source_fetch(self, offset, len, on_data, on_done)` — HEAD→Content-Length validation → `Range: bytes=offset-(offset+len-1)` → async GET via `xHttpClientDo`
 - [ ] 10.3 Implement `on_http_data` / `on_http_done` callbacks — SHA1 update per chunk, per-block SHA1 verify, cell_ready call, retry on failure
 - [ ] 10.4 Implement retry logic: max 3 attempts, skip 403/404. Per-task timeout from `conf.timeout_ms`.
 - [ ] 10.5 Implement no-Content-Length fallback: single GET without blocks, no `.resume`
-- [ ] 10.6 Implement source lifecycle: `open()` / `has_free_slot()` / `close()`
+- [ ] 10.6 Implement source lifecycle: `open()` / `close()`
 
-## 11. P2P source (xdl/p2p_source.c)
+## 11. P2P source (xdl/source_p2p.c)
 
-- [ ] 11.1 Implement `xdl_source_p2p(info_hash, max_peers)` — create P2P source vtable, register with global P2P module
-- [ ] 11.2 Implement `p2p_source_fetch(task, offset, len, on_data, on_done)` — block_index = offset/BLOCK_SIZE, iterate ACTIVE peers with bitfield[block_index] && reqs_pending < 4, send DataChannel Request
-- [ ] 11.3 Implement DataChannel message handlers: Handshake validation, BitField update, Block receive → SHA1 verify → on_done, HAVE → update peer bitfield, Cancel/Disconnect cleanup
-- [ ] 11.4 Implement peer state machine: IDLE→HANDSHAKE→BITFIELD→ACTIVE, timestamp-based timeout → DEAD
-- [ ] 11.5 Implement source lifecycle: `open()` (register) / `has_free_slot()` / `close()` (unregister + pct=0)
+- [ ] 11.1 Implement `xdl_source_p2p_create(const xdl_p2p_conf_t *conf)` — create P2P source vtable, register with global P2P module
+- [ ] 11.2 Implement `p2p_source_fetch(self, offset, len, on_data, on_done)` — block_index = offset/BLOCK_SIZE, decompose into pieces, iterate ACTIVE peer channels with bitfield[block_index] && reqs_pending < 4, send DataChannel block_req
+- [ ] 11.3 Implement DataChannel message handlers: hello_req/rsp validation, bitfield_req/rsp exchange, block_req/rsp → SHA1 verify, have_req → update peer bitfield, bye_req/rsp cleanup
+- [ ] 11.4 Implement source lifecycle: `open()` (register) / `close()` (bye_req + unregister + pct=0)
 
 ## 12. Progress reporting
 

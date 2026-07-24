@@ -22,7 +22,7 @@ All responses use `Content-Type: application/json` except `POST /torrent` (accep
 
 **Common error format:**
 ```json
-{"error": "bad_request", "message": "missing required field: add"}
+{"error": "bad_request", "message": "missing required field: peer_id"}
 ```
 
 | HTTP Status | `error` value | Meaning |
@@ -34,7 +34,7 @@ All responses use `Content-Type: application/json` except `POST /torrent` (accep
 
 #### PUT /announce
 
-Peer announce + heartbeat. Reports only the files that changed since the last PUT. `peer_id` is a URL path parameter.
+Peer announce + heartbeat. Reports only the files that changed since the last PUT. `peer_id` is in the request body.
 
 Request:
 ```json
@@ -248,7 +248,7 @@ The structure MUST support:
 - **WHEN** a signaling message arrives for peer alice via `POST /relay`
 - **THEN** the server enqueues it in alice's inbox
 - **WHEN** alice next sends `PUT /announce {"peer_id":"alice"}`
-- **THEN** the server returns the message in the `messages` field of the response
+- **THEN** the server returns the signal in the `signals` field of the response
 
 #### Scenario: Message TTL expiry
 

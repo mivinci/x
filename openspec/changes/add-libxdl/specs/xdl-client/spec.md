@@ -2,13 +2,15 @@
 
 ### Requirement: Global lifecycle
 
-The library SHALL provide `xdl_init(conf)` to create an event loop, HTTP client, thread pool, and a global tick timer. The timer SHALL fire every 1000ms, iterating all active tasks and calling each task's scheduler `on_tick`. `xdl_destroy()` SHALL tear down all global resources and cancel any in-flight tasks. `xdl_conf_t` SHALL accept `peer_id` as the peer identifier and `tracker_url` as the global fallback Tracker URL.
+The library SHALL provide `xdl_init(conf)` and `xdl_destroy()` for global lifecycle. `xdl_conf_t` SHALL accept `mode` (XDL_MODE_INHERIT / XDL_MODE_THREAD), `peer_id`, `tracker_url`, `cache_bytes`, and `concurrency`. `xdl_init` SHALL create the event loop, HTTP client, thread pool, global P2P module, and a global housekeeping timer (1000ms) for task completion scanning and cleanup.
+
+Each task's scheduler SHALL register its own per-task tick timer in its `on_start` callback, and cancel it in `on_stop`. The global housekeeping timer does NOT drive per-task scheduling.
 
 #### Scenario: Initialize with peer_id and tracker_url
 
 - **WHEN** calling `xdl_init(&(xdl_conf_t){.mode = XDL_MODE_THREAD, .peer_id = "alice", .tracker_url = "http://t1:8080"})` and then `xdl_destroy()`
 - **THEN** all resources are correctly created and freed without leaks
-- **THEN** the global tick timer is started in `init` and stopped in `destroy`
+- **THEN** the global housekeeping timer is started in `init` and stopped in `destroy`
 - **THEN** the peer identifies as "alice" in all Tracker communications
 
 #### Scenario: No task active
@@ -23,7 +25,7 @@ The library SHALL provide `xdl_init(conf)` to create an event loop, HTTP client,
 
 ### Requirement: Task lifecycle
 
-The library SHALL provide `xdl_task_t` with `xdl_task_create(conf)`, `xdl_task_start`, `xdl_task_pause`, `xdl_task_resume`, `xdl_task_stop`, and `xdl_task_destroy`. `xdl_task_create` SHALL accept a `xdl_task_conf_t` struct containing `magnet`, `torrent`, `urls`, `dir`, `max_peers`, `timeout_ms`, `cb`, and `arg`. At least one of `magnet`, `torrent`, or `urls` MUST be provided.
+The library SHALL provide `xdl_task_t` with `xdl_task_create(conf)`, `xdl_task_start`, `xdl_task_pause`, `xdl_task_resume`, `xdl_task_stop`, and `xdl_task_destroy`. `xdl_task_create` SHALL accept a `xdl_task_conf_t` struct containing `magnet`, `torrent`, `urls`, `sha1`, `sched`, `dir`, `max_peers`, `timeout_ms`, `cb`, and `arg`. At least one of `magnet`, `torrent`, or `urls` MUST be provided.
 
 The scheduler is determined by which fields are set:
 - `magnet` or `torrent` only → P2P
@@ -34,6 +36,17 @@ The scheduler is determined by which fields are set:
 When both `magnet` and `torrent` are provided, `torrent` takes precedence and `magnet` is ignored.
 
 #### Scenario: URL-only HTTP download
+
+- **WHEN** calling `xdl_task_create(&{.urls = "https://cdn.example.com/file.bin", .dir = "./dl", .cb = cb})`
+- **THEN** a non-NULL task handle is returned with HTTP-only scheduler
+- **THEN** `xdl_task_start` downloads directly from the CDN URL, no tracker interaction
+
+#### Scenario: HTTP-only with file-level SHA1
+
+- **WHEN** calling `xdl_task_create(&{.urls = "https://cdn.example.com/file.bin", .sha1 = "a1b2c3...", .dir = "./dl", .cb = cb})`
+- **THEN** the full file is downloaded via HTTP Range requests
+- **THEN** `xSha1Final` runs once at completion and compares against `conf.sha1`
+- **THEN** on match the file is kept; on mismatch the file is deleted and task transitions to error
 
 - **WHEN** calling `xdl_task_create(&{.urls = "https://cdn.example.com/file.bin", .dir = "./dl", .cb = cb})`
 - **THEN** a non-NULL task handle is returned with HTTP-only scheduler
@@ -133,7 +146,7 @@ Blocks that fail to download SHALL be retried up to 3 times. HTTP 403 and 404 re
 
 `pct` SHALL be client-computed as `blocks_done / blocks_total * 100.0`. The server stores it as-is without validation. `pct: 0.0` removes the peer from that file's peer list.
 
-The library SHALL create a global P2P module on `xdl_init`. The module SHALL use the `peer_id` provided in `xdl_conf` for all Tracker communication, and SHALL start a global announce timer that periodically calls `PUT /announce` with a `changes` array aggregating all active P2P sources' `{info_hash, pct}`. Each P2P source (per task) SHALL handle data transfer only: BitField exchange, block requests/receives, and peer state management.
+The library SHALL create a global P2P module on `xdl_init`. The module SHALL use the `peer_id` provided in `xdl_conf` for all Tracker communication, and SHALL start a global announce timer that periodically calls `PUT /announce` with a `changes` array aggregating all active P2P sources' `{info_hash, pct}`. Each P2P source (per task) SHALL handle data transfer only: bitfield exchange, block requests/receives, and peer state management.
 
 #### Scenario: Global announce aggregates all tasks
 
@@ -151,7 +164,7 @@ The library SHALL create a global P2P module on `xdl_init`. The module SHALL use
 - **WHEN** `xdl_task_start` is called on a task with a torrent containing `announce`
 - **THEN** the global P2P module includes this `info_hash` in the next announce
 - **THEN** on the subsequent tick, calls `GET /torrent/<info_hash_hex>/peer` to discover peers
-- **THEN** connects to new peers via WebRTC, exchanging BitFields via DataChannel
+- **THEN** connects to new peers via WebRTC, exchanging bitfields via DataChannel
 
 #### Scenario: Task stop removes from announce
 
