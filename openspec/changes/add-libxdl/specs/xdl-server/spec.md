@@ -236,3 +236,56 @@ struct xdl_tracker_conf {
 - **WHEN** `xdl_tracker_start(&conf)` is called
 - **THEN** the Tracker listens on `conf.port` using HTTP/3 (QUIC)
 - **THEN** the cleanup timer starts immediately
+
+---
+
+### Requirement: Multi-instance deployment
+
+When multiple Tracker instances serve the same swarm, peer discovery MUST return active peers regardless of which instance they registered with. Two strategies are planned:
+
+#### Strategy A: Shared storage backend
+
+```
+p1 ──PUT──→ t1 ──write──→ [Shared DB] ←──read── t2 ←──GET── p2
+p1 ──POST/relay──→ t1 ──write──→ [Shared DB] ←──read── t2 ←──PUT/heartbeat── p2
+```
+
+All Tracker instances are stateless gateways. All state lives in a shared storage backend (Redis, etcd, or a dedicated distributed KV):
+
+| State | Written by | Read by |
+|-------|-----------|---------|
+| peer × file matrix (`peer_id`, `file_id`, `have_pct`, `last_seen`) | `PUT /peer/:peer_id/seed` | `GET /file/:file_id/peer` |
+| peer → tracker mapping (`tracker_addr`) | `PUT /peer/:peer_id/seed` | `GET /file/:file_id/peer` response |
+| signal inboxes | `POST /relay` | `PUT /peer/:peer_id/seed` response |
+
+The shared store is the single source of truth. Tracker instances handle HTTP routing but carry zero persistent state. Any instance can serve any request — peer discovery, signaling, heartbeat — scaling is purely horizontal by adding instances behind a load balancer.
+
+**Benefits:** Tracker instances are stateless — scalable, replaceable, trivial to deploy. Peer state and signal inboxes survive instance restarts. No cross-tracker coordination protocol needed.
+
+**Trade-offs:** Introduces an external dependency. PUT latency includes one round-trip to the shared store. All instances must be able to reach the store.
+
+#### Strategy C: Tracker federation (gossip)
+
+```
+t1 ←──gossip──→ t2 ←──gossip──→ t3
+```
+
+Tracker instances form a peer-to-peer overlay and periodically exchange peer state deltas via a gossip protocol. Each instance maintains a local replica of the full peer×file matrix, synchronized through gossip. Peer discovery (`GET /file/:file_id/peer`) is served from the local replica with zero network round-trips.
+
+**Benefits:** No external storage dependency. Read latency is local (no network hop). Naturally decentralized — aligns with P2P philosophy.
+
+**Trade-offs:** Eventually consistent — a newly registered peer may not be visible to all instances until the next gossip round. Requires gossip protocol implementation (memberlist / SWIM / custom). Higher operational complexity than shared storage.
+
+**Inbox handling:** Same constraint as shared storage — signal inboxes are local to the instance that received the signal. The target peer must heartbeat to that same instance to retrieve pending signals.
+
+#### Scenario: Peer discovers peers across instances
+
+- **WHEN** p1 queries `GET /file/abc123/peer` from t1
+- **THEN** the response includes p2 with `tracker_addr` pointing to p2's registering instance (t2)
+- **THEN** p1 sends `POST /relay` to t1 — t1 routes the signal to p2's inbox on t1 (NOT to t2)
+- **THEN** p2 retrieves the signal by heartbeating to t1 — if p2 has moved to t2, the signal expires and p1 re-discovers p2's new `tracker_addr`
+
+#### Scenario: Peer registers on one instance, discoverable from another
+
+- **WHEN** p2 registers via `PUT /peer/p2/seed` on t2
+- **THEN** within the consistency window (synchronous for shared storage, gossip-round for federation), p2 is visible to `GET /file/abc123/peer` queries on t1

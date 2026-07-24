@@ -67,11 +67,8 @@ First version ships `XDL_MODE_THREAD` only.
 typedef void (*xdl_task_cb_t)(const xdl_progress *p, void *arg);
 
 struct xdl_task_conf {
-    const char   *url;          // HTTP source URL (NULL = HTTP disabled)
-    const char   *file_id;      // file id for tracker (NULL = P2P disabled)
-    const char   *tracker_url;  // Tracker URL, e.g. https://tracker.example.com
-    const char   *dest;
-    const char   *sha1_hex;     // 40-char hex, NULL = skip verification
+    const char   *torrent;      // .torrent file content (JSON, null-terminated)
+    const char   *dir;           // output directory (file name from torrent)
     long          timeout_ms;   // default 30000
     int           max_peers;    // max P2P connections, default 8
     xdl_task_cb_t cb;
@@ -81,10 +78,37 @@ struct xdl_task_conf {
 xdl_task_t xdl_task_create(const xdl_task_conf_t *conf);
 ```
 
-The library selects the scheduler based on which fields are set:
-- `url != NULL, file_id == NULL` → `xdl_schedule_http()`
-- `url != NULL, file_id != NULL` → `xdl_schedule_hybrid()`
-- `url == NULL, file_id != NULL` → P2P-only
+The `.torrent` file is the single source of download metadata:
+
+```json
+{
+    "file_id":     "abc123",
+    "name":        "ubuntu-24.04.iso",
+    "size":        5872025600,
+    "tracker_url": "http://t1:8080",
+    "url":         "https://cdn.example.com/ubuntu.iso",
+    "sha1":        "abc..."
+}
+```
+
+`url` is optional (P2P-only torrents omit it). `file_id` + `tracker_url` are optional (HTTP-only torrents omit them). `sha1` is optional (skip verification).
+
+Usage:
+
+```c
+// HTTP-only
+task = xdl_task_create(&(xdl_task_conf_t){
+    .torrent = t, .dir = "./dl", .cb = on_progress
+});
+// → output: ./dl/ubuntu-24.04.iso
+
+// Hybrid
+task = xdl_task_create(&(xdl_task_conf_t){
+    .torrent = t, .dir = "./dl", .max_peers = 8, .cb = on_progress
+});
+```
+
+`xdl_task_start` parses the torrent and creates sources internally. The caller never sets URL, file_id, or sha1 directly — the torrent owns all metadata.
 
 ### P2P source: `xdl_source_p2p()`
 
@@ -417,22 +441,70 @@ xRelayEmit(t->progress_relay, &progress, sizeof(progress))
 
 SHA1 context lives in `task->sha1_ctx`. `on_data` calls `xSha1Update` per chunk. `xSha1Final` runs once when all blocks complete, compared against expected hash. On resume, existing bytes are re-read via `cache->read` and fed to `xSha1Update` before downloading new blocks.
 
-### Checkpoint format: `.meta` file
+### Block and piece granularity
+
+Two layers of granularity serve different roles:
 
 ```
-Offset  Size  Field
-[0]     16    Magic: "XDL_META_V1\0\0\0\0\0"
-[16]     4    block_count (uint32 LE)
-[20]     4    block_size  (uint32 LE) = 262144
-[24]     8    total_size  (uint64 LE)
-[32]    N*32  piece bitmaps (256 bits per block, 1 bit per 1 KB piece)
+File:  ┌── block 0 (256KB) ──┬── block 1 (256KB) ──┬── block 2 (256KB) ──┐
+       │ P0 P1 P2 ... P255    │ P0 P1 P2 ... P255    │ P0 P1 P2 ... P255    │
+       └──────────────────────┴──────────────────────┴──────────────────────┘
+        \_________  _________/                         1 piece = 1KB
+                  \/
+           block = scheduler 的最小调度单位:
+             • on_tick: "取 block 0-3 给 HTTP, block 4-7 给 P2P"
+             • on_range_done(block_offset, block_len, ok)
+             • progress: blocks_done / blocks_total
+             • one Range request per block for HTTP source
+
+           piece = P2P 传输的最小单位:
+             • block 4 = piece 1024-1279
+             • Peer A 有 piece 1024-1151 → 发 128 个 Request
+             • Peer B 有 piece 1152-1279 → 发 128 个 Request
+             • 拼回来 → 报告 on_range_done(block 4, ok=true)
+             • 不同 peer 贡献同一个 block 的不同 piece
 ```
 
-Blocks are lazily allocated. On resume: `meta_load` reads the bitmap, sets `done` flag per block, and the download skips completed blocks.
+The scheduler only thinks in blocks. The P2P source internally decomposes a block fetch into piece-level requests across peers. The HTTP source fetches an entire block in one Range request.
+
+### Torrent file (`.torrent`)
+
+The `.torrent` file is the seed metadata file — analogous to BitTorrent's `.torrent`. It describes what to download, how to verify it, and where to find peers. It contains the piece-level SHA1 hashes needed for incremental verification during download (no need to wait for the full file to verify).
+
+```
+.xdl file (binary):
+  Magic:     "XDL_META_V1\0\0\0\0\0"          (16B)
+  file_id:   null-terminated string             (variable)
+  name:      null-terminated string             (variable)
+  tracker_urls[]: count (2B LE) + N strings    (variable, null-terminated)
+  block_size: uint32 LE                         (4B)    = 262144
+  file_size:  uint64 LE                         (8B)
+  piece_count: uint32 LE                        (4B)
+  piece_hashes: N × 20B SHA1                    (N * 20, one per 1KB piece)
+  block_bitmap: N × 32B                         (N * 32, persistent resume state)
+```
+
+The `.torrent` file is the single canonical artifact:
+- **Sharing**: pass to another peer → they know what to download, where to find peers, how to verify.
+- **Resume**: block_bitmap tracks completion — written by the downloader as it progresses.
+- **Verification**: piece_hashes enables per-piece SHA1 verification during P2P download. No waiting for the full file.
+
+Contrast with BitTorrent: `.torrent` has `pieces` (per-piece SHA1) + `announce` (tracker URL), but no resume bitmap. Our `.torrent` merges both — the original seeding metadata AND the downloader's progress state.
 
 ### Temp file: write to `.part`, rename on completion
 
-Data is written to `<dest>.part` (`.meta` alongside at `<dest>.meta`). On success: `rename(part, dest)` + `meta_delete`. Resume always checks `.part`.
+Data is written to `<dest>.part`. The torrent file (`.torrent`) tracks progress. On success: `rename(part, dest)`. The torrent file is kept — it is the canonical seed metadata. Resume always checks `.part` + `.torrent`.
+
+### Torrent management (Tracker API)
+
+The Tracker hosts torrent metadata so clients can discover a file without first having the `.torrent` file:
+
+```
+POST /torrent        — publish a torrent file
+GET /torrent/:id      — retrieve a torrent file
+```
+
+A seeder publishes the torrent once; N downloaders fetch it by `torrent_id`. The `PUT /peer/:peer_id/seed` announce references `file_id` (from within the torrent), not `torrent_id`.
 
 ### No Content-Length fallback
 
