@@ -81,15 +81,15 @@ Response `404` if the peer was not registered:
 
 #### GET /file/:fid/peer
 
-List active peers for a file. Returns only the information needed to signal peers — no IP addresses, no P2P port. P2P connectivity is established through the Signal Server, not via direct connection.
+List active peers for a file. Returns only the information needed to signal peers — `peer_id` and `signal_addr`. No IP addresses, no P2P port, no progress info. P2P connectivity is established through the Signal Server, not via direct connection.
 
 Response `200`:
 ```json
 {
     "fid": "abc123",
     "peers": [
-        {"peer_id": "bob",   "signal_addr": "signal1:8081", "have_pct": 100.0},
-        {"peer_id": "carol", "signal_addr": "signal2:8081", "have_pct": 12.3}
+        {"peer_id": "bob",   "signal_addr": "signal1:8081"},
+        {"peer_id": "carol", "signal_addr": "signal2:8081"}
     ]
 }
 ```

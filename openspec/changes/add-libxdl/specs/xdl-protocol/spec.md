@@ -16,12 +16,12 @@ Peers SHALL announce themselves to the Seed Server via `PUT /file/:fid/peer/:pee
 
 ### Requirement: Seed protocol — discovery
 
-Clients SHALL query peers via `GET /file/:fid/peer`. The response SHALL contain a JSON array of `{peer_id, signal_addr, have_pct}` for each active peer. No IP addresses or P2P ports are returned — connectivity is established through the Signal Server, not via direct connection.
+Clients SHALL query peers via `GET /file/:fid/peer`. The response SHALL contain a JSON array of `{peer_id, signal_addr}` for each active peer. No IP addresses, P2P ports, or progress data are returned. Connectivity is established through the Signal Server, not via direct connection.
 
 #### Scenario: Query peers for a file
 
 - **WHEN** a client sends `GET /file/abc123/peer`
-- **THEN** the response contains `{"fid":"abc123","peers":[{"peer_id":"bob","signal_addr":"signal1:8081","have_pct":100.0}]}`
+- **THEN** the response contains `{"fid":"abc123","peers":[{"peer_id":"bob","signal_addr":"signal1:8081"}]}`
 
 ### Requirement: Signal protocol — relay format
 
