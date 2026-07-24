@@ -71,13 +71,13 @@
 ## 10. Signal Server (xdl/signal.c) — UDP stateless relay
 
 - [ ] 10.1 Create UDP socket on `signal_port`, bind, register with event loop for `recvfrom()`
-- [ ] 10.2 Implement `recvfrom()` handler — parse JSON, extract `to` field, validate `from` (if enabled)
-- [ ] 10.3 Implement message queue per peer (ring buffer, max 256, TTL 5000ms)
-- [ ] 10.4 Implement relay: enqueue message for `to` peer → deliver on next `recvfrom` from that peer
+- [ ] 10.2 Implement `recvfrom()` handler — parse JSON, extract `to` field
+- [ ] 10.3 Implement message queue per peer (ring buffer, max 256, TTL 5000ms), keyed by `peer_id`
+- [ ] 10.4 Implement poll-driven delivery: on receiving any packet from a peer, drain that peer's queue into `sendmsg()` replies to the packet's source address
 - [ ] 10.5 Implement TTL sweep (per 1000ms tick): drop messages older than 5s
 - [ ] 10.6 Implement queue full policy: drop oldest message, no error to sender
 - [ ] 10.7 Implement message size limit (64KB) — drop silently on overflow
-- [ ] 10.8 Implement per-peer poll tracking — `sendmsg()` relayed messages to peer's last known UDP address
+- [ ] 10.8 Implement `from` field validation (if enabled) — reject mismatches with error reply
 
 ## 11. CLI example (libxdl/examples/main.c)
 

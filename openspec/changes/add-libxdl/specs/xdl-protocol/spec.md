@@ -25,7 +25,9 @@ Clients SHALL query peers via `GET /file/:fid/peer`. The response SHALL contain 
 
 ### Requirement: Signal protocol — relay format
 
-Signal messages SHALL be JSON text sent over UDP. The server is stateless — each packet is a self-contained relay operation. Messages for offline peers SHALL be dropped silently; senders SHOULD retry on timeout. Each message SHALL contain a `type` field and `from`/`to` fields identifying the sender and recipient.
+Signal messages SHALL be JSON text sent over UDP. The server is stateless — each packet is a self-contained relay operation. Due to NAT, the server cannot push messages proactively: **delivery happens on the recipient's next poll packet** (a periodic empty UDP datagram that keeps the NAT mapping alive). Messages enqueued for peers that never poll expire after TTL (5s).
+
+Each relay message SHALL contain a `type` field and `from`/`to` fields identifying the sender and recipient.
 
 #### Peer-to-Server messages
 

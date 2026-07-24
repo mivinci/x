@@ -187,7 +187,7 @@ peer2 ──(UDP)──→ Signal Server ──(UDP)──→ peer1
   {"type":"answer","from":"peer2","to":"peer1","sdp":"..."}
 ```
 
-Server role: receive packet → extract `to` field → look up receiver's pending messages → forward. If `to` peer has no pending messages, enqueue (TTL 5s, max 256 per peer). If queue is full for that peer, drop oldest.
+Server role: receive packet → extract `to` field → look up receiver's message queue → return queued messages in the UDP reply. Delivery happens on the receiver's next poll packet, taking advantage of NAT reverse-path mapping. Messages are NOT pushed proactively — the server only responds to packets received from the target peer's source address.
 
 #### Message types (unchanged from protocol spec)
 
@@ -202,29 +202,50 @@ No `hello` / `hello_ack` / `ping` / `pong` — no connection to authenticate or 
 
 #### How peers send and receive
 
-Peer API is a simple UDP socket:
-- **Send**: `sendto(signal_addr, msg)` — fire and forget
-- **Receive**: Poll `recvfrom()` periodically (e.g., on each scheduler tick). If no message for 30s, peer may re-query Seed Server for updated peer list.
+Due to NAT, the Signal Server cannot push messages to peers proactively. Instead, peers use a **UDP poll loop**:
 
-No persistent connection, no handshake, no keep-alive.
+```
+peer → UDP sendto signal:8081   (empty packet or poll message)
+signal → udp reply:
+  → has queued messages → returns them in the UDP response
+  → queue empty → no reply (peer times out after poll_interval)
+```
+
+Peer behavior:
+- **Poll**: Periodically send a UDP datagram to the peer's registered signal_addr (every 500ms–1000ms, typically on scheduler tick). This keeps the NAT mapping alive and polls for incoming messages.
+- **Send**: `sendto(signal_addr, msg)` — fire and forget. No response expected.
+- **Receive**: After each poll, check for a UDP reply with relayed messages.
+
+No persistent connection, no handshake, no keep-alive beyond the poll packets themselves.
 
 #### Internal state model (per-instance, ephemeral)
 
 ```
 signal_server
-└── queues: HashMap<peer_id, MessageQueue>
-    └── MessageQueue
-        ├── messages: ring buffer (max 256)
-        ├── oldest_TTL_ms: 5000
+└── peers: HashMap<peer_id, PeerState>  (populated on first poll)
+    └── PeerState
+        ├── queue: ring buffer (max 256)
+        ├── last_addr: struct sockaddr   (from most recent poll)
         └── last_poll_ms: uint64
+
+Send flow:
+  peer1 → signal: {"type":"offer","to":"peer2",...}
+    → signal enqueues message in peers[peer2].queue
+
+Poll flow:
+  peer2 → signal: <any packet>
+    → signal looks up peers[peer2]
+    → if queue non-empty: drain → sendmsg(peer2.last_addr, messages)
+    → update last_addr, last_poll_ms
 ```
 
-This state is **not persisted**, **not replicated** across instances. Server restart = queue flush = sender retries on next announce (picks up new peer list from Seed Server).
+NAT traversal works because the poll packet creates a mapping on peer2's NAT gateway. The server's UDP reply travels back through that same mapping, reaching peer2.
 
 #### Concurrency & limits
 
 | Limit | Value | Rationale |
 |-------|-------|-----------|
+| Poll interval | 500–1000ms | Keeps NAT mapping alive, matches scheduler tick |
 | Max message size | 65536 (64KB) | SDP typically 2-8KB |
 | Max queue per peer | 256 | Prevents memory exhaustion |
 | Message TTL | 5000ms | Sender retries if no response |
@@ -234,11 +255,23 @@ This state is **not persisted**, **not replicated** across instances. Server res
 
 ### Requirement: Signal Server — edge cases
 
-#### Scenario: Message to peer with empty queue
+#### Scenario: Message enqueued, delivered on next poll
 
-- **WHEN** a signal message arrives for `peer_id` that has no pending messages
-- **THEN** the server enqueues the message with `received_at = now()` and TTL 5s
-- **THEN** the message is delivered when the target peer polls
+- **WHEN** a signal message arrives for `peer_id` that has not polled recently
+- **THEN** the server enqueues the message with TTL 5s
+- **WHEN** the target peer subsequently polls
+- **THEN** the server returns all queued messages in the UDP reply
+
+#### Scenario: Poll with empty queue
+
+- **WHEN** a peer polls and its queue is empty
+- **THEN** the server sends no reply (peer's `recvfrom` times out after `poll_interval`)
+
+#### Scenario: Poll with queued messages
+
+- **WHEN** a peer polls and its queue has pending messages
+- **THEN** the server drains the queue into one or more UDP replies to `last_addr`
+- **THEN** the server updates `last_addr` and `last_poll_ms` from the poll packet's source address
 
 #### Scenario: Message to peer with full queue
 
