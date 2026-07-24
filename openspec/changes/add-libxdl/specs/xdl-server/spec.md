@@ -169,7 +169,7 @@ PeerEntry {
 
 ### Requirement: Signal Server — API reference
 
-Signal Server is a **stateless UDP relay**. It does not maintain connection state — every packet is a self-contained "receive and forward" operation. This enables horizontal scaling: any instance can handle any message for any peer.
+Signal Server is a **stateless UDP relay**. It does not maintain connection state — every packet is a self-contained operation (relay or heartbeat). This enables horizontal scaling: any instance can handle any message for any peer.
 
 | Field | Value | Description |
 |-------|-------|-------------|
@@ -187,65 +187,67 @@ peer2 ──(UDP)──→ Signal Server ──(UDP)──→ peer1
   {"type":"answer","from":"peer2","to":"peer1","sdp":"..."}
 ```
 
-Server role: receive packet → extract `to` field → look up receiver's message queue → return queued messages in the UDP reply. Delivery happens on the receiver's next poll packet, taking advantage of NAT reverse-path mapping. Messages are NOT pushed proactively — the server only responds to packets received from the target peer's source address.
+Server role: receive relay packet → extract `to` field → enqueue in target peer's message queue. Messages are delivered in the **heartbeat acknowledgement** response — the server always responds to a heartbeat, returning any queued messages in the reply. Messages are NOT pushed proactively.
 
-#### Message types (unchanged from protocol spec)
+#### Message types
 
-| `type` | Fields | Direction |
-|--------|--------|-----------|
-| `offer` | `from, to, sdp` | peer → server → peer |
-| `answer` | `from, to, sdp` | peer → server → peer |
-| `candidate` | `from, to, candidate, sdpMid, sdpMLineIndex` | peer → server → peer |
-| `error` | `message` | server → peer (on relay failure) |
+| `type` | Fields | Direction | Description |
+|--------|--------|-----------|-------------|
+| `heartbeat` | `peer_id` | peer → server | Periodic keep-alive, keeps NAT mapping alive |
+| `heartbeat_ack` | `messages[]` | server → peer | Response to heartbeat. Contains queued relayed messages (may be empty array) |
+| `offer` | `from, to, sdp` | peer → server → peer | WebRTC offer relay |
+| `answer` | `from, to, sdp` | peer → server → peer | WebRTC answer relay |
+| `candidate` | `from, to, candidate, sdpMid, sdpMLineIndex` | peer → server → peer | ICE candidate relay |
+| `error` | `message` | server → peer | Relay failure (queue full, sender mismatch) |
 
-No `hello` / `hello_ack` / `ping` / `pong` — no connection to authenticate or keep alive. Server trusts `from` field but MAY validate it against Seed Server's peer registry if configured.
+No auth session — the server trusts `from` / `peer_id` fields but MAY validate against Seed Server's peer registry if configured.
 
 #### How peers send and receive
 
-Due to NAT, the Signal Server cannot push messages to peers proactively. Instead, peers use a **UDP poll loop**:
+Due to NAT, the Signal Server cannot push messages to peers proactively. Peers use a **heartbeat loop**:
 
 ```
-peer → UDP sendto signal:8081   (empty packet or poll message)
-signal → udp reply:
-  → has queued messages → returns them in the UDP response
-  → queue empty → no reply (peer times out after poll_interval)
+peer → UDP sendto signal:8081  {"type":"heartbeat","peer_id":"peer2"}
+signal → UDP reply:
+  {"type":"heartbeat_ack","messages":[...]}
 ```
 
 Peer behavior:
-- **Poll**: Periodically send a UDP datagram to the peer's registered signal_addr (every 500ms–1000ms, typically on scheduler tick). This keeps the NAT mapping alive and polls for incoming messages.
-- **Send**: `sendto(signal_addr, msg)` — fire and forget. No response expected.
-- **Receive**: After each poll, check for a UDP reply with relayed messages.
+- **Heartbeat**: Periodically send `{"type":"heartbeat","peer_id":"..."}` to the peer's registered signal_addr (every 500ms–1000ms, typically on scheduler tick). Keeps NAT mapping alive.
+- **Send relay**: `sendto(signal_addr, {"type":"offer",...})` — fire and forget.
+- **Receive**: The `heartbeat_ack` response carries queued relay messages. An empty `messages` array means nothing pending. If no ack is received within the heartbeat interval, the peer knows something is wrong (NAT mapping lost, server down, etc.).
 
-No persistent connection, no handshake, no keep-alive beyond the poll packets themselves.
+No persistent connection, no auth handshake — the heartbeat is the only recurring exchange.
 
 #### Internal state model (per-instance, ephemeral)
 
 ```
 signal_server
-└── peers: HashMap<peer_id, PeerState>  (populated on first poll)
+└── peers: HashMap<peer_id, PeerState>  (populated on first heartbeat)
     └── PeerState
         ├── queue: ring buffer (max 256)
-        ├── last_addr: struct sockaddr   (from most recent poll)
-        └── last_poll_ms: uint64
+        ├── last_addr: struct sockaddr   (from most recent heartbeat)
+        └── last_beat_ms: uint64
 
 Send flow:
   peer1 → signal: {"type":"offer","to":"peer2",...}
     → signal enqueues message in peers[peer2].queue
 
-Poll flow:
-  peer2 → signal: <any packet>
+Heartbeat flow:
+  peer2 → signal: {"type":"heartbeat","peer_id":"peer2"}
     → signal looks up peers[peer2]
-    → if queue non-empty: drain → sendmsg(peer2.last_addr, messages)
-    → update last_addr, last_poll_ms
+    → drains queue into heartbeat_ack.messages
+    → sendmsg(peer2.last_addr, {"type":"heartbeat_ack","messages":[...]})
+    → update last_addr, last_beat_ms
 ```
 
-NAT traversal works because the poll packet creates a mapping on peer2's NAT gateway. The server's UDP reply travels back through that same mapping, reaching peer2.
+NAT traversal works because the heartbeat packet creates a mapping on peer2's NAT gateway. The server's heartbeat_ack travels back through that same mapping, reaching peer2. The server ALWAYS responds — even if `messages` is empty — so the peer can distinguish "no messages" from "packet lost".
 
 #### Concurrency & limits
 
 | Limit | Value | Rationale |
 |-------|-------|-----------|
-| Poll interval | 500–1000ms | Keeps NAT mapping alive, matches scheduler tick |
+| Heartbeat interval | 500–1000ms | Keeps NAT mapping alive, matches scheduler tick |
 | Max message size | 65536 (64KB) | SDP typically 2-8KB |
 | Max queue per peer | 256 | Prevents memory exhaustion |
 | Message TTL | 5000ms | Sender retries if no response |
@@ -255,23 +257,27 @@ NAT traversal works because the poll packet creates a mapping on peer2's NAT gat
 
 ### Requirement: Signal Server — edge cases
 
-#### Scenario: Message enqueued, delivered on next poll
+#### Scenario: Heartbeat with pending messages
 
-- **WHEN** a signal message arrives for `peer_id` that has not polled recently
-- **THEN** the server enqueues the message with TTL 5s
-- **WHEN** the target peer subsequently polls
-- **THEN** the server returns all queued messages in the UDP reply
+- **WHEN** a peer sends `{"type":"heartbeat","peer_id":"peer2"}`
+- **THEN** the server responds with `{"type":"heartbeat_ack","messages":[...]}` containing all queued relay messages for that peer
 
-#### Scenario: Poll with empty queue
+#### Scenario: Heartbeat with empty queue
 
-- **WHEN** a peer polls and its queue is empty
-- **THEN** the server sends no reply (peer's `recvfrom` times out after `poll_interval`)
+- **WHEN** a peer sends heartbeat and its queue is empty
+- **THEN** the server responds with `{"type":"heartbeat_ack","messages":[]}` — peer knows the heartbeat succeeded, just nothing pending
 
-#### Scenario: Poll with queued messages
+#### Scenario: Missing heartbeat ack
 
-- **WHEN** a peer polls and its queue has pending messages
-- **THEN** the server drains the queue into one or more UDP replies to `last_addr`
-- **THEN** the server updates `last_addr` and `last_poll_ms` from the poll packet's source address
+- **WHEN** a peer sends heartbeat and receives no ack within the heartbeat interval
+- **THEN** the peer knows the NAT mapping may be lost or server is down; should re-query Seed Server for signal_addr and/or re-establish
+
+#### Scenario: Message enqueued, delivered on next heartbeat
+
+- **WHEN** a signal message arrives for `peer_id`
+- **THEN** the server enqueues it with TTL 5s
+- **WHEN** the target peer next heartbeats
+- **THEN** the server returns the message in `heartbeat_ack.messages`
 
 #### Scenario: Message to peer with full queue
 

@@ -25,7 +25,7 @@ Clients SHALL query peers via `GET /file/:fid/peer`. The response SHALL contain 
 
 ### Requirement: Signal protocol — relay format
 
-Signal messages SHALL be JSON text sent over UDP. The server is stateless — each packet is a self-contained relay operation. Due to NAT, the server cannot push messages proactively: **delivery happens on the recipient's next poll packet** (a periodic empty UDP datagram that keeps the NAT mapping alive). Messages enqueued for peers that never poll expire after TTL (5s).
+Signal messages SHALL be JSON text sent over UDP. The server is stateless — each packet is a self-contained operation. Due to NAT, the server cannot push messages proactively: peers periodically send a `heartbeat` message, and the server responds with `heartbeat_ack` containing any queued relay messages. The server ALWAYS responds to heartbeat (even if `messages` is empty), so peers can distinguish "nothing pending" from "packet lost".
 
 Each relay message SHALL contain a `type` field and `from`/`to` fields identifying the sender and recipient.
 
@@ -33,6 +33,7 @@ Each relay message SHALL contain a `type` field and `from`/`to` fields identifyi
 
 | `type` | Required fields | Description |
 |--------|----------------|-------------|
+| `heartbeat` | `peer_id` | Periodic keep-alive. Server responds with `heartbeat_ack`. |
 | `offer` | `from`, `to`, `sdp` | WebRTC offer relay |
 | `answer` | `from`, `to`, `sdp` | WebRTC answer relay |
 | `candidate` | `from`, `to`, `candidate`, `sdpMid`, `sdpMLineIndex` | ICE candidate relay |
@@ -41,12 +42,11 @@ Each relay message SHALL contain a `type` field and `from`/`to` fields identifyi
 
 | `type` | Fields | Description |
 |--------|--------|-------------|
-| `offer` | `from`, `to`, `sdp` | Relayed from another peer |
-| `answer` | `from`, `to`, `sdp` | Relayed from another peer |
-| `candidate` | `from`, `to`, `candidate`, `sdpMid`, `sdpMLineIndex` | Relayed from another peer |
+| `heartbeat_ack` | `messages` (array of relayed messages) | Response to heartbeat. Empty array = nothing pending. |
+| `offer` | `from`, `to`, `sdp` | Relayed from another peer (inside heartbeat_ack) |
+| `answer` | `from`, `to`, `sdp` | Relayed from another peer (inside heartbeat_ack) |
+| `candidate` | `from`, `to`, `candidate`, `sdpMid`, `sdpMLineIndex` | Relayed from another peer (inside heartbeat_ack) |
 | `error` | `message` | Relay failure (TTL expired, queue full, sender mismatch) |
-
-No `hello`/`hello_ack`/`ping`/`pong` — no connection to authenticate or keep alive. The server SHALL forward `offer`, `answer`, `candidate` to the UDP address of the `to` peer if the peer has polled recently. Messages for peers that have not polled are enqueued (TTL 5s, max 256) and delivered on next poll. SHALL NOT interpret SDP or ICE candidates.
 
 #### Scenario: Offer relay
 
