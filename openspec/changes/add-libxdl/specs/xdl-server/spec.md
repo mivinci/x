@@ -1,6 +1,8 @@
 ## ADDED Requirements
 
-xdl-server consists of two independent services: **Seed Server** (HTTP) and **Signal Server** (WebSocket).
+xdl-server consists of two independent services: **Seed Server** (HTTP/3) and **Signal Server** (UDP).
+
+Seed Server is stateful — it maintains a peer × file registry. Signal Server is stateless — it relays signaling messages between peers with no connection state.
 
 ---
 
@@ -47,25 +49,19 @@ Peer periodic announce (upsert). Peers MUST call this every 5 seconds to stay in
 Request:
 ```json
 {
-    "host":      "10.0.0.1",    // peer's reachable IP/hostname
-    "port":      9000,          // peer's WebRTC/signaling port
-    "have_pct":  45.7           // completion percentage (0.0 - 100.0)
+    "signal_addr": "signal1.example.com:8081",  // peer's Signal Server address
+    "have_pct":    45.7                         // completion percentage (0.0 - 100.0)
 }
 ```
 
 Response `200`:
 ```json
-{
-    "peers": [
-        {"peer_id": "bob",   "host": "10.0.0.2", "port": 9000, "have_pct": 100.0},
-        {"peer_id": "carol", "host": "10.0.0.3", "port": 9000, "have_pct": 12.3}
-    ]
-}
+{"status": "ok"}
 ```
 
 Behavior:
-- Idempotent: creates the file entry + peer entry if either doesn't exist; updates `host`, `port`, `have_pct`, `last_seen` if they do.
-- Returns all currently active peers for this `fid` (excluding the announcing peer itself).
+- Idempotent: creates the file entry + peer entry if either doesn't exist; updates `signal_addr`, `have_pct`, `last_seen` if they do.
+- Does NOT return the peer list — use `GET /file/:fid/peer` separately for discovery.
 - Peers with `have_pct == 100.0` are full seeders; peers with `have_pct < 100.0` are leechers.
 - A periodic cleanup (every 1000ms) removes entries where `now - last_seen > 5000ms`.
 
@@ -85,15 +81,15 @@ Response `404` if the peer was not registered:
 
 #### GET /file/:fid/peer
 
-List active peers for a file. No request body, no query parameters — `fid` is in the URL.
+List active peers for a file. Returns only the information needed to signal peers — no IP addresses, no P2P port. P2P connectivity is established through the Signal Server, not via direct connection.
 
 Response `200`:
 ```json
 {
     "fid": "abc123",
     "peers": [
-        {"peer_id": "bob",   "host": "10.0.0.2", "port": 9000, "have_pct": 100.0},
-        {"peer_id": "carol", "host": "10.0.0.3", "port": 9000, "have_pct": 12.3}
+        {"peer_id": "bob",   "signal_addr": "signal1:8081", "have_pct": 100.0},
+        {"peer_id": "carol", "signal_addr": "signal2:8081", "have_pct": 12.3}
     ]
 }
 ```
@@ -122,12 +118,11 @@ seed_server
         └── cleanup_timer (1000ms)
 
 PeerEntry {
-    peer_id:    char[64]
-    fid:        char[64]
-    host:       char[256]
-    port:       uint16
-    have_pct:   float
-    last_seen:  uint64 (unix ms)
+    peer_id:     char[64]
+    fid:         char[64]
+    signal_addr: char[256]    // "host:port" of peer's Signal Server
+    have_pct:    float
+    last_seen:   uint64 (unix ms)
 }
 ```
 
@@ -162,8 +157,8 @@ PeerEntry {
 
 #### Scenario: Missing required field
 
-- **WHEN** `PUT /file/abc123/peer/alice` body is missing `host`
-- **THEN** server returns `400 {"error": "bad_request", "message": "missing required field: host"}`
+- **WHEN** `PUT /file/abc123/peer/alice` body is missing `signal_addr`
+- **THEN** server returns `400 {"error": "bad_request", "message": "missing required field: signal_addr"}`
 
 #### Scenario: Stale peer pruned
 
@@ -174,125 +169,97 @@ PeerEntry {
 
 ### Requirement: Signal Server — API reference
 
-| Transport | Path | Description |
-|-----------|------|-------------|
-| WebSocket | `/ws` | Signaling connection |
+Signal Server is a **stateless UDP relay**. It does not maintain connection state — every packet is a self-contained "receive and forward" operation. This enables horizontal scaling: any instance can handle any message for any peer.
 
-The Signal Server is a transparent relay — it does NOT interpret SDP, ICE candidates, or any message payload beyond routing fields (`type`, `from`, `to`).
+| Field | Value | Description |
+|-------|-------|-------------|
+| Transport | UDP | Single socket, single port |
+| Default port | 8081 | Configurable |
+| Message format | JSON text | Compatible with existing protocol spec |
 
-#### Connection lifecycle
+#### Message flow
 
 ```
-Client                          Server
-  |                               |
-  |--- WS connect /ws ----------->|
-  |                               |--- start 5s auth timer
-  |<-- connection accepted -------|
-  |                               |
-  |--- {"type":"hello",           |
-  |     "peer_id":"alice"} ------>|
-  |                               |--- cancel auth timer, register mapping
-  |<-- {"type":"hello_ack"} ------|
-  |                               |
-  |    ... signaling messages ... |
-  |                               |
-  |--- WS close ----------------->|
-  |                               |--- remove from peer map
+peer1 ──(UDP)──→ Signal Server ──(UDP)──→ peer2
+  {"type":"offer","from":"peer1","to":"peer2","sdp":"..."}
+  
+peer2 ──(UDP)──→ Signal Server ──(UDP)──→ peer1
+  {"type":"answer","from":"peer2","to":"peer1","sdp":"..."}
 ```
 
-#### Message types
+Server role: receive packet → extract `to` field → look up receiver's pending messages → forward. If `to` peer has no pending messages, enqueue (TTL 5s, max 256 per peer). If queue is full for that peer, drop oldest.
 
-##### Client → Server
+#### Message types (unchanged from protocol spec)
 
-| `type` | Fields | Description |
-|--------|--------|-------------|
-| `hello` | `peer_id` | Identify self. Must be first message within 5s. |
-| `offer` | `from`, `to`, `sdp` | WebRTC offer (relayed to `to`) |
-| `answer` | `from`, `to`, `sdp` | WebRTC answer (relayed to `to`) |
-| `candidate` | `from`, `to`, `candidate`, `sdpMid`, `sdpMLineIndex` | ICE candidate (relayed to `to`) |
-| `ping` | (none) | Keepalive |
+| `type` | Fields | Direction |
+|--------|--------|-----------|
+| `offer` | `from, to, sdp` | peer → server → peer |
+| `answer` | `from, to, sdp` | peer → server → peer |
+| `candidate` | `from, to, candidate, sdpMid, sdpMLineIndex` | peer → server → peer |
+| `error` | `message` | server → peer (on relay failure) |
 
-##### Server → Client
+No `hello` / `hello_ack` / `ping` / `pong` — no connection to authenticate or keep alive. Server trusts `from` field but MAY validate it against Seed Server's peer registry if configured.
 
-| `type` | Fields | Description |
-|--------|--------|-------------|
-| `hello_ack` | (none) | Auth accepted |
-| `offer` | `from`, `to`, `sdp` | Relayed offer from another peer |
-| `answer` | `from`, `to`, `sdp` | Relayed answer from another peer |
-| `candidate` | `from`, `to`, `candidate`, `sdpMid`, `sdpMLineIndex` | Relayed ICE candidate |
-| `error` | `message` | Rejected message or auth failure |
-| `pong` | (none) | Keepalive response |
+#### How peers send and receive
 
-All messages are JSON text frames. The server forwards `offer`, `answer`, `candidate` without modification. The `from` and `to` fields are trusted as-is from the sender — the server asserts `from` matches the authenticated `peer_id` of the sending connection, but does not validate `to`.
+Peer API is a simple UDP socket:
+- **Send**: `sendto(signal_addr, msg)` — fire and forget
+- **Receive**: Poll `recvfrom()` periodically (e.g., on each scheduler tick). If no message for 30s, peer may re-query Seed Server for updated peer list.
 
-#### Internal state model
+No persistent connection, no handshake, no keep-alive.
+
+#### Internal state model (per-instance, ephemeral)
 
 ```
 signal_server
-└── connections: HashMap<peer_id, WsConn>
-    └── WsConn
-        ├── peer_id
-        ├── socket (WebSocket)
-        ├── connected_at: uint64
-        └── last_ping_ms: uint64
-
-pending_auth: set of WebSocket connections not yet hello'd
+└── queues: HashMap<peer_id, MessageQueue>
+    └── MessageQueue
+        ├── messages: ring buffer (max 256)
+        ├── oldest_TTL_ms: 5000
+        └── last_poll_ms: uint64
 ```
+
+This state is **not persisted**, **not replicated** across instances. Server restart = queue flush = sender retries on next announce (picks up new peer list from Seed Server).
 
 #### Concurrency & limits
 
 | Limit | Value | Rationale |
 |-------|-------|-----------|
-| Max WebSocket connections | 512 | Typical per-process limit |
-| Auth timeout | 5000ms | Connection closed if no `hello` received |
-| Ping interval | 30000ms | Server sends `ping`, expects `pong` within 10s |
-| Max message size | 65536 (64KB) | Enough for SDP (~4-8KB typical, but allow headroom) |
-| Per-IP connection limit | 8 | Prevent single-IP flooding |
+| Max message size | 65536 (64KB) | SDP typically 2-8KB |
+| Max queue per peer | 256 | Prevents memory exhaustion |
+| Message TTL | 5000ms | Sender retries if no response |
+| Max unique peers tracked | 16384 | Per-instance soft cap |
 
 ---
 
 ### Requirement: Signal Server — edge cases
 
-#### Scenario: Auth timeout
+#### Scenario: Message to peer with empty queue
 
-- **WHEN** a WebSocket connection does not send `hello` within 5 seconds
-- **THEN** the server sends `{"type":"error","message":"auth timeout"}` and closes the connection
+- **WHEN** a signal message arrives for `peer_id` that has no pending messages
+- **THEN** the server enqueues the message with `received_at = now()` and TTL 5s
+- **THEN** the message is delivered when the target peer polls
 
-#### Scenario: Duplicate peer_id
+#### Scenario: Message to peer with full queue
 
-- **WHEN** a new WebSocket sends `hello` with a `peer_id` that already has an active connection
-- **THEN** the old connection is closed with `{"type":"error","message":"replaced by new connection"}`
-- **THEN** the new connection is registered
+- **WHEN** a signal message arrives for `peer_id` whose queue has 256 messages
+- **THEN** the server drops the oldest message and enqueues the new one
+- **THEN** no error is sent to the sender (fire-and-forget semantics)
 
-#### Scenario: Message to offline peer
+#### Scenario: TTL expiration
 
-- **WHEN** a signal message is addressed to a `peer_id` with no active WebSocket connection
-- **THEN** the server sends back `{"type":"error","message":"peer not found: bob"}` to the sender
-
-#### Scenario: Message before auth
-
-- **WHEN** a WebSocket sends any message before `hello`
-- **THEN** the server sends `{"type":"error","message":"authenticate first"}` and closes the connection
-
-#### Scenario: Ping timeout
-
-- **WHEN** the server sends `ping` and no `pong` is received within 10 seconds
-- **THEN** the server closes the WebSocket connection
-
-#### Scenario: Message without type field
-
-- **WHEN** a JSON message is received without a `type` field
-- **THEN** the server sends `{"type":"error","message":"missing type field"}` and ignores the message (does not close)
-
-#### Scenario: Sender identity mismatch
-
-- **WHEN** a message has `from` that differs from the authenticated `peer_id` of the sending connection
-- **THEN** the server sends `{"type":"error","message":"sender mismatch"}` and ignores the message
+- **WHEN** a message sits in the queue for more than 5 seconds
+- **THEN** the cleanup sweep (every 1000ms) removes it without delivery
 
 #### Scenario: Oversized message
 
 - **WHEN** a message exceeds the 64KB limit
-- **THEN** the server closes the WebSocket connection with code 1009 (message too big)
+- **THEN** the server drops it silently (UDP has no error channel)
+
+#### Scenario: Sender identity mismatch
+
+- **WHEN** `from` field does not match the source address registered in Seed Server (if validation is enabled)
+- **THEN** the server drops the message and sends back `{"type":"error","message":"sender mismatch"}`
 
 ---
 
@@ -302,21 +269,20 @@ Both servers SHALL accept configuration via a shared config struct:
 
 ```c
 struct xdl_server_conf {
-    uint16_t  seed_port;         // default 8080
-    uint16_t  signal_port;       // default 8081
-    int       cleanup_interval_ms;  // default 1000
-    int       announce_timeout_ms;  // default 5000
-    int       auth_timeout_ms;      // default 5000
-    int       ping_interval_ms;     // default 30000
-    int       ping_timeout_ms;      // default 10000
-    int       max_peers_per_file;   // default 256
-    int       max_connections;      // default 512
-    int       max_message_size;     // default 65536
-    int       max_per_ip;           // default 8
+    uint16_t  seed_port;           // default 8080
+    uint16_t  signal_port;         // default 8081
+    int       cleanup_interval_ms; // default 1000
+    int       announce_timeout_ms; // default 5000
+    int       message_ttl_ms;      // default 5000
+    int       max_peers_per_file;  // default 256
+    int       max_queue_per_peer;  // default 256
+    int       max_message_size;    // default 65536
+    int       max_files;           // default 1024
+    int       max_signal_peers;    // default 16384
 };
 ```
 
-Both servers will run within the xdl event loop. Seed Server piggybacks on `xHttpServer`; Signal Server uses a WebSocket upgrade handler on the same or a separate port.
+Seed Server uses HTTP/3 (QUIC) — stateful, maintains peer × file registry. Signal Server uses UDP — stateless, pure message relay with short-TTL queues.
 
 #### Scenario: Combined startup
 

@@ -68,16 +68,16 @@
 - [ ] 9.8 Implement rate limiting (60 req/s per IP) and field validation (fid/peer_id length caps, have_pct clamp)
 - [ ] 9.9 Implement per-file peer cap (max 256) and global file cap (max 1024)
 
-## 10. Signal Server (xdl/signal.c)
+## 10. Signal Server (xdl/signal.c) — UDP stateless relay
 
-- [ ] 10.1 Implement WebSocket upgrade handler on `/ws` — start 5s auth timer
-- [ ] 10.2 Implement `hello` message parsing — register peer_id → WsConn mapping, send `hello_ack`
-- [ ] 10.3 Implement message relay — forward offer/answer/candidate to `to` peer's WsConn
-- [ ] 10.4 Implement sender identity check — reject messages where `from` != authenticated `peer_id`
-- [ ] 10.5 Implement ping/pong keepalive (30s interval, 10s timeout)
-- [ ] 10.6 Implement duplicate peer_id handling — close old connection, accept new
-- [ ] 10.7 Implement message size limit (64KB) and per-IP connection limit (8)
-- [ ] 10.8 Implement connection cleanup on close/disconnect
+- [ ] 10.1 Create UDP socket on `signal_port`, bind, register with event loop for `recvfrom()`
+- [ ] 10.2 Implement `recvfrom()` handler — parse JSON, extract `to` field, validate `from` (if enabled)
+- [ ] 10.3 Implement message queue per peer (ring buffer, max 256, TTL 5000ms)
+- [ ] 10.4 Implement relay: enqueue message for `to` peer → deliver on next `recvfrom` from that peer
+- [ ] 10.5 Implement TTL sweep (per 1000ms tick): drop messages older than 5s
+- [ ] 10.6 Implement queue full policy: drop oldest message, no error to sender
+- [ ] 10.7 Implement message size limit (64KB) — drop silently on overflow
+- [ ] 10.8 Implement per-peer poll tracking — `sendmsg()` relayed messages to peer's last known UDP address
 
 ## 11. CLI example (libxdl/examples/main.c)
 

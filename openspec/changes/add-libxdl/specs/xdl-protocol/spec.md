@@ -2,90 +2,74 @@
 
 ### Requirement: Seed protocol — announce
 
-Peers SHALL announce themselves to the Seed Server via `PUT /file/:fid/peer/:peer_id` every 5 seconds. The request body SHALL contain `host`, `port`, and `have_pct`. `fid` and `peer_id` are URL path parameters. The response SHALL contain the current active peer list for the file (excluding the announcing peer).
+Peers SHALL announce themselves to the Seed Server via `PUT /file/:fid/peer/:peer_id` every 5 seconds. The request body SHALL contain `signal_addr` and `have_pct`. `fid` and `peer_id` are URL path parameters. The response SHALL be `{"status":"ok"}` — it does NOT return the peer list. Use `GET /file/:fid/peer` separately for discovery.
 
 #### Scenario: Announce with progress update
 
-- **WHEN** a peer sends `PUT /file/abc123/peer/alice {"host":"10.0.0.1","port":9000,"have_pct":45.7}`
-- **THEN** the server returns `{"peers":[{"peer_id":"bob","host":"10.0.0.2","port":9000,"have_pct":100.0}]}`
+- **WHEN** a peer sends `PUT /file/abc123/peer/alice {"signal_addr":"signal1:8081","have_pct":45.7}`
+- **THEN** the server returns `{"status":"ok"}`
 
 #### Scenario: Seeder announces completion
 
-- **WHEN** a peer sends `PUT /file/abc123/peer/alice {"host":"10.0.0.1","port":9000,"have_pct":100.0}`
+- **WHEN** a peer sends `PUT /file/abc123/peer/alice {"signal_addr":"signal1:8081","have_pct":100.0}`
 - **THEN** the peer is listed as a full seeder for subsequent peer queries
 
 ### Requirement: Seed protocol — discovery
 
-Clients SHALL query peers via `GET /file/:fid/peer`. The response SHALL contain a JSON array of `{peer_id, host, port, have_pct}` for each active peer.
+Clients SHALL query peers via `GET /file/:fid/peer`. The response SHALL contain a JSON array of `{peer_id, signal_addr, have_pct}` for each active peer. No IP addresses or P2P ports are returned — connectivity is established through the Signal Server, not via direct connection.
 
 #### Scenario: Query peers for a file
 
 - **WHEN** a client sends `GET /file/abc123/peer`
-- **THEN** the response contains all peer entries registered within the last 5 seconds
+- **THEN** the response contains `{"fid":"abc123","peers":[{"peer_id":"bob","signal_addr":"signal1:8081","have_pct":100.0}]}`
 
 ### Requirement: Signal protocol — relay format
 
-Signal messages SHALL be JSON over WebSocket text frames. Each message SHALL contain a `type` field identifying the message kind.
+Signal messages SHALL be JSON text sent over UDP. The server is stateless — each packet is a self-contained relay operation. Messages for offline peers SHALL be dropped silently; senders SHOULD retry on timeout. Each message SHALL contain a `type` field and `from`/`to` fields identifying the sender and recipient.
 
-#### Client-to-Server messages
+#### Peer-to-Server messages
 
 | `type` | Required fields | Description |
 |--------|----------------|-------------|
-| `hello` | `peer_id` | Identify self. MUST be first message (within 5s). |
 | `offer` | `from`, `to`, `sdp` | WebRTC offer relay |
 | `answer` | `from`, `to`, `sdp` | WebRTC answer relay |
 | `candidate` | `from`, `to`, `candidate`, `sdpMid`, `sdpMLineIndex` | ICE candidate relay |
-| `ping` | (none) | Keepalive |
 
-#### Server-to-Client messages
+#### Server-to-Peer messages
 
 | `type` | Fields | Description |
 |--------|--------|-------------|
-| `hello_ack` | (none) | Auth accepted |
 | `offer` | `from`, `to`, `sdp` | Relayed from another peer |
 | `answer` | `from`, `to`, `sdp` | Relayed from another peer |
 | `candidate` | `from`, `to`, `candidate`, `sdpMid`, `sdpMLineIndex` | Relayed from another peer |
-| `error` | `message` | Error response |
-| `pong` | (none) | Keepalive response |
+| `error` | `message` | Relay failure (TTL expired, queue full, sender mismatch) |
 
-The server SHALL forward `offer`, `answer`, `candidate` messages to the WebSocket of the peer identified by the `to` field without modification. The server SHALL NOT interpret SDP, ICE candidates, or any payload beyond the routing fields. Messages with a `from` field that does not match the sender's authenticated `peer_id` SHALL be rejected.
-
-#### Scenario: Auth handshake
-
-- **WHEN** alice opens a WebSocket connection and sends `{"type":"hello","peer_id":"alice"}`
-- **THEN** the server responds with `{"type":"hello_ack"}` and alice may begin signaling
-
-#### Scenario: Auth timeout
-
-- **WHEN** a WebSocket connection sends no message within 5 seconds
-- **THEN** the server closes the connection
+No `hello`/`hello_ack`/`ping`/`pong` — no connection to authenticate or keep alive. The server SHALL forward `offer`, `answer`, `candidate` to the UDP address of the `to` peer if the peer has polled recently. Messages for peers that have not polled are enqueued (TTL 5s, max 256) and delivered on next poll. SHALL NOT interpret SDP or ICE candidates.
 
 #### Scenario: Offer relay
 
-- **WHEN** alice sends `{"type":"offer","from":"alice","to":"bob","sdp":"v=0\r\n..."}`
-- **THEN** the server forwards the identical message to bob's WebSocket
+- **WHEN** alice sends `{"type":"offer","from":"alice","to":"bob","sdp":"v=0\r\n..."}` via UDP to signal server
+- **THEN** the server forwards the identical message to bob's last known UDP address (or enqueues it)
 
 #### Scenario: Answer relay
 
-- **WHEN** bob sends `{"type":"answer","from":"bob","to":"alice","sdp":"v=0\r\n..."}`
-- **THEN** the server forwards the identical message to alice's WebSocket
+- **WHEN** bob sends `{"type":"answer","from":"bob","to":"alice","sdp":"v=0\r\n..."}` via UDP
+- **THEN** the server forwards the identical message to alice
 
 #### Scenario: ICE candidate relay
 
-- **WHEN** either peer sends `{"type":"candidate","from":"alice","to":"bob","candidate":"candidate:...","sdpMid":"0","sdpMLineIndex":0}`
+- **WHEN** either peer sends `{"type":"candidate","from":"alice","to":"bob","candidate":"candidate:...","sdpMid":"0","sdpMLineIndex":0}` via UDP
 - **THEN** the server forwards the ICE candidate to the recipient
 
-#### Scenario: Keepalive ping/pong
+#### Scenario: TTL expiry
 
-- **WHEN** the server sends `{"type":"ping"}`
-- **THEN** the client responds with `{"type":"pong"}`
-- **WHEN** the client does not respond within 10 seconds
-- **THEN** the server closes the WebSocket connection
+- **WHEN** a message sits in queue for more than 5 seconds without delivery
+- **THEN** the server drops it silently; sender retries after timeout
 
 #### Scenario: Sender identity mismatch
 
-- **WHEN** bob (authenticated as "bob") sends `{"type":"offer","from":"alice","to":"carol","sdp":"..."}`
-- **THEN** the server rejects with `{"type":"error","message":"sender mismatch"}`
+- **WHEN** `from` field does not match the registered peer (if validation enabled)
+- **THEN** the server sends `{"type":"error","message":"sender mismatch"}` to the sender
 
 ### Requirement: DataChannel protocol — message framing
 
