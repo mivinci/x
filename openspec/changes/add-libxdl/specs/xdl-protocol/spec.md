@@ -1,151 +1,215 @@
 ## ADDED Requirements
 
-### Requirement: Seed protocol — announce
+### Protocol overview
 
-Peers SHALL announce themselves to the Seed Server via `PUT /file/:fid/peer/:peer_id` every 5 seconds. The request body SHALL contain `relay_addr` and `have_pct`. `fid` and `peer_id` are URL path parameters. The response SHALL be `{"status":"ok"}` — it does NOT return the peer list. Use `GET /file/:fid/peer` separately for discovery.
+```mermaid
+sequenceDiagram
+    participant A as Peer Alice
+    participant T as Tracker (HTTP/3)
+    participant B as Peer Bob
 
-#### Scenario: Announce with progress update
+    Note over A,B: Phase 1 — Announce & Discovery
 
-- **WHEN** a peer sends `PUT /file/abc123/peer/alice {"relay_addr":"relay1:8081","have_pct":45.7}`
-- **THEN** the server returns `{"status":"ok"}`
+    A->>T: PUT /peer/alice/seed {tracker_addr, add:[{file_id, have_pct}]}
+    T-->>A: {status:"ok", ttl_ms:5000, messages:[]}
 
-#### Scenario: Seeder announces completion
+    B->>T: PUT /peer/bob/seed {tracker_addr, add:[{file_id, have_pct}]}
+    T-->>B: {status:"ok", ttl_ms:5000, messages:[]}
 
-- **WHEN** a peer sends `PUT /file/abc123/peer/alice {"relay_addr":"relay1:8081","have_pct":100.0}`
-- **THEN** the peer is listed as a full seeder for subsequent peer queries
+    B->>T: GET /file/abc123/peer
+    T-->>B: {file_id:"abc123", peers:[{peer_id:"alice", tracker_addr:"..."}]}
 
-### Requirement: Seed protocol — discovery
+    Note over A,B: Phase 2 — Signaling (WebRTC handshake)
 
-Clients SHALL query peers via `GET /file/:fid/peer`. The response SHALL contain a JSON array of `{peer_id, relay_addr}` for each active peer. No IP addresses, P2P ports, or progress data are returned. Connectivity is established through the Relay Server, not via direct connection.
+    B->>T: POST /relay {peer_id:"alice", signal:{type:"offer", sdp:"..."}}
+    T-->>B: {status:"ok", signals:[]}
 
-#### Scenario: Query peers for a file
+    A->>T: PUT /peer/alice/seed {tracker_addr} (heartbeat)
+    T-->>A: {status:"ok", ttl_ms:5000, signals:[{type:"offer", from:"bob", sdp:"..."}]}
 
-- **WHEN** a client sends `GET /file/abc123/peer`
-- **THEN** the response contains `{"fid":"abc123","peers":[{"peer_id":"bob","relay_addr":"relay1:8081"}]}`
+    A->>T: POST /relay {peer_id:"bob", signal:{type:"answer", sdp:"..."}}
+    T-->>A: {status:"ok", signals:[]}
 
-### Requirement: Relay protocol — relay format
+    B->>T: PUT /peer/bob/seed {tracker_addr} (heartbeat)
+    T-->>B: {status:"ok", ttl_ms:5000, signals:[{type:"answer", from:"alice", sdp:"..."}]}
 
-Relay messages SHALL be JSON text sent over UDP. The server is stateless — each packet is a self-contained operation. Due to NAT, the server cannot push messages proactively: peers periodically send a `heartbeat` message, and the server responds with `heartbeat_ack` containing any queued relay messages. The server ALWAYS responds to heartbeat (even if `messages` is empty), so peers can distinguish "nothing pending" from "packet lost".
+    Note over A,B: ICE candidates exchanged similarly via relay inbox
 
-Each relay message SHALL contain a `type` field and `from`/`to` fields identifying the sender and recipient.
+    Note over A,B: Phase 3 — DataChannel established (P2P)
 
-#### Peer-to-Server messages
+    Note over A,B: Phase 4 — Cleanup
 
-| `type` | Required fields | Description |
-|--------|----------------|-------------|
-| `heartbeat` | `peer_id` | Periodic keep-alive. Server responds with `heartbeat_ack`. |
-| `offer` | `from`, `to`, `sdp` | WebRTC offer relay |
-| `answer` | `from`, `to`, `sdp` | WebRTC answer relay |
-| `candidate` | `from`, `to`, `candidate`, `sdpMid`, `sdpMLineIndex` | ICE candidate relay |
+    A->>T: DELETE /peer/alice/seed
+    T-->>A: {status:"ok"}
+```
 
-#### Server-to-Peer messages
+---
 
-| `type` | Fields | Description |
-|--------|--------|-------------|
-| `heartbeat_ack` | `messages` (array of relayed messages) | Response to heartbeat. Empty array = nothing pending. |
-| `offer` | `from`, `to`, `sdp` | Relayed from another peer (inside heartbeat_ack) |
-| `answer` | `from`, `to`, `sdp` | Relayed from another peer (inside heartbeat_ack) |
-| `candidate` | `from`, `to`, `candidate`, `sdpMid`, `sdpMLineIndex` | Relayed from another peer (inside heartbeat_ack) |
-| `error` | `message` | Relay failure (TTL expired, queue full, sender mismatch) |
+### Requirement: PUT /peer/:peer_id/seed — Seed announce (heartbeat)
 
-#### Scenario: Offer relay
+#### Request fields
 
-- **WHEN** alice sends `{"type":"offer","from":"alice","to":"bob","sdp":"v=0\r\n..."}` via UDP to relay server
-- **THEN** the server forwards the identical message to bob's last known UDP address (or enqueues it)
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tracker_addr` | string | first PUT | `"host:port"` of the peer's Tracker instance. Required on initial announce; retained by server on subsequent heartbeats. |
+| `add` | array of `{file_id, have_pct}` | optional | Files to upsert or update. `file_id` max 64 chars. `have_pct` in [0.0, 100.0]. |
+| `del` | array of `{file_id}` | optional | Files to remove. Each entry is `{"file_id": "..."}`. |
 
-#### Scenario: Answer relay
+#### Response fields (200)
 
-- **WHEN** bob sends `{"type":"answer","from":"bob","to":"alice","sdp":"v=0\r\n..."}` via UDP
-- **THEN** the server forwards the identical message to alice
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | `"ok"` |
+| `ttl_ms` | integer | Server-assigned keep-alive interval. Peer MUST send next PUT within this time, or be pruned. |
+| `signals` | array | Pending signaling messages for this peer. Empty array if none. |
 
-#### Scenario: ICE candidate relay
+`signals` entry format:
 
-- **WHEN** either peer sends `{"type":"candidate","from":"alice","to":"bob","candidate":"candidate:...","sdpMid":"0","sdpMLineIndex":0}` via UDP
-- **THEN** the server forwards the ICE candidate to the recipient
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | `"offer"`, `"answer"`, or `"candidate"` |
+| `from` | string | Sender peer_id |
+| `to` | string | Recipient peer_id (implied by inbox ownership) |
+| `sdp` | string | SDP body (for offer/answer) |
+| `candidate` | string | ICE candidate string (for candidate) |
+| `sdpMid` | string | Media stream ID (for candidate) |
+| `sdpMLineIndex` | integer | Media line index (for candidate) |
 
-#### Scenario: TTL expiry
+#### Scenarios
 
-- **WHEN** a message sits in queue for more than 5 seconds without delivery
-- **THEN** the server drops it silently; sender retries after timeout
+- **Pure heartbeat**: `PUT /peer/alice/seed {}` — body is empty. Server refreshes TTL without modifying file lists.
+- **Incremental add**: `PUT /peer/alice/seed {"add":[{"file_id":"abc123","have_pct":45.7}]}` — registers alice as having abc123 at 45.7%.
+- **Incremental del**: `PUT /peer/alice/seed {"del":[{"file_id":"old987"}]}` — removes alice from file old987's peer list.
+- **Mixed update**: `PUT` with both `add` and `del` in the same request — processed atomically.
+- **Inbox delivery**: `signals` in the response SHALL contain all pending signals for this peer. An empty array means none pending.
+- **Dynamic TTL**: Server MAY adjust `ttl_ms` in the response based on load. Peer SHALL re-schedule its timer to the new interval.
 
-#### Scenario: Sender identity mismatch
+---
 
-- **WHEN** `from` field does not match the registered peer (if validation enabled)
-- **THEN** the server sends `{"type":"error","message":"sender mismatch"}` to the sender
+### Requirement: DELETE /peer/:peer_id/seed — Graceful departure
 
-### Requirement: DataChannel protocol — message framing
+#### Request
 
-All messages over DataChannel SHALL use binary framing with a 1-byte type field followed by type-specific payload. Multi-byte integers SHALL use little-endian byte order.
+No body.
 
-#### Scenario: Message type identification
+#### Response fields (200)
 
-- **WHEN** a DataChannel receives a binary message
-- **THEN** the first byte identifies the message type (0x01-0x07)
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | `"ok"` |
 
-### Requirement: DataChannel protocol — Handshake (0x01)
+#### Response fields (404)
 
-After WebRTC DataChannel opens, both peers SHALL send a Handshake message. The payload SHALL contain the file id (20 bytes) and peer id (32 bytes UTF-8). On receiving a Handshake, the peer SHALL validate the file id matches; if mismatch, disconnect. On valid Handshake, the peer SHALL immediately send a BitField.
+| Field | Type | Description |
+|-------|------|-------------|
+| `error` | string | `"not_found"` |
+| `message` | string | Human-readable description |
 
-#### Scenario: Handshake exchange
+#### Scenarios
 
-- **WHEN** DataChannel opens between alice and bob
-- **THEN** alice sends Handshake{fid="abc123", peer_id="alice"}
-- **THEN** bob sends Handshake{fid="abc123", peer_id="bob"}
-- **THEN** both validate fid matches and proceed to BitField exchange
+- **Peer leaves**: Removes the peer from ALL registered files. Drops inbox. Returns 200.
+- **Unknown peer**: Returns 404 with `{"error":"not_found","message":"peer alice not registered"}`.
 
-### Requirement: DataChannel protocol — BitField (0x02)
+---
 
-The BitField message SHALL contain the total piece count (4 bytes, LE) and a bitmap (N bytes, where N = ceil(total_pieces/8)). Bit i = 1 means piece i is available for upload. The message SHALL be sent after a valid Handshake and whenever the local bitmap changes significantly.
+### Requirement: GET /file/:file_id/peer — Peer discovery
 
-#### Scenario: BitField after Handshake
+#### Response fields (200)
 
-- **WHEN** alice receives bob's Handshake
-- **THEN** alice sends BitField{total_pieces=524288, bitmap=[...]}
-- **THEN** bob records which pieces alice has
+| Field | Type | Description |
+|-------|------|-------------|
+| `file_id` | string | The requested file_id |
+| `peers` | array of `{peer_id, tracker_addr}` | Active peers for this file. Empty array if no peers. |
 
-### Requirement: DataChannel protocol — Request (0x03)
+`peers` entry format:
 
-A peer SHALL request one piece at a time via a Request message containing the 4-byte piece_index. Requests SHALL only be sent for pieces that the recipient's BitField indicates as available.
+| Field | Type | Description |
+|-------|------|-------------|
+| `peer_id` | string | The peer's identifier |
+| `tracker_addr` | string | `"host:port"` of the peer's Tracker instance (for signaling via `POST /relay`) |
 
-#### Scenario: Piece request
+#### Scenarios
 
-- **WHEN** alice needs piece 42 and bob's BitField shows piece 42 as available
-- **THEN** alice sends Request{piece_index=42} to bob
+- **Peers found**: Returns all active peers registered for the file.
+- **No peers**: Returns `{"file_id":"abc123","peers":[]}` with status 200.
+- **Stale peers excluded**: Peers that exceeded their TTL are removed before the response is built.
 
-### Requirement: DataChannel protocol — Piece (0x04)
+---
 
-A Piece message SHALL respond to a Request. The payload SHALL contain piece_index (4 bytes, LE), offset within the piece (4 bytes, LE), and the piece data (N bytes). The recipient SHALL pass the data to the upper-layer download pipeline (SHA1 update, cache write, bitmap update, progress report).
+### Requirement: POST /relay — Signaling relay
 
-#### Scenario: Piece received
+#### Request fields
 
-- **WHEN** bob receives Request{piece_index=42}
-- **THEN** bob reads the piece data from storage and sends Piece{index=42, offset=0, data=[...]}
-- **THEN** alice processes the received data and updates her local bitmap
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `peer_id` | string | yes | Target peer_id for the signal message |
+| `signal` | object | yes | The signal to relay |
 
-### Requirement: DataChannel protocol — HAVE (0x05)
+`signal` fields:
 
-When a peer receives a new piece, it SHALL broadcast a HAVE{piece_index} message to all connected peers. Other peers SHALL update their copy of that peer's BitField.
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | `"offer"`, `"answer"`, or `"candidate"` |
+| `from` | string | Sender peer_id |
+| `to` | string | Recipient peer_id |
+| `sdp` | string | SDP body (offer/answer) |
+| `candidate` | string | ICE candidate string (candidate) |
+| `sdpMid` | string | Media stream ID (candidate) |
+| `sdpMLineIndex` | integer | Media line index (candidate) |
 
-#### Scenario: HAVE broadcast
+#### Response fields (200)
 
-- **WHEN** alice completes a piece download from bob
-- **THEN** alice sends HAVE{piece_index=42} to all connected peers
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | `"ok"` |
+| `signals` | array | Sender's own pending inbox signals (same format as PUT response) |
 
-### Requirement: DataChannel protocol — Cancel (0x06)
+#### Scenarios
 
-A peer MAY cancel a pending Request by sending Cancel{piece_index}. This SHALL be used when the piece is obtained from another source or the request times out.
+- **Offer relay**: Sender enqueues offer in target peer's inbox. Target receives it on next `PUT /peer/:peer_id/seed`.
+- **Answer relay**: Same flow. Sender receives own inbox in response.
+- **ICE candidate relay**: Same flow for ICE candidates.
+- **Sender inbox**: The `signals` field in the response returns the sender's pending inbox — same as PUT response — so the sender gets any pending signals in the same round-trip.
+- **Signal TTL**: Signals expire after server-configured TTL (default 30s). Expired signals are dropped silently.
+- **Target peer unreachable**: If the target peer is unknown, an empty inbox is created. The signal is enqueued. If the peer registers within the TTL, it will receive the signal. If not, the signal expires silently.
 
-#### Scenario: Cancel pending request
+---
 
-- **WHEN** alice requested piece 42 from bob but received it from carol first
-- **THEN** alice sends Cancel{piece_index=42} to bob
-- **THEN** bob removes the pending request from his queue
+### Requirement: GET /health — Health check
 
-### Requirement: DataChannel protocol — Disconnect (0x07)
+#### Response fields (200)
 
-A peer SHALL send Disconnect before closing a DataChannel. The recipient SHALL clean up the peer's state but NOT necessarily disconnect the underlying xPeerConnection if the peer still has active downloads on another channel.
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | `"ok"` |
+| `uptime_ms` | integer | Server uptime in milliseconds |
+| `peer_count` | integer | Active peer count |
+| `file_count` | integer | Tracked file count |
 
-#### Scenario: Graceful disconnect
+---
 
-- **WHEN** alice finishes downloading and no longer needs bob's pieces
-- **THEN** alice sends Disconnect to bob before closing the DataChannel
+### Requirement: GET /stats — Global statistics
+
+#### Response fields (200)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `peer_count` | integer | Total active peers |
+| `file_count` | integer | Total tracked files |
+| `seed_count` | integer | Peers with have_pct == 100.0 |
+| `leech_count` | integer | Peers with have_pct < 100.0 |
+
+---
+
+### Requirement: TTL-based lifecycle
+
+The server assigns a per-peer TTL via `ttl_ms` in PUT responses. The peer MUST send the next PUT within this interval. If the peer exceeds TTL: the cleanup sweep (every 1000ms) removes the peer from all registered files and drops its inbox. The server MAY adjust `ttl_ms` dynamically based on load. The server SHALL NOT push notifications to peers — all communication is client-initiated.
+
+#### Common errors
+
+| Status | `error` value | Scenario |
+|--------|--------------|----------|
+| 400 | `bad_request` | Missing required field, invalid `have_pct`, invalid field type |
+| 404 | `not_found` | Peer or file not found (DELETE) |
+| 429 | `rate_limited` | More than 60 requests from a single IP in 1 second |
+| 500 | `internal` | Unexpected server error |

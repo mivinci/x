@@ -68,9 +68,8 @@ typedef void (*xdl_task_cb_t)(const xdl_progress *p, void *arg);
 
 struct xdl_task_conf {
     const char   *url;          // HTTP source URL (NULL = HTTP disabled)
-    const char   *fid;          // file id for seed server (NULL = P2P disabled)
-    const char   *seed_url;     // Seed server URL, e.g. http://seed.example.com
-    const char   *relay_url;   // Relay server URL, e.g. relay1.example.com:8081
+    const char   *file_id;      // file id for tracker (NULL = P2P disabled)
+    const char   *tracker_url;  // Tracker URL, e.g. https://tracker.example.com
     const char   *dest;
     const char   *sha1_hex;     // 40-char hex, NULL = skip verification
     long          timeout_ms;   // default 30000
@@ -83,18 +82,17 @@ xdl_task_t xdl_task_create(const xdl_task_conf_t *conf);
 ```
 
 The library selects the scheduler based on which fields are set:
-- `url != NULL, fid == NULL` → `xdl_schedule_http()`
-- `url != NULL, fid != NULL` → `xdl_schedule_hybrid()`
-- `url == NULL, fid != NULL` → P2P-only
+- `url != NULL, file_id == NULL` → `xdl_schedule_http()`
+- `url != NULL, file_id != NULL` → `xdl_schedule_hybrid()`
+- `url == NULL, file_id != NULL` → P2P-only
 
 ### P2P source: `xdl_source_p2p()`
 
 ```c
 // Internal config (not exposed to user)
 struct xdl_p2p_conf {
-    const char *fid;          // file id for seed server
-    const char *seed_url;
-    const char *relay_url;
+    const char *file_id;      // file id for tracker
+    const char *tracker_url;  // Tracker URL (HTTP/3)
     int         max_peers;
 };
 
@@ -126,12 +124,16 @@ struct p2p_source {
 Messages are sent via `xDataChannelSendBinary` on reliable ordered channels:
 
 ```
-Handshake  : [0x01][20B fid][32B peer_id_utf8]
-BitField   : [0x02][N bytes bitmap]       // piece_count / 8 bytes
+Handshake  : [0x01][20B file_id][32B peer_id_utf8]
+BitField   : [0x02][4B piece_count LE][N bytes bitmap]   // N = ceil(piece_count/8)
 Request    : [0x03][4B piece_index LE]
-Piece      : [0x04][4B piece_index][4B offset LE][N bytes data]
+Piece      : [0x04][4B piece_index LE][4B offset LE][N bytes data]
 HAVE       : [0x05][4B piece_index LE]
+Cancel     : [0x06][4B piece_index LE]
+Disconnect : [0x07]
 ```
+
+All multi-byte integers are little-endian.
 
 #### Peer state machine
 
@@ -147,15 +149,20 @@ DEAD  <-- disconnect/timeout/error -- (any state)                             |
 #### Internal tick (1000ms, driven by scheduler)
 
 ```
-p2p_internal_tick(src):  // called from scheduler's on_tick, not a separate timer
-    1. announce to tracker (keepalive, report our progress)
-    2. clean up DEAD peers: timed-out (last_recv > 30s), disconnected
-    3. if connected < max_peers: query tracker -> initiate connections
-    4. for each ACTIVE peer with free reqs_pending slots:
-         pop pending piece request -> send Request message
-    5. log stats:
-       XLOG_INFO("p2p[%s]: active=%d connecting=%d dropped=%d have=%.1f%%",
-                 conf.fid, connected, connecting, dropped, have_pct)
+p2p_internal_tick(src):  // called from P2P source's own timer (TTL from Tracker)
+    1. PUT /peer/:peer_id/seed to Tracker (announce + heartbeat)
+       body: {"tracker_addr":"...", "add":[...], "del":[...]}
+       response: {"status":"ok", "ttl_ms":5000, "signals":[...]}
+    2. Process signals (offer/answer/candidate):
+       setRemoteDescription / addIceCandidate
+    3. If we have signals to send:
+       POST /relay {peer_id:"...", signal:{type:"answer",from:"...",to:"..."}}
+    4. If connected < max_peers:
+       GET /file/:file_id/peer → initiate WebRTC connections to new peers
+    5. Clean up timed-out peers (last_recv > 30s)
+    6. Re-schedule timer to new ttl_ms from step 1 response
+    7. On task stop: DELETE /peer/:peer_id/seed (graceful departure)
+    8. Log stats
 ```
 
 #### fetch(offset, len, on_data, on_done) implementation
@@ -455,8 +462,8 @@ HTTP 403 and 404 are not retried. All other failures retry up to 3 times per blo
 | `.meta` corruption after crash | Header validation catches mismatches -> delete `.meta`, start fresh |
 | Unit tests need real network timing | Use timeouts and progress counters. Mock HTTP callbacks for offline tests. |
 | Malicious peer sends fake BitField to drain request slots | Future: rate-limit how many consecutive timeouts a peer can cause before marking DEAD. MVP accepts the waste; SHA1 catches bogus data. |
-| Seed server has no auth or rate limiting | MVP: trusted LAN/private network. Production: add shared-secret auth header to `PUT /file/:fid/peer/:peer_id`. |
-| DataChannel messages from unverified peers | Handshake fid validation is the only gate — sufficient for closed groups, insufficient for open deployment. |
+| Tracker has no auth or rate limiting | MVP: trusted LAN/private network. Production: add shared-secret auth header to `PUT /peer/:peer_id/seed`. |
+| DataChannel messages from unverified peers | Handshake file_id validation is the only gate — sufficient for closed groups, insufficient for open deployment. |
 
 ## Open Questions
 

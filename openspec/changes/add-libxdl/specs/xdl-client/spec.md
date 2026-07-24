@@ -22,7 +22,7 @@ The library SHALL provide `xdl_init(conf)` to create an event loop, HTTP client,
 
 ### Requirement: Task lifecycle
 
-The library SHALL provide `xdl_task_t` with `xdl_task_create(conf)`, `xdl_task_start`, `xdl_task_pause`, `xdl_task_resume`, `xdl_task_stop`, and `xdl_task_destroy`. `xdl_task_create` SHALL accept a `xdl_task_conf_t` struct containing `url`, `fid`, `dest`, `sha1_hex`, `timeout_ms`, `cb`, and `arg`. If `url` is non-NULL, the task SHALL use an HTTP source. If `fid` is non-NULL, the task SHALL use a P2P source (via xp2p). Both non-NULL SHALL enable hybrid HTTP+P2P scheduling.
+The library SHALL provide `xdl_task_t` with `xdl_task_create(conf)`, `xdl_task_start`, `xdl_task_pause`, `xdl_task_resume`, `xdl_task_stop`, and `xdl_task_destroy`. `xdl_task_create` SHALL accept a `xdl_task_conf_t` struct containing `url`, `file_id`, `tracker_url`, `max_peers`, `dest`, `sha1_hex`, `timeout_ms`, `cb`, and `arg`. If `url` is non-NULL, the task SHALL use an HTTP source. If `file_id` is non-NULL, the task SHALL use a P2P source (via xp2p). Both non-NULL SHALL enable hybrid HTTP+P2P scheduling.
 
 #### Scenario: Create HTTP-only task
 
@@ -31,7 +31,7 @@ The library SHALL provide `xdl_task_t` with `xdl_task_create(conf)`, `xdl_task_s
 
 #### Scenario: Create hybrid HTTP+P2P task
 
-- **WHEN** calling `xdl_task_create(&(xdl_task_conf_t){.url="https://...", .fid="abc123...", .dest="./file.bin", .cb=cb})`
+- **WHEN** calling `xdl_task_create(&(xdl_task_conf_t){.url="https://...", .file_id="abc123...", .dest="./file.bin", .cb=cb})`
 - **THEN** a non-NULL task handle is returned with hybrid scheduler active
 - **THEN** `xdl_task_start` initiates both HTTP HEAD and P2P peer discovery via xp2p
 
@@ -76,7 +76,7 @@ The downloaded file SHALL be verified against the expected SHA1 hash using `xcry
 
 ### Requirement: Concurrency
 
-The library SHALL drive downloads via a periodic tick timer (default 1000ms). On each tick, the scheduler SHALL scan pending blocks and dispatch up to `max_concurrent` (default 32) requests to available sources. When a range download completes, the scheduler SHALL record the result without triggering new dispatch — the next tick handles it.
+The library SHALL drive downloads via a periodic tick timer (default 1000ms). On each tick, the scheduler SHALL scan pending blocks and dispatch up to `max_concurrent` (default 32) requests to available sources. When a range download completes, the scheduler SHALL record the result without triggering new dispatch -- the next tick handles it. A future optimization MAY allow the HTTP-only scheduler to immediately dispatch on `on_range_done`.
 
 #### Scenario: Tick-driven dispatch
 
@@ -105,11 +105,11 @@ Blocks that fail to download SHALL be retried up to 3 times. HTTP 403 and 404 re
 
 ### Requirement: P2P source
 
-When `conf.fid` is provided, the library SHALL create a P2P source backed by `xp2p`. On `xdl_task_start`, the P2P source SHALL query a tracker or DHT for peers, establish connections via WebRTC (ICE/DTLS/SCTP), exchange BitFields, and request pieces via DataChannel. Peers discovered mid-download SHALL be connected on subsequent scheduler ticks.
+When `conf.file_id` is provided, the library SHALL create a P2P source backed by `xp2p`. On `xdl_task_start`, the P2P source SHALL query a tracker or DHT for peers, establish connections via WebRTC (ICE/DTLS/SCTP), exchange BitFields, and request pieces via DataChannel. Peers discovered mid-download SHALL be connected on subsequent scheduler ticks.
 
 #### Scenario: Peer discovery on start
 
-- **WHEN** `xdl_task_start` is called on a task with `fid`
+- **WHEN** `xdl_task_start` is called on a task with `file_id`
 - **THEN** the P2P source queries the tracker for peer addresses
 - **THEN** the source starts connecting to peers and exchanging BitFields
 

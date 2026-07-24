@@ -1,29 +1,27 @@
 ## ADDED Requirements
 
-xdl-server consists of two independent services: **Seed Server** (HTTP/3) and **Relay Server** (UDP).
-
-Seed Server is stateful — it maintains a peer × file registry. Relay Server is stateless — it relays signaling messages between peers with no connection state.
+The Tracker is a single HTTP/3 (QUIC) server handling peer discovery, keep-alive, and signaling relay. It is stateful — it maintains an incremental peer × file registry and per-peer message inboxes.
 
 ---
 
-### Requirement: Seed Server — API reference
+### Requirement: Tracker — API reference
 
-Resource model: `/file/:fid/peer/:peer_id` — files own peers as a sub-resource.
+Resource model: `/peer/:peer_id/seed` — peers own their file list as a sub-resource.
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `PUT` | `/peer/:peer_id/seed` | Incremental seed announce + heartbeat. Adds/updates or removes files. Response carries inbox messages and TTL. |
+| `DELETE` | `/peer/:peer_id/seed` | Peer graceful unregister (removes all files at once) |
+| `GET` | `/file/:file_id/peer` | List active peers for a file |
+| `POST` | `/relay` | Send a signaling message to another peer |
 | `GET` | `/health` | Health check |
-| `PUT` | `/file/:fid/peer/:peer_id` | Peer announce (upsert) |
-| `DELETE` | `/file/:fid/peer/:peer_id` | Peer graceful unregister |
-| `GET` | `/file/:fid/peer` | List peers for a file |
 | `GET` | `/stats` | Global stats (optional) |
 
-All responses use `Content-Type: application/json`. All timestamps are Unix milliseconds.
+All responses use `Content-Type: application/json`.
 
-#### Common error format
-
+**Common error format:**
 ```json
-{"error": "bad_request", "message": "missing required field: host"}
+{"error": "bad_request", "message": "missing required field: add"}
 ```
 
 | HTTP Status | `error` value | Meaning |
@@ -33,41 +31,72 @@ All responses use `Content-Type: application/json`. All timestamps are Unix mill
 | 429 | `rate_limited` | Too many requests |
 | 500 | `internal` | Server error |
 
-#### GET /health
+#### PUT /peer/:peer_id/seed
 
-Response `200`:
-```json
-{"status": "ok", "uptime_ms": 12345678, "peer_count": 42, "file_count": 7}
-```
-
-No auth required. Used by load balancers and monitoring.
-
-#### PUT /file/:fid/peer/:peer_id
-
-Peer periodic announce (upsert). Peers MUST call this every 5 seconds to stay in the active list. `fid` and `peer_id` are URL path parameters — the body only carries mutable peer state.
+Incremental seed announce + heartbeat. Reports only the files that changed since the last PUT. `peer_id` is a URL path parameter.
 
 Request:
 ```json
 {
-    "relay_addr": "relay1.example.com:8081",  // peer's Relay Server address
-    "have_pct":    45.7                         // completion percentage (0.0 - 100.0)
+    "tracker_addr": "tracker1.example.com:8080",
+    "add": [
+        {"file_id": "abc123", "have_pct": 45.7},
+        {"file_id": "def456", "have_pct": 60.3}
+    ],
+    "del": [
+        {"file_id": "old987"}
+    ]
 }
 ```
 
+`tracker_addr` is required on the first PUT and optional on subsequent heartbeats — the server retains the last known value. `add` and `del` are optional. An empty body (`{"tracker_addr":"..."}`) or `{}` is a pure heartbeat. `add` upserts: creates the peer+file entry if it doesn't exist, updates `have_pct` if it does. `del` removes the peer from that file's peer list.
+
 Response `200`:
 ```json
-{"status": "ok"}
+{
+    "status": "ok",
+    "ttl_ms": 5000,
+    "signals": [
+        {"type": "offer", "from": "carol", "sdp": "v=0\r\n..."},
+        {"type": "candidate", "from": "carol", "candidate": "candidate:...", "sdpMid": "0", "sdpMLineIndex": 0}
+    ]
+}
 ```
 
 Behavior:
-- Idempotent: creates the file entry + peer entry if either doesn't exist; updates `relay_addr`, `have_pct`, `last_seen` if they do.
-- Does NOT return the peer list — use `GET /file/:fid/peer` separately for discovery.
-- Peers with `have_pct == 100.0` are full seeders; peers with `have_pct < 100.0` are leechers.
-- A periodic cleanup (every 1000ms) removes entries where `now - last_seen > 5000ms`.
+- Idempotent: `add` for an already-tracked file updates `have_pct` and refreshes `last_seen`. `del` for a non-tracked file is a no-op.
+- Server responds with pending signaling messages for this peer (offer/answer/candidate).
+- Server returns `ttl_ms` — the peer MUST send the next PUT within this interval. Server marks files as stale if no PUT is received for that peer within TTL.
+- Server MAY adjust `ttl_ms` dynamically based on load.
+- Peers with `have_pct == 100.0` are full seeders; `have_pct < 100.0` are leechers.
 
-#### DELETE /file/:fid/peer/:peer_id
+#### Scenario: Incremental add
 
-Graceful departure. Lets a peer announce it's leaving without waiting for the 5-second timeout. No request body.
+- **WHEN** a peer sends `PUT /peer/alice/seed {"add":[{"file_id":"abc123","have_pct":45.7}]}`
+- **THEN** the server registers alice as having file abc123 at 45.7%
+- **THEN** subsequent `GET /file/abc123/peer` includes alice
+
+#### Scenario: Incremental del
+
+- **WHEN** a peer sends `PUT /peer/alice/seed {"del":[{"file_id":"abc123"}]}`
+- **THEN** the server removes alice from file abc123's peer list
+- **THEN** subsequent `GET /file/abc123/peer` no longer includes alice
+
+#### Scenario: Pure heartbeat
+
+- **WHEN** a peer sends `PUT /peer/alice/seed {}` (empty body)
+- **THEN** the server refreshes `last_seen` for all of alice's registered files
+- **THEN** the response includes any pending inbox signals
+
+#### Scenario: Inbox delivered with announce
+
+- **WHEN** a peer sends `PUT /peer/:peer_id/seed`
+- **THEN** the `signals` field in the response contains all pending signaling messages for that peer
+- **THEN** an empty `signals` array means no pending signals
+
+#### DELETE /peer/:peer_id/seed
+
+Graceful departure. Removes the peer from ALL registered files at once.
 
 Response `200`:
 ```json
@@ -76,74 +105,107 @@ Response `200`:
 
 Response `404` if the peer was not registered:
 ```json
-{"error": "not_found", "message": "peer alice not registered for file abc123"}
+{"error": "not_found", "message": "peer alice not registered"}
 ```
 
-#### GET /file/:fid/peer
+#### GET /file/:file_id/peer
 
-List active peers for a file. Returns only the information needed to signal peers — `peer_id` and `relay_addr`. No IP addresses, no P2P port, no progress info. P2P connectivity is established through the Relay Server, not via direct connection.
+List active peers for a file. Returns `peer_id` and `tracker_addr` for each peer — the `tracker_addr` tells the discovering peer where to send signaling messages via `POST /relay`.
 
 Response `200`:
 ```json
 {
-    "fid": "abc123",
+    "file_id": "abc123",
     "peers": [
-        {"peer_id": "bob",   "relay_addr": "relay1:8081"},
-        {"peer_id": "carol", "relay_addr": "relay2:8081"}
+        {"peer_id": "bob",   "tracker_addr": "tracker1.example.com:8080"},
+        {"peer_id": "carol", "tracker_addr": "tracker2.example.com:8080"}
     ]
 }
 ```
 
-If `fid` has no registered peers: response `200` with empty `peers` array.
+If `file_id` has no registered peers: response `200` with empty `peers` array.
 
-#### GET /stats
+#### POST /relay
+
+Send a signaling message to another peer. On-demand — called only when a signal needs to be sent (offer, answer, candidate).
+
+Request:
+```json
+{
+    "peer_id": "bob",
+    "signal": {
+        "type": "answer",
+        "from": "alice",
+        "to": "bob",
+        "sdp": "v=0\r\n..."
+    }
+}
+```
 
 Response `200`:
 ```json
 {
-    "peer_count":   42,
-    "file_count":   7,
-    "seed_count":   15,
-    "leech_count":  27
+    "status": "ok",
+    "signals": []
 }
 ```
 
-#### Internal state model
-
-```
-seed_server
-└── files: HashMap<fid, PeerSet>
-    └── PeerSet
-        ├── entries: HashMap<peer_id, PeerEntry>
-        └── cleanup_timer (1000ms)
-
-PeerEntry {
-    peer_id:     char[64]
-    fid:         char[64]
-    relay_addr: char[256]    // "host:port" of peer's Relay Server
-    have_pct:    float
-    last_seen:   uint64 (unix ms)
-}
-```
-
-#### Concurrency & limits
-
-| Limit | Value | Rationale |
-|-------|-------|-----------|
-| Max peers per file | 256 | Prevents O(n^2) signaling |
-| Max files tracked | 1024 | Bounds memory |
-| fid max length | 64 | Reject oversized keys |
-| peer_id max length | 64 | Reject oversized keys |
-| Cleanup interval | 1000ms | Matches scheduler tick |
+The `signals` field in the response MAY carry any pending signals for the sender — same as the PUT response.
 
 ---
 
-### Requirement: Seed Server — edge cases
+### Requirement: Tracker — data structure
 
-#### Scenario: Duplicate announce
+The internal data structure SHALL provide these capabilities. The concrete implementation (HashMap, cross-linked list, hybrid index) is TBD — deferred to implementation phase after profiling with realistic peer/file densities.
 
-- **WHEN** the same `(fid, peer_id)` announces again within 5 seconds
-- **THEN** the server updates `last_seen`, `host`, `port`, `have_pct` without creating a duplicate
+| Capability | Complexity target | Description |
+|-----------|------------------|-------------|
+| Row scan | O(F) | Iterate all peers for a given `file_id`. F = number of peers with that file. Used by `GET /file/:file_id/peer`. |
+| Column scan | O(P) | Iterate all files for a given `peer_id`. P = number of files registered by that peer. Used by DELETE `/peer/:peer_id/seed` and TTL expiry. |
+| Row insert/update | O(1) | Add or update a peer entry for a file. Used by `PUT /peer/:peer_id/seed` add. |
+| Row delete | O(1) | Remove a peer from a file's peer list. Used by `PUT .../seed` del. |
+| Column delete | O(P) | Remove a peer and all its registered files. Used by DELETE `/peer/:peer_id/seed`. |
+| Row size | O(1) | Count peers for a file. Used by `/stats`. |
+| Column size | O(1) | Count files for a peer. Used by `/stats`. |
+| Matrix size | O(1) | Total peer×file entries. Used by `/health`. |
+
+The structure MUST support:
+- Peer → file lookup (column)
+- File → peer lookup (row)
+- Sparse matrix (99%+ empty cells in typical deployment)
+- In-memory operation (no external database dependency for v1)
+
+#### Scenario: Peer registers many files
+
+- **WHEN** a peer registers 10,000+ files via incremental PUTs
+- **THEN** column scan iterates all files in O(P) time
+- **THEN** row insert for each file completes in O(1) amortized
+
+#### Scenario: Peer unregisters all files
+
+- **WHEN** DELETE `/peer/:peer_id/seed` is called for a peer with 10,000+ files
+- **THEN** column scan finds all files in O(P) time and removes them from each file's peer list in O(1) per file
+
+---
+
+### Requirement: Tracker — edge cases
+
+#### Scenario: Stale peer pruned
+
+- **WHEN** a peer has not sent `PUT /peer/:peer_id/seed` within its assigned TTL
+- **THEN** the cleanup timer removes the peer from all its registered files and drops its inbox
+
+#### Scenario: Message delivered on next PUT
+
+- **WHEN** a signaling message arrives for peer alice via `POST /relay`
+- **THEN** the server enqueues it in alice's inbox
+- **WHEN** alice next sends `PUT /peer/alice/seed`
+- **THEN** the server returns the message in the `messages` field of the response
+
+#### Scenario: Message TTL expiry
+
+- **WHEN** a signaling message sits in inbox for more than 30 seconds without delivery
+- **THEN** the cleanup sweep removes it without delivery
 
 #### Scenario: Rate limit exceeded
 
@@ -155,181 +217,22 @@ PeerEntry {
 - **WHEN** `have_pct` is negative or greater than 100.0
 - **THEN** the server clamps to [0.0, 100.0] and processes normally
 
-#### Scenario: Missing required field
-
-- **WHEN** `PUT /file/abc123/peer/alice` body is missing `relay_addr`
-- **THEN** server returns `400 {"error": "bad_request", "message": "missing required field: relay_addr"}`
-
-#### Scenario: Stale peer pruned
-
-- **WHEN** a peer has not sent `PUT /file/:fid/peer/:peer_id` for more than 5 seconds
-- **THEN** the cleanup timer removes the peer from all its registered `fid` entries at the next sweep (within 1000ms)
-
 ---
 
-### Requirement: Relay Server — API reference
-
-Relay Server is a **stateless UDP relay**. It does not maintain connection state — every packet is a self-contained operation (relay or heartbeat). This enables horizontal scaling: any instance can handle any message for any peer.
-
-| Field | Value | Description |
-|-------|-------|-------------|
-| Transport | UDP | Single socket, single port |
-| Default port | 8081 | Configurable |
-| Message format | JSON text | Compatible with existing protocol spec |
-
-#### Message flow
-
-```
-peer1 ──(UDP)──→ Relay Server ──(UDP)──→ peer2
-  {"type":"offer","from":"peer1","to":"peer2","sdp":"..."}
-  
-peer2 ──(UDP)──→ Relay Server ──(UDP)──→ peer1
-  {"type":"answer","from":"peer2","to":"peer1","sdp":"..."}
-```
-
-Server role: receive relay packet → extract `to` field → enqueue in target peer's message queue. Messages are delivered in the **heartbeat acknowledgement** response — the server always responds to a heartbeat, returning any queued messages in the reply. Messages are NOT pushed proactively.
-
-#### Message types
-
-| `type` | Fields | Direction | Description |
-|--------|--------|-----------|-------------|
-| `heartbeat` | `peer_id` | peer → server | Periodic keep-alive, keeps NAT mapping alive |
-| `heartbeat_ack` | `messages[]` | server → peer | Response to heartbeat. Contains queued relayed messages (may be empty array) |
-| `offer` | `from, to, sdp` | peer → server → peer | WebRTC offer relay |
-| `answer` | `from, to, sdp` | peer → server → peer | WebRTC answer relay |
-| `candidate` | `from, to, candidate, sdpMid, sdpMLineIndex` | peer → server → peer | ICE candidate relay |
-| `error` | `message` | server → peer | Relay failure (queue full, sender mismatch) |
-
-No auth session — the server trusts `from` / `peer_id` fields but MAY validate against Seed Server's peer registry if configured.
-
-#### How peers send and receive
-
-Due to NAT, the Relay Server cannot push messages to peers proactively. Peers use a **heartbeat loop**:
-
-```
-peer → UDP sendto relay:8081  {"type":"heartbeat","peer_id":"peer2"}
-relay → UDP reply:
-  {"type":"heartbeat_ack","messages":[...]}
-```
-
-Peer behavior:
-- **Heartbeat**: Periodically send `{"type":"heartbeat","peer_id":"..."}` to the peer's registered relay_addr (every 500ms–1000ms, typically on scheduler tick). Keeps NAT mapping alive.
-- **Send relay**: `sendto(relay_addr, {"type":"offer",...})` — fire and forget.
-- **Receive**: The `heartbeat_ack` response carries queued relay messages. An empty `messages` array means nothing pending. If no ack is received within the heartbeat interval, the peer knows something is wrong (NAT mapping lost, server down, etc.).
-
-No persistent connection, no auth handshake — the heartbeat is the only recurring exchange.
-
-#### Internal state model (per-instance, ephemeral)
-
-```
-relay_server
-└── peers: HashMap<peer_id, PeerState>  (populated on first heartbeat)
-    └── PeerState
-        ├── queue: ring buffer (max 256)
-        ├── last_addr: struct sockaddr   (from most recent heartbeat)
-        └── last_beat_ms: uint64
-
-Send flow:
-  peer1 → relay: {"type":"offer","to":"peer2",...}
-    → relay enqueues message in peers[peer2].queue
-
-Heartbeat flow:
-  peer2 → relay: {"type":"heartbeat","peer_id":"peer2"}
-    → relay looks up peers[peer2]
-    → drains queue into heartbeat_ack.messages
-    → sendmsg(peer2.last_addr, {"type":"heartbeat_ack","messages":[...]})
-    → update last_addr, last_beat_ms
-```
-
-NAT traversal works because the heartbeat packet creates a mapping on peer2's NAT gateway. The server's heartbeat_ack travels back through that same mapping, reaching peer2. The server ALWAYS responds — even if `messages` is empty — so the peer can distinguish "no messages" from "packet lost".
-
-#### Concurrency & limits
-
-| Limit | Value | Rationale |
-|-------|-------|-----------|
-| Heartbeat interval | 500–1000ms | Keeps NAT mapping alive, matches scheduler tick |
-| Max message size | 65536 (64KB) | SDP typically 2-8KB |
-| Max queue per peer | 256 | Prevents memory exhaustion |
-| Message TTL | 5000ms | Sender retries if no response |
-| Max unique peers tracked | 16384 | Per-instance soft cap |
-
----
-
-### Requirement: Relay Server — edge cases
-
-#### Scenario: Heartbeat with pending messages
-
-- **WHEN** a peer sends `{"type":"heartbeat","peer_id":"peer2"}`
-- **THEN** the server responds with `{"type":"heartbeat_ack","messages":[...]}` containing all queued relay messages for that peer
-
-#### Scenario: Heartbeat with empty queue
-
-- **WHEN** a peer sends heartbeat and its queue is empty
-- **THEN** the server responds with `{"type":"heartbeat_ack","messages":[]}` — peer knows the heartbeat succeeded, just nothing pending
-
-#### Scenario: Missing heartbeat ack
-
-- **WHEN** a peer sends heartbeat and receives no ack within the heartbeat interval
-- **THEN** the peer knows the NAT mapping may be lost or server is down; should re-query Seed Server for relay_addr and/or re-establish
-
-#### Scenario: Message enqueued, delivered on next heartbeat
-
-- **WHEN** a relay message arrives for `peer_id`
-- **THEN** the server enqueues it with TTL 5s
-- **WHEN** the target peer next heartbeats
-- **THEN** the server returns the message in `heartbeat_ack.messages`
-
-#### Scenario: Message to peer with full queue
-
-- **WHEN** a relay message arrives for `peer_id` whose queue has 256 messages
-- **THEN** the server drops the oldest message and enqueues the new one
-- **THEN** no error is sent to the sender (fire-and-forget semantics)
-
-#### Scenario: TTL expiration
-
-- **WHEN** a message sits in the queue for more than 5 seconds
-- **THEN** the cleanup sweep (every 1000ms) removes it without delivery
-
-#### Scenario: Oversized message
-
-- **WHEN** a message exceeds the 64KB limit
-- **THEN** the server drops it silently (UDP has no error channel)
-
-#### Scenario: Sender identity mismatch
-
-- **WHEN** `from` field does not match the source address registered in Seed Server (if validation is enabled)
-- **THEN** the server drops the message and sends back `{"type":"error","message":"sender mismatch"}`
-
----
-
-### Requirement: Server configuration
-
-Both servers SHALL accept configuration via a shared config struct:
+### Requirement: Tracker configuration
 
 ```c
-struct xdl_server_conf {
-    uint16_t  seed_port;           // default 8080
-    uint16_t  relay_port;         // default 8081
+struct xdl_tracker_conf {
+    uint16_t  port;               // default 8080
+    int       default_ttl_ms;     // default 5000
+    int       message_ttl_ms;     // default 30000
     int       cleanup_interval_ms; // default 1000
-    int       announce_timeout_ms; // default 5000
-    int       message_ttl_ms;      // default 5000
-    int       max_peers_per_file;  // default 256
-    int       max_queue_per_peer;  // default 256
-    int       max_message_size;    // default 65536
-    int       max_files;           // default 1024
-    int       max_relay_peers;    // default 16384
+    int       max_inbox_per_peer;  // default 256
 };
 ```
 
-Seed Server uses HTTP/3 (QUIC) — stateful, maintains peer × file registry. Relay Server uses UDP — stateless, pure message relay with short-TTL queues.
+#### Scenario: Startup
 
-#### Scenario: Combined startup
-
-- **WHEN** `xdl_server_start(&conf)` is called with both ports configured
-- **THEN** the Seed Server listens on `seed_port` and the Relay Server on `relay_port`
-- **THEN** both servers share the same event loop
-
-#### Scenario: Seed-only deployment
-
-- **WHEN** `seed_port = 8080, relay_port = 0`
-- **THEN** only the Seed Server starts; Relay Server is disabled
+- **WHEN** `xdl_tracker_start(&conf)` is called
+- **THEN** the Tracker listens on `conf.port` using HTTP/3 (QUIC)
+- **THEN** the cleanup timer starts immediately
