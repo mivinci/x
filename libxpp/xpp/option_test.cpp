@@ -761,3 +761,26 @@ TEST(OptionRefTest, ConstRef) {
 TEST(OptionRefTest, SizeofIsPointer) {
   static_assert(sizeof(xpp::Option<int &>) == sizeof(int *), "");
 }
+
+/* ── Result::flatten ──────────────────────────────────────────── */
+
+TEST(ResultTest, FlattenOkOk) {
+  xpp::Result<xpp::Result<int, std::string>, std::string> r(xpp::ok, xpp::Result<int, std::string>(xpp::ok, 42));
+  auto flat = std::move(r).flatten();
+  EXPECT_TRUE(flat.is_ok());
+  EXPECT_EQ(flat.unwrap(), 42);
+}
+
+TEST(ResultTest, FlattenOkErr) {
+  xpp::Result<xpp::Result<int, std::string>, std::string> r(xpp::ok, xpp::Result<int, std::string>(xpp::err, "inner"));
+  auto flat = std::move(r).flatten();
+  EXPECT_TRUE(flat.is_err());
+  EXPECT_EQ(flat.unwrap_err(), "inner");
+}
+
+TEST(ResultTest, FlattenErrPropagates) {
+  xpp::Result<xpp::Result<int, std::string>, std::string> r(xpp::err, "outer");
+  auto flat = std::move(r).flatten();
+  EXPECT_TRUE(flat.is_err());
+  EXPECT_EQ(flat.unwrap_err(), "outer");
+}
