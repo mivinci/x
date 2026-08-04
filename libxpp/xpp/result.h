@@ -27,6 +27,10 @@ namespace _ {
 template <class T> struct is_option : std::false_type {};
 template <class U> struct is_option<Option<U>> : std::true_type {};
 
+/** Trait: is_result<T>::value is true iff T is Result<V, E> for some V, E. */
+template <class T> struct is_result : std::false_type {};
+template <class V, class E> struct is_result<Result<V, E>> : std::true_type {};
+
 /**
  * @brief Carriers produced by ok(value) / err(e). They convert
  *        implicitly to Result<T, E>, deducing the other side from the
@@ -85,6 +89,9 @@ constexpr Err err{};
  */
 template <class T, typename E> class Result {
 public:
+  using value_type = T;
+  using error_type = E;
+
   /** Construct with Ok value. */
   Result(Ok, const T &val) : m_data(InPlaceIndex<0>{}, val) {}
   Result(Ok, T &&val) : m_data(InPlaceIndex<0>{}, std::move(val)) {}
@@ -393,6 +400,22 @@ public:
    */
   template <class Func> T unwrap_or_else(Func &&fn) && {
     return is_ok() ? std::move(unwrap_unchecked()) : fn(std::move(unwrap_err_unchecked()));
+  }
+
+  /**
+   * @brief Flatten: Result<Result<T, E>, E> -> Result<T, E>.
+   *
+   * Mirrors Rust's Result::flatten. Only callable when T is a Result<U, E>.
+   *
+   *   Ok(Ok(x))  -> Ok(x)
+   *   Ok(Err(e)) -> Err(e)
+   *   Err(e)     -> Err(e)
+   */
+  template <class U = T, class = typename std::enable_if<_::is_result<U>::value>::type>
+  Result<typename U::value_type, E> flatten() && {
+    using InnerT = typename U::value_type;
+    if (is_err()) return Result<InnerT, E>(xpp::err, std::move(*this).unwrap_err());
+    return std::move(*this).unwrap();
   }
 
   /**

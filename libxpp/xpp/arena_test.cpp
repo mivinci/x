@@ -241,3 +241,36 @@ TEST(ArenaTest, MoveSmallArena) {
   // p1 pointed into a's buffer; b's buffer is a copy.
   // We can't compare pointers, but we can check b's state.
 }
+
+/* ── Arena > 256 (heap storage) ─────────────────────────── */
+
+TEST(ArenaTest, HeapMoveFromIsSafeToDestroy) {
+  // Arena with heap storage: move-from should leave internal state
+  // that is safe to destroy. The null-guard in ArenaStorage ensures
+  // we don't call ::operator delete(nullptr).
+  {
+    xpp::Arena<512> a;
+    void *p = a.allocate(64);
+    ASSERT_NE(p, nullptr);
+
+    // Move-construct b from a — a's storage ptr is now null
+    xpp::Arena<512> b(std::move(a));
+    EXPECT_EQ(a.used(), 0u);  // moved-from arena reports zero used
+
+    // Both a and b destructors run at end of scope.
+    // ASAN/ubsan would catch double-free or null-deref.
+  }
+}
+
+TEST(ArenaTest, HeapMoveAssignIsSafeToDestroy) {
+  {
+    xpp::Arena<512> a;
+    a.allocate(64);
+
+    xpp::Arena<512> b;
+    b = std::move(a);
+    EXPECT_EQ(a.used(), 0u);
+
+    // Both destructors run — must not double-free
+  }
+}
