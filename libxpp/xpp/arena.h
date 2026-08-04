@@ -63,14 +63,14 @@ template <size_t N> struct ArenaStorage<N, false> {
 
   ArenaStorage() : ptr(static_cast<char *>(::operator new(N))) {}
   ~ArenaStorage() {
-    ::operator delete(ptr);
+    if (ptr) ::operator delete(ptr);
   }
   ArenaStorage(ArenaStorage &&o) noexcept : ptr(o.ptr) {
     o.ptr = nullptr;
   }
   ArenaStorage &operator=(ArenaStorage &&o) noexcept {
     if (this != &o) {
-      ::operator delete(ptr);
+      if (ptr) ::operator delete(ptr);
       ptr   = o.ptr;
       o.ptr = nullptr;
     }
