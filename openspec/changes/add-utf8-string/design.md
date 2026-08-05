@@ -2,18 +2,20 @@
 
 ## Summary
 
-A `String` type that guarantees valid UTF-8 at the type level. Built on top of
-`std::string`, adding encoding safety + code-point-aware operations with zero
-runtime data tables. Purely L0 scope: encode/decode/validate/iterate — no
-normalization, no case folding, no grapheme clusters.
+A `String` type that guarantees valid UTF-8 at the type level. Internal storage
+is `std::vector<uint8_t>` — a byte buffer with no text semantics. The type
+system draws a bright line: `vector<uint8_t>` = opaque bytes, `String` = valid
+UTF-8. Purely L0 scope: encode/decode/validate/iterate — no normalization, no
+case folding, no grapheme clusters.
 
 ## Motivation
 
-`std::string` is a byte sequence with no encoding contract. `String` bridges
-the gap:
+`std::string` conflates "text" and "bytes". Rust separates them cleanly:
+`Vec<u8>` is raw bytes, `String` is guaranteed UTF-8, `&[u8]` / `&str` are
+borrowed views. xpp mirrors this:
 
-1. **Type safety** — `const String&` in a function signature means "this is valid
-   UTF-8, you don't need to check".
+1. **Type safety** — `const String&` means "valid UTF-8". Raw bytes use
+   `std::vector<uint8_t>`. No ambiguity.
 1. **Correct substring** — byte-offset-based but guaranteed to land on code point
    boundaries, never slicing a multi-byte character in half.
 1. **Code point iteration** — `chars()` yields `char32_t`, not raw bytes.
@@ -22,6 +24,20 @@ the gap:
 
 Everything beyond L0 (normalization, case folding, grapheme boundaries) belongs
 in a future `libxpp-ext/unicode` extension library.
+
+## Rust ↔ xpp Type Mapping
+
+| Rust | xpp | Notes |
+|------|-----|-------|
+| `Vec<u8>` | `std::vector<uint8_t>` | Raw bytes, no encoding contract |
+| `String` | `String` | Guaranteed valid UTF-8 |
+| `&[u8]` | `Span<const uint8_t>` | Borrowed byte view |
+| `&str` | (no equivalent yet) | Future: `Str` or `StringRef` |
+| `String::from_utf8(Vec<u8>)` | `String::from_utf8(vector<uint8_t>)` | Validates + takes ownership |
+| `String::as_bytes() -> &[u8]` | `String::as_bytes() -> Span<const uint8_t>` | Read-only byte view |
+| `String::into_bytes() -> Vec<u8>` | `String::into_bytes() -> vector<uint8_t>` | Consume, recover raw bytes |
+| `FromUtf8Error` | `Utf8Error` | Owns the original bytes |
+| `str::chars()` | `String::chars()` | Code point iterator |
 
 ## API Reference
 
@@ -36,32 +52,48 @@ public:
 
     String() = default;
 
-    /** Validate the byte sequence. On success, ownership transfers via move.
-     *  On failure, the original bytes are returned in Utf8Error.
+    /** Validate a byte buffer as UTF-8. Takes ownership via move.
+     *  On failure, returns the original bytes in Utf8Error.
      *
      *  Complexity: O(n) single-pass validation scan.
+     *
+     *  Usage:
+     *    std::vector<uint8_t> buf = read_from_network();
+     *    auto s = String::from_utf8(std::move(buf));
      */
-    static Result<String, Utf8Error> from_utf8(std::string bytes);
+    static Result<String, Utf8Error> from_utf8(std::vector<uint8_t> bytes);
+
+    /** Convenience overload for C-string literals. Copies + validates.
+     *  The input must be valid UTF-8; on failure returns Utf8Error with
+     *  a copy of the bytes.
+     */
+    static Result<String, Utf8Error> from_utf8(const char* s);
+
+    /** Validate + construct from [data, data+len). */
+    static Result<String, Utf8Error> from_utf8(const char* s, size_t len);
 
     /** Construct without validation. Caller guarantees the bytes are valid UTF-8.
      *  Behaviour is undefined if they aren't.
      */
-    static String from_utf8_unchecked(std::string bytes);
+    static String from_utf8_unchecked(std::vector<uint8_t> bytes);
 
     /** Copy / move. */
     String(const String&) = default;
-    String(String&&) = default;
+    String(String&&) noexcept = default;
     String& operator=(const String&) = default;
-    String& operator=(String&&) = default;
+    String& operator=(String&&) noexcept = default;
 
-    /* ── Borrowing ── */
+    /* ── Bytes views ── */
 
-    /** The raw UTF-8 bytes. Always valid. */
-    const std::string& bytes() const noexcept;
+    /** Borrowed read-only view of the raw UTF-8 bytes. O(1). */
+    Span<const uint8_t> as_bytes() const noexcept;
+
+    /** Consume the String and recover the underlying byte buffer. O(1). */
+    std::vector<uint8_t> into_bytes() && noexcept;
 
     /* ── Length ── */
 
-    /** Byte count. O(1). */
+    /** Byte count. O(1). Equivalent to as_bytes().size(). */
     size_t len() const noexcept;
 
     /** Code point count. O(n) — scans the entire string.
@@ -84,14 +116,19 @@ public:
     /* ── Find ── */
 
     /** Byte position of the first occurrence of `pattern`, or None.
-     *  O(n * m) — memmem under the hood.
+     *  `pattern` must be valid UTF-8. O(n*m) — memmem under the hood.
      */
+    Option<size_t> find(const String& pattern) const;
+
+    /** Convenience: find by C-string literal. */
     Option<size_t> find(const char* pattern) const;
 
-    /** Byte position of the last occurrence, or None. */
+    Option<size_t> rfind(const String& pattern) const;
     Option<size_t> rfind(const char* pattern) const;
 
+    bool starts_with(const String& prefix) const;
     bool starts_with(const char* prefix) const;
+    bool ends_with(const String& suffix) const;
     bool ends_with(const char* suffix) const;
 
     /* ── Mutation ── */
@@ -119,7 +156,7 @@ public:
     bool operator<(const String& other) const noexcept;
 
 private:
-    std::string m_bytes;  // invariant: valid UTF-8
+    std::vector<uint8_t> m_bytes;  // invariant: valid UTF-8
 };
 
 /* ──────────────────────── Chars ──────────────────────── */
@@ -169,12 +206,12 @@ public:
      *  If the bytes were moved from a String constructor, this call
      *  returns them — the caller hasn't lost any data.
      */
-    std::string into_bytes() &&;
+    std::vector<uint8_t> into_bytes() &&;
 
 private:
     friend class String;
-    Utf8Error(std::string bytes, size_t pos);
-    std::string m_bytes;
+    Utf8Error(std::vector<uint8_t> bytes, size_t pos);
+    std::vector<uint8_t> m_bytes;
     size_t m_error_pos;
 };
 
@@ -250,12 +287,12 @@ bool is_codepoint_boundary(const uint8_t* p, size_t offset) {
 ## Size and Layout
 
 ```
-sizeof(String)   == sizeof(std::string) == 24 (pointer + size + capacity)
-sizeof(Chars)    == 24 (two pointers + cached char32_t)
-sizeof(Utf8Error)== 32 (string 24B + error_pos 8B)
+sizeof(String)    == sizeof(std::vector<uint8_t>) == 24 (ptr + size + capacity)
+sizeof(Chars)     == 24 (two pointers + cached char32_t)
+sizeof(Utf8Error) == 40 (vector 24B + error_pos 8B + padding)
 ```
 
-No hidden allocations beyond `std::string`'s heap buffer.
+No hidden allocations beyond the byte vector's heap buffer.
 
 ## Edge Cases
 
@@ -290,22 +327,21 @@ libxpp/xpp/string.h    — String + Chars + Utf8Error + internal helpers
 libxpp/xpp/string_test.cpp
 ```
 
-No new dependencies beyond `std::string`, `xpp/result.h`, `xpp/option.h`.
+Dependencies: `std::vector<uint8_t>`, `xpp/result.h`, `xpp/option.h`, `xpp/span.h`.
 
 ## C++11 Compatibility
 
 The entire design uses only C++11 features:
-- Range-for loop requires `begin()` / `end()`, which `Chars` provides via
-  the `String::chars()` factory + `operator!=` overload.
-- No `std::string_view` — `find` / `starts_with` accept `const char*`.
+- Range-for loop through `Chars` iterator + `begin()`/`end()` adapter.
+- No `std::string_view` — views use `Span<const uint8_t>`.
 - No `constexpr` — decode functions are plain functions.
 - Inline namespace `_::` holds helper functions to keep the header light.
 
 ## Open Questions
 
-1. **`std::hash` specialisation?** Yes — forward to `std::hash<std::string>` on
-   `bytes()`. Byte-identical strings are hash-identical. NFC mismatch issue
-   is acknowledged but belongs to the caller.
-2. **`operator<<` for logging?** Yes — `os << s.bytes()` is enough. An explicit
-   `operator<<` that prints the raw bytes avoids encoding confusion.
-3. **`from_utf8_lossy(async_fd::read()` integration?** Natural: `auto buf = co_await io::read_all(reader); auto s = String::from_utf8(std::move(buf));`
+1. **`std::hash` specialisation?** Yes — hash the underlying bytes
+   (`std::vector<uint8_t>` doesn't have a built-in `std::hash`, so we provide
+   one). Byte-identical strings are hash-identical.
+2. **`operator<<` for logging?** Minimal — `os.write((const char*)s.as_bytes().data(), s.len())`.
+3. **`from_utf8_lossy`?** Future — replace invalid sequences with U+FFFD.
+   Needs only the validator already present. Candidate for L0.1.
