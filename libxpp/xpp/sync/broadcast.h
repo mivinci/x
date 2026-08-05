@@ -35,8 +35,8 @@ namespace _ {
 template <class T> struct Channel {
   T                           *m_buf;
   size_t                       m_cap;
-  size_t                       m_head = 0;
-  size_t                       m_tail = 0;
+  xpp::loom::_::Atomic<size_t> m_head{0};
+  xpp::loom::_::Atomic<size_t> m_tail{0};
   xpp::loom::_::Atomic<size_t> m_sender_count{1};
   xpp::loom::_::Atomic<bool>   m_closed{false};
   xpp::loom::_::Mutex          m_mutex;
@@ -49,9 +49,11 @@ template <class T> struct Channel {
   ~Channel() {
     xpp::loom::_::Lock lock(m_mutex);
     // Destroy any remaining values in the buffer.
-    while (m_head != m_tail) {
-      m_buf[m_head].~T();
-      m_head = (m_head + 1) % m_cap;
+    size_t head = m_head.load(std::memory_order_relaxed);
+    size_t tail = m_tail.load(std::memory_order_relaxed);
+    while (head != tail) {
+      m_buf[head].~T();
+      head = (head + 1) % m_cap;
     }
     delete[] m_buf;
   }
@@ -173,8 +175,11 @@ public:
 
   /// Number of buffered values (head-to-tail inclusive).
   size_t len() const {
-    if (!m_chan || m_chan->m_head == m_chan->m_tail) return 0;
-    return (m_chan->m_tail + m_chan->m_cap - m_chan->m_head) % m_chan->m_cap;
+    if (!m_chan) return 0;
+    size_t head = m_chan->m_head.load(std::memory_order_acquire);
+    size_t tail = m_chan->m_tail.load(std::memory_order_acquire);
+    if (head == tail) return 0;
+    return (tail + m_chan->m_cap - head) % m_chan->m_cap;
   }
 
   /// Number of active receivers.
@@ -262,16 +267,19 @@ private:
   xpp::Option<T> try_read_value() {
     auto *ch = m_chan.get();
 
+    size_t head = ch->m_head.load(std::memory_order_acquire);
+    size_t tail = ch->m_tail.load(std::memory_order_acquire);
+
     // Lag check: m_pos must be in [m_head, m_tail) circling forward.
     // Lag occurs when m_head overtakes m_pos (sender evicted values).
     bool lagged;
-    if (ch->m_head <= ch->m_tail) {
-      lagged = (m_pos < ch->m_head || m_pos >= ch->m_tail);
+    if (head <= tail) {
+      lagged = (m_pos < head || m_pos >= tail);
     } else {
-      lagged = (m_pos < ch->m_head && m_pos >= ch->m_tail);
+      lagged = (m_pos < head && m_pos >= tail);
     }
     if (lagged) {
-      m_pos = ch->m_head;
+      m_pos = head;
       return xpp::none;
     }
 
@@ -308,14 +316,15 @@ template <class T> xpp::Result<size_t, SendError<T>> Sender<T>::try_send(T value
   size_t n = ch->m_receiver_count.load(std::memory_order_acquire);
   if (n == 0) return xpp::err(SendError<T>{SendError<T>::NoReceiver, std::move(value)});
 
-  size_t next = ch->m_tail;
-  if ((next + 1) % ch->m_cap == ch->m_head) {
-    ch->m_buf[ch->m_head].~T();
-    ch->m_head = (ch->m_head + 1) % ch->m_cap;
+  size_t next = ch->m_tail.load(std::memory_order_relaxed);
+  size_t head = ch->m_head.load(std::memory_order_relaxed);
+  if ((next + 1) % ch->m_cap == head) {
+    ch->m_buf[head].~T();
+    ch->m_head.store((head + 1) % ch->m_cap, std::memory_order_relaxed);
   }
 
   new (&ch->m_buf[next]) T(std::move(value));
-  ch->m_tail = (next + 1) % ch->m_cap;
+  ch->m_tail.store((next + 1) % ch->m_cap, std::memory_order_release);
   lock.unlock();
 
   ch->m_notify.notify_waiters();
@@ -325,7 +334,7 @@ template <class T> xpp::Result<size_t, SendError<T>> Sender<T>::try_send(T value
 template <class T> Receiver<T> Sender<T>::subscribe() {
   auto *ch = m_chan.get();
   ch->m_receiver_count.fetch_add(1, std::memory_order_relaxed);
-  return Receiver<T>(m_chan, ch->m_tail);
+  return Receiver<T>(m_chan, ch->m_tail.load(std::memory_order_acquire));
 }
 
 template <class T> void Sender<T>::close() {

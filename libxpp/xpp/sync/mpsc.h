@@ -195,7 +195,7 @@ template <class T> Promise<void> Sender<T>::send(T value) {
 
   while (true) {
     if (closed()) co_return;
-    if (m_chan->m_tx.try_push(std::move(value))) break;
+    if (m_chan->m_tx.try_push(value)) break;
 
     auto w                 = xpp::async<void>();
     m_chan->m_write_waiter = std::move(w.second);
@@ -245,7 +245,7 @@ template <class T> Promise<void> Sender<T>::send(T value) {
 
   while (true) {
     if (closed()) return xpp::resolve();
-    if (m_chan->m_tx.try_push(std::move(value))) break;
+    if (m_chan->m_tx.try_push(value)) break;
 
     auto pr                = xpp::async<void>();
     m_chan->m_write_waiter = std::move(pr.second);
@@ -304,7 +304,7 @@ template <class T> Promise<void> Sender<T>::send(T value) {
     Promise<void> operator()() {
       auto *c = chan.get();
       if (c->m_closed.load(std::memory_order_acquire)) return xpp::resolve();
-      if (c->m_tx.try_push(std::move(*val))) {
+      if (c->m_tx.try_push(*val)) {
         if (c->m_read_waiter.is_pending()) {
           auto w = std::move(c->m_read_waiter);
           w.resolve();
@@ -368,7 +368,7 @@ template <class T> Promise<Option<T>> Receiver<T>::recv() {
 template <class T> Result<Void, TrySendError<T>> Sender<T>::try_send(T value) {
   if (!m_chan) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
   if (closed()) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
-  if (!m_chan->m_tx.try_push(std::move(value)))
+  if (!m_chan->m_tx.try_push(value))
     return err(TrySendError<T>{TrySendError<T>::Full, std::move(value)});
 
   if (m_chan->m_read_waiter.is_pending()) {

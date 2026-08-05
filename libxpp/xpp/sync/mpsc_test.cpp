@@ -72,6 +72,28 @@ TEST(MpscTest, BufferFull) {
   do_buffer_full().await();
 }
 
+xpp::Promise<void> do_buffer_full_retry_value_correct() {
+  // Verifies that when send() retries after a full buffer,
+  // the original value is preserved — not lost to a moved-from state.
+  auto [tx, rx] = xpp::sync::mpsc::channel<int>(1);
+
+  co_await tx.send(100);   // fills the single slot
+  auto send_p = tx.send(200);  // blocks, value must survive retry
+
+  EXPECT_EQ((co_await rx.recv()).unwrap(), 100);  // drain
+  co_await std::move(send_p);                      // should now succeed
+  EXPECT_EQ((co_await rx.recv()).unwrap(), 200);   // value must be 200
+
+  tx.close();
+  co_return;
+}
+
+TEST(MpscTest, BufferFullRetryValueCorrect) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+  do_buffer_full_retry_value_correct().await();
+}
+
 TEST(MpscTest, TrySendSuccess) {
   auto [tx, rx] = xpp::sync::mpsc::channel<int>(4);
   auto r        = tx.try_send(42);
