@@ -96,7 +96,17 @@ public:
    * Lock-free via fetch_add on m_wpos. A `ready` flag per slot
    * ensures the consumer never observes a partially-written value.
    */
-  bool try_push(T value) {
+  /**
+   * @brief Try to push a value into the buffer.
+   *
+   * @param value Reference to the value to enqueue. Only moved on success.
+   *        If this returns false, the value is untouched and can be retried.
+   * @return true if the value was enqueued, false if the buffer is full.
+   *
+   * Lock-free via fetch_add on m_wpos. A `ready` flag per slot
+   * ensures the consumer never observes a partially-written value.
+   */
+  bool try_push(T &value) {
     // Atomically claim a capacity slot. If the old count was at or above
     // capacity, the buffer is full and we undo the claim.
     auto *c = m_core.get();
@@ -163,7 +173,16 @@ public:
     size_t idx = m_rpos % c->m_cap;
     auto  &s   = c->m_buf[idx];
 
-    while (!s.ready.load(std::memory_order_acquire)) {}
+    // Spin briefly while producer finishes writing the slot.
+    // Production writes are just move + store (nanoseconds).
+    // The pause hint reduces power on SMT siblings during spin.
+    while (!s.ready.load(std::memory_order_acquire)) {
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
+      __asm__ __volatile__("pause" ::: "memory");
+#elif defined(__aarch64__)
+      __asm__ __volatile__("yield" ::: "memory");
+#endif
+    }
 
     T val = std::move(s.data);
     s.data.~T();

@@ -250,10 +250,21 @@ template <class T> Receiver<T> Sender<T>::subscribe() {
 #if XPP_HAS_COROUTINES
 
 template <class T> xpp::Promise<void> Sender<T>::closed() {
-  if (!m_state || m_state->m_value.lock()->m_receiver_count.load(std::memory_order_acquire) == 0)
-    co_return;
-  while (m_state->m_value.lock()->m_receiver_count.load(std::memory_order_acquire) > 0) {
-    if (m_state->m_value.lock()->m_closed.load(std::memory_order_acquire)) co_return;
+  if (!m_state) co_return;
+
+  // Check once under a single lock acquisition.
+  {
+    auto g = m_state->m_value.lock();
+    if (g->m_receiver_count.load(std::memory_order_acquire) == 0) co_return;
+    if (g->m_closed.load(std::memory_order_acquire)) co_return;
+  }
+
+  while (true) {
+    {
+      auto g = m_state->m_value.lock();
+      if (g->m_receiver_count.load(std::memory_order_acquire) == 0) co_return;
+      if (g->m_closed.load(std::memory_order_acquire)) co_return;
+    }
     co_await m_state->m_notify.notified();
   }
 }
@@ -261,21 +272,29 @@ template <class T> xpp::Promise<void> Sender<T>::closed() {
 template <class T> xpp::Promise<xpp::Result<void, RecvError>> Receiver<T>::changed() {
   if (!m_state) co_return xpp::err(RecvError{});
 
-  uint64_t current = m_state->m_value.lock()->m_version.load(std::memory_order_acquire);
-  if (current != m_seen_version) {
-    m_seen_version = current;
-    co_return xpp::ok;
-  }
-
-  while (true) {
-    if (m_state->m_value.lock()->m_closed.load(std::memory_order_acquire))
-      co_return xpp::err(RecvError{});
-    co_await m_state->m_notify.notified();
-    current = m_state->m_value.lock()->m_version.load(std::memory_order_acquire);
+  // Fast path: already have an unseen value
+  {
+    auto g   = m_state->m_value.lock();
+    uint64_t current = g->m_version.load(std::memory_order_acquire);
     if (current != m_seen_version) {
       m_seen_version = current;
       co_return xpp::ok;
     }
+  }
+
+  while (true) {
+    uint64_t current;
+    {
+      auto g = m_state->m_value.lock();
+      if (g->m_closed.load(std::memory_order_acquire))
+        co_return xpp::err(RecvError{});
+      current = g->m_version.load(std::memory_order_acquire);
+    }
+    if (current != m_seen_version) {
+      m_seen_version = current;
+      co_return xpp::ok;
+    }
+    co_await m_state->m_notify.notified();
   }
 }
 
