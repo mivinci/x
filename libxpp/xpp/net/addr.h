@@ -951,6 +951,24 @@ inline void SocketAddr::to_sockaddr(struct sockaddr_storage *out, socklen_t *out
   }
 }
 
+/* ── Socket utility helpers ─────────────────────────────────────── */
+
+/** @brief Get the local address of a socket fd. Returns none on error. */
+inline Option<SocketAddr> sockname(int fd) noexcept {
+  struct sockaddr_storage ss;
+  socklen_t               len = sizeof(ss);
+  if (getsockname(fd, reinterpret_cast<struct sockaddr *>(&ss), &len) != 0) return none;
+  return SocketAddr::from_sockaddr(reinterpret_cast<struct sockaddr *>(&ss), len);
+}
+
+/** @brief Get the peer address of a socket fd. Returns none on error. */
+inline Option<SocketAddr> peername(int fd) noexcept {
+  struct sockaddr_storage ss;
+  socklen_t               len = sizeof(ss);
+  if (getpeername(fd, reinterpret_cast<struct sockaddr *>(&ss), &len) != 0) return none;
+  return SocketAddr::from_sockaddr(reinterpret_cast<struct sockaddr *>(&ss), len);
+}
+
 } // namespace net
 } // namespace xpp
 
