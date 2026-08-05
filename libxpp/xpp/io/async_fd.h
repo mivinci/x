@@ -77,7 +77,8 @@ class AsyncWriteAdapter;
  */
 class AsyncFd {
 public:
-  explicit AsyncFd(int fd);
+  /** @brief Wrap a non-blocking fd. If own is true, ::close(fd) is called on close(). */
+  explicit AsyncFd(int fd, bool own = false);
   ~AsyncFd();
 
   AsyncFd(AsyncFd &&o) noexcept;
@@ -109,6 +110,7 @@ private:
   xEventSource          m_src      = nullptr;
   bool                  m_readable = false;
   bool                  m_writable = false;
+  bool                  m_owns_fd  = false;
   PromiseResolver<void> m_read_waiter;
   PromiseResolver<void> m_write_waiter;
 
@@ -138,7 +140,7 @@ namespace io {
 
 /* ── AsyncFd methods ───────────────────────────────────────────────── */
 
-inline AsyncFd::AsyncFd(int fd) : m_fd(fd) {
+inline AsyncFd::AsyncFd(int fd, bool own) : m_fd(fd), m_owns_fd(own) {
   if (fd >= 0) {
     m_src = xEventAdd(fd, static_cast<xEventMask>(xEvent_Read | xEvent_Write), on_event, this);
   }
@@ -150,6 +152,7 @@ inline AsyncFd::~AsyncFd() {
 
 inline AsyncFd::AsyncFd(AsyncFd &&o) noexcept
     : m_fd(o.m_fd), m_src(o.m_src), m_readable(o.m_readable), m_writable(o.m_writable),
+      m_owns_fd(o.m_owns_fd),
       m_read_waiter(std::move(o.m_read_waiter)), m_write_waiter(std::move(o.m_write_waiter)) {
   o.m_fd  = -1;
   o.m_src = nullptr;
@@ -168,10 +171,12 @@ inline AsyncFd &AsyncFd::operator=(AsyncFd &&o) noexcept {
     m_src          = o.m_src;
     m_readable     = o.m_readable;
     m_writable     = o.m_writable;
+    m_owns_fd      = o.m_owns_fd;
     m_read_waiter  = std::move(o.m_read_waiter);
     m_write_waiter = std::move(o.m_write_waiter);
     o.m_fd         = -1;
     o.m_src        = nullptr;
+    o.m_owns_fd    = false;
     if (m_src && m_fd >= 0) {
       xEventDel(m_src);
       m_src = xEventAdd(m_fd, static_cast<xEventMask>(xEvent_Read | xEvent_Write), on_event, this);
@@ -186,6 +191,7 @@ inline void AsyncFd::close() {
     m_src = nullptr;
   }
   if (m_fd >= 0) {
+    if (m_owns_fd) ::close(m_fd);
     m_fd = -1;
   }
   // Wake pending waiters — they'll see is_closed() or get resolved

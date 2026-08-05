@@ -5,7 +5,7 @@
  *
  * simplex.h - xpp::io::simplex(): unidirectional in-memory pipe.
  *
- * Returns a reader/writer pair backed by a single ring buffer. Like
+ * Returns a reader/writer pair backed by a single RingBuf. Like
  * Go's io.Pipe — write on one end, read on the other. Simpler than
  * duplex() which provides bidirectional communication.
  *
@@ -20,35 +20,16 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <utility>
-#include <vector>
 
 #include <xpp/arc.h>
 #include <xpp/promise.h>
 #include <xpp/shared.h>
 
+#include <xpp/io/ring_buf.h>
+
 namespace xpp {
 namespace io {
-
-/* ── SimplexBuf ────────────────────────────────────────────────────── */
-
-namespace _ {
-
-/** @brief Ring buffer backing a simplex pipe. Pure data — no coroutine dep. */
-struct SimplexBuf {
-  std::vector<uint8_t>  buf;            ///< Underlying byte storage.
-  size_t                rpos   = 0;     ///< Next read position (circular).
-  size_t                wpos   = 0;     ///< Next write position (circular).
-  size_t                count  = 0;     ///< Bytes currently buffered.
-  bool                  closed = false; ///< Whether the write end is closed.
-  PromiseResolver<void> read_waiter;    ///< Resolves when data is available.
-  PromiseResolver<void> write_waiter;   ///< Resolves when space is available.
-
-  explicit SimplexBuf(size_t size) : buf(size) {}
-};
-
-} // namespace _
 
 /* ── Class declarations ─────────────────────────────────────────────── */
 
@@ -69,8 +50,8 @@ public:
 private:
   friend class SimplexWriter;
   friend std::pair<SimplexReader, SimplexWriter> simplex(size_t size);
-  Shared<_::SimplexBuf>                          m_dup;
-  explicit SimplexReader(Shared<_::SimplexBuf> dup) : m_dup(std::move(dup)) {}
+  Shared<_::RingBuf>                             m_dup;
+  explicit SimplexReader(Shared<_::RingBuf> dup) : m_dup(std::move(dup)) {}
 };
 
 /**
@@ -90,8 +71,8 @@ public:
 private:
   friend class SimplexReader;
   friend std::pair<SimplexReader, SimplexWriter> simplex(size_t size);
-  Shared<_::SimplexBuf>                          m_dup;
-  explicit SimplexWriter(Shared<_::SimplexBuf> dup) : m_dup(std::move(dup)) {}
+  Shared<_::RingBuf>                             m_dup;
+  explicit SimplexWriter(Shared<_::RingBuf> dup) : m_dup(std::move(dup)) {}
 };
 
 /* ── Shared methods (no coroutine dep) ──────────────────────────────── */
@@ -100,14 +81,7 @@ inline void SimplexWriter::close() {
   auto *d = m_dup.get();
   if (!d || d->closed) return;
   d->closed = true;
-  if (d->read_waiter.is_pending()) {
-    auto r = std::move(d->read_waiter);
-    r.resolve();
-  }
-  if (d->write_waiter.is_pending()) {
-    auto w = std::move(d->write_waiter);
-    w.resolve();
-  }
+  d->wake_all();
 }
 
 /* ── read / write — two implementations ─────────────────────────────── */
@@ -127,25 +101,8 @@ inline Promise<ssize_t> SimplexReader::read(void *buf, size_t len) {
     co_await std::move(pr.first);
   }
 
-  size_t avail = d->count;
-  size_t n     = len < avail ? len : avail;
-  size_t first = d->rpos;
-  if (first + n > d->buf.size()) {
-    size_t chunk = d->buf.size() - first;
-    std::memcpy(buf, d->buf.data() + first, chunk);
-    size_t rem = n - chunk;
-    std::memcpy(static_cast<uint8_t *>(buf) + chunk, d->buf.data(), rem);
-    d->rpos = rem;
-  } else {
-    std::memcpy(buf, d->buf.data() + first, n);
-    d->rpos = first + n;
-  }
-  d->count -= n;
-
-  if (d->write_waiter.is_pending()) {
-    auto w = std::move(d->write_waiter);
-    w.resolve();
-  }
+  size_t n = d->do_read(buf, len);
+  d->wake_writer();
   co_return static_cast<ssize_t>(n);
 }
 
@@ -161,24 +118,8 @@ inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
     co_await std::move(pr.first);
   }
 
-  const uint8_t *src = static_cast<const uint8_t *>(buf);
-  size_t         pos = d->wpos;
-  if (pos + len > d->buf.size()) {
-    size_t chunk = d->buf.size() - pos;
-    std::memcpy(d->buf.data() + pos, src, chunk);
-    size_t rem = len - chunk;
-    std::memcpy(d->buf.data(), src + chunk, rem);
-    d->wpos = rem;
-  } else {
-    std::memcpy(d->buf.data() + pos, src, len);
-    d->wpos = pos + len;
-  }
-  d->count += len;
-
-  if (d->read_waiter.is_pending()) {
-    auto r = std::move(d->read_waiter);
-    r.resolve();
-  }
+  d->do_write(buf, len);
+  d->wake_reader();
   co_return static_cast<ssize_t>(len);
 }
 
@@ -199,25 +140,8 @@ inline Promise<ssize_t> SimplexReader::read(void *buf, size_t len) {
     pr.first.await();
   }
 
-  size_t avail = d->count;
-  size_t n     = len < avail ? len : avail;
-  size_t first = d->rpos;
-  if (first + n > d->buf.size()) {
-    size_t chunk = d->buf.size() - first;
-    std::memcpy(buf, d->buf.data() + first, chunk);
-    size_t rem = n - chunk;
-    std::memcpy(static_cast<uint8_t *>(buf) + chunk, d->buf.data(), rem);
-    d->rpos = rem;
-  } else {
-    std::memcpy(buf, d->buf.data() + first, n);
-    d->rpos = first + n;
-  }
-  d->count -= n;
-
-  if (d->write_waiter.is_pending()) {
-    auto w = std::move(d->write_waiter);
-    w.resolve();
-  }
+  size_t n = d->do_read(buf, len);
+  d->wake_writer();
   return xpp::resolve(static_cast<ssize_t>(n));
 }
 
@@ -233,24 +157,8 @@ inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
     pr.first.await();
   }
 
-  const uint8_t *src = static_cast<const uint8_t *>(buf);
-  size_t         pos = d->wpos;
-  if (pos + len > d->buf.size()) {
-    size_t chunk = d->buf.size() - pos;
-    std::memcpy(d->buf.data() + pos, src, chunk);
-    size_t rem = len - chunk;
-    std::memcpy(d->buf.data(), src + chunk, rem);
-    d->wpos = rem;
-  } else {
-    std::memcpy(d->buf.data() + pos, src, len);
-    d->wpos = pos + len;
-  }
-  d->count += len;
-
-  if (d->read_waiter.is_pending()) {
-    auto r = std::move(d->read_waiter);
-    r.resolve();
-  }
+  d->do_write(buf, len);
+  d->wake_reader();
   return xpp::resolve(static_cast<ssize_t>(len));
 }
 
@@ -268,34 +176,17 @@ inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
 
 inline Promise<ssize_t> SimplexReader::read(void *buf, size_t len) {
   struct ReadLoop {
-    Shared<_::SimplexBuf> dup;
-    void                 *buf;
-    size_t                len;
+    Shared<_::RingBuf> dup;
+    void              *buf;
+    size_t             len;
 
     Promise<ssize_t> operator()() {
       auto *d = dup.get();
       if (!d) return xpp::resolve(static_cast<ssize_t>(-1));
 
       if (d->count > 0) {
-        size_t avail = d->count;
-        size_t n     = len < avail ? len : avail;
-        size_t first = d->rpos;
-        if (first + n > d->buf.size()) {
-          size_t chunk = d->buf.size() - first;
-          std::memcpy(buf, d->buf.data() + first, chunk);
-          size_t rem = n - chunk;
-          std::memcpy(static_cast<uint8_t *>(buf) + chunk, d->buf.data(), rem);
-          d->rpos = rem;
-        } else {
-          std::memcpy(buf, d->buf.data() + first, n);
-          d->rpos = first + n;
-        }
-        d->count -= n;
-
-        if (d->write_waiter.is_pending()) {
-          auto w = std::move(d->write_waiter);
-          w.resolve();
-        }
+        size_t n = d->do_read(buf, len);
+        d->wake_writer();
         return xpp::resolve(static_cast<ssize_t>(n));
       }
 
@@ -314,9 +205,9 @@ inline Promise<ssize_t> SimplexReader::read(void *buf, size_t len) {
 
 inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
   struct WriteLoop {
-    Shared<_::SimplexBuf> dup;
-    const void           *buf;
-    size_t                len;
+    Shared<_::RingBuf> dup;
+    const void        *buf;
+    size_t             len;
 
     Promise<ssize_t> operator()() {
       auto *d = dup.get();
@@ -324,24 +215,8 @@ inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
       if (len == 0) return xpp::resolve(0);
 
       if (d->count + len <= d->buf.size()) {
-        const uint8_t *src = static_cast<const uint8_t *>(buf);
-        size_t         pos = d->wpos;
-        if (pos + len > d->buf.size()) {
-          size_t chunk = d->buf.size() - pos;
-          std::memcpy(d->buf.data() + pos, src, chunk);
-          size_t rem = len - chunk;
-          std::memcpy(d->buf.data(), src + chunk, rem);
-          d->wpos = rem;
-        } else {
-          std::memcpy(d->buf.data() + pos, src, len);
-          d->wpos = pos + len;
-        }
-        d->count += len;
-
-        if (d->read_waiter.is_pending()) {
-          auto r = std::move(d->read_waiter);
-          r.resolve();
-        }
+        d->do_write(buf, len);
+        d->wake_reader();
         return xpp::resolve(static_cast<ssize_t>(len));
       }
 
@@ -365,7 +240,7 @@ inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
 /* ── Factory (shared — both branches use Shared) ───────────────────── */
 
 inline std::pair<SimplexReader, SimplexWriter> simplex(size_t size) {
-  auto dup = Shared<_::SimplexBuf>::make(size);
+  auto dup = Shared<_::RingBuf>::make(size);
   return {SimplexReader(dup), SimplexWriter(std::move(dup))};
 }
 
