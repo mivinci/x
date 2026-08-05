@@ -232,13 +232,13 @@ public:
   /** @brief Get peer address. */
   Option<SocketAddr> peer_addr() const {
     if (!m_conn.get()) return none;
-    return _::peername(m_async.fd());
+    return peername(m_async.fd());
   }
 
   /** @brief Get local address. */
   Option<SocketAddr> local_addr() const {
     if (!m_conn.get()) return none;
-    return _::sockname(m_async.fd());
+    return sockname(m_async.fd());
   }
 
 private:
@@ -375,7 +375,7 @@ public:
     if (!impl || !impl->listener.get()) return none;
     xSocket sock = xTcpListenerSocket(static_cast<xTcpListener>(impl->listener.get()));
     if (!sock) return none;
-    return _::sockname(xSocketFd(sock));
+    return sockname(xSocketFd(sock));
   }
 
 private:
@@ -452,6 +452,8 @@ private:
     } else {
       self->m_resolver.resolve(io::Result<TcpStream>(xpp::err, io::Error::from_xerrno(err)));
     }
+    // SAFETY: xTcpConnect callback is always async (posted via event loop).
+    // If it ever fires synchronously, this self-delete would be UB.
     delete self; // self-delete — adapter lifetime ends here
   }
 };

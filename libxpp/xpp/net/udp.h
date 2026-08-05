@@ -179,7 +179,7 @@ public:
   /** @brief Bound local address. None on error or after close. */
   Option<SocketAddr> local_addr() const {
     if (m_async.is_closed()) return none;
-    return _::sockname(m_async.fd());
+    return sockname(m_async.fd());
   }
 
   /** @brief Connect to a peer (connected mode: recv/send work without addresses). */

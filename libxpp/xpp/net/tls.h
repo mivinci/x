@@ -53,7 +53,13 @@ public:
     return c;
   }
 
-  /** @brief Client that skips peer verification (e.g. self-signed certs). */
+  /**
+   * @brief Client that skips peer certificate verification.
+   *
+   * @warning Insecure — the server's certificate is not verified.
+   *          Use only for testing, development, or self-signed certs.
+   *          Never use in production with untrusted networks.
+   */
   static TlsConfig client_insecure() {
     TlsConfig c;
     c.m_conf.skip_verify = 1;

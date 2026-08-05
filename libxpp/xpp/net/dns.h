@@ -15,8 +15,6 @@
 #ifndef XPP_NET_DNS_H
 #define XPP_NET_DNS_H
 
-#include <sys/socket.h>
-
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -33,29 +31,11 @@
 namespace xpp {
 namespace net {
 
-/* ── Socket utilities ─────────────────────────────────────────────── */
+/* ── Forward declaration ──────────────────────────────────────────── */
 
 namespace _ {
-
-/** @brief Get the local address of a socket fd. Returns None on error. */
-inline Option<SocketAddr> sockname(int fd) noexcept {
-  struct sockaddr_storage ss;
-  socklen_t               len = sizeof(ss);
-  if (getsockname(fd, reinterpret_cast<struct sockaddr *>(&ss), &len) != 0) return none;
-  return SocketAddr::from_sockaddr(reinterpret_cast<struct sockaddr *>(&ss), len);
+class LookupHostAdapter;
 }
-
-/** @brief Get the peer address of a socket fd. Returns None on error. */
-inline Option<SocketAddr> peername(int fd) noexcept {
-  struct sockaddr_storage ss;
-  socklen_t               len = sizeof(ss);
-  if (getpeername(fd, reinterpret_cast<struct sockaddr *>(&ss), &len) != 0) return none;
-  return SocketAddr::from_sockaddr(reinterpret_cast<struct sockaddr *>(&ss), len);
-}
-
-} // namespace _
-
-/* ── HostPort ─────────────────────────────────────────────────────── */
 
 /** @brief A hostname/port pair: (hostname, port_number). */
 using HostPort = std::pair<std::string, uint16_t>;
