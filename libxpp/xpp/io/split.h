@@ -15,6 +15,7 @@
 #include <utility>
 
 #include <xpp/io/utils.h>
+#include <xpp/panic.h>
 #include <xpp/shared.h>
 
 namespace xpp {
@@ -35,6 +36,7 @@ public:
    *  @param len Maximum bytes to read.
    *  @return Promise resolving to bytes read. */
   Promise<ssize_t> read(void *buf, size_t len) {
+    XPP_ASSERT(m_inner, "ReadHalf::read: null inner (default-constructed or moved-from)");
     return m_inner->read(buf, len);
   }
 
@@ -57,11 +59,13 @@ public:
    *  @param len Bytes to write.
    *  @return Promise resolving to bytes written. */
   Promise<ssize_t> write(const void *buf, size_t len) {
+    XPP_ASSERT(m_inner, "WriteHalf::write: null inner (default-constructed)");
     return m_inner->write(buf, len);
   }
   /** @brief Forward a flush to the shared inner writer.
    *  @return Promise that resolves when the flush completes. */
   Promise<void> flush() {
+    XPP_ASSERT(m_inner, "WriteHalf::flush: null inner (default-constructed)");
     return m_inner->flush();
   }
 

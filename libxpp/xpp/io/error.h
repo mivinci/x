@@ -222,8 +222,13 @@ public:
     return Error(k);
   }
 
-  /** @brief Construct an Error from a libx xErrno (preserves the xErrno value). */
+  /** @brief Construct an Error from a libx xErrno (preserves the xErrno value).
+   *
+   *  xErrno_Ok (0) is treated as a no-error sentinel — produces an Error
+   *  indistinguishable from a zero-valued errno (raw_os_error() == 0,
+   *  kind() derived via error_kind_from_errno(0)). */
   static Error from_xerrno(xErrno e) noexcept {
+    if (e == xErrno_Ok) return Error(0);  // encode as errno 0 (not bit-30 xerrno)
     return Error(Encoded{}, _::encode_xerrno(e));
   }
 
