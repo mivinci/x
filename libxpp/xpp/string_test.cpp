@@ -2,7 +2,7 @@
  * Unit tests for xpp::String — UTF-8 String.
  */
 
-#include <xpp/str.h>
+#include <xpp/string.h>
 #include <gtest/gtest.h>
 
 using namespace xpp;

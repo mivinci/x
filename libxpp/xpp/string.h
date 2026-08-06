@@ -3,28 +3,18 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * str.h — UTF-8 String backed by Vec<uint8_t>.
+ * string.h — UTF-8 String backed by Vec<uint8_t>.
  *
  * Modeled after Rust's std::string::String.
  * Guarantees valid UTF-8 at the type level.
  *
- * NOTE: This file is intentionally named str.h, NOT string.h.
- *       <string.h> is a C Standard Library header that libc++'s
- *       <cstring> includes. If we named this file "string.h" and
- *       the build system adds xpp/ to the -I path, our file would
- *       shadow the system header — <cstring>'s #include <string.h>
- *       would resolve to this file instead of libc++'s wrapper,
- *       causing a cascade of compilation errors across all TUs
- *       that transitively include <cstring>.
- *       Lesson: never name a header after a C/C++ standard header
- *       if it lives under a bare -I directory (no subdir prefix).
- *       GLib uses "gstring.h", Abseil uses "str_cat.h", same logic.
+ *
  *
  * C++11-compatible. Header-only.
  */
 
-#ifndef XPP_STR_H
-#define XPP_STR_H
+#ifndef XPP_STRING_H
+#define XPP_STRING_H
 
 #include <cstddef>
 #include <cstdint>
@@ -660,4 +650,4 @@ private:
 
 } // namespace xpp
 
-#endif // XPP_STR_H
+#endif // XPP_STRING_H

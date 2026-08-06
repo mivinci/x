@@ -16,7 +16,7 @@
     - [NonNull](libxpp/smart-pointers/nonnull.md)
   - [Result](libxpp/result.md)
   - [Option](libxpp/option.md)
-  - [String](libxpp/str.md)
+  - [String](libxpp/string.md)
   - [Variant](libxpp/variant.md)
   - [Vec](libxpp/vec.md)
   - [Opaque Handle Wrapper](libxpp/handle.md)
