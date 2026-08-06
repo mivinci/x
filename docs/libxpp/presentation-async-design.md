@@ -152,8 +152,8 @@ first_line() 被调用：
 │     │    AdapterNode 问 AsyncFd：「fd 可读了吗？」
 │     │    AsyncFd 检查内部 readiness bool → false
 │     │    回答：Pending（还没好）
-│     │    副作用：waker 被注册到 epoll 的内部映射表里
-│     │             key = (fd, event)，value = 这个 waker 的唤醒函数
+│     │    副作用：waker 被注册到 ResolveState 的 atomic wake 表里
+│     │            （不在 epoll 里——epoll 只管 fd→回调 的映射）
 │     │    → 代码走到 waker.park()
 │     │
 │     ├─ waker.park()
@@ -163,8 +163,8 @@ first_line() 被调用：
 │     │
 │     ├─ 内核：磁盘读完，文件 fd 变为可读
 │     │    → epoll 返回这个 fd 的事件
-│     │    → EventLoop 内部分发：找到这个 fd 注册的 waker
-│     │    → 调用 waker 的唤醒函数
+│     │    → EventLoop 调用 AsyncFd 的回调（fd→回调 的映射在 EventLoop 里）
+│     │    → 回调里 resolve() → fire waker（在 ResolveState 的 atomic 表里查找）
 │     │    → park() 返回，线程醒来
 │     │
 │     ├─ 第 2 轮 poll:
@@ -314,7 +314,7 @@ xpp 的答案是 **Adapter 模式**。
 
 ### 问题
 
-假设你有一个 timer。到期时 libx 的 C API 会回调你：
+假设你有一个 timer。到期时外部 timer 库会回调你（示意，非 xpp 实际 API）：
 
 ```c
 void my_timer_cb(xTimer *t, void *userdata) {
