@@ -25,23 +25,21 @@ Go 有 goroutine。Rust 有 tokio。C++ 有什么？
 
 **结果就是——**
 ```c
-// 一个「读文件 → 解析 JSON → 发 HTTP 请求」要用四个回调：
-void on_read(uv_fs_t *req)             { /* ... malloc ... */ goto cleanup; }
-void on_connected(uv_connect_t *req)    { /* start HTTP write */ }
-void on_written(uv_write_t *req)        { /* start reading response */ }
-void on_response(uv_stream_t *str, ...) { /* 终于到了。哪个 malloc 忘了 free？*/ }
+// 「读一个配置文件，提取第一行」——四层回调：
+void on_opened(uv_fs_t *req)         { /* alloc buf, start fstat */ }
+void on_stat(uv_fs_t *req)           { /* alloc buf, start read */ }
+void on_read(uv_fs_t *req)           { /* 循环 pread, 收齐数据 */ }
+void on_done(uv_fs_t *req)           { /* 找到 '\n', 截断, 返回。哪个 buf 忘了 free？*/ }
 ```
 
-控制流被撕成碎片。每一步是一个孤立回调。你没法 `grep "读文件后干什么"`——答案散落在四个函数里。
+控制流被撕成碎片。每一步是一个孤立回调。你没法 `grep "读完文件后干什么"`——答案散落在四个函数里。
 
 而 Go 的开发者从来不需要想这些——
 
 ```go
-// Go：三行，同步写法，runtime 搞定一切
-data, _ := os.ReadFile("/tmp/user.json")
-var user User
-json.Unmarshal(data, &user)
-resp, _ := http.Post(url, "application/json", bytes.NewReader(data))
+// Go：同步写法，runtime 搞定一切
+data, _ := os.ReadFile("config.txt")
+line := strings.SplitN(string(data), "\n", 2)[0]
 ```
 
 **libxpp 的目标：给 C++ 补上这个缺失的运行时。** 一套统一的 EventLoop。一个类型安全、可组合的异步模型。零线程纠缠在业务代码里。
@@ -54,21 +52,20 @@ resp, _ := http.Post(url, "application/json", bytes.NewReader(data))
 
 libxpp 的统一语言就一个类型：**`Promise<T>`**——一个「未来的值」。
 
-用 Promise 改写上面那段「读文件 → 解析 JSON → 发 HTTP 请求」：
+xpp 重写上面的「读文件取第一行」：
 
 ```cpp
-// xpp：同样的逻辑，三行 then，一个 await
-auto resp = File::open("/tmp/user.json")
+// xpp：同样的逻辑，两行 then，一个 await
+auto line = File::open("config.txt")
     .then([](File f) { return f.read_all(); })
     .then([](Vec<uint8_t> bytes) {
-        auto json = String::from_utf8(std::move(bytes)).unwrap();
-        auto url  = json.substr(json.find("\"url\""));  // 提取 URL
-        return Http::post(url, json.as_bytes());
+        return String::from_utf8(std::move(bytes)).unwrap();
     })
-    .await();
+    .await()
+    .substr(0, line.find("\n").unwrap_or(line.len()));
 
 // 四层回调 → 一条链。读起来像同步，EventLoop 在后头跑。
-// P2P 连接、定时器、文件 IO、DNS —— 全部说同一种语言：Promise<T>
+// 文件 IO、定时器、DNS、P2P —— 全部说同一种语言：Promise<T>
 ```
 
 **四层回调 → 一条链。** 通过 `.await()`，业务逻辑看起来是同步的，但 EventLoop 始终在背后跑。P2P 连接、定时器、文件 IO、HTTP 请求——全部通过 `Promise<T>` 接入同一个事件循环。
