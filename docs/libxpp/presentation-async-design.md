@@ -636,3 +636,166 @@ auto parsed = xpp::work([&]() {
 }).await();
 File::open("output.bin").await().write_all(parsed.as_bytes()).await();
 ```
+
+---
+
+## 12. Appendix: Beyond Async — The Rest of libxpp
+
+Promise 是骨架。但同构移植不只异步机制——libxpp 还搬了 Rust 的整个标准库哲学：用类型系统取代文档和注释。
+
+下面逐个看「之前 C++ 怎么写 → libxpp 怎么写 → 为什么」。
+
+### Option\<T\> — A Value or Nothing
+
+**C++ 现状**：用 `nullptr`、`std::optional`（C++17 起）、或 `T*` + 人肉检查。
+
+```cpp
+// C++ 典型写法：用指针表"可能没有"
+T* find_user(const std::string& email) {
+    // ...
+    return nullptr;  // 表示没找到。调用者必须记住检查——编译器不帮你。
+}
+
+// 调用方：
+T* user = find_user("bob@x.com");
+use(user->name);  // ← 忘了检查？UB。crash 或更糟——静默错误。
+```
+
+**libxpp 写法**：
+
+```cpp
+Option<T> find_user(const String& email) {
+    // ...
+    return none;  // 类型系统承载语义——返回类型就告诉调用者：可能为空
+}
+
+// 调用方被迫面对「可能没有」的事实：
+auto user = find_user("bob@x.com");
+if (user.is_some()) {
+    use(user.unwrap().name);  // 安全——unwrap() 在 debug 模式 assertion 检查
+}
+```
+
+**设计理由**：`is_some()`/`is_none()` 显式，不依赖隐式 `operator bool()`。`unwrap()` debug 模式下检查，release 优化掉。
+
+### Result\<T, E\> — Success or Error
+
+**C++ 现状**：用返回值码（`int`）、`errno`、异常三者混用，每个库有自己的错误处理。
+
+```cpp
+// C++ 典型写法：int 返回值码 + 通过 out-param 传真正结果
+int parse_config(const char* path, Config* out) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return -errno;      // 错误返回 errno
+    
+    ssize_t n = read(fd, buf, sizeof(buf));
+    close(fd);
+    if (n < 0) return -errno;        // 另一个错误路径
+    
+    if (!validate(buf, n)) return -1; // -1 是什么意思？文档在哪？
+    *out = decode(buf, n);            // 成功通过 out-param 传出
+    return 0;                         // 0 = 成功，惯例而已
+}
+
+// 调用方必须检查返回值——忘了就是 bug：
+Config cfg;
+parse_config("app.cfg", &cfg);  // 忘了检查返回值！crash 在别处，难查。
+```
+
+**libxpp 写法**：
+
+```cpp
+Result<Config, Error> parse_config(const char* path) {
+    auto file = TRY(File::open(path));     // TRY 宏：失败直接返回 Error
+    auto data = TRY(file.read_all());
+    auto cfg  = TRY(decode(data));         // 类型系统保证：要么是 Config，要么是 Error
+    return cfg;
+}
+
+// 调用方没法「忘了处理错误」——类型签名里就写着 Result：
+auto result = parse_config("app.cfg");
+if (result.is_ok()) {
+    use(result.unwrap());          // 安全
+} else {
+    log("failed: {}", result.unwrap_err());
+}
+```
+
+**设计理由**：不抛异常（项目无 RTTI、无异常），不用 out-param，不用 `goto cleanup`。`TRY` 宏让错误传播变成一行。
+
+### Vec\<T, Alloc\> — Contiguous Growable Array
+
+**C++ 现状**：`std::vector` 很好，但 OOM 时抛 `std::bad_alloc`——项目不用异常。
+
+**libxpp 写法**：
+
+```cpp
+// 双 API：便利版和显式版
+Vec<int> v;
+v.push(42);                    // OOM 时 XPP_ASSERT（debug 炸，release 信任调用者）
+auto r = v.try_push(42);       // 返回 Result<void, AllocError>，显式处理
+if (r.is_err()) { handle_oom(); }
+```
+
+**设计理由**：
+
+| std::vector | xpp::Vec |
+|-------------|----------|
+| OOM → throw `bad_alloc` | OOM → `Result<void, AllocError>` 或 assert |
+| `front()` 空容器 UB | `first()` → `Option<T&>` |
+| `push_back` | `push` (双 API) |
+| 24 字节（3 指针） | 24 字节（CompressedPair EBO） |
+
+### String — UTF-8 Guaranteed at the Type Level
+
+**C++ 现状**：`std::string` 不保证 UTF-8。你可以把任意字节塞进去，验证靠自己。
+
+**libxpp 写法**：
+
+```cpp
+// 只有两种方式获得 String：
+// 1. 从已知字面量直接构造（编译期保证）
+String s = String::from_utf8_unchecked("hello");
+
+// 2. 从运行时数据构造（运行期验证）
+auto r = String::from_utf8(unknown_bytes);
+if (r.is_err()) { handle_bad_utf8(r.unwrap_err()); }
+
+// 一旦拥有 String，类型就保证是合法 UTF-8
+// const String& = "valid Unicode text"
+// Vec<uint8_t>  = "opaque bytes, maybe not text"
+```
+
+**设计理由**：`const String&` 本身就成了「这是合法 Unicode」的证明——不在注释里，在类型里。
+
+### Span\<T\> — Non-owning View
+
+**C++ 现状**：裸指针 + 长度分开传，容易对不上。C++20 有 `std::span`。
+
+**libxpp 写法**：
+
+```cpp
+void process(Span<const uint8_t> data) {
+    for (auto& byte : data) { /* ... */ }
+    // data.size()、data.begin()/end() 整装齐备
+}
+
+Vec<uint8_t> buf = /* ... */;
+process(buf.as_span());           // Vec → Span，零拷贝
+process(Span<const uint8_t>(ptr, len));  // 裸指针+长度 → Span
+```
+
+### 总结：什么是「同构移植」
+
+回到 Section 11 的框架——这些类型全是**值语义层直译**：
+
+| Rust | libxpp (C++11) | 同构方式 |
+|------|--------------|---------|
+| `Option<T>` | `Option<T>` | tagged union + bool，直译 |
+| `Result<T,E>` | `Result<T,E>` | 同上 |
+| `Vec<T>` | `Vec<T, Alloc>` | 方法一一对应，加 Alloc 模板参数 |
+| `String` | `String` | UTF-8 保证、chars() 迭代器、split_off |
+| `&[T]` | `Span<T>` | 胖指针，直译 |
+| `Box<T>` | `Box<T>` | unique_ptr 语义，直译 |
+
+**它们跟 Promise 的关系**：Promise 用 Option 表 "pending or ready"，用 Result 表 "success or OOM"，用 Vec 存文件内容，用 String 表 UTF-8 文本。异步机制是骨架，这些类型是血肉。缺哪一个都不完整。
