@@ -56,23 +56,26 @@ xpp 重写上面的「读文件取第一行」：
 
 ```cpp
 // then() 链：函数式风格，每一步都是数据变换
-auto line = File::open("config.txt")
-    .then([](File f) { return f.read_all(); })
-    .then([](Vec<uint8_t> bytes) {
-        return String::from_utf8(std::move(bytes)).unwrap();
-    })
-    .await()
-    .substr(0, line.find("\n").unwrap_or(line.len()));
+xpp::Promise<String> first_line() {
+    return File::open("config.txt")
+        .then([](File f) { return f.read_all(); })
+        .then([](Vec<uint8_t> bytes) {
+            auto text = String::from_utf8(std::move(bytes)).unwrap();
+            return text.substr(0, text.find("\n").unwrap_or(text.len()));
+        });
+}
 ```
 
 同一个逻辑，也可以用纯 `.await()` 写成一步一步的同步风格：
 
 ```cpp
 // await 风格：一步一步来，像写 Python
-auto file  = File::open("config.txt").await();
-auto bytes = file.read_all().await();
-auto text  = String::from_utf8(std::move(bytes)).unwrap();
-auto line  = text.substr(0, text.find("\n").unwrap_or(text.len()));
+xpp::Promise<String> first_line() {
+    auto file  = File::open("config.txt").await();
+    auto bytes = file.read_all().await();
+    auto text  = String::from_utf8(std::move(bytes)).unwrap();
+    return text.substr(0, text.find("\n").unwrap_or(text.len()));
+}
 ```
 
 如果编译器支持 C++20，还能用 `co_await`：
