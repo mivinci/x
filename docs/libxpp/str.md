@@ -1,8 +1,10 @@
-# string.h — UTF-8 String
+# str.h — UTF-8 String
 
 ## Introduction
 
-`string.h` provides `String`, a heap-allocated UTF-8 string backed by `Vec<uint8_t>`. It guarantees valid UTF-8 at the type level — `const String&` means "valid Unicode text", while `Vec<uint8_t>` means "opaque bytes".
+`str.h` provides `xpp::String`, a heap-allocated UTF-8 string backed by `Vec<uint8_t>`. It guarantees valid UTF-8 at the type level — `const String&` means "valid Unicode text", while `Vec<uint8_t>` means "opaque bytes".
+
+> **Why `str.h` and not `string.h`?** `<string.h>` is a C Standard Library header that libc++'s `<cstring>` includes. Naming our file `string.h` would shadow the system header when `xpp/` is in the `-I` path, breaking every translation unit that transitively includes `<cstring>`. GLib uses `gstring.h`, Abseil uses `str_cat.h` — same pattern. The class name remains `String` for readability.
 
 Key differences from `std::string`:
 

@@ -2,7 +2,7 @@
  * Unit tests for xpp::String — UTF-8 String.
  */
 
-#include <xpp/string.h>
+#include <xpp/str.h>
 #include <gtest/gtest.h>
 
 using namespace xpp;
@@ -372,7 +372,7 @@ TEST(StringFind, Rfind) {
     String s = r.unwrap();
     auto found = s.rfind("ba");
     ASSERT_TRUE(found.is_some());
-    EXPECT_EQ(found.unwrap(), 2u); // last "ba" at pos 2
+    EXPECT_EQ(found.unwrap(), 3u); // last "ba" at pos 3 (positions: a0 b1 a2 b3 a4)
 }
 
 TEST(StringFind, RfindNotFound) {

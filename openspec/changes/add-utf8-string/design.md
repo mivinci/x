@@ -709,8 +709,8 @@ Total: ~870 lines of implementation + ~500 lines of tests across all phases.
 ## File Placement
 
 ```
-libxpp/xpp/fmt.h       — XPP_HAS_FMTLIB detection (included by string.h)
-libxpp/xpp/string.h    — String + Chars + Utf8Error + fmt formatter
+libxpp/xpp/fmt.h    — XPP_HAS_FMTLIB detection (included by str.h)
+libxpp/xpp/str.h     — String + Chars + Utf8Error + fmt formatter
 libxpp/xpp/string_test.cpp
 ```
 
@@ -734,10 +734,10 @@ a `XPP_FMT_CORE` user override) and exposes one macro:
 #endif
 ```
 
-`xpp/string.h` conditionally provides the `fmt::formatter` specialisation:
+`xpp/str.h` conditionally provides the `fmt::formatter` specialisation:
 
 ```cpp
-// xpp/string.h (excerpt)
+// xpp/str.h (excerpt)
 #include "fmt.h"
 
 #ifdef XPP_HAS_FMTLIB

@@ -3,16 +3,28 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * string.h — UTF-8 String backed by Vec<uint8_t>.
+ * str.h — UTF-8 String backed by Vec<uint8_t>.
  *
  * Modeled after Rust's std::string::String.
  * Guarantees valid UTF-8 at the type level.
  *
+ * NOTE: This file is intentionally named str.h, NOT string.h.
+ *       <string.h> is a C Standard Library header that libc++'s
+ *       <cstring> includes. If we named this file "string.h" and
+ *       the build system adds xpp/ to the -I path, our file would
+ *       shadow the system header — <cstring>'s #include <string.h>
+ *       would resolve to this file instead of libc++'s wrapper,
+ *       causing a cascade of compilation errors across all TUs
+ *       that transitively include <cstring>.
+ *       Lesson: never name a header after a C/C++ standard header
+ *       if it lives under a bare -I directory (no subdir prefix).
+ *       GLib uses "gstring.h", Abseil uses "str_cat.h", same logic.
+ *
  * C++11-compatible. Header-only.
  */
 
-#ifndef XPP_STRING_H
-#define XPP_STRING_H
+#ifndef XPP_STR_H
+#define XPP_STR_H
 
 #include <cstddef>
 #include <cstdint>
@@ -153,10 +165,17 @@ public:
 
     Chars& operator++() noexcept {
         XPP_DEBUG_ASSERT(m_pos < m_end, "chars iterator past end");
-        size_t consumed;
-        m_current = _::decode_one(m_pos, &consumed);
-        m_pos += consumed;
-        if (m_pos >= m_end) m_pos = m_end;  // normalise
+        // Skip past the current code point (m_current was decoded in
+        // the constructor or previous operator++, m_pos still points
+        // to its first byte). Then decode the next one.
+        m_pos += _::cp_byte_len(m_pos);
+        if (m_pos >= m_end) {
+            m_pos = m_end;
+            m_current = 0;
+        } else {
+            size_t consumed;
+            m_current = _::decode_one(m_pos, &consumed);
+        }
         return *this;
     }
 
@@ -641,4 +660,4 @@ private:
 
 } // namespace xpp
 
-#endif // XPP_STRING_H
+#endif // XPP_STR_H
