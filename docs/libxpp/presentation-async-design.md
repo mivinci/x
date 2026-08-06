@@ -54,13 +54,16 @@ resp, _ := http.Post(url, "application/json", bytes.NewReader(data))
 
 libxpp 的统一语言就一个类型：**`Promise<T>`**——一个「未来的值」。
 
-用 Promise 改写上面那个 libuv 示例：
+用 Promise 改写上面那段「读文件 → 解析 JSON → 发 HTTP 请求」：
 
 ```cpp
-String name = File::open("/tmp/user.json")
-    .then([](File f) { return f.read_all(); })      // → Promise<Vec<uint8_t>>
+// xpp：同样的逻辑，三行 then，一个 await
+auto resp = File::open("/tmp/user.json")
+    .then([](File f) { return f.read_all(); })
     .then([](Vec<uint8_t> bytes) {
-        return String::from_utf8(std::move(bytes));  // → Promise<String>
+        auto json = String::from_utf8(std::move(bytes)).unwrap();
+        auto url  = json.substr(json.find("\"url\""));  // 提取 URL
+        return Http::post(url, json.as_bytes());
     })
     .await();
 
