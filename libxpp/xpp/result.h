@@ -622,4 +622,32 @@ auto Option<T>::ok_or_else(Func &&fn) && -> Result<T, decltype(fn())> {
 
 } // namespace xpp
 
+/**
+ * @brief Propagate an error early, or unwrap the value.
+ *
+ * Mirror of Rust's `?` operator for xpp::Result<T,E>.
+ *
+ *   auto val = XPP_TRY(maybe_error());  // val is T
+ *   // If maybe_error() returned Err(e), the enclosing function returns
+ *   // xpp::err(e) immediately.
+ *
+ * Works with any expression that returns Result<T,E> where the enclosing
+ * function also returns Result<Something, E> (same error type).
+ *
+ * Does NOT work with Result<void,E> (no void-valued statement expressions).
+ *
+ * Implementation: GCC/Clang statement-expression. The `return` inside
+ * the `({...})` returns from the *enclosing function* — this is the
+ * GCC extension that makes the macro work as a single expression.
+ *
+ * C++11-compatible. Header-only.
+ */
+#define XPP_TRY(expr)                                     \
+  ({                                                      \
+    auto __xpp_try_result = (expr);                       \
+    if (__xpp_try_result.is_err())                        \
+      return xpp::err(__xpp_try_result.unwrap_err());     \
+    __xpp_try_result.unwrap();                            \
+  })
+
 #endif // XPP_RESULT_H

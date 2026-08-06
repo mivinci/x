@@ -706,9 +706,9 @@ parse_config("app.cfg", &cfg);  // 忘了检查返回值！crash 在别处，难
 
 ```cpp
 Result<Config, Error> parse_config(const char* path) {
-    auto file = TRY(File::open(path));     // TRY 宏：失败直接返回 Error
-    auto data = TRY(file.read_all());
-    auto cfg  = TRY(decode(data));         // 类型系统保证：要么是 Config，要么是 Error
+    auto file = XPP_TRY(File::open(path));   // XPP_TRY 宏：失败直接 return err(...)
+    auto data = XPP_TRY(file.read_all());
+    auto cfg  = XPP_TRY(decode(data));         // 类型系统保证：要么是 Config，要么是 Error
     return cfg;
 }
 
@@ -721,7 +721,7 @@ if (result.is_ok()) {
 }
 ```
 
-**设计理由**：不抛异常（项目无 RTTI、无异常），不用 out-param，不用 `goto cleanup`。`TRY` 宏让错误传播变成一行。
+**设计理由**：不抛异常（项目无 RTTI、无异常），不用 out-param，不用 `goto cleanup`。`XPP_TRY` 宏让错误传播变成一行，对标 Rust 的 `?`。
 
 ### Vec\<T, Alloc\> — Contiguous Growable Array
 
