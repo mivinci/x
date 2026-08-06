@@ -496,11 +496,62 @@ Total: ~950 lines of implementation + ~400 lines of tests across all phases.
 ## File Placement
 
 ```
-libxpp/xpp/string.h    — String + Chars + Utf8Error + internal helpers
+libxpp/xpp/fmt.h       — XPP_HAS_FMTLIB detection (included by string.h)
+libxpp/xpp/string.h    — String + Chars + Utf8Error + fmt formatter (if available)
 libxpp/xpp/string_test.cpp
 ```
 
 Dependencies: `std::vector<uint8_t>`, `xpp/result.h`, `xpp/option.h`, `xpp/span.h`.
+
+## fmtlib Integration
+
+`xpp/fmt.h` detects whether the host project has `{fmt}` (via `__has_include` or
+a `XPP_FMT_CORE` user override) and exposes one macro:
+
+```cpp
+// xpp/fmt.h
+#pragma once
+
+#if defined(XPP_FMT_CORE) || __has_include(<fmt/core.h>)
+  #define XPP_HAS_FMTLIB 1
+  #include <fmt/core.h>
+#endif
+```
+
+`xpp/string.h` conditionally provides the `fmt::formatter` specialisation
+so that every user of `#include <xpp/string.h>` gets fmt support
+automatically when `{fmt}` is available:
+
+```cpp
+// xpp/string.h (excerpt)
+#include "fmt.h"
+
+#ifdef XPP_HAS_FMTLIB
+template <>
+struct fmt::formatter<xpp::String> : fmt::formatter<fmt::string_view> {
+    template <typename FormatContext>
+    auto format(const xpp::String& s, FormatContext& ctx) const {
+        auto sv = fmt::string_view(
+            reinterpret_cast<const char*>(s.as_bytes().data()),
+            s.len()
+        );
+        return fmt::formatter<fmt::string_view>::format(sv, ctx);
+    }
+};
+#endif /* XPP_HAS_FMTLIB */
+```
+
+**Usage:**
+```cpp
+#include <xpp/string.h>
+
+auto s = String::from_utf8("hello世界").unwrap();
+fmt::print("{}\n", s);      // "hello世界"
+fmt::print("{:>10}\n", s);  // " hello世界"
+```
+
+No separate `#include <xpp/fmt.h>` needed — `string.h` pulls it in.
+When `{fmt}` is absent the header compiles harmlessly.
 
 ## C++11 Compatibility
 
