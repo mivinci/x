@@ -263,6 +263,9 @@ public:
 
     /* ── Capacity ────────────────────────────────────────────────── */
 
+    using allocator_type = GlobalAllocator;
+    const GlobalAllocator& allocator() const noexcept { return m_bytes.allocator(); }
+
     size_t capacity()                     const noexcept { return m_bytes.capacity(); }
     void   reserve(size_t additional)                   { m_bytes.reserve(additional); }
     Result<void, AllocError> try_reserve(size_t n)      { return m_bytes.try_reserve(n); }
