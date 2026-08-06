@@ -17,6 +17,7 @@
   - [Result](libxpp/result.md)
   - [Option](libxpp/option.md)
   - [Variant](libxpp/variant.md)
+  - [Vec](libxpp/vec.md)
   - [Opaque Handle Wrapper](libxpp/handle.md)
   - [Shared](libxpp/smart-pointers/shared.md)
   - [Compiler Macros](libxpp/compiler.md)

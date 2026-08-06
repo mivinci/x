@@ -78,6 +78,7 @@ if (cached) use(**cached);
   - [NonNull](smart-pointers/nonnull.md) — Non-owning, non-null reference
 - [Result](result.md) — Success or error (Rust Result)
 - [Option](option.md) — A value or nothing (Rust Option)
+- [Vec](vec.md) — Contiguous growable array (Rust Vec)
 - [Variant](variant.md) — Type-safe tagged union
 - [Timer](timer.md) — Callback-based timer with pause/resume
 - [Filesystem](fs.md) — Async file I/O (`File`, `stat`, `exists`, `create_dir`, `rename`)
