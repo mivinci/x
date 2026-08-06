@@ -55,7 +55,7 @@ libxpp 的统一语言就一个类型：**`Promise<T>`**——一个「未来的
 xpp 重写上面的「读文件取第一行」：
 
 ```cpp
-// xpp：同样的逻辑，两行 then，一个 await
+// then() 链：函数式风格，每一步都是数据变换
 auto line = File::open("config.txt")
     .then([](File f) { return f.read_all(); })
     .then([](Vec<uint8_t> bytes) {
@@ -63,12 +63,31 @@ auto line = File::open("config.txt")
     })
     .await()
     .substr(0, line.find("\n").unwrap_or(line.len()));
-
-// 四层回调 → 一条链。读起来像同步，EventLoop 在后头跑。
-// 文件 IO、定时器、DNS、P2P —— 全部说同一种语言：Promise<T>
 ```
 
-**四层回调 → 一条链。** 通过 `.await()`，业务逻辑看起来是同步的，但 EventLoop 始终在背后跑。P2P 连接、定时器、文件 IO、HTTP 请求——全部通过 `Promise<T>` 接入同一个事件循环。
+同一个逻辑，也可以用纯 `.await()` 写成一步一步的同步风格：
+
+```cpp
+// await 风格：一步一步来，像写 Python
+auto file  = File::open("config.txt").await();
+auto bytes = file.read_all().await();
+auto text  = String::from_utf8(std::move(bytes)).unwrap();
+auto line  = text.substr(0, text.find("\n").unwrap_or(text.len()));
+```
+
+如果编译器支持 C++20，还能用 `co_await`：
+
+```cpp
+// co_await 风格：编译器生成状态机，完全像同步代码
+xpp::Promise<String> first_line() {
+    auto file  = co_await File::open("config.txt");
+    auto bytes = co_await file.read_all();
+    auto text  = String::from_utf8(std::move(bytes)).unwrap();
+    co_return text.substr(0, text.find("\n").unwrap_or(text.len()));
+}
+```
+
+三套写法，**底层是同一套 poll/waker 机制**。选哪个看编译器和品味——它们的执行路径完全一样。
 
 **设计要点**：
 
