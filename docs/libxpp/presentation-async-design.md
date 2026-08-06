@@ -132,9 +132,57 @@ xpp::Promise<String> first_line() {
 
 ## 3. 核心循环：poll + waker
 
-这是整个系统的心脏。一句话概括：
+### 一次完整调用，端到端走读
 
-> **Promise 是一个状态机，EventLoop 是它的时钟，waker 是它的闹钟。**
+用 `first_line()` 的 `await` 版本，把每个步骤拆开看。
+
+```
+first_line() 被调用：
+│
+├─ ① File::open("config.txt")
+│     → 构造 AsyncFd：fd 设置为 non-blocking
+│     → 注册 fd 到 EventLoop 的 epoll（edge-triggered，Read|Write）
+│     → AsyncFd 包在 Arc 里，保证 fd 生命周期独立于回调栈
+│     → 返回 Promise<File>，背后是 AdapterPromiseNode
+│
+├─ ② .await()
+│     → 进入 poll 循环（就是下面那个 while(true) 循环）
+│     │
+│     ├─ 第 1 轮 poll:
+│     │    AdapterNode 问 AsyncFd：「fd 可读了吗？」
+│     │    AsyncFd 检查内部 readiness bool → false
+│     │    回答：Pending（还没好）
+│     │    副作用：waker 被注册到 epoll 的内部映射表里
+│     │             key = (fd, event)，value = 这个 waker 的唤醒函数
+│     │    → 代码走到 waker.park()
+│     │
+│     ├─ waker.park()
+│     │    → 调用 xEventLoopRun(ONCE)
+│     │    → 最终调用 epoll_wait(timeout, ...)
+│     │    → 当前线程阻塞，等内核通知
+│     │
+│     ├─ 内核：磁盘读完，文件 fd 变为可读
+│     │    → epoll 返回这个 fd 的事件
+│     │    → EventLoop 内部分发：找到这个 fd 注册的 waker
+│     │    → 调用 waker 的唤醒函数
+│     │    → park() 返回，线程醒来
+│     │
+│     ├─ 第 2 轮 poll:
+│     │    AdapterNode 再次问 AsyncFd：「fd 可读了吗？」
+│     │    AsyncFd 检查 → true（epoll 刚告诉我们了）
+│     │    回答：Ready(File 对象)
+│     │    → await() 拿到 File，存在 local variable file
+│     │
+│     ├─ ③ file.read_all()
+│     │    → 又返回一个新的 Promise（另一轮 epoll wait）
+│     │    → 同样的 poll 循环再来一遍：Pending → park → epoll → Ready
+│     │
+│     └─ 最终拿到 bytes → from_utf8 → substr → 返回 first_line
+```
+
+**每一层 `.await()` 都在重复同一件事**：poll → 没好就 park → EventLoop 跑一轮 → 被内核叫醒 → poll → 拿到值。整个循环的伪代码就下面这几行。
+
+### 引擎视角：await() 内部循环
 
 ```cpp
 // Promise<T>::await() 的内部实现（简化）
