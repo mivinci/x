@@ -91,13 +91,16 @@ public:
     /** Consume the String and recover the underlying byte buffer. O(1). */
     std::vector<uint8_t> into_bytes() && noexcept;
 
-    /** Return a std::string copy of the internal bytes. O(n) — allocates
-     *  and copies. Does NOT consume the String (unlike into_bytes()).
+    /** Consume the String and return a std::string. O(n) — the internal
+     *  bytes are copied (vector<uint8_t> and std::string have different
+     *  layout due to SSO, so ownership transfer requires a copy). The
+     *  original heap buffer is released.
      *
      *  Use as_bytes() for zero-copy interop; use this when you need an
-     *  owning std::string for an API that requires one.
+     *  owning std::string for an API that requires one and no longer need
+     *  the String.
      */
-    std::string to_std_string() const;
+    std::string into_std_string() &&;
 
     /* ── Length ── */
 
@@ -403,7 +406,7 @@ equivalent (or explains why it's deferred). Legend:
 | `as_bytes() -> &[u8]` | `as_bytes() -> Span<const uint8_t>` | ✅ L0 | O(1), no copy |
 | `as_str() -> &str` | (no Str type yet) | ⚠️ L0 | Requires `Str` borrowed type. Deferred. |
 | `into_bytes() -> Vec<u8>` | `into_bytes() -> vector<uint8_t>` | ✅ L0 | Consuming, O(1) |
-| `to_string()` | `to_std_string() -> std::string` | ✅ L0 | O(n) copy. Non-consuming interop (paths, HTTP, logging). |
+| — | `into_std_string() -> std::string` | ✅ L0 | Consuming, O(n) copy (SSO layout). std interop. |
 | `into_boxed_str()` | — | ❌ | No `Box<str>` equivalent in C++ |
 | `from_raw_parts` / `into_raw_parts` | — | ❌ | Unsafe internals, not for public API |
 
