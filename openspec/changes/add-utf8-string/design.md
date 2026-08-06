@@ -284,9 +284,15 @@ private:
  *  valid UTF-8. Increment advances past the current code point's byte span.
  *
  *  Usage:
- *    for (char32_t cp : s.chars()) { ... }
+ *    for (char32_t cp : s.chars()) { ... }             // range-for
  *    auto it = s.chars();
- *    while (it != Chars::end()) { char32_t c = *it; ++it; }
+ *    while (it != Chars::sentinel()) { char32_t c = *it; ++it; }
+ *
+ *  Note: begin()/end() are instance methods for range-for support.
+ *  sentinel() is a static factory for manual while-loop comparison.
+ *  We intentionally do NOT provide a static end() because it would
+ *  shadow the non-static end() required by range-for (C++ forbids
+ *  overloading static vs non-static with the same name).
  */
 class Chars {
 public:
@@ -304,8 +310,18 @@ public:
      *  state is unchanged. */
     size_t count() noexcept;
 
-    /** Sentinel for range-for. */
-    static Chars end() noexcept;
+    /* ── Range-for support ── */
+
+    /** Copy of current position. Range-for calls this to start iteration. */
+    Chars begin() const { return *this; }
+
+    /** Sentinel at the end of the byte range. Range-for calls this
+     *  to get the termination condition. */
+    Chars end() const { return Chars(m_end, m_end); }
+
+    /** Sentinel for manual while-loops. Static to avoid conflict
+     *  with the instance end() needed by range-for. */
+    static Chars sentinel() noexcept { return Chars(nullptr, nullptr); }
 
 private:
     friend class String;
@@ -512,7 +528,7 @@ zero overhead beyond the `Vec` itself. A custom stateful allocator grows
 | `from_utf8("\xF4\x90\x80\x80")` | Err — exceeds U+10FFFF |
 | `s.substr(1, 3)` on `"你好"` | Assert fails — offset 1 is continuation byte |
 | `s.substr(0, 3)` on `"你好"` | Returns `"你"` |
-| `s.chars()` on empty | iterator == Chars::end() immediately |
+| `s.chars()` on empty | iterator == Chars::sentinel() immediately |
 | `s.char_len()` on empty | 0 |
 | `s.pop()` on empty | `Option<char32_t>` = None |
 | `s.pop()` on `"a"` | Returns `Some('a')`, string becomes empty |
