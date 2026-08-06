@@ -513,6 +513,44 @@ CompressedPair EBO 让 Vec 和 std::vector 一样大。Arena allocation 让 then
 
 ---
 
+## 11. 为什么 Rust 的设计能搬到 C++
+
+> Rust 和 C++ 在值语义层高度同构。安全层不同构——搬不过来的得用设计补。
+
+### 值语义层——直译
+
+Rust 的类型系统本来长在 C++ 的根上。这些是**直译**，不是仿写：
+
+| Rust | C++ (xpp) | 为什么是同一回事 |
+|------|-----------|-----------------|
+| `Option<T>` | tagged union + bool | 都是 sum type：值是 T，或者不是 |
+| `Result<T, E>` | 同上 | 同一个代数——要么有值，要么有错误 |
+| move 默认，Copy opt-in | move ctor + `std::move` | move semantics 是 C++11 发明的，Rust 学去的 |
+| `impl Drop` | `~T()` | RAII 是 C++ 发明的，Rust 拿走了 |
+| `Future::poll` | `PromiseNode::poll` | 同一个问题（「好了没」），同一个答案（poll + waker） |
+| 泛型单态化 | 模板实例化 | 两个编译器做一模一样的代码膨胀 |
+
+**RAII、move、泛型——这三根柱子就是 C++ 给的。** Rust 只是扫干净了 unsafe 的后路，没发明新柱子。
+
+### 安全层——重写
+
+Rust 能给编译器写数学证明。C++ 是信任程序员。这些**搬不过来**：
+
+| Rust 证明 | C++ 没有 | xpp 的对策 |
+|-----------|---------|-----------|
+| borrow checker | 引用就是裸指针 | 单线程 EventLoop + `Arc/ArcWeak` — 靠架构规避多所有者 |
+| `Send + Sync` | 没有 | `poll_state()` 的 acquire/release + atomic double-check |
+| `match` 穷尽性 | `if/else` 漏了不报错 | `Option<T>` + debug assert — 漏了至少炸，不会悄无声息 |
+| lifetime 注解 | 注释，靠人读 | Move-only Promise — 消费即销毁，没有持有引用的问题 |
+
+**核心差异**：Rust 的安全是证明出来的（编译器算），C++ 的安全是约定出来的（你不犯错就没事）。xpp 的设计是在约定之上加了一层检查——debug assert 让犯错变成 crash，而不是 silent corruption。
+
+### 一句话
+
+> **xpp 不是「用 C++ 写 Rust」。xpp 是用 C++ 自己的工具（RAII、move、模板、atomic）重新实现 Rust API 背后那个「用类型说话」的哲学。**
+
+---
+
 ## Q&A 预备
 
 **Q: 为什么不直接用 ASIO / libuv？**
