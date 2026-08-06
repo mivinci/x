@@ -219,6 +219,14 @@ public:
     ++len_();
   }
 
+  /** Copy into reserved capacity without checking. Caller guarantees
+   *  len() < capacity() — otherwise this is UB. */
+  void push_unchecked(const T& value) {
+    XPP_DEBUG_ASSERT(len() < capacity(), "push_unchecked: not enough capacity (len=%zu cap=%zu)", len(), capacity());
+    ::new (ptr() + len()) T(value);
+    ++len_();
+  }
+
   Option<T> pop() {
     if (len() == 0) return none;
     --len_();
@@ -276,6 +284,45 @@ public:
       ++len_();
     }
     other.clear();
+    return ok;
+  }
+
+  /** Append copies of elements from another Vec without consuming it. */
+  void append(const Vec& other) {
+    auto r = try_append(other);
+    XPP_ASSERT(r.is_ok(), "Vec::append: OOM");
+  }
+
+  Result<void, AllocError> try_append(const Vec& other) {
+    if (other.len() == 0) return ok;
+    auto r = try_reserve(other.len());
+    if (r.is_err()) return r;
+    for (size_t i = 0; i < other.len(); ++i) {
+      ::new (ptr() + len()) T(other.cptr()[i]);
+      ++len_();
+    }
+    return ok;
+  }
+
+  /* ── Extend ──────────────────────────────────────────────────────── */
+
+  /** Append elements from a span. Copies each element via placement-new. */
+  void extend_from(Span<const T> items) {
+    auto r = try_reserve(static_cast<size_t>(items.size()));
+    XPP_ASSERT(r.is_ok(), "Vec::extend_from: OOM");
+    for (size_t i = 0; i < static_cast<size_t>(items.size()); ++i) {
+      ::new (ptr() + len()) T(items[i]);
+      ++len_();
+    }
+  }
+
+  Result<void, AllocError> try_extend_from(Span<const T> items) {
+    auto r = try_reserve(static_cast<size_t>(items.size()));
+    if (r.is_err()) return r;
+    for (size_t i = 0; i < static_cast<size_t>(items.size()); ++i) {
+      ::new (ptr() + len()) T(items[i]);
+      ++len_();
+    }
     return ok;
   }
 

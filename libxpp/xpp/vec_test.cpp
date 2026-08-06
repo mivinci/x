@@ -441,6 +441,86 @@ TEST(VecInt, PushUnchecked) {
   EXPECT_EQ(v.len(), cap);
 }
 
+TEST(VecInt, PushUncheckedConstRef) {
+  Vec<int> v;
+  v.reserve(5);
+  const int x = 42;
+  for (int i = 0; i < 5; i++) {
+    v.push_unchecked(x);
+  }
+  EXPECT_EQ(v.len(), 5u);
+  for (size_t i = 0; i < v.len(); i++) {
+    EXPECT_EQ(v[i], 42);
+  }
+}
+
+TEST(VecInt, AppendConstRef) {
+  const Vec<int> src = [] {
+    Vec<int> v;
+    v.push(10);
+    v.push(20);
+    v.push(30);
+    return v;
+  }();
+  Vec<int> dst;
+  dst.push(1);
+  dst.try_append(src);
+  EXPECT_EQ(dst.len(), 4u);
+  EXPECT_EQ(dst[0], 1);
+  EXPECT_EQ(dst[1], 10);
+  EXPECT_EQ(dst[2], 20);
+  EXPECT_EQ(dst[3], 30);
+  // src unchanged — const-ref append is non-destructive
+  EXPECT_EQ(src.len(), 3u);
+  EXPECT_EQ(src[0], 10);
+}
+
+TEST(VecInt, AppendEmptyConstRef) {
+  Vec<int> empty;
+  Vec<int> dst;
+  dst.push(1);
+  dst.append(empty);
+  EXPECT_EQ(dst.len(), 1u);
+  EXPECT_EQ(dst[0], 1);
+}
+
+TEST(VecInt, ExtendFromSpan) {
+  int raw[] = {7, 8, 9};
+  Span<const int> span(raw, 3);
+
+  Vec<int> v;
+  v.push(1);
+  v.extend_from(span);
+  EXPECT_EQ(v.len(), 4u);
+  EXPECT_EQ(v[0], 1);
+  EXPECT_EQ(v[1], 7);
+  EXPECT_EQ(v[2], 8);
+  EXPECT_EQ(v[3], 9);
+}
+
+TEST(VecInt, ExtendFromEmptySpan) {
+  Vec<int> v;
+  v.push(1);
+  v.extend_from(Span<const int>(nullptr, 0));
+  EXPECT_EQ(v.len(), 1u);
+  EXPECT_EQ(v[0], 1);
+}
+
+TEST(VecInt, ExtendFromPreReserved) {
+  Vec<int> v;
+  v.try_reserve(100);
+  size_t cap = v.capacity();
+  int raw[50];
+  for (int i = 0; i < 50; i++) raw[i] = i;
+
+  v.extend_from(Span<const int>(raw, 50));
+  EXPECT_EQ(v.len(), 50u);
+  EXPECT_EQ(v.capacity(), cap);
+  for (int i = 0; i < 50; i++) {
+    EXPECT_EQ(v[i], i);
+  }
+}
+
 TEST(VecInt, Iteration) {
   Vec<int> v;
   v.push(1);

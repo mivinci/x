@@ -150,6 +150,7 @@ public:
      *  XPP_ASSERT(len() < capacity()) — caller must have reserved first.
      *  O(1). Use in hot inner loops after a reserve() call. */
     void push_unchecked(T&& value);
+    void push_unchecked(const T& value);
 
     /** Remove the last element. Returns None if empty. O(1). */
     Option<T> pop();
@@ -177,6 +178,18 @@ public:
     /** Move all elements from `other` into `this`. `other` becomes empty.
      *  May reallocate. O(n + other.len()). */
     Result<void, AllocError> try_append(Vec& other);
+
+    /** Append copies of all elements from @p other. O(other.len()).
+     *  XPP_ASSERT on OOM. The source Vec is not modified. */
+    void append(const Vec& other);
+    Result<void, AllocError> try_append(const Vec& other);
+
+    /* ── Extend ── */
+
+    /** Append copies of all elements from @p items. O(items.size()).
+     *  XPP_ASSERT on OOM. */
+    void extend_from(Span<const T> items);
+    Result<void, AllocError> try_extend_from(Span<const T> items);
 
     /* ── Splitting ── */
 
@@ -387,7 +400,7 @@ notes for non-trivial cases.
 
 | Category | Count | Decision |
 |----------|-------|----------|
-| ✅ L0 — Phase 1–3 | **29** methods | Core construction, access, push/pop, reserve/resize, append, split_off, swap_remove, retain, iterators. Each grow-path has dual API: convenience (`push`, `reserve`...) using `.expect()`, and explicit (`try_push`, `try_reserve`...) returning `Result`. |
+| ✅ L0 — Phase 1–3 | **33** methods | Core construction, access, push/pop, reserve/resize, append, split_off, swap_remove, retain, iterators. Each grow-path has dual API: convenience (`push`, `reserve`...) using `.expect()`, and explicit (`try_push`, `try_reserve`...) returning `Result`. |
 | ⚠️ L0.1 — Deferred | **16** methods | insert/remove/drain, dedup, reverse, swap, contains, set_len, etc. |
 | ❌ Not planned | **7** methods | leak, into_boxed_slice, sort/binary_search (use `<algorithm>`), get_many_mut, extend_from_within, select/splice |
 

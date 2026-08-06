@@ -36,7 +36,8 @@ classDiagram
         +~Vec()
         +push(T) void
         +try_push(T) Result
-        +push_unchecked(T) void
+        +push_unchecked(T&&) void
+        +push_unchecked(const T&) void
         +pop() Option~T~
         +clear() void
         +truncate(size_t) void
@@ -52,6 +53,10 @@ classDiagram
         +try_resize(size_t, T) Result
         +append(Vec&) void
         +try_append(Vec&) Result
+        +append(const Vec&) void
+        +try_append(const Vec&) Result
+        +extend_from(Span) void
+        +try_extend_from(Span) Result
         +split_off(size_t) Vec
         +swap_remove(size_t) T
         +retain(Pred) void
@@ -141,7 +146,7 @@ Elements in `[0, len)` are live objects with properly constructed `T` values. El
 | `push(T&& v)` | `void` | Move, asserts on OOM |
 | `try_push(v)` | `Result<void, AllocError>` | Copy, explicit error |
 | `try_push(T&& v)` | `Result<void, AllocError>` | Move, explicit error |
-| `push_unchecked(T&& v)` | `void` | Debug-asserts `len < cap`; no grow |
+| `push_unchecked(T&& v)` / `push_unchecked(const T& v)` | `void` | Debug-asserts `len < cap`; no grow |
 | `pop()` | `Option<T>` | Returns `None` if empty; destructs element |
 | `clear()` | `void` | Destructs all elements, `len = 0`, preserves capacity |
 | `truncate(n)` | `void` | Destructs elements `[n, len)`, `len = n` |
@@ -154,6 +159,10 @@ Elements in `[0, len)` are live objects with properly constructed `T` values. El
 | `try_resize(n, fill)` | `Result<void, AllocError>` | Grow: construct fill; shrink: truncate |
 | `append(other)` | `void` | Moves all elements from `other`, leaves it empty |
 | `try_append(other)` | `Result<void, AllocError>` | Explicit error variant |
+| `append(const Vec&)` | `void` | Copies all elements from `other` without consuming it |
+| `try_append(const Vec&)` | `Result<void, AllocError>` | Explicit error variant |
+| `extend_from(span)` | `void` | Copies all elements from `Span<const T>` |
+| `try_extend_from(span)` | `Result<void, AllocError>` | Explicit error variant |
 | `split_off(at)` | `Vec` | Moves `[at, len)` into a new Vec, truncates `this` |
 | `swap_remove(i)` | `T` | Replaces `[i]` with last element, returns old `[i]`; O(1) |
 | `retain(pred)` | `void` | Keeps elements where `pred(x)` is true; preserves order |
@@ -226,6 +235,15 @@ v.reserve(1000);  // one allocation
 for (int i = 0; i < 1000; i++) {
     v.push_unchecked(i);  // no capacity check, no grow
 }
+```
+
+### Bulk copy from a span
+
+```cpp
+int raw[] = {10, 20, 30, 40, 50};
+xpp::Vec<int> v;
+v.extend_from(xpp::Span<const int>(raw, 5));
+// v == [10, 20, 30, 40, 50]
 ```
 
 ### split_off
