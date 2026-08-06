@@ -139,17 +139,17 @@ public:
 
     /** Append an element. O(1) amortised.
      *  XPP_ASSERT on OOM — use try_push() for explicit error handling. */
-    void push(T value);
     void push(const T& value);
+    void push(T&& value);
 
     /** Append an element. Returns AllocError on OOM. O(1) amortised. */
-    Result<void, AllocError> try_push(T value);
     Result<void, AllocError> try_push(const T& value);
+    Result<void, AllocError> try_push(T&& value);
 
     /** Push an element that fits within capacity without reallocating.
      *  XPP_ASSERT(len() < capacity()) — caller must have reserved first.
      *  O(1). Use in hot inner loops after a reserve() call. */
-    void push_unchecked(T value);
+    void push_unchecked(T&& value);
 
     /** Remove the last element. Returns None if empty. O(1). */
     Option<T> pop();
@@ -303,7 +303,7 @@ notes for non-trivial cases.
 
 | Rust | xpp | Implementation notes |
 |------|-----|---------------------|
-| `push(value)` | `push(value)` + `try_push(value) → Result` | `push` uses `try_push(...).expect("OOM")`. `try_push` returns `AllocError` for explicit handling. |
+| `push(value)` | `push(const T&)` + `push(T&&)` | Two overloads (lvalue/rvalue). Convenience wrappers call `try_push` with `XPP_ASSERT(is_ok())`. |
 | `push_within_capacity(value)` | `push_unchecked(value)` | `XPP_ASSERT(len() < cap())`. Hot-loop optimisation after `reserve()`. |
 | `try_push(value)` | `try_push(value)` — same name | |
 | `try_push_ref(&value)` | `try_push(const T&) → Result` | Copy-construct, not move. |
