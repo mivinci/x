@@ -114,8 +114,8 @@ inline size_t encode_one(char32_t cp, uint8_t* out) {
 }
 
 // Returns true if the byte at offset is the start of a code point.
-inline bool is_codepoint_boundary(const uint8_t* p, size_t offset) {
-    if (offset == 0) return true;
+inline bool is_codepoint_boundary(const uint8_t* p, size_t offset, size_t len) {
+    if (offset == 0 || offset >= len) return true;
     // Continuation bytes: 10xxxxxx
     return (p[offset] & 0xC0) != 0x80;
 }
@@ -284,9 +284,9 @@ public:
     String substr(size_t offset, size_t count = SIZE_MAX) const {
         size_t end = (count == SIZE_MAX) ? len() : offset + count;
         XPP_ASSERT(end <= len(), "substr range out of bounds");
-        XPP_ASSERT(_::is_codepoint_boundary(m_bytes.data(), offset),
+        XPP_ASSERT(_::is_codepoint_boundary(m_bytes.data(), offset, len()),
                    "substr: offset not on code point boundary");
-        XPP_ASSERT(_::is_codepoint_boundary(m_bytes.data(), end),
+        XPP_ASSERT(_::is_codepoint_boundary(m_bytes.data(), end, len()),
                    "substr: end not on code point boundary");
 
         String s(end - offset);
@@ -392,7 +392,7 @@ public:
 
     void insert(size_t byte_pos, char32_t cp) {
         XPP_ASSERT(byte_pos <= len(), "insert: position out of bounds");
-        XPP_ASSERT(byte_pos == len() || _::is_codepoint_boundary(m_bytes.data(), byte_pos),
+        XPP_ASSERT(_::is_codepoint_boundary(m_bytes.data(), byte_pos, len()),
                    "insert: not a code point boundary");
         XPP_ASSERT(cp <= 0x10FFFF, "insert: code point exceeds U+10FFFF");
         XPP_ASSERT(cp < 0xD800 || cp > 0xDFFF, "insert: surrogate half");
@@ -413,7 +413,7 @@ public:
 
     void insert_str(size_t byte_pos, const String& s) {
         XPP_ASSERT(byte_pos <= len(), "insert_str: position out of bounds");
-        XPP_ASSERT(byte_pos == len() || _::is_codepoint_boundary(m_bytes.data(), byte_pos),
+        XPP_ASSERT(_::is_codepoint_boundary(m_bytes.data(), byte_pos, len()),
                    "insert_str: not a code point boundary");
 
         size_t slen = s.len();
@@ -429,7 +429,7 @@ public:
 
     char32_t remove(size_t byte_pos) {
         XPP_ASSERT(byte_pos < len(), "remove: position out of bounds");
-        XPP_ASSERT(_::is_codepoint_boundary(m_bytes.data(), byte_pos),
+        XPP_ASSERT(_::is_codepoint_boundary(m_bytes.data(), byte_pos, len()),
                    "remove: not a code point boundary");
 
         size_t consumed;
@@ -445,7 +445,7 @@ public:
 
     void truncate(size_t new_byte_len) {
         XPP_ASSERT(new_byte_len <= len(), "truncate: new length exceeds current");
-        XPP_ASSERT(new_byte_len == 0 || _::is_codepoint_boundary(m_bytes.data(), new_byte_len),
+        XPP_ASSERT(_::is_codepoint_boundary(m_bytes.data(), new_byte_len, len()),
                    "truncate: not a code point boundary");
         m_bytes.truncate(new_byte_len);
     }
@@ -454,7 +454,7 @@ public:
 
     String split_off(size_t byte_pos) {
         XPP_ASSERT(byte_pos <= len(), "split_off: position out of bounds");
-        XPP_ASSERT(byte_pos == 0 || byte_pos == len() || _::is_codepoint_boundary(m_bytes.data(), byte_pos),
+        XPP_ASSERT(_::is_codepoint_boundary(m_bytes.data(), byte_pos, len()),
                    "split_off: not a code point boundary");
 
         String tail;
