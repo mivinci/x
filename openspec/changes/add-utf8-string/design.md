@@ -286,10 +286,11 @@ private:
  *  Usage:
  *    for (char32_t cp : s.chars()) { ... }             // range-for
  *    auto it = s.chars();
- *    while (it != Chars::sentinel()) { char32_t c = *it; ++it; }
+ *    while (it != Chars::npos()) { char32_t c = *it; ++it; }
  *
  *  Note: begin()/end() are instance methods for range-for support.
- *  sentinel() is a static factory for manual while-loop comparison.
+ *  npos() is a static factory returning the end sentinel — named
+ *  after std::string::npos, the canonical C++ "not-a-position" marker.
  *  We intentionally do NOT provide a static end() because it would
  *  shadow the non-static end() required by range-for (C++ forbids
  *  overloading static vs non-static with the same name).
@@ -319,9 +320,10 @@ public:
      *  to get the termination condition. */
     Chars end() const { return Chars(m_end, m_end); }
 
-    /** Sentinel for manual while-loops. Static to avoid conflict
-     *  with the instance end() needed by range-for. */
-    static Chars sentinel() noexcept { return Chars(nullptr, nullptr); }
+    /** End sentinel for manual while-loops. Static to avoid conflict
+     *  with the instance end() needed by range-for. Named after
+     *  std::string::npos — the canonical C++ "not a position" value. */
+    static Chars npos() noexcept { return Chars(nullptr, nullptr); }
 
 private:
     friend class String;
@@ -528,7 +530,7 @@ zero overhead beyond the `Vec` itself. A custom stateful allocator grows
 | `from_utf8("\xF4\x90\x80\x80")` | Err — exceeds U+10FFFF |
 | `s.substr(1, 3)` on `"你好"` | Assert fails — offset 1 is continuation byte |
 | `s.substr(0, 3)` on `"你好"` | Returns `"你"` |
-| `s.chars()` on empty | iterator == Chars::sentinel() immediately |
+| `s.chars()` on empty | iterator == Chars::npos() immediately |
 | `s.char_len()` on empty | 0 |
 | `s.pop()` on empty | `Option<char32_t>` = None |
 | `s.pop()` on `"a"` | Returns `Some('a')`, string becomes empty |
