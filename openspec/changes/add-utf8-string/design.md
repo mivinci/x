@@ -64,8 +64,8 @@ public:
     static Result<String, Utf8Error> from_utf8(std::vector<uint8_t> bytes);
 
     /** Convenience overload for C-string literals. Copies + validates.
-     *  The input must be valid UTF-8; on failure returns Utf8Error with
-     *  a copy of the bytes.
+     *  s must not be NULL; behaviour is undefined if it is (debug builds
+     *  assert s != nullptr). Equivalent to from_utf8(s, strlen(s)).
      */
     static Result<String, Utf8Error> from_utf8(const char* s);
 
@@ -91,13 +91,14 @@ public:
     /** Consume the String and recover the underlying byte buffer. O(1). */
     std::vector<uint8_t> into_bytes() && noexcept;
 
-    /** Consume the String and return a std::string. O(1) — the internal
-     *  byte buffer is reinterpret_cast'd to std::string (same layout,
-     *  same allocator, just a type-level encoding promise removed).
+    /** Consume the String and return a std::string. The internal byte
+     *  buffer is copied into a std::string (O(n)). For zero-copy interop,
+     *  callers should use as_bytes() which provides a Span<const uint8_t>
+     *  view without allocation.
      *
      *  Useful for interop with std APIs (file paths, logging, HTTP body).
      */
-    std::string into_std_string() && noexcept;
+    std::string into_std_string() &&;
 
     /* ── Length ── */
 
@@ -117,7 +118,10 @@ public:
 
     /** Slice [offset, offset+count) in bytes.
      *  XPP_ASSERT that offset and offset+count fall on code point boundaries.
-     *  If count == SIZE_MAX, take until end.
+     *  If count == SIZE_MAX, take from offset to end.
+     *  XPP_ASSERT that offset + count does not overflow (offset + SIZE_MAX
+     *  wraps; the implementation catches this with an explicit end-fixup
+     *  before arithmetic).
      */
     String substr(size_t offset, size_t count = SIZE_MAX) const;
 
@@ -141,7 +145,13 @@ public:
 
     /* ── Mutation ── */
 
-    /** Append a code point (encoded as 1–4 UTF-8 bytes). O(1) amortised. */
+    /** Append a code point (encoded as 1–4 UTF-8 bytes). O(1) amortised.
+     *
+     *  XPP_ASSERT that cp is a valid Unicode scalar value:
+     *    — Not a surrogate (U+D800–U+DFFF)
+     *    — Not exceeding U+10FFFF
+     *  Violating this would break the String's valid-UTF-8 invariant.
+     */
     void push(char32_t cp);
 
     /** Append another String's bytes. O(n). */
@@ -183,19 +193,25 @@ private:
 class Chars {
 public:
     char32_t operator*() const noexcept;
+
+    /** Advance past the current code point. Must not be called when the
+     *  iterator has already reached end(); behaviour is undefined if it is
+     *  (debug builds assert m_pos < m_end).
+     */
     Chars& operator++() noexcept;
 
     bool operator==(const Chars& other) const noexcept;
     bool operator!=(const Chars& other) const noexcept;
 
-    /** Count remaining code points. O(remaining).
+    /** Count remaining code points from current position to end. O(remaining).
      *
-     *  Equivalent to Rust's Chars::count(). Consumes the iterator view
-     *  (reads through to end) but does NOT modify the underlying String.
-     *  Since Chars copies are cheap (two pointers), this copies the
-     *  position and counts from there.
+     *  Advances the iterator in-place, then returns to the original position.
+     *  After this call the iterator is unchanged. NOT const — iterating is
+     *  inherently stateful even though we restore position.
+     *
+     *  Equivalent to Rust's Chars::count().
      */
-    size_t count() const noexcept;
+    size_t count() noexcept;
 
     /** Sentinel for range-for. */
     static Chars end() noexcept;
@@ -246,17 +262,47 @@ Single-pass scan with a tiny state machine — no tables:
 size_t validate_utf8(const uint8_t* p, size_t len) {
     for (size_t i = 0; i < len; i++) {
         if (p[i] < 0x80) continue;
-        if ((p[i] & 0xE0) == 0xC0) { i += 1; if (i >= len) return i - 1; }
-        else if ((p[i] & 0xF0) == 0xE0) { i += 2; if (i >= len) return i - 2; }
-        else if ((p[i] & 0xF8) == 0xF0) { i += 3; if (i >= len) return i - 3; }
-        else return i;  // invalid leading byte
+        size_t start = i;
+        uint32_t cp;
+        if ((p[i] & 0xE0) == 0xC0) {
+            if (i + 1 >= len) return i;
+            if ((p[i+1] & 0xC0) != 0x80) return i;
+            cp = ((p[i] & 0x1F) << 6) | (p[i+1] & 0x3F);
+            if (cp < 0x80) return i;           // overlong
+            i += 1;
+        } else if ((p[i] & 0xF0) == 0xE0) {
+            if (i + 2 >= len) return i;
+            if ((p[i+1] & 0xC0) != 0x80) return i;
+            if ((p[i+2] & 0xC0) != 0x80) return i;
+            cp = ((p[i] & 0x0F) << 12) | ((p[i+1] & 0x3F) << 6) | (p[i+2] & 0x3F);
+            if (cp < 0x800) return i;          // overlong
+            if (0xD800 <= cp && cp <= 0xDFFF) return i;  // surrogate
+            i += 2;
+        } else if ((p[i] & 0xF8) == 0xF0) {
+            if (i + 3 >= len) return i;
+            if ((p[i+1] & 0xC0) != 0x80) return i;
+            if ((p[i+2] & 0xC0) != 0x80) return i;
+            if ((p[i+3] & 0xC0) != 0x80) return i;
+            cp = ((p[i] & 0x07) << 18) | ((p[i+1] & 0x3F) << 12)
+               | ((p[i+2] & 0x3F) << 6)  | (p[i+3] & 0x3F);
+            if (cp < 0x10000) return i;        // overlong
+            if (cp > 0x10FFFF) return i;        // beyond Unicode
+            i += 3;
+        } else {
+            return i;  // invalid leading byte
+        }
     }
     return SIZE_MAX;
 }
 ```
 
-Additional checks for overlong encodings and surrogate halves (~10 lines) are
-added in the full implementation. Total decoder ~40 lines.
+Checks performed:
+- Continuation bytes must be `10xxxxxx` (`(byte & 0xC0) == 0x80`)
+- Overlong encodings (e.g. U+002F encoded as 2 bytes)
+- Surrogate halves (U+D800–U+DFFF) — forbidden in UTF-8
+- Beyond U+10FFFF — outside Unicode range
+
+Total validator ~50 lines, still zero tables, still single-pass.
 
 ### Decode one code point
 
@@ -306,7 +352,7 @@ bool is_codepoint_boundary(const uint8_t* p, size_t offset) {
 ```
 sizeof(String)    == sizeof(std::vector<uint8_t>) == 24 (ptr + size + capacity)
 sizeof(Chars)     == 24 (two pointers + cached char32_t)
-sizeof(Utf8Error) == 40 (vector 24B + error_pos 8B + padding)
+sizeof(Utf8Error) == 32 (vector 24B + error_pos 8B)
 ```
 
 No hidden allocations beyond the byte vector's heap buffer.
