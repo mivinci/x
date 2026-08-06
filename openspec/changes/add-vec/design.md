@@ -127,10 +127,13 @@ public:
     Option<T&> get(size_t index);
     Option<const T&> get(size_t index) const;
 
-    T& first();
-    const T& first() const;
-    T& last();
-    const T& last() const;
+    /** Returns the first element, or None if empty. O(1). Same as get(0). */
+    Option<T&> first();
+    Option<const T&> first() const;
+
+    /** Returns the last element, or None if empty. O(1). Same as get(len()-1). */
+    Option<T&> last();
+    Option<const T&> last() const;
 
     /* ── Mutation ── */
 
@@ -191,18 +194,6 @@ public:
     /** Retain elements for which `pred(x)` returns true. O(n). */
     template <class Pred>
     void retain(Pred pred);
-
-    /* ── Raw Parts (Advanced) ── */
-
-    /** Decompose into raw pointer + length + capacity. O(1).
-     *  The caller owns the memory and must eventually call
-     *  Vec::from_raw_parts() or manually deallocate. */
-    std::tuple<T*, size_t, size_t> into_raw_parts() &&;
-
-    /** Reconstruct from raw pointer + length + capacity. O(1).
-     *  Caller guarantees the pointer came from into_raw_parts() of a
-     *  Vec with the same allocator type. */
-    static Vec from_raw_parts(T* ptr, size_t len, size_t cap, Alloc alloc = Alloc{});
 
     /* ── Iteration ── */
 
@@ -265,9 +256,11 @@ notes for non-trivial cases.
 |------|-----|---------------------|
 | `Vec::new()` | `Vec()` | Default constructor. `m_ptr=nullptr, m_len=0, m_cap=0`. |
 | `Vec::with_capacity(n)` | `Vec(size_t cap, Alloc a={})` | `allocate(Layout::array(n, alignof(T)))`. Fails means Vec is empty — constructor can't return Result, so use a two-phase init: `Vec v; v.try_reserve(n)`. Or make the capacity-constructor abort on OOM (debug assertion). |
-| `Vec::from_raw_parts(ptr,len,cap)` | `from_raw_parts(T*,size_t,size_t,Alloc)` | Reconstruct after `into_raw_parts`. Caller guarantees validity. `XPP_ASSERT` `ptr` is non-null or `cap==0`. |
-| `Vec::into_raw_parts()` | `into_raw_parts() → RawParts` | Move out fields, leave `this` in default state. `RawParts` is `struct { T* ptr; size_t len; size_t cap; }`. |
-| `Vec::into_raw_parts_with_alloc()` | Not needed | xpp `allocator()` accessor already provides this separately. |
+
+> **`into_raw_parts()`/`from_raw_parts()` are intentionally omitted.**
+> `data()` + `len()` + `capacity()` already expose the raw parts as accessors.
+> The consuming/reconstructing variants add risk (UB on mismatched allocator)
+> without enabling anything that can't be done with the existing accessors.
 
 #### Borrowing & Views
 
@@ -300,11 +293,11 @@ notes for non-trivial cases.
 | `operator[] → &mut T` (IndexMut) | Same via non-const overload | |
 | `get(i) → Option<&T>` | `get(i) → Option<T&>` | Bounds-checked. `i >= m_len → None`. |
 | `get_mut(i) → Option<&mut T>` | `get(i) → Option<T&>` (non-const) | Same. |
-| `first() → Option<&T>` | `first() → T&` | xpp version asserts non-empty. Callers check `empty()` first. |
-| `first_mut() → Option<&mut T>` | `first() → T&` (non-const) | Same. |
-| `last() → Option<&T>` | `last() → T&` | Same pattern. |
-| `last_mut() → Option<&mut T>` | `last() → T&` (non-const) | Same. |
 | `get_many_mut([i,j])` | **Not planned** | Requires compile-time index-distinctness checking. C++ can't express this safely. |
+| `first() → Option<&T>` | `first() → Option<T&>` | Bounds-checked. Returns None if empty. Same as `get(0)`. |
+| `first_mut() → Option<&mut T>` | `first() → Option<T&>` (non-const) | Same. |
+| `last() → Option<&T>` | `last() → Option<T&>` | Bounds-checked. Returns None if empty. Same as `get(len()-1)`. |
+| `last_mut() → Option<&mut T>` | `last() → Option<T&>` (non-const) | Same. |
 
 #### Mutation — Growth
 
@@ -394,7 +387,7 @@ notes for non-trivial cases.
 
 | Category | Count | Decision |
 |----------|-------|----------|
-| ✅ L0 — Phase 1–3 | **31** methods | Core construction, access, push/pop, reserve/resize, append, split_off, swap_remove, retain, iterators. Each grow-path has dual API: convenience (`push`, `reserve`...) using `.expect()`, and explicit (`try_push`, `try_reserve`...) returning `Result`. |
+| ✅ L0 — Phase 1–3 | **29** methods | Core construction, access, push/pop, reserve/resize, append, split_off, swap_remove, retain, iterators. Each grow-path has dual API: convenience (`push`, `reserve`...) using `.expect()`, and explicit (`try_push`, `try_reserve`...) returning `Result`. |
 | ⚠️ L0.1 — Deferred | **16** methods | insert/remove/drain, dedup, reverse, swap, contains, set_len, etc. |
 | ❌ Not planned | **7** methods | leak, into_boxed_slice, sort/binary_search (use `<algorithm>`), get_many_mut, extend_from_within, select/splice |
 
@@ -453,10 +446,9 @@ Dependencies: `xpp/allocator.h`, `xpp/option.h`, `xpp/result.h`, `xpp/span.h`,
 - `split_off`
 - Tests: reserve/resize/split/append/swap_remove
 
-**Phase 3: Advanced (∼50 lines)**
-- `into_raw_parts` / `from_raw_parts`
+**Phase 3: Advanced (∼30 lines)**
 - Iterator pair: `begin()` / `end()`
-- Tests: raw parts round-trip, range-for compatibility
+- Tests: range-for compatibility
 
 ## C++11 Compatibility
 
@@ -464,7 +456,6 @@ Dependencies: `xpp/allocator.h`, `xpp/option.h`, `xpp/result.h`, `xpp/span.h`,
   on move constructor / destructor paths
 - No `requires` clauses on copy — use SFINAE via `enable_if` on templated
   copy constructor instead
-- No `std::tuple` for `into_raw_parts` return — use `struct RawParts { T* ptr; size_t len; size_t cap; };`
 - No `if constexpr` — use tag dispatch or SFINAE
 - No `consteval` — no compile-time checks needed for Vec (it's a runtime type)
 
