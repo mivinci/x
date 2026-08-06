@@ -103,8 +103,16 @@ public:
     bool empty() const noexcept;
 
     /** Reserve at least `additional` more elements.
+     *  XPP_ASSERT on OOM — use try_reserve() for explicit error handling. */
+    void reserve(size_t additional);
+
+    /** Reserve at least `additional` more elements.
      *  Returns AllocError on OOM, or Ok on success. */
     Result<void, AllocError> try_reserve(size_t additional);
+
+    /** Shrink capacity to fit len(). O(n) if realloc.
+     *  XPP_ASSERT on OOM — use try_shrink_to_fit() for explicit handling. */
+    void shrink_to_fit();
 
     /** Shrink capacity to fit len(). O(n) if realloc. */
     Result<void, AllocError> try_shrink_to_fit();
@@ -126,9 +134,19 @@ public:
 
     /* ── Mutation ── */
 
+    /** Append an element. O(1) amortised.
+     *  XPP_ASSERT on OOM — use try_push() for explicit error handling. */
+    void push(T value);
+    void push(const T& value);
+
     /** Append an element. Returns AllocError on OOM. O(1) amortised. */
     Result<void, AllocError> try_push(T value);
     Result<void, AllocError> try_push(const T& value);
+
+    /** Push an element that fits within capacity without reallocating.
+     *  XPP_ASSERT(len() < capacity()) — caller must have reserved first.
+     *  O(1). Use in hot inner loops after a reserve() call. */
+    void push_unchecked(T value);
 
     /** Remove the last element. Returns None if empty. O(1). */
     Option<T> pop();
@@ -140,8 +158,18 @@ public:
     void truncate(size_t new_len);
 
     /** Resize to `new_len`, filling new slots with copies of `fill`.
+     *  Drops excess elements if shrinking. O(n) if growing.
+     *  XPP_ASSERT on OOM — use try_resize() for explicit error handling. */
+    void resize(size_t new_len, const T& fill);
+
+    /** Resize to `new_len`, filling new slots with copies of `fill`.
      *  Drops excess elements if shrinking. O(n) if growing. */
     Result<void, AllocError> try_resize(size_t new_len, const T& fill);
+
+    /** Move all elements from `other` into `this`. `other` becomes empty.
+     *  May reallocate. O(n + other.len()).
+     *  XPP_ASSERT on OOM — use try_append() for explicit error handling. */
+    void append(Vec& other);
 
     /** Move all elements from `other` into `this`. `other` becomes empty.
      *  May reallocate. O(n + other.len()). */
@@ -257,11 +285,11 @@ notes for non-trivial cases.
 | `len() → usize` | `len() → size_t` | |
 | `is_empty() → bool` | `empty() → bool` | |
 | `capacity() → usize` | `capacity() → size_t` | |
-| `reserve(n)` | `try_reserve(n) → Result` | Uses `default_grow` if allocator has no custom `grow`. Growth: `max(old*2, required, 4)`. |
+| `reserve(n)` | `reserve(n)` + `try_reserve(n) → Result` | `reserve` uses `try_reserve(...).expect("OOM")`. Growth: `max(old*2, required, 4)` via `default_grow`. |
 | `reserve_exact(n)` | `try_reserve_exact(n) → Result` | Phase 2 — minimal allocation, no amortised headroom. Rarely needed; add when demanded. |
 | `try_reserve(n)` | Same as `try_reserve` — xpp has no separate panicking path | xpp doesn't distinguish; `try_reserve` *is* the only reserve. |
 | `try_reserve_exact(n)` | Same as `try_reserve_exact` | |
-| `shrink_to_fit()` | `try_shrink_to_fit() → Result` | Reallocate to `m_len` if `m_len < m_cap`. Uses `default_shrink`. |
+| `shrink_to_fit()` | `shrink_to_fit()` + `try_shrink_to_fit() → Result` | `shrink_to_fit` uses `try_shrink_to_fit(...).expect("OOM")`. Reallocate to `m_len`. |
 | `shrink_to(n)` | Defer to L0.1 | Rarely needed. Callers can `try_reserve` + `try_shrink_to_fit`. |
 
 #### Element Access
@@ -282,15 +310,15 @@ notes for non-trivial cases.
 
 | Rust | xpp | Implementation notes |
 |------|-----|---------------------|
-| `push(value)` | `try_push(value) → Result` | xpp has no panicking path. Growth triggers `try_reserve(1)` internally. Move-assign T into new slot, increment `m_len`. |
-| `push_within_capacity(value)` | Defer to L0.1 | Specialised for hot loops where caller has already reserved. `XPP_ASSERT(m_len < m_cap)`. |
-| `try_push(value)` | Same as `try_push` — xpp has no separate API | |
+| `push(value)` | `push(value)` + `try_push(value) → Result` | `push` uses `try_push(...).expect("OOM")`. `try_push` returns `AllocError` for explicit handling. |
+| `push_within_capacity(value)` | `push_unchecked(value)` | `XPP_ASSERT(len() < cap())`. Hot-loop optimisation after `reserve()`. |
+| `try_push(value)` | `try_push(value)` — same name | |
 | `try_push_ref(&value)` | `try_push(const T&) → Result` | Copy-construct, not move. |
 | `pop() → Option<T>` | `pop() → Option<T>` | Move out last element, decrement `m_len`. `m_len==0 → None`. |
-| `append(&mut other)` | `try_append(Vec&) → Result` | `try_reserve(other.len())`, then move elements one by one, then `other.clear()`. O(other.len()). |
+| `append(&mut other)` | `append(Vec&)` + `try_append(Vec&) → Result` | `append` uses `try_append(...).expect("OOM")`. O(other.len()). |
 | `extend_from_slice(&[T])` | `try_push` loop | Not a named method — `for (auto& x : slice) v.try_push(x)` is explicit. O(n) realloc risk is visible. |
 | `extend_from_within(range)` | **Not planned** | Self-referential extension. Rare and easily misused. |
-| `resize(n, value)` | `try_resize(n, fill) → Result` | If growing: `try_reserve(n-m_len)`, then copy-construct fill into new slots. If shrinking: `truncate(n)`. |
+| `resize(n, value)` | `resize(n, fill)` + `try_resize(n, fill) → Result` | `resize` uses `try_resize(...).expect("OOM")`. |
 | `resize_with(n, f)` | Defer to L0.1 | Needs closure ergonomics. Can do `if (v.len() < n) { v.try_reserve(n - v.len()); while (v.len() < n) v.try_push(f()); }` manually. |
 | `try_resize(n, value)` | Same as `try_resize` — xpp has no panicking version | |
 
@@ -366,7 +394,7 @@ notes for non-trivial cases.
 
 | Category | Count | Decision |
 |----------|-------|----------|
-| ✅ L0 — Phase 1–3 | **27** methods | Core construction, access, mutation, split |
+| ✅ L0 — Phase 1–3 | **31** methods | Core construction, access, push/pop, reserve/resize, append, split_off, swap_remove, retain, iterators. Each grow-path has dual API: convenience (`push`, `reserve`...) using `.expect()`, and explicit (`try_push`, `try_reserve`...) returning `Result`. |
 | ⚠️ L0.1 — Deferred | **16** methods | insert/remove/drain, dedup, reverse, swap, contains, set_len, etc. |
 | ❌ Not planned | **7** methods | leak, into_boxed_slice, sort/binary_search (use `<algorithm>`), get_many_mut, extend_from_within, select/splice |
 
@@ -374,9 +402,8 @@ notes for non-trivial cases.
 
 | Rust | Why deferred | When to add |
 |------|-------------|------------|
-| `reserve_exact(n)` | Rarely needed. `try_reserve` + `try_shrink_to_fit` combo works. | First concrete use case |
+| `reserve_exact(n)` | Rarely needed. `reserve` + `shrink_to_fit` combo works. | First concrete use case |
 | `shrink_to(n)` | Same. | |
-| `push_within_capacity(v)` | Hot-loop optimisation. `XPP_ASSERT`-guarded. | When profiling shows realloc-branch overhead |
 | `resize_with(n, f)` | Closure ergonomics. Callers can loop manually. | When it becomes a common pattern |
 | `insert(index, v)` / `remove(index)` | O(n) by design. Name makes cost invisible. | If natural API wins over explicit cost |
 | `drain(range)` / `extract_if(pred)` | Iterator API design non-trivial in C++11 | If batch-remove patterns emerge |
