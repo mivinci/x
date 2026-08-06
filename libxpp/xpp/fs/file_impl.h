@@ -11,6 +11,9 @@
 #ifndef XPP_FS_FILE_IMPL_H
 #define XPP_FS_FILE_IMPL_H
 
+#include <cstddef>
+#include <cstring>
+
 #include <xpp/fs/file_adapter.h>
 
 namespace xpp {
@@ -119,14 +122,15 @@ inline Promise<Stat> File::stat() {
 }
 
 /** @brief Read the entire file into a byte vector using worker-thread pread loop. */
-inline Promise<std::vector<uint8_t>> File::read_all() {
-  if (m_fd < 0) return xpp::resolve(std::vector<uint8_t>{});
+inline Promise<Vec<uint8_t>> File::read_all() {
+  if (m_fd < 0) return xpp::resolve(Vec<uint8_t>{});
   int fd = m_fd;
-  return xpp::work([fd]() -> std::vector<uint8_t> {
+  return xpp::work([fd]() -> Vec<uint8_t> {
     struct ::stat st;
     if (::fstat(fd, &st) != 0) return {};
-    size_t               file_size = static_cast<size_t>(st.st_size);
-    std::vector<uint8_t> buf(file_size);
+    size_t       file_size = static_cast<size_t>(st.st_size);
+    Vec<uint8_t> buf;
+    buf.resize(file_size, static_cast<uint8_t>(0));
     if (file_size > 0) {
       size_t total = 0;
       while (total < file_size) {
@@ -134,7 +138,9 @@ inline Promise<std::vector<uint8_t>> File::read_all() {
         if (n <= 0) break;
         total += static_cast<size_t>(n);
       }
-      buf.resize(total);
+      if (total < file_size) {
+        buf.resize(total, static_cast<uint8_t>(0));
+      }
     }
     return buf;
   });
@@ -166,12 +172,13 @@ inline Promise<std::string> File::read_to_string() {
 inline Promise<void> File::write_all(const void *buf, size_t len) {
   if (m_fd < 0) return xpp::yield();
   int                  fd = m_fd;
-  std::vector<uint8_t> data(static_cast<const uint8_t *>(buf),
-                            static_cast<const uint8_t *>(buf) + len);
+  Vec<uint8_t> data;
+  data.resize(len, static_cast<uint8_t>(0));
+  std::memcpy(data.data(), buf, len);
   return xpp::work([fd, data = std::move(data)] {
     size_t total = 0;
-    while (total < data.size()) {
-      ssize_t n = ::pwrite(fd, data.data() + total, data.size() - total, static_cast<off_t>(total));
+    while (total < data.len()) {
+      ssize_t n = ::pwrite(fd, data.data() + total, data.len() - total, static_cast<off_t>(total));
       if (n <= 0) break;
       total += static_cast<size_t>(n);
     }
@@ -191,10 +198,10 @@ inline Promise<bool> exists(const char *path) {
 }
 
 /** @brief Open and read an entire file into a byte vector. */
-inline Promise<std::vector<uint8_t>> read(const char *path) {
+inline Promise<Vec<uint8_t>> read(const char *path) {
   return File::open(path).then([](File f) {
     return f.read_all().then(
-      [f = std::move(f)](std::vector<uint8_t> data) { return std::move(data); });
+      [f = std::move(f)](Vec<uint8_t> data) { return std::move(data); });
   });
 }
 

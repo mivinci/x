@@ -21,10 +21,9 @@
 #ifndef XPP_SYNC_NOTIFY_H
 #define XPP_SYNC_NOTIFY_H
 
-#include <vector>
-
 #include <xpp/loom/mutex.h>
 #include <xpp/promise.h>
+#include <xpp/vec.h>
 #include <xpp/loom/internal.h>
 
 namespace xpp {
@@ -70,7 +69,7 @@ public:
       return std::move(p);
     }
     auto [p, r] = xpp::async<void>();
-    g->emplace_back(std::move(r));
+    g->push(std::move(r));
     return std::move(p);
   }
 
@@ -87,8 +86,7 @@ public:
     {
       auto g = m_waiters.lock();
       if (!g->empty()) {
-        r = std::move(g->back());
-        g->pop_back();
+        r = std::move(g->pop().unwrap());
       }
     } // lock released
     if (r.is_pending()) {
@@ -106,7 +104,7 @@ public:
    * notified() call resolves immediately.
    */
   void notify_waiters() {
-    std::vector<xpp::PromiseResolver<void>> waiters;
+    Vec<xpp::PromiseResolver<void>> waiters;
     {
       auto g = m_waiters.lock();
       waiters = std::move(*g);
@@ -124,7 +122,7 @@ public:
 private:
   // TODO: replace with a lock-free linked list, and fold m_pending into
   // a single AtomicUsize with state bits, matching tokio's pattern.
-  xpp::loom::Mutex<std::vector<xpp::PromiseResolver<void>>> m_waiters;
+  xpp::loom::Mutex<Vec<xpp::PromiseResolver<void>>> m_waiters;
   xpp::loom::_::Atomic<size_t>                              m_pending{0};
 };
 

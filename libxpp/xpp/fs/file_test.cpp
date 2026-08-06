@@ -195,7 +195,7 @@ TEST_F(FsFileTest, ReadAll) {
 
   auto file = xpp::fs::File::open(m_path.c_str()).await();
   auto data = file.read_all().await();
-  ASSERT_EQ(data.size(), 16u);
+  ASSERT_EQ(data.len(), 16u);
   EXPECT_EQ(memcmp(data.data(), "read all content", 16), 0);
 }
 
@@ -217,7 +217,7 @@ TEST_F(FsFileTest, FreeReadByPath) {
   xpp::WaitScope scope(loop);
 
   auto data = xpp::fs::read(m_path.c_str()).await();
-  ASSERT_EQ(data.size(), 9u);
+  ASSERT_EQ(data.len(), 9u);
   EXPECT_EQ(memcmp(data.data(), "free read", 9), 0);
 }
 
@@ -295,7 +295,7 @@ TEST_F(FsFileTest, RenameFile) {
   // New path should exist with correct content
   EXPECT_EQ(::stat(new_path.c_str(), &st), 0);
   auto data = xpp::fs::read(new_path.c_str()).await();
-  ASSERT_EQ(data.size(), 16u);
+  ASSERT_EQ(data.len(), 16u);
   EXPECT_EQ(memcmp(data.data(), "original content", 16), 0);
 
   unlink(new_path.c_str());

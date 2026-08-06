@@ -21,7 +21,8 @@
 #include <cstdint>
 #include <cstring>
 #include <utility>
-#include <vector>
+
+#include <xpp/vec.h>
 
 #include <xpp/promise.h>
 
@@ -41,7 +42,7 @@ namespace _ {
  * that count > 0 (for read) or count < size (for write).
  */
 struct RingBuf {
-  std::vector<uint8_t>  buf;            // Underlying byte storage.
+  Vec<uint8_t>          buf;            // Underlying byte storage.
   size_t                rpos   = 0;     // Next read position (circular).
   size_t                wpos   = 0;     // Next write position (circular).
   size_t                count  = 0;     // Bytes currently buffered.
@@ -49,7 +50,7 @@ struct RingBuf {
   PromiseResolver<void> read_waiter;    // Resolves when data becomes available.
   PromiseResolver<void> write_waiter;   // Resolves when space becomes available.
 
-  explicit RingBuf(size_t size) : buf(size) {}
+  explicit RingBuf(size_t size) { buf.resize(size, static_cast<uint8_t>(0)); }
 
   /** @brief Read up to @p len bytes into @p dst. Returns bytes copied. */
   size_t do_read(void *dst, size_t len) noexcept;
@@ -72,8 +73,8 @@ struct RingBuf {
 inline size_t RingBuf::do_read(void *dst, size_t len) noexcept {
   size_t n     = len < count ? len : count;
   size_t first = rpos;
-  if (first + n > buf.size()) {
-    size_t chunk = buf.size() - first;
+  if (first + n > buf.len()) {
+    size_t chunk = buf.len() - first;
     std::memcpy(dst, buf.data() + first, chunk);
     size_t rem = n - chunk;
     std::memcpy(static_cast<uint8_t *>(dst) + chunk, buf.data(), rem);
@@ -89,8 +90,8 @@ inline size_t RingBuf::do_read(void *dst, size_t len) noexcept {
 inline size_t RingBuf::do_write(const void *src, size_t len) noexcept {
   const uint8_t *s   = static_cast<const uint8_t *>(src);
   size_t         pos = wpos;
-  if (pos + len > buf.size()) {
-    size_t chunk = buf.size() - pos;
+  if (pos + len > buf.len()) {
+    size_t chunk = buf.len() - pos;
     std::memcpy(buf.data() + pos, s, chunk);
     size_t rem = len - chunk;
     std::memcpy(buf.data(), s + chunk, rem);

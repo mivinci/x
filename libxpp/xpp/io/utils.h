@@ -20,10 +20,11 @@
 #include <sys/types.h>
 
 #include <cstddef>
-#include <vector>
+#include <cstddef>
 
 #include <xpp/promise.h>
 #include <xpp/shared.h>
+#include <xpp/vec.h>
 
 namespace xpp {
 namespace io {
@@ -68,13 +69,13 @@ concept AsyncReadWriter = AsyncReader<T> && AsyncWriter<T>;
  *
  * @tparam R Reader type satisfying AsyncReader (e.g., TcpStream, fs::File)
  */
-template <AsyncReader R> Promise<std::vector<uint8_t>> read_all(R &reader) {
-  std::vector<uint8_t> result;
-  uint8_t              buf[8192];
+template <AsyncReader R> Promise<Vec<uint8_t>> read_all(R &reader) {
+  Vec<uint8_t> result;
+  uint8_t      buf[8192];
   while (true) {
     ssize_t n = co_await reader.read(buf, sizeof(buf));
     if (n <= 0) break;
-    result.insert(result.end(), buf, buf + n);
+    for (ssize_t i = 0; i < n; i++) result.push(buf[i]);
   }
   co_return result;
 }
@@ -108,13 +109,13 @@ template <AsyncReader R, AsyncWriter W> Promise<void> copy(R &reader, W &writer)
  * No struct, no Shared, no std::move(*this) — just linear code.
  * ─────────────────────────────────────────────────────────────────── */
 
-template <class R> Promise<std::vector<uint8_t>> read_all(R &reader) {
-  std::vector<uint8_t> result;
-  uint8_t              buf[_::kBufSize];
+template <class R> Promise<Vec<uint8_t>> read_all(R &reader) {
+  Vec<uint8_t> result;
+  uint8_t      buf[_::kBufSize];
   while (true) {
     ssize_t n = reader.read(buf, sizeof(buf)).await();
     if (n <= 0) break;
-    result.insert(result.end(), buf, buf + n);
+    for (ssize_t i = 0; i < n; i++) result.push(buf[i]);
   }
   return xpp::resolve(std::move(result));
 }
@@ -161,10 +162,10 @@ template <class R, class W> Promise<void> copy(R &reader, W &writer) {
  * @tparam R Duck-typed: R::read(void*, size_t) must return a then-able
  *           resolving to ssize_t. n <= 0 terminates the loop.
  */
-template <class R> Promise<std::vector<uint8_t>> read_all(R &reader) {
+template <class R> Promise<Vec<uint8_t>> read_all(R &reader) {
   struct State {
-    std::vector<uint8_t> data;
-    uint8_t              buf[_::kBufSize];
+    Vec<uint8_t> data;
+    uint8_t      buf[_::kBufSize];
   };
   auto state = xpp::Shared<State>::make();
 
@@ -172,11 +173,11 @@ template <class R> Promise<std::vector<uint8_t>> read_all(R &reader) {
     R                 &reader;
     xpp::Shared<State> state;
 
-    Promise<std::vector<uint8_t>> operator()() {
+    Promise<Vec<uint8_t>> operator()() {
       return reader.read(state->buf, sizeof(state->buf))
         .then([self = std::move(*this)](ssize_t n) mutable {
           if (n <= 0) return xpp::resolve(std::move(self.state->data));
-          self.state->data.insert(self.state->data.end(), self.state->buf, self.state->buf + n);
+          for (ssize_t i = 0; i < n; i++) self.state->data.push(self.state->buf[i]);
           return self(); // tail-recursive via Promise chain
         });
     }

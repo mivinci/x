@@ -122,6 +122,9 @@ public:
   /* ── Capacity ────────────────────────────────────────────────────── */
 
   size_t len()      const noexcept { return m_data.first().len; }
+  /** Equivalent to len() — provided for generic code compatibility
+   *  with templates that expect size(). */
+  size_t size()     const noexcept { return len(); }
   size_t capacity() const noexcept { return m_data.first().cap; }
   bool   empty()    const noexcept { return len() == 0; }
 
