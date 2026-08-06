@@ -91,6 +91,14 @@ public:
     /** Consume the String and recover the underlying byte buffer. O(1). */
     std::vector<uint8_t> into_bytes() && noexcept;
 
+    /** Consume the String and return a std::string. O(1) — the internal
+     *  byte buffer is reinterpret_cast'd to std::string (same layout,
+     *  same allocator, just a type-level encoding promise removed).
+     *
+     *  Useful for interop with std APIs (file paths, logging, HTTP body).
+     */
+    std::string into_std_string() && noexcept;
+
     /* ── Length ── */
 
     /** Byte count. O(1). Equivalent to as_bytes().size(). */
@@ -179,6 +187,15 @@ public:
 
     bool operator==(const Chars& other) const noexcept;
     bool operator!=(const Chars& other) const noexcept;
+
+    /** Count remaining code points. O(remaining).
+     *
+     *  Equivalent to Rust's Chars::count(). Consumes the iterator view
+     *  (reads through to end) but does NOT modify the underlying String.
+     *  Since Chars copies are cheap (two pointers), this copies the
+     *  position and counts from there.
+     */
+    size_t count() const noexcept;
 
     /** Sentinel for range-for. */
     static Chars end() noexcept;
@@ -341,6 +358,7 @@ equivalent (or explains why it's deferred). Legend:
 | `as_bytes() -> &[u8]` | `as_bytes() -> Span<const uint8_t>` | ✅ L0 | O(1), no copy |
 | `as_str() -> &str` | (no Str type yet) | ⚠️ L0 | Requires `Str` borrowed type. Deferred. |
 | `into_bytes() -> Vec<u8>` | `into_bytes() -> vector<uint8_t>` | ✅ L0 | Consuming, O(1) |
+| `into_std_string()` | `into_std_string() -> std::string` | ✅ L0 | `reinterpret_cast` of internal bytes. O(1). std interop (paths, HTTP, logging). |
 | `into_boxed_str()` | — | ❌ | No `Box<str>` equivalent in C++ |
 | `from_raw_parts` / `into_raw_parts` | — | ❌ | Unsafe internals, not for public API |
 
@@ -426,6 +444,7 @@ equivalent (or explains why it's deferred). Legend:
 | Rust | xpp equivalent | Tag | Notes |
 |------|---------------|-----|-------|
 | `chars() -> Chars` | `chars() -> Chars` | ✅ L0 | Code point iterator, already in design |
+| `Chars::count()` | `Chars::count()` | ✅ L0 | Count remaining code points. O(remaining). Copies iterator position, does not modify String. |
 | `char_indices() -> CharIndices` | `char_indices() -> CharIndices` | ⚠️ L0 | `(byte_offset, char32_t)` pairs. Trivial to add. Deferred. |
 | `bytes() -> Bytes` | Use `as_bytes()` or range-for on `Span` | ✅ L0 | `Span<const uint8_t>` is iterable. No separate Bytes type needed. |
 | `split_whitespace()` | — | ❌ L1 | Unicode whitespace table needed |
@@ -445,7 +464,7 @@ equivalent (or explains why it's deferred). Legend:
 
 | Category | Count |
 |----------|-------|
-| ✅ L0 — implement now | **28** methods |
+| ✅ L0 — implement now | **30** methods |
 | ⚠️ L0 — defer to L0.1 | **14** methods (iterators, lossy, retain, ascii_case) |
 | ❌ L1 — `libxpp-ext/unicode` | **9** methods (case, normalize, grapheme, utf16) |
 
