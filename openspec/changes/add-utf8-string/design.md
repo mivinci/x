@@ -91,14 +91,13 @@ public:
     /** Consume the String and recover the underlying byte buffer. O(1). */
     std::vector<uint8_t> into_bytes() && noexcept;
 
-    /** Consume the String and return a std::string. The internal byte
-     *  buffer is copied into a std::string (O(n)). For zero-copy interop,
-     *  callers should use as_bytes() which provides a Span<const uint8_t>
-     *  view without allocation.
+    /** Return a std::string copy of the internal bytes. O(n) — allocates
+     *  and copies. Does NOT consume the String (unlike into_bytes()).
      *
-     *  Useful for interop with std APIs (file paths, logging, HTTP body).
+     *  Use as_bytes() for zero-copy interop; use this when you need an
+     *  owning std::string for an API that requires one.
      */
-    std::string into_std_string() &&;
+    std::string to_std_string() const;
 
     /* ── Length ── */
 
@@ -404,7 +403,7 @@ equivalent (or explains why it's deferred). Legend:
 | `as_bytes() -> &[u8]` | `as_bytes() -> Span<const uint8_t>` | ✅ L0 | O(1), no copy |
 | `as_str() -> &str` | (no Str type yet) | ⚠️ L0 | Requires `Str` borrowed type. Deferred. |
 | `into_bytes() -> Vec<u8>` | `into_bytes() -> vector<uint8_t>` | ✅ L0 | Consuming, O(1) |
-| `into_std_string()` | `into_std_string() -> std::string` | ✅ L0 | `reinterpret_cast` of internal bytes. O(1). std interop (paths, HTTP, logging). |
+| `to_string()` | `to_std_string() -> std::string` | ✅ L0 | O(n) copy. Non-consuming interop (paths, HTTP, logging). |
 | `into_boxed_str()` | — | ❌ | No `Box<str>` equivalent in C++ |
 | `from_raw_parts` / `into_raw_parts` | — | ❌ | Unsafe internals, not for public API |
 
