@@ -221,7 +221,8 @@ public:
     void clear();
 
     /** Split at a code point boundary. Returns the tail String,
-     *  leaving this with [0, byte_pos). O(1) — reuses Vec::split_off(). */
+     *  leaving this with [0, byte_pos). O(tail length) — reuses
+     *  Vec::split_off(), which copies the tail elements. */
     String split_off(size_t byte_pos);
 
     /** Replace all occurrences of `from` with `to`. Returns a new String. O(n). */
@@ -286,14 +287,14 @@ private:
  *  Usage:
  *    for (char32_t cp : s.chars()) { ... }             // range-for
  *    auto it = s.chars();
- *    while (it != Chars::npos()) { char32_t c = *it; ++it; }
+ *    auto end = it.end();
+ *    while (it != end) { char32_t c = *it; ++it; }
  *
  *  Note: begin()/end() are instance methods for range-for support.
- *  npos() is a static factory returning the end sentinel — named
- *  after std::string::npos, the canonical C++ "not-a-position" marker.
- *  We intentionally do NOT provide a static end() because it would
- *  shadow the non-static end() required by range-for (C++ forbids
- *  overloading static vs non-static with the same name).
+ *  Manual loops capture end() once — Chars::end() returns a sentinel
+ *  with m_pos == m_end pointing to the real buffer end, which is NOT
+ *  nullptr. A static factory returning (nullptr, nullptr) would never
+ *  match a real iterator's end state (m_pos == m_end == data+len).
  */
 class Chars {
 public:
@@ -319,11 +320,6 @@ public:
     /** Sentinel at the end of the byte range. Range-for calls this
      *  to get the termination condition. */
     Chars end() const { return Chars(m_end, m_end); }
-
-    /** End sentinel for manual while-loops. Static to avoid conflict
-     *  with the instance end() needed by range-for. Named after
-     *  std::string::npos — the canonical C++ "not a position" value. */
-    static Chars npos() noexcept { return Chars(nullptr, nullptr); }
 
 private:
     friend class String;
@@ -368,7 +364,6 @@ Single-pass scan with a tiny state machine — no tables:
 size_t validate_utf8(const uint8_t* p, size_t len) {
     for (size_t i = 0; i < len; i++) {
         if (p[i] < 0x80) continue;
-        size_t start = i;
         uint32_t cp;
         if ((p[i] & 0xE0) == 0xC0) {
             if (i + 1 >= len) return i;
@@ -493,9 +488,10 @@ and `std::string` have different memory layouts (SSO).
 Option<char32_t> String::pop() {
     if (m_bytes.len() == 0) return none;
 
-    // Walk backwards to find the start of the last code point
+    // Walk backwards to find the start of the last code point.
+    // Continuation bytes have the form 10xxxxxx.
     size_t pos = m_bytes.len() - 1;
-    while (pos > 0 && is_continuation_byte(m_bytes[pos])) {
+    while (pos > 0 && (m_bytes[pos] & 0xC0) == 0x80) {
         pos--;
     }
 
@@ -530,7 +526,7 @@ zero overhead beyond the `Vec` itself. A custom stateful allocator grows
 | `from_utf8("\xF4\x90\x80\x80")` | Err — exceeds U+10FFFF |
 | `s.substr(1, 3)` on `"你好"` | Assert fails — offset 1 is continuation byte |
 | `s.substr(0, 3)` on `"你好"` | Returns `"你"` |
-| `s.chars()` on empty | iterator == Chars::npos() immediately |
+| `s.chars()` on empty | `it == it.end()` immediately (m_pos == m_end == nullptr) |
 | `s.char_len()` on empty | 0 |
 | `s.pop()` on empty | `Option<char32_t>` = None |
 | `s.pop()` on `"a"` | Returns `Some('a')`, string becomes empty |
