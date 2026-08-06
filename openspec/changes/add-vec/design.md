@@ -224,60 +224,169 @@ sizeof(Span<T>)    == 16 (ptr + len, same as always)
 No hidden allocations beyond the heap buffer. EBO eliminates allocator overhead
 for the default `GlobalAllocator`.
 
-## Rust Vec Method Coverage
+## Rust Vec Method Coverage — Full Analysis
 
-### ✅ L0 — Implement now
+Each Rust `Vec` method is mapped to the xpp equivalent, with implementation
+notes for non-trivial cases.
 
-| Rust | xpp | Notes |
-|------|-----|-------|
-| `Vec::new()` | `Vec()` | Default constructor |
-| `Vec::with_capacity(n)` | `Vec(size_t capacity)` | |
-| `Vec::len()` | `len()` | |
-| `Vec::capacity()` | `capacity()` | |
-| `Vec::is_empty()` | `empty()` | |
-| `Vec::as_slice()` / `as_mut_slice()` | `as_span()` | |
-| `Vec::as_ptr()` / `as_mut_ptr()` | `data()` | |
-| `Vec::get(index)` | `get(index) → Option<T&>` | |
-| `Vec::first()` / `last()` | `first()` / `last()` | |
-| `Vec::push(value)` | `try_push(value) → Result` | Returns AllocError on OOM |
-| `Vec::pop()` | `pop() → Option<T>` | |
-| `Vec::clear()` | `clear()` | |
-| `Vec::truncate(n)` | `truncate(n)` | |
-| `Vec::resize(n, fill)` | `try_resize(n, fill) → Result` | |
-| `Vec::reserve(n)` | `try_reserve(n) → Result` | |
-| `Vec::shrink_to_fit()` | `try_shrink_to_fit() → Result` | |
-| `Vec::append(&mut other)` | `try_append(Vec&) → Result` | |
-| `Vec::split_off(at)` | `split_off(at) → Vec` | |
-| `Vec::swap_remove(index)` | `swap_remove(index)` | |
-| `Vec::retain(pred)` | `retain(pred)` | |
-| `Vec::into_raw_parts()` | `into_raw_parts() → (ptr, len, cap)` | |
-| `Vec::from_raw_parts(...)` | `from_raw_parts(ptr, len, cap)` | |
-| `Index` / `IndexMut` | `operator[]` | No bounds check (debug assertion) |
-| `IntoIterator` / `Iter` / `IterMut` | `begin()` / `end()` | Raw pointers as iterators |
-| `Vec::extend_from_slice()` | `try_push` loop | Not a named method — O(n) realloc risk is explicit |
+### ✅ L0 — Implement now (Phase 1–3)
 
-**L0 total: 25 methods**
+#### Construction & Decomposition
 
-### ⚠️ L0.1 — Deferred (nice to have, not blocking)
+| Rust | xpp | Implementation notes |
+|------|-----|---------------------|
+| `Vec::new()` | `Vec()` | Default constructor. `m_ptr=nullptr, m_len=0, m_cap=0`. |
+| `Vec::with_capacity(n)` | `Vec(size_t cap, Alloc a={})` | `allocate(Layout::array(n, alignof(T)))`. Fails means Vec is empty — constructor can't return Result, so use a two-phase init: `Vec v; v.try_reserve(n)`. Or make the capacity-constructor abort on OOM (debug assertion). |
+| `Vec::from_raw_parts(ptr,len,cap)` | `from_raw_parts(T*,size_t,size_t,Alloc)` | Reconstruct after `into_raw_parts`. Caller guarantees validity. `XPP_ASSERT` `ptr` is non-null or `cap==0`. |
+| `Vec::into_raw_parts()` | `into_raw_parts() → RawParts` | Move out fields, leave `this` in default state. `RawParts` is `struct { T* ptr; size_t len; size_t cap; }`. |
+| `Vec::into_raw_parts_with_alloc()` | Not needed | xpp `allocator()` accessor already provides this separately. |
 
-| Rust | Why deferred |
-|------|-------------|
-| `Vec::insert(index, value)` | O(n) shift — hide the cost |
-| `Vec::remove(index)` | Same as above |
-| `Vec::drain(range)` | Needs C++11 iterator-pair API design |
-| `Vec::splice(range, other)` | Complex — low demand |
-| `Vec::dedup()` / `dedup_by()` | Needs `PartialEq` trait or comparator |
-| `Vec::resize_with(n, fn)` | Needs `FnOnce`/closure ergonomics |
-| `Vec::extract_if(pred)` | C++11 lambda capture limits |
-| `Vec::sort()` / `binary_search()` | Use `<algorithm>` directly on `data()` |
+#### Borrowing & Views
 
-### ❌ Not planned
+| Rust | xpp | Implementation notes |
+|------|-----|---------------------|
+| `as_slice() → &[T]` | `as_span() → Span<const T>` | `Span(m_ptr, m_len)`. Zero-cost view. |
+| `as_mut_slice() → &mut [T]` | `as_span() → Span<T>` (non-const overload) | Same, non-const. |
+| `as_ptr() → *const T` | `data() → const T*` | Direct pointer access. Valid until next mutation. |
+| `as_mut_ptr() → *mut T` | `data() → T*` (non-const overload) | Same, non-const. |
 
-| Rust | Reason |
-|------|--------|
-| `Vec::leak()` | Intentionally leaking is anti-RAII in C++ |
-| `Vec::into_boxed_slice()` | xpp has no `Box<[T]>` equivalent |
-| `Vec::try_collect()` | Requires Rust-style `FromIterator` trait |
+#### Capacity
+
+| Rust | xpp | Implementation notes |
+|------|-----|---------------------|
+| `len() → usize` | `len() → size_t` | |
+| `is_empty() → bool` | `empty() → bool` | |
+| `capacity() → usize` | `capacity() → size_t` | |
+| `reserve(n)` | `try_reserve(n) → Result` | Uses `default_grow` if allocator has no custom `grow`. Growth: `max(old*2, required, 4)`. |
+| `reserve_exact(n)` | `try_reserve_exact(n) → Result` | Phase 2 — minimal allocation, no amortised headroom. Rarely needed; add when demanded. |
+| `try_reserve(n)` | Same as `try_reserve` — xpp has no separate panicking path | xpp doesn't distinguish; `try_reserve` *is* the only reserve. |
+| `try_reserve_exact(n)` | Same as `try_reserve_exact` | |
+| `shrink_to_fit()` | `try_shrink_to_fit() → Result` | Reallocate to `m_len` if `m_len < m_cap`. Uses `default_shrink`. |
+| `shrink_to(n)` | Defer to L0.1 | Rarely needed. Callers can `try_reserve` + `try_shrink_to_fit`. |
+
+#### Element Access
+
+| Rust | xpp | Implementation notes |
+|------|-----|---------------------|
+| `operator[] → &T` (Index) | `operator[](size_t) → T&` | `XPP_ASSERT(index < m_len)`. No bounds check in release. |
+| `operator[] → &mut T` (IndexMut) | Same via non-const overload | |
+| `get(i) → Option<&T>` | `get(i) → Option<T&>` | Bounds-checked. `i >= m_len → None`. |
+| `get_mut(i) → Option<&mut T>` | `get(i) → Option<T&>` (non-const) | Same. |
+| `first() → Option<&T>` | `first() → T&` | xpp version asserts non-empty. Callers check `empty()` first. |
+| `first_mut() → Option<&mut T>` | `first() → T&` (non-const) | Same. |
+| `last() → Option<&T>` | `last() → T&` | Same pattern. |
+| `last_mut() → Option<&mut T>` | `last() → T&` (non-const) | Same. |
+| `get_many_mut([i,j])` | **Not planned** | Requires compile-time index-distinctness checking. C++ can't express this safely. |
+
+#### Mutation — Growth
+
+| Rust | xpp | Implementation notes |
+|------|-----|---------------------|
+| `push(value)` | `try_push(value) → Result` | xpp has no panicking path. Growth triggers `try_reserve(1)` internally. Move-assign T into new slot, increment `m_len`. |
+| `push_within_capacity(value)` | Defer to L0.1 | Specialised for hot loops where caller has already reserved. `XPP_ASSERT(m_len < m_cap)`. |
+| `try_push(value)` | Same as `try_push` — xpp has no separate API | |
+| `try_push_ref(&value)` | `try_push(const T&) → Result` | Copy-construct, not move. |
+| `pop() → Option<T>` | `pop() → Option<T>` | Move out last element, decrement `m_len`. `m_len==0 → None`. |
+| `append(&mut other)` | `try_append(Vec&) → Result` | `try_reserve(other.len())`, then move elements one by one, then `other.clear()`. O(other.len()). |
+| `extend_from_slice(&[T])` | `try_push` loop | Not a named method — `for (auto& x : slice) v.try_push(x)` is explicit. O(n) realloc risk is visible. |
+| `extend_from_within(range)` | **Not planned** | Self-referential extension. Rare and easily misused. |
+| `resize(n, value)` | `try_resize(n, fill) → Result` | If growing: `try_reserve(n-m_len)`, then copy-construct fill into new slots. If shrinking: `truncate(n)`. |
+| `resize_with(n, f)` | Defer to L0.1 | Needs closure ergonomics. Can do `if (v.len() < n) { v.try_reserve(n - v.len()); while (v.len() < n) v.try_push(f()); }` manually. |
+| `try_resize(n, value)` | Same as `try_resize` — xpp has no panicking version | |
+
+#### Mutation — Shrink / Remove
+
+| Rust | xpp | Implementation notes |
+|------|-----|---------------------|
+| `clear()` | `clear()` | Call `~T()` on each element (reverse order), set `m_len=0`. Does NOT free capacity. |
+| `truncate(n)` | `truncate(n)` | If `n < m_len`: destroy elements `[n, m_len)`, set `m_len=n`. O(1) if n >= m_len. |
+| `drain(range)` | Defer to L0.1 | Returns an iterator that yields removed elements. C++11 needs iterator-pair API carefully designed to avoid dangling. |
+| `retain(f)` | `retain(pred)` | Two-pointer scan: read ptr skips rejected elements; write ptr compact-saves kept elements. Destroy tail. O(n). |
+| `retain_mut(f)` | `retain(pred)` (pred takes `T&`) | Same algorithm, mutable predicate. |
+| `dedup()` | Defer to L0.1 | Needs `operator==` on T. Two-pointer compact: `if (*read != *write) swap; write++`. |
+| `dedup_by(f)` | Defer to L0.1 | Same with custom comparator `bool(*)(const T&, const T&)`. |
+| `dedup_by_key(f)` | Defer to L0.1 | Same with key extractor `K(*)(const T&)`. Rarely needed. |
+| `remove(index)` | Defer to L0.1 | O(n) by design (all subsequent elements shift left). Use `swap_remove` for O(1) unordered removal. |
+| `swap_remove(index)` | `swap_remove(index)` | Replace `self[index]` with `self.last()`, then pop(). O(1). Does NOT preserve order. |
+| `extract_if(pred)` | Defer to L0.1 | Like `drain` but with predicate. C++11 lambdas less ergonomic. |
+
+#### Splitting
+
+| Rust | xpp | Implementation notes |
+|------|-----|---------------------|
+| `split_off(at)` | `split_off(at) → Vec` | Create new Vec with capacity `m_len - at`, move elements `[at, m_len)` into it. `this` retains `[0, at)`. O(n) copy. |
+| `split_at(n) → (&[T], &[T])` | Defer to L0.1 | Returns two Span views. Non-owning, trivial — just two `Span(m_ptr, n)` and `Span(m_ptr+n, m_len-n)`. |
+| `split_at_mut(n)` | Defer to L0.1 | Same, mutable. |
+
+#### Reordering
+
+| Rust | xpp | Implementation notes |
+|------|-----|---------------------|
+| `reverse()` | Defer to L0.1 | `std::swap(m_ptr[i], m_ptr[len-1-i])` loop. 10 lines. |
+| `swap(i, j)` | Defer to L0.1 | `std::swap(m_ptr[i], m_ptr[j])`. 3 lines. |
+| `sort()` / `sort_by()` ... | **Not planned** | Use `std::sort(v.begin(), v.end())` directly. No wrapper needed. |
+| `select_nth_unstable()` | **Not planned** | `<algorithm>` provides `std::nth_element`. |
+
+#### Search
+
+| Rust | xpp | Implementation notes |
+|------|-----|---------------------|
+| `binary_search(&T)` | **Not planned** | Use `std::binary_search(v.begin(), v.end(), val)`. |
+| `binary_search_by(f)` | **Not planned** | Use `std::binary_search` with custom comparator. |
+| `contains(&T)` | Defer to L0.1 | Trivial: `std::find(begin(), end(), val) != end()`. 3 lines. |
+
+#### Iteration
+
+| Rust | xpp | Implementation notes |
+|------|-----|---------------------|
+| `iter() → Iter<T>` | `begin() → const T*` / `end() → const T*` | Raw pointers are valid C++ iterators. Range-for works: `for (auto& x : v)`. |
+| `iter_mut() → IterMut<T>` | `begin() → T*` / `end() → T*` (non-const) | Same, mutable. |
+| `IntoIterator for Vec` | Same — move iterates over owned elements | `for (auto& x : std::move(v))` — but ownership semantics differ from Rust. Use `pop()` loop for consuming iteration. |
+| `IntoIterator for &Vec` | `begin()` const overload | |
+| `IntoIterator for &mut Vec` | `begin()` non-const overload | |
+
+#### Conversion
+
+| Rust | xpp | Implementation notes |
+|------|-----|---------------------|
+| `into_boxed_slice() → Box<[T]>` | **Not planned** | xpp has no `Box<[T]>` type. |
+| `leak() → &'static mut [T]` | **Not planned** | Intentionally leaking memory violates RAII principles. |
+
+#### Unsafe / Low-level
+
+| Rust | xpp | Implementation notes |
+|------|-----|---------------------|
+| `set_len(n)` | Defer to L0.1 | Extremely dangerous — sets `m_len` without initialising elements. Only for `MaybeUninit`-style manual init. Mark `XPP_UNSAFE`. |
+| `spare_capacity_mut()` | Defer to L0.1 | Returns slice of uninitialised capacity. For manual init patterns. |
+| `split_at_spare_mut()` | **Not planned** | Very niche — manual init with splitting. |
+
+---
+
+### Summary
+
+| Category | Count | Decision |
+|----------|-------|----------|
+| ✅ L0 — Phase 1–3 | **27** methods | Core construction, access, mutation, split |
+| ⚠️ L0.1 — Deferred | **16** methods | insert/remove/drain, dedup, reverse, swap, contains, set_len, etc. |
+| ❌ Not planned | **7** methods | leak, into_boxed_slice, sort/binary_search (use `<algorithm>`), get_many_mut, extend_from_within, select/splice |
+
+### ⚠️ L0.1 — Deferred (detailed rationale)
+
+| Rust | Why deferred | When to add |
+|------|-------------|------------|
+| `reserve_exact(n)` | Rarely needed. `try_reserve` + `try_shrink_to_fit` combo works. | First concrete use case |
+| `shrink_to(n)` | Same. | |
+| `push_within_capacity(v)` | Hot-loop optimisation. `XPP_ASSERT`-guarded. | When profiling shows realloc-branch overhead |
+| `resize_with(n, f)` | Closure ergonomics. Callers can loop manually. | When it becomes a common pattern |
+| `insert(index, v)` / `remove(index)` | O(n) by design. Name makes cost invisible. | If natural API wins over explicit cost |
+| `drain(range)` / `extract_if(pred)` | Iterator API design non-trivial in C++11 | If batch-remove patterns emerge |
+| `dedup()` / `dedup_by()` | Needs `operator==` or comparator. | When duplicate-removal is common |
+| `reverse()` | Trivial algorithm, callers can write inline. | When used in 3+ places |
+| `swap(i, j)` | Same — `std::swap` is one line. | |
+| `contains(&T)` | `std::find` one-liner. | When used in 3+ places |
+| `split_at(n)` | Trivial — two `Span` views. | When used in 3+ places |
+| `set_len(n)` | Extremely dangerous. Needs `XPP_UNSAFE` annotation. | Only if manual initialisation is required |
+| `spare_capacity_mut()` | Niche — manual init patterns. | Same as above |
 
 ## What's NOT Provided
 
