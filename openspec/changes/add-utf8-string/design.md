@@ -309,16 +309,170 @@ No hidden allocations beyond the byte vector's heap buffer.
 | `s.char_len()` on empty | 0 |
 | `"é" == "e\u0301"` | false (byte-wise comparison, NFC not applied) |
 
-## What's NOT in L0
+## Rust `String` Method Coverage
 
-- `operator[](size_t)` — no random code point access
-- `to_lowercase()` / `to_uppercase()` — needs Unicode case folding table
-- NFC / NFD normalization — needs decomposition tables
-- `find(char32_t)` — use `find("\xE4\xBD\xA0")` (UTF-8 literal) instead
-- `replace(char32_t, char32_t)` — compose from `find` + `substr` + `push`
-- Grapheme cluster iteration — needs UCD grapheme break property table
+This section maps every method on Rust's `std::string::String` to xpp's
+equivalent (or explains why it's deferred). Legend:
 
-All of the above are natural candidates for `libxpp-ext/unicode`.
+| Tag | Meaning |
+|-----|---------|
+| ✅ L0 | Implemented in xpp `String` — no Unicode tables needed |
+| ⚠️ L0 | Implementable but deferred (edge cases, iterator complexity) |
+| ❌ L1 | Needs Unicode tables — belongs in `libxpp-ext/unicode` |
+
+---
+
+### 1. Construction
+
+| Rust | xpp equivalent | Tag | Notes |
+|------|---------------|-----|-------|
+| `String::new()` | `String()` default constructor | ✅ L0 | Empty string, zero allocation |
+| `String::with_capacity(n)` | `String::with_capacity(size_t n)` | ✅ L0 | Forward to `vector.reserve(n)` |
+| `String::from_utf8(Vec<u8>)` | `String::from_utf8(vector<uint8_t>)` | ✅ L0 | Validate + take ownership |
+| `String::from_utf8_lossy(&[u8])` | `String::from_utf8_lossy(Span<const uint8_t>)` | ⚠️ L0 | Replace bad bytes with U+FFFD. Trivial impl (reuses validator). Deferred to L0.1. |
+| `String::from_utf16(&[u16])` | — | ❌ L1 | Needs UTF-16 codec. Rarely needed in C ecosystem. |
+| `from_utf16_lossy` | — | ❌ L1 | Same reason |
+| `From<&str>` / `to_string()` | `from_utf8(const char*)` + copy ctor | ✅ L0 | Already covered |
+
+### 2. Conversion / Views
+
+| Rust | xpp equivalent | Tag | Notes |
+|------|---------------|-----|-------|
+| `as_bytes() -> &[u8]` | `as_bytes() -> Span<const uint8_t>` | ✅ L0 | O(1), no copy |
+| `as_str() -> &str` | (no Str type yet) | ⚠️ L0 | Requires `Str` borrowed type. Deferred. |
+| `into_bytes() -> Vec<u8>` | `into_bytes() -> vector<uint8_t>` | ✅ L0 | Consuming, O(1) |
+| `into_boxed_str()` | — | ❌ | No `Box<str>` equivalent in C++ |
+| `from_raw_parts` / `into_raw_parts` | — | ❌ | Unsafe internals, not for public API |
+
+### 3. Capacity
+
+| Rust | xpp equivalent | Tag | Notes |
+|------|---------------|-----|-------|
+| `capacity()` | `capacity()` | ✅ L0 | Forward to `vector.capacity()` |
+| `reserve(n)` | `reserve(size_t n)` | ✅ L0 | Forward to `vector.reserve()` |
+| `reserve_exact(n)` | `reserve_exact(size_t n)` | ✅ L0 | Forward to `vector.reserve()` (C++11 doesn't have `shrink_to_fit` guarantee anyway) |
+| `shrink_to_fit()` | `shrink_to_fit()` | ✅ L0 | Forward to `vector.shrink_to_fit()` |
+| `shrink_to(n)` | — | ❌ | C++11 `vector` doesn't support this |
+
+### 4. Push / Pop / Insert / Remove
+
+| Rust | xpp equivalent | Tag | Notes |
+|------|---------------|-----|-------|
+| `push(ch: char)` | `push(char32_t cp)` | ✅ L0 | Encodes 1-4 bytes via `encode_one()` |
+| `push_str(s: &str)` | `push_str(const String&)` | ✅ L0 | Byte append |
+| `pop() -> Option<char>` | `pop() -> Option<char32_t>` | ✅ L0 | Decode last code point, truncate bytes |
+| `insert(idx, ch)` | `insert(size_t byte_pos, char32_t cp)` | ✅ L0 | `XPP_ASSERT` byte_pos is on code point boundary |
+| `insert_str(idx, s)` | `insert_str(size_t byte_pos, const String&)` | ✅ L0 | Same boundary check |
+| `remove(idx) -> char` | `remove(size_t byte_pos) -> char32_t` | ✅ L0 | Decode CP at pos, erase its byte span |
+| `retain(pred)` | `retain(Func)` | ⚠️ L0 | Iterator-based filter. Deferred — needs callback API design. |
+| `truncate(new_len)` | `truncate(size_t new_byte_len)` | ✅ L0 | Cut at byte boundary. `XPP_ASSERT` it's a CP boundary. |
+| `clear()` | `clear()` | ✅ L0 | Zero length |
+
+### 5. Substring / Split
+
+| Rust | xpp equivalent | Tag | Notes |
+|------|---------------|-----|-------|
+| `[range]` slicing | `substr(offset, count)` | ✅ L0 | Already in design |
+| `split_off(at) -> String` | `split_off(size_t byte_pos) -> String` | ✅ L0 | Split at boundary, return tail |
+| `split(pat)` / `splitn()` | `Split` iterator returning `String` | ⚠️ L0 | Useful but iterator type adds complexity. Deferred. |
+| `rsplit(pat)` / `rsplitn()` | same | ⚠️ L0 | Same |
+| `lines()` | `lines() -> Lines` iterator | ⚠️ L0 | Trivial (\n split). Deferred with Split. |
+| `drain(range)` | — | ❌ | Requires mutable view into String, complex. |
+
+### 6. Search / Contains
+
+| Rust | xpp equivalent | Tag | Notes |
+|------|---------------|-----|-------|
+| `find(pat) -> Option<usize>` | `find(const String&) -> Option<size_t>` | ✅ L0 | Already in design |
+| `rfind(pat)` | `rfind(const String&)` | ✅ L0 | Already in design |
+| `contains(pat) -> bool` | `contains(const String&) -> bool` | ✅ L0 | `find(p).is_some()` |
+| `starts_with(pat)` | `starts_with(const String&)` | ✅ L0 | Already in design |
+| `ends_with(pat)` | `ends_with(const String&)` | ✅ L0 | Already in design |
+| `match_indices(pat)` | — | ⚠️ L0 | Iterator, deferred with Split |
+| `matches(pat)` / `rmatches(pat)` | — | ⚠️ L0 | Same |
+
+### 7. Trim
+
+| Rust | xpp equivalent | Tag | Notes |
+|------|---------------|-----|-------|
+| `trim() -> &str` | `trim() -> String` (ASCII-only) | ✅ L0 | Trims ASCII spaces (`0x09-0x0D`, `0x20`). Unicode whitespace trim needs L1 tables. |
+| `trim_start()` | `trim_start()` | ✅ L0 | Same ASCII subset |
+| `trim_end()` | `trim_end()` | ✅ L0 | Same |
+| `trim_matches(pat)` | — | ⚠️ L0 | Generic predicate-based, deferred |
+
+### 8. Replace
+
+| Rust | xpp equivalent | Tag | Notes |
+|------|---------------|-----|-------|
+| `replace(from, to)` | `replace(const String& from, const String& to) -> String` | ✅ L0 | All occurrences, byte-level. Pure scanning + building a new String. |
+| `replacen(from, to, n)` | `replacen(p, t, n)` | ✅ L0 | Same, capped |
+
+### 9. Repeat
+
+| Rust | xpp equivalent | Tag | Notes |
+|------|---------------|-----|-------|
+| `repeat(n) -> String` | `repeat(size_t n) -> String` | ✅ L0 | `result.reserve(len() * n)` + looped append |
+
+### 10. Comparison
+
+| Rust | xpp equivalent | Tag | Notes |
+|------|---------------|-----|-------|
+| `==` / `!=` | `operator==` / `operator!=` | ✅ L0 | Byte-wise |
+| `<` / `>` | `operator<` | ✅ L0 | Lexicographic on bytes |
+| `eq_ignore_ascii_case` | `eq_ignore_ascii_case` | ⚠️ L0 | Trivial (lowercase ASCII bytes in compare). Deferred. |
+
+### 11. Iteration
+
+| Rust | xpp equivalent | Tag | Notes |
+|------|---------------|-----|-------|
+| `chars() -> Chars` | `chars() -> Chars` | ✅ L0 | Code point iterator, already in design |
+| `char_indices() -> CharIndices` | `char_indices() -> CharIndices` | ⚠️ L0 | `(byte_offset, char32_t)` pairs. Trivial to add. Deferred. |
+| `bytes() -> Bytes` | Use `as_bytes()` or range-for on `Span` | ✅ L0 | `Span<const uint8_t>` is iterable. No separate Bytes type needed. |
+| `split_whitespace()` | — | ❌ L1 | Unicode whitespace table needed |
+
+### 12. Case (all L1)
+
+| Rust | xpp | Tag | Why |
+|------|-----|-----|-----|
+| `to_lowercase()` | — | ❌ L1 | Unicode case folding table |
+| `to_uppercase()` | — | ❌ L1 | Same |
+| `to_ascii_lowercase()` | — | ⚠️ L0 | Trivial byte transform. Deferred for now. |
+| `to_ascii_uppercase()` | — | ⚠️ L0 | Same |
+
+---
+
+### Summary Count
+
+| Category | Count |
+|----------|-------|
+| ✅ L0 — implement now | **28** methods |
+| ⚠️ L0 — defer to L0.1 | **14** methods (iterators, lossy, retain, ascii_case) |
+| ❌ L1 — `libxpp-ext/unicode` | **9** methods (case, normalize, grapheme, utf16) |
+
+### L0 Implementation Order
+
+```
+Phase 1 (core, ~400 lines):
+  new, from_utf8, from_utf8_unchecked, as_bytes, into_bytes,
+  len, empty, char_len, chars, clear, push, push_str,
+  substr, find, rfind, starts_with, ends_with, contains,
+  operator==, operator<
+
+Phase 2 (mutation, ~150 lines):
+  pop, truncate, insert, insert_str, remove, split_off,
+  capacity, reserve, shrink_to_fit, with_capacity
+
+Phase 3 (utility, ~150 lines):
+  replace, replacen, repeat,
+  trim, trim_start, trim_end
+
+Phase 4 (deferred L0.1, ~250 lines):
+  from_utf8_lossy, retain, char_indices,
+  split/splitn/rsplitn/lines iterators,
+  eq_ignore_ascii_case, to_ascii_lowercase, to_ascii_uppercase
+```
+
+Total: ~950 lines of implementation + ~400 lines of tests across all phases.
 
 ## File Placement
 
