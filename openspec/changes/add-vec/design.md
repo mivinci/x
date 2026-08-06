@@ -64,7 +64,7 @@ allocators are the same type as far as the type system is concerned.
 ```cpp
 namespace xpp {
 
-template <typename T, typename Alloc = GlobalAllocator>
+template <class T, class Alloc = GlobalAllocator>
 class Vec {
 public:
     using value_type = T;
