@@ -78,6 +78,7 @@ if (cached) use(**cached);
   - [NonNull](smart-pointers/nonnull.md) — Non-owning, non-null reference
 - [Result](result.md) — Success or error (Rust Result)
 - [Option](option.md) — A value or nothing (Rust Option)
+- [String](string.md) — UTF-8 string (Rust String)
 - [Vec](vec.md) — Contiguous growable array (Rust Vec)
 - [Variant](variant.md) — Type-safe tagged union
 - [Timer](timer.md) — Callback-based timer with pause/resume
