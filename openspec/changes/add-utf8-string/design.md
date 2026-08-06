@@ -3,19 +3,33 @@
 ## Summary
 
 A `String` type that guarantees valid UTF-8 at the type level. Internal storage
-is `std::vector<uint8_t>` — a byte buffer with no text semantics. The type
-system draws a bright line: `vector<uint8_t>` = opaque bytes, `String` = valid
-UTF-8. Purely L0 scope: encode/decode/validate/iterate — no normalization, no
-case folding, no grapheme clusters.
+is `xpp::Vec<uint8_t>` — a byte buffer built on xpp's allocator protocol, with
+no text semantics. The type system draws a bright line: `Vec<uint8_t>` = opaque
+bytes, `String` = valid UTF-8. Purely L0 scope: encode/decode/validate/iterate —
+no normalization, no case folding, no grapheme clusters.
+
+String is built on **our own `Vec`**, not `std::vector`. This means:
+
+- **Dual OOM API**: `push()` asserts on OOM; `try_push()` returns `Result`.
+  `push_str()` / `try_push_str()` follow the same pattern.
+- **`Option` returns**: `pop()` returns `Option<char32_t>` — matches Vec's
+  `Option<T>` semantics.
+- **`split_off()`**: Direct reuse of Vec's `split_off()`, bound to code point
+  boundaries.
+- **`shrink_to_fit()`**: Vec provides both `shrink_to_fit()` and
+  `try_shrink_to_fit()`.
+- **`retain()`**: Vec already has `retain(Func)` — String wraps it with a
+  code-point-aware predicate or simply byte-level filtering.
 
 ## Motivation
 
 `std::string` conflates "text" and "bytes". Rust separates them cleanly:
 `Vec<u8>` is raw bytes, `String` is guaranteed UTF-8, `&[u8]` / `&str` are
-borrowed views. xpp mirrors this:
+borrowed views. xpp mirrors this — and with `Vec<uint8_t>` now in the standard
+library, the type alignment with Rust is near-perfect:
 
 1. **Type safety** — `const String&` means "valid UTF-8". Raw bytes use
-   `std::vector<uint8_t>`. No ambiguity.
+   `Vec<uint8_t>`. No ambiguity.
 1. **Correct substring** — byte-offset-based but guaranteed to land on code point
    boundaries, never slicing a multi-byte character in half.
 1. **Code point iteration** — `chars()` yields `char32_t`, not raw bytes.
@@ -29,14 +43,14 @@ in a future `libxpp-ext/unicode` extension library.
 
 | Rust | xpp | Notes |
 |------|-----|-------|
-| `Vec<u8>` | `std::vector<uint8_t>` | Raw bytes, no encoding contract |
-| `String` | `String` | Guaranteed valid UTF-8 |
+| `Vec<u8>` | `Vec<uint8_t>` | Raw bytes via xpp allocator protocol |
+| `String` | `String` | Guaranteed valid UTF-8, backed by `Vec<uint8_t>` |
 | `&[u8]` | `Span<const uint8_t>` | Borrowed byte view |
 | `&str` | (no equivalent yet) | Future: `Str` or `StringRef` |
-| `String::from_utf8(Vec<u8>)` | `String::from_utf8(vector<uint8_t>)` | Validates + takes ownership |
+| `String::from_utf8(Vec<u8>)` | `String::from_utf8(Vec<uint8_t>)` | Validates + takes ownership |
 | `String::as_bytes() -> &[u8]` | `String::as_bytes() -> Span<const uint8_t>` | Read-only byte view |
-| `String::into_bytes() -> Vec<u8>` | `String::into_bytes() -> vector<uint8_t>` | Consume, recover raw bytes |
-| `FromUtf8Error` | `Utf8Error` | Owns the original bytes |
+| `String::into_bytes() -> Vec<u8>` | `String::into_bytes() -> Vec<uint8_t>` | Consume, recover raw bytes. O(1). |
+| `FromUtf8Error` | `Utf8Error` | Owns the original `Vec<uint8_t>` |
 | `str::chars()` | `String::chars()` | Code point iterator |
 
 ## API Reference
@@ -52,20 +66,23 @@ public:
 
     String() = default;
 
+    /** Pre-allocate byte capacity. O(1). Asserts on OOM.
+     *  Equivalent to Rust's String::with_capacity(). */
+    explicit String(size_t capacity);
+
     /** Validate a byte buffer as UTF-8. Takes ownership via move.
-     *  On failure, returns the original bytes in Utf8Error.
      *
      *  Complexity: O(n) single-pass validation scan.
      *
      *  Usage:
-     *    std::vector<uint8_t> buf = read_from_network();
+     *    Vec<uint8_t> buf = read_from_network();
      *    auto s = String::from_utf8(std::move(buf));
      */
-    static Result<String, Utf8Error> from_utf8(std::vector<uint8_t> bytes);
+    static Result<String, Utf8Error> from_utf8(Vec<uint8_t> bytes);
 
     /** Convenience overload for C-string literals. Copies + validates.
-     *  s must not be NULL; behaviour is undefined if it is (debug builds
-     *  assert s != nullptr). Equivalent to from_utf8(s, strlen(s)).
+     *  s must not be NULL; debug builds assert s != nullptr.
+     *  Equivalent to from_utf8(s, strlen(s)).
      */
     static Result<String, Utf8Error> from_utf8(const char* s);
 
@@ -75,9 +92,12 @@ public:
     /** Construct without validation. Caller guarantees the bytes are valid UTF-8.
      *  Behaviour is undefined if they aren't.
      */
-    static String from_utf8_unchecked(std::vector<uint8_t> bytes);
+    static String from_utf8_unchecked(Vec<uint8_t> bytes);
 
-    /** Copy / move. */
+    /** Copy / move.
+     *  Copy clones the underlying Vec<uint8_t> (deep copy of all bytes).
+     *  Move transfers ownership, leaving source empty.
+     */
     String(const String&) = default;
     String(String&&) noexcept = default;
     String& operator=(const String&) = default;
@@ -88,23 +108,21 @@ public:
     /** Borrowed read-only view of the raw UTF-8 bytes. O(1). */
     Span<const uint8_t> as_bytes() const noexcept;
 
-    /** Consume the String and recover the underlying byte buffer. O(1). */
-    std::vector<uint8_t> into_bytes() && noexcept;
+    /** Consume the String and recover the underlying Vec<uint8_t>. O(1).
+     *  The returned Vec owns the byte buffer; the String is left empty. */
+    Vec<uint8_t> into_bytes() && noexcept;
 
-    /** Consume the String and return a std::string. O(n) — the internal
-     *  bytes are copied (vector<uint8_t> and std::string have different
-     *  layout due to SSO, so ownership transfer requires a copy). The
-     *  original heap buffer is released.
+    /** Consume the String and return a std::string. O(n) — Vec<uint8_t>
+     *  and std::string have different layouts (std::string uses SSO),
+     *  so a copy is required. The original Vec's heap buffer is released.
      *
      *  Use as_bytes() for zero-copy interop; use this when you need an
-     *  owning std::string for an API that requires one and no longer need
-     *  the String.
-     */
+     *  owning std::string for an API that requires one. */
     std::string into_std_string() &&;
 
     /* ── Length ── */
 
-    /** Byte count. O(1). Equivalent to as_bytes().size(). */
+    /** Byte count. O(1). */
     size_t len() const noexcept;
 
     /** Code point count. O(n) — scans the entire string.
@@ -116,22 +134,34 @@ public:
     /** True if byte length is zero. O(1). */
     bool empty() const noexcept;
 
+    /* ── Capacity ── */
+
+    /** Allocated byte capacity. O(1). */
+    size_t capacity() const noexcept;
+
+    /** Reserve capacity for at least `additional` more bytes. Asserts on OOM. */
+    void reserve(size_t additional);
+
+    /** Explicit OOM variant. */
+    Result<void, AllocError> try_reserve(size_t additional);
+
+    /** Release excess capacity. Asserts on OOM (realloc failure). */
+    void shrink_to_fit();
+
+    /** Explicit OOM variant. */
+    Result<void, AllocError> try_shrink_to_fit();
+
     /* ── Substring ── */
 
     /** Slice [offset, offset+count) in bytes.
      *  XPP_ASSERT that offset and offset+count fall on code point boundaries.
      *  If count == SIZE_MAX, take from offset to end.
-     *  XPP_ASSERT that offset + count does not overflow (offset + SIZE_MAX
-     *  wraps; the implementation catches this with an explicit end-fixup
-     *  before arithmetic).
      */
     String substr(size_t offset, size_t count = SIZE_MAX) const;
 
     /* ── Find ── */
 
-    /** Byte position of the first occurrence of `pattern`, or None.
-     *  `pattern` must be valid UTF-8. O(n*m) — memmem under the hood.
-     */
+    /** Byte position of the first occurrence of `pattern`, or None. O(n*m). */
     Option<size_t> find(const String& pattern) const;
 
     /** Convenience: find by C-string literal. */
@@ -139,6 +169,10 @@ public:
 
     Option<size_t> rfind(const String& pattern) const;
     Option<size_t> rfind(const char* pattern) const;
+
+    /** Returns true if find(pattern).is_some(). */
+    bool contains(const String& pattern) const;
+    bool contains(const char* pattern) const;
 
     bool starts_with(const String& prefix) const;
     bool starts_with(const char* prefix) const;
@@ -148,35 +182,97 @@ public:
     /* ── Mutation ── */
 
     /** Append a code point (encoded as 1–4 UTF-8 bytes). O(1) amortised.
-     *
      *  XPP_ASSERT that cp is a valid Unicode scalar value:
      *    — Not a surrogate (U+D800–U+DFFF)
      *    — Not exceeding U+10FFFF
-     *  Violating this would break the String's valid-UTF-8 invariant.
      */
     void push(char32_t cp);
 
-    /** Append another String's bytes. O(n). */
+    /** Append another String's bytes. O(n). Asserts on OOM. */
     void push_str(const String& other);
 
-    /** Remove all bytes. */
+    /** Explicit OOM variant of push_str(). */
+    Result<void, AllocError> try_push_str(const String& other);
+
+    /** Append a C-string literal. Asserts on OOM. */
+    void push_str(const char* s);
+
+    /** Pop the last code point. O(1) — decodes and removes the last
+     *  code point's byte span. Returns None if empty. */
+    Option<char32_t> pop();
+
+    /** Insert a code point at a byte position. O(n).
+     *  XPP_ASSERT byte_pos is on a code point boundary. */
+    void insert(size_t byte_pos, char32_t cp);
+
+    /** Insert a String at a byte position. O(n).
+     *  XPP_ASSERT byte_pos is on a code point boundary. */
+    void insert_str(size_t byte_pos, const String& s);
+
+    /** Remove and return the code point at byte_pos. O(n).
+     *  XPP_ASSERT byte_pos is on a code point boundary. */
+    char32_t remove(size_t byte_pos);
+
+    /** Truncate to new_byte_len bytes. O(1).
+     *  XPP_ASSERT new_byte_len is on a code point boundary. */
+    void truncate(size_t new_byte_len);
+
+    /** Remove all bytes. O(1) for the length; capacity is preserved. */
     void clear();
+
+    /** Split at a code point boundary. Returns the tail String,
+     *  leaving this with [0, byte_pos). O(1) — reuses Vec::split_off(). */
+    String split_off(size_t byte_pos);
+
+    /** Replace all occurrences of `from` with `to`. Returns a new String. O(n). */
+    String replace(const String& from, const String& to) const;
+
+    /** Replace first `n` occurrences. Returns a new String. O(n). */
+    String replacen(const String& from, const String& to, size_t n) const;
+
+    /** Repeat this String `n` times. Returns a new String. O(n*m). */
+    String repeat(size_t n) const;
+
+    /* ── Trim (ASCII-only) ── */
+
+    /** Remove leading and trailing ASCII whitespace (0x09-0x0D, 0x20). */
+    String trim() const;
+    String trim_start() const;
+    String trim_end() const;
+
+    /* ── Filter (code-point level) ── */
+
+    /** Keep code points for which pred(cp) returns true. O(n).
+     *  Internally uses Vec<uint8_t>::retain() on a byte-level predicate
+     *  or rebuilds the buffer.
+     */
+    template <class Pred>
+    void retain(Pred pred);
+
+    /* ── Iteration ── */
+
+    Chars chars() const noexcept;
 
     /* ── Comparison ── */
 
-    /** Byte-wise equality. Two String objects are equal iff their UTF-8
-     *  representations are identical. Does NOT do Unicode normalisation —
+    /** Byte-wise equality. Does NOT do Unicode normalisation —
      *  "é" (precomposed U+00E9) and "e\u0301" (decomposed) will NOT compare
-     *  equal. This is correct for L0; callers needing normalisation-aware
-     *  comparison must normalise first (libxpp-ext).
+     *  equal. Callers needing normalisation-aware comparison must normalise
+     *  first (libxpp-ext).
      */
     bool operator==(const String& other) const noexcept;
+    bool operator!=(const String& other) const noexcept;
 
-    /** Byte-wise ordering (lexicographic on UTF-8). */
+    /** Byte-wise lexicographic ordering on UTF-8. */
     bool operator<(const String& other) const noexcept;
 
+    /* ── C-string interop ── */
+
+    bool operator==(const char* other) const noexcept;
+    bool operator!=(const char* other) const noexcept;
+
 private:
-    std::vector<uint8_t> m_bytes;  // invariant: valid UTF-8
+    Vec<uint8_t> m_bytes;  // invariant: valid UTF-8
 };
 
 /* ──────────────────────── Chars ──────────────────────── */
@@ -197,22 +293,15 @@ public:
     char32_t operator*() const noexcept;
 
     /** Advance past the current code point. Must not be called when the
-     *  iterator has already reached end(); behaviour is undefined if it is
-     *  (debug builds assert m_pos < m_end).
-     */
+     *  iterator has already reached end(); debug asserts m_pos < m_end. */
     Chars& operator++() noexcept;
 
     bool operator==(const Chars& other) const noexcept;
     bool operator!=(const Chars& other) const noexcept;
 
     /** Count remaining code points from current position to end. O(remaining).
-     *
-     *  Advances the iterator in-place, then returns to the original position.
-     *  After this call the iterator is unchanged. NOT const — iterating is
-     *  inherently stateful even though we restore position.
-     *
-     *  Equivalent to Rust's Chars::count().
-     */
+     *  Iterates in-place then restores position. After this call the iterator
+     *  state is unchanged. */
     size_t count() noexcept;
 
     /** Sentinel for range-for. */
@@ -229,7 +318,7 @@ private:
 /* ──────────────────────── Utf8Error ──────────────────────── */
 
 /** Returned when from_utf8() validation fails. Owns the original bytes so
- *  the caller can recover — log the error, fall back to a lossy conversion,
+ *  the caller can recover — log the error, fall back to lossy conversion,
  *  or abort.
  */
 class Utf8Error {
@@ -237,16 +326,13 @@ public:
     /** Byte offset of the first error. */
     size_t error_pos() const noexcept;
 
-    /** Recover the original bytes.
-     *  If the bytes were moved from a String constructor, this call
-     *  returns them — the caller hasn't lost any data.
-     */
-    std::vector<uint8_t> into_bytes() &&;
+    /** Recover the original bytes. Moves the Vec<uint8_t> out. */
+    Vec<uint8_t> into_bytes() &&;
 
 private:
     friend class String;
-    Utf8Error(std::vector<uint8_t> bytes, size_t pos);
-    std::vector<uint8_t> m_bytes;
+    Utf8Error(Vec<uint8_t> bytes, size_t pos);
+    Vec<uint8_t> m_bytes;
     size_t m_error_pos;
 };
 
@@ -349,15 +435,71 @@ bool is_codepoint_boundary(const uint8_t* p, size_t offset) {
 }
 ```
 
+### Delegating to Vec — what's free
+
+Since internal storage is `Vec<uint8_t>`, many methods are one-liner delegations:
+
+```cpp
+size_t String::len()       const noexcept { return m_bytes.len(); }
+size_t String::capacity()  const noexcept { return m_bytes.capacity(); }
+bool   String::empty()     const noexcept { return m_bytes.empty(); }
+void   String::clear()                   { m_bytes.clear(); }
+void   String::reserve(size_t n)         { m_bytes.reserve(n); }
+void   String::shrink_to_fit()           { m_bytes.shrink_to_fit(); }
+String String::split_off(size_t pos)     {
+    XPP_ASSERT(is_codepoint_boundary(m_bytes.data(), pos), "not a boundary");
+    String tail; tail.m_bytes = m_bytes.split_off(pos);
+    return tail;
+}
+```
+
+### `into_std_string()` implementation
+
+```cpp
+std::string String::into_std_string() && {
+    return std::string(
+        reinterpret_cast<const char*>(m_bytes.data()),
+        m_bytes.len()
+    );
+    // m_bytes is destroyed after this (moved-from String)
+}
+```
+
+The `Vec<uint8_t>` is released normally by the destructor. The `std::string`
+constructor copies the bytes — O(n). This is unavoidable because `Vec<uint8_t>`
+and `std::string` have different memory layouts (SSO).
+
+### `pop()` — decode last code point
+
+```cpp
+Option<char32_t> String::pop() {
+    if (m_bytes.len() == 0) return none;
+
+    // Walk backwards to find the start of the last code point
+    size_t pos = m_bytes.len() - 1;
+    while (pos > 0 && is_continuation_byte(m_bytes[pos])) {
+        pos--;
+    }
+
+    size_t consumed;
+    char32_t cp = decode_one(m_bytes.data() + pos, &consumed);
+    m_bytes.truncate(pos);
+    return Option<char32_t>(cp);
+}
+```
+
 ## Size and Layout
 
 ```
-sizeof(String)    == sizeof(std::vector<uint8_t>) == 24 (ptr + size + capacity)
+sizeof(String)    == sizeof(Vec<uint8_t>) == 24
+                     (CompressedPair<RawStorage, GlobalAllocator>: 3 pointers)
 sizeof(Chars)     == 24 (two pointers + cached char32_t)
-sizeof(Utf8Error) == 32 (vector 24B + error_pos 8B)
+sizeof(Utf8Error) == 32 (Vec<uint8_t> 24B + error_pos 8B)
 ```
 
-No hidden allocations beyond the byte vector's heap buffer.
+With the default `GlobalAllocator`, `String` is exactly 24 bytes on 64-bit —
+zero overhead beyond the `Vec` itself. A custom stateful allocator grows
+`sizeof(String)` by `sizeof(Allocator)`.
 
 ## Edge Cases
 
@@ -372,6 +514,8 @@ No hidden allocations beyond the byte vector's heap buffer.
 | `s.substr(0, 3)` on `"你好"` | Returns `"你"` |
 | `s.chars()` on empty | iterator == Chars::end() immediately |
 | `s.char_len()` on empty | 0 |
+| `s.pop()` on empty | `Option<char32_t>` = None |
+| `s.pop()` on `"a"` | Returns `Some('a')`, string becomes empty |
 | `"é" == "e\u0301"` | false (byte-wise comparison, NFC not applied) |
 
 ## Rust `String` Method Coverage
@@ -381,7 +525,7 @@ equivalent (or explains why it's deferred). Legend:
 
 | Tag | Meaning |
 |-----|---------|
-| ✅ L0 | Implemented in xpp `String` — no Unicode tables needed |
+| ✅ L0 | Implemented in xpp `String` |
 | ⚠️ L0 | Implementable but deferred (edge cases, iterator complexity) |
 | ❌ L1 | Needs Unicode tables — belongs in `libxpp-ext/unicode` |
 
@@ -391,12 +535,11 @@ equivalent (or explains why it's deferred). Legend:
 
 | Rust | xpp equivalent | Tag | Notes |
 |------|---------------|-----|-------|
-| `String::new()` | `String()` default constructor | ✅ L0 | Empty string, zero allocation |
-| `String::with_capacity(n)` | `String::with_capacity(size_t n)` | ✅ L0 | Forward to `vector.reserve(n)` |
-| `String::from_utf8(Vec<u8>)` | `String::from_utf8(vector<uint8_t>)` | ✅ L0 | Validate + take ownership |
-| `String::from_utf8_lossy(&[u8])` | `String::from_utf8_lossy(Span<const uint8_t>)` | ⚠️ L0 | Replace bad bytes with U+FFFD. Trivial impl (reuses validator). Deferred to L0.1. |
-| `String::from_utf16(&[u16])` | — | ❌ L1 | Needs UTF-16 codec. Rarely needed in C ecosystem. |
-| `from_utf16_lossy` | — | ❌ L1 | Same reason |
+| `String::new()` | `String()` default | ✅ L0 | Empty, zero allocation |
+| `String::with_capacity(n)` | `String(size_t n)` | ✅ L0 | `Vec<uint8_t>(n)` constructor — allocates capacity |
+| `String::from_utf8(Vec<u8>)` | `String::from_utf8(Vec<uint8_t>)` | ✅ L0 | Validate + take ownership |
+| `String::from_utf8_lossy(&[u8])` | `String::from_utf8_lossy(Span<const uint8_t>)` | ⚠️ L0 | Replace bad bytes with U+FFFD. Deferred. |
+| `String::from_utf16(&[u16])` | — | ❌ L1 | Needs UTF-16 codec |
 | `From<&str>` / `to_string()` | `from_utf8(const char*)` + copy ctor | ✅ L0 | Already covered |
 
 ### 2. Conversion / Views
@@ -404,65 +547,73 @@ equivalent (or explains why it's deferred). Legend:
 | Rust | xpp equivalent | Tag | Notes |
 |------|---------------|-----|-------|
 | `as_bytes() -> &[u8]` | `as_bytes() -> Span<const uint8_t>` | ✅ L0 | O(1), no copy |
-| `as_str() -> &str` | (no Str type yet) | ⚠️ L0 | Requires `Str` borrowed type. Deferred. |
-| `into_bytes() -> Vec<u8>` | `into_bytes() -> vector<uint8_t>` | ✅ L0 | Consuming, O(1) |
-| — | `into_std_string() -> std::string` | ✅ L0 | Consuming, O(n) copy (SSO layout). std interop. |
-| `into_boxed_str()` | — | ❌ | No `Box<str>` equivalent in C++ |
-| `from_raw_parts` / `into_raw_parts` | — | ❌ | Unsafe internals, not for public API |
+| `as_str() -> &str` | (no Str type yet) | ⚠️ L0 | Requires `Str` borrowed type |
+| `into_bytes() -> Vec<u8>` | `into_bytes() -> Vec<uint8_t>` | ✅ L0 | Consuming, O(1) move |
+| — | `into_std_string() -> std::string` | ✅ L0 | Consuming, O(n) copy. std interop. |
+| `into_boxed_str()` | — | ❌ | No `Box<str>` equivalent |
+| `from_raw_parts` / `into_raw_parts` | — | ❌ | Vec doesn't expose raw parts (deliberately) |
 
 ### 3. Capacity
 
 | Rust | xpp equivalent | Tag | Notes |
 |------|---------------|-----|-------|
-| `capacity()` | `capacity()` | ✅ L0 | Forward to `vector.capacity()` |
-| `reserve(n)` | `reserve(size_t n)` | ✅ L0 | Forward to `vector.reserve()` |
-| `reserve_exact(n)` | `reserve_exact(size_t n)` | ✅ L0 | Forward to `vector.reserve()` (C++11 doesn't have `shrink_to_fit` guarantee anyway) |
-| `shrink_to_fit()` | `shrink_to_fit()` | ✅ L0 | Forward to `vector.shrink_to_fit()` |
-| `shrink_to(n)` | — | ❌ | C++11 `vector` doesn't support this |
+| `capacity()` | `capacity()` | ✅ L0 | Delegates to `Vec::capacity()` |
+| `reserve(n)` | `reserve(size_t n)` | ✅ L0 | Delegates to `Vec::reserve()` (asserts on OOM) |
+| `try_reserve(n)` | `try_reserve(size_t n)` | ✅ L0 | Delegates to `Vec::try_reserve()` → `Result` |
+| `reserve_exact(n)` | `reserve(n)` | ✅ L0 | Vec's `reserve()` already allocates exact |
+| `shrink_to_fit()` | `shrink_to_fit()` | ✅ L0 | Delegates to `Vec::shrink_to_fit()` |
+| `shrink_to(n)` | — | ❌ | Vec doesn't support shrink-to-arbitrary |
 
 ### 4. Push / Pop / Insert / Remove
 
 | Rust | xpp equivalent | Tag | Notes |
 |------|---------------|-----|-------|
 | `push(ch: char)` | `push(char32_t cp)` | ✅ L0 | Encodes 1-4 bytes via `encode_one()` |
-| `push_str(s: &str)` | `push_str(const String&)` | ✅ L0 | Byte append |
-| `pop() -> Option<char>` | `pop() -> Option<char32_t>` | ✅ L0 | Decode last code point, truncate bytes |
-| `insert(idx, ch)` | `insert(size_t byte_pos, char32_t cp)` | ✅ L0 | `XPP_ASSERT` byte_pos is on code point boundary |
+| `push_str(s: &str)` | `push_str(const String&)` | ✅ L0 | Byte append, asserts on OOM |
+| — | `try_push_str(const String&)` | ✅ L0 | Explicit OOM handling |
+| `push_str(s)` | `push_str(const char*)` | ✅ L0 | C-string convenience |
+| `pop() -> Option<char>` | `pop() -> Option<char32_t>` | ✅ L0 | Decode last CP, truncate bytes |
+| `insert(idx, ch)` | `insert(size_t byte_pos, char32_t cp)` | ✅ L0 | Assert on CP boundary |
 | `insert_str(idx, s)` | `insert_str(size_t byte_pos, const String&)` | ✅ L0 | Same boundary check |
-| `remove(idx) -> char` | `remove(size_t byte_pos) -> char32_t` | ✅ L0 | Decode CP at pos, erase its byte span |
-| `retain(pred)` | `retain(Func)` | ⚠️ L0 | Iterator-based filter. Deferred — needs callback API design. |
-| `truncate(new_len)` | `truncate(size_t new_byte_len)` | ✅ L0 | Cut at byte boundary. `XPP_ASSERT` it's a CP boundary. |
-| `clear()` | `clear()` | ✅ L0 | Zero length |
+| `remove(idx) -> char` | `remove(size_t byte_pos) -> char32_t` | ✅ L0 | Decode CP at pos, erase byte span |
+| `retain(pred)` | `retain(Pred)` | ✅ L0 | Code-point-level filter |
+| `truncate(new_len)` | `truncate(size_t new_byte_len)` | ✅ L0 | CP boundary assert |
+| `clear()` | `clear()` | ✅ L0 | Delegates to `Vec::clear()` |
+
+> **Note:** `push()`, `insert()`, and `push_str()` assert on OOM. Use
+> `try_push_str()` for explicit error handling. `push(char32_t)` is bounded
+> to 4 bytes — the OOM surface is minimal, so only `push_str` gets a `try_*`
+> variant for now.
 
 ### 5. Substring / Split
 
 | Rust | xpp equivalent | Tag | Notes |
 |------|---------------|-----|-------|
-| `[range]` slicing | `substr(offset, count)` | ✅ L0 | Already in design |
-| `split_off(at) -> String` | `split_off(size_t byte_pos) -> String` | ✅ L0 | Split at boundary, return tail |
-| `split(pat)` / `splitn()` | `Split` iterator returning `String` | ⚠️ L0 | Useful but iterator type adds complexity. Deferred. |
+| `[range]` slicing | `substr(offset, count)` | ✅ L0 | CP boundary assert |
+| `split_off(at) -> String` | `split_off(size_t byte_pos) -> String` | ✅ L0 | Reuses `Vec::split_off()` |
+| `split(pat)` / `splitn()` | `Split` iterator | ⚠️ L0 | Iterator type adds complexity. Deferred. |
 | `rsplit(pat)` / `rsplitn()` | same | ⚠️ L0 | Same |
-| `lines()` | `lines() -> Lines` iterator | ⚠️ L0 | Trivial (\n split). Deferred with Split. |
-| `drain(range)` | — | ❌ | Requires mutable view into String, complex. |
+| `lines()` | `Lines` iterator | ⚠️ L0 | Trivial (\n split). Deferred. |
+| `drain(range)` | — | ❌ | Requires mutable view into String |
 
 ### 6. Search / Contains
 
 | Rust | xpp equivalent | Tag | Notes |
 |------|---------------|-----|-------|
-| `find(pat) -> Option<usize>` | `find(const String&) -> Option<size_t>` | ✅ L0 | Already in design |
-| `rfind(pat)` | `rfind(const String&)` | ✅ L0 | Already in design |
+| `find(pat) -> Option<usize>` | `find(const String&) -> Option<size_t>` | ✅ L0 | Byte-level `memmem` |
+| `rfind(pat)` | `rfind(const String&)` | ✅ L0 | Reverse scan |
 | `contains(pat) -> bool` | `contains(const String&) -> bool` | ✅ L0 | `find(p).is_some()` |
-| `starts_with(pat)` | `starts_with(const String&)` | ✅ L0 | Already in design |
-| `ends_with(pat)` | `ends_with(const String&)` | ✅ L0 | Already in design |
-| `match_indices(pat)` | — | ⚠️ L0 | Iterator, deferred with Split |
+| `starts_with(pat)` | `starts_with(const String&)` | ✅ L0 | Prefix match |
+| `ends_with(pat)` | `ends_with(const String&)` | ✅ L0 | Suffix match |
+| `match_indices(pat)` | — | ⚠️ L0 | Iterator, deferred |
 | `matches(pat)` / `rmatches(pat)` | — | ⚠️ L0 | Same |
 
-### 7. Trim
+### 7. Trim (ASCII-only)
 
 | Rust | xpp equivalent | Tag | Notes |
 |------|---------------|-----|-------|
-| `trim() -> &str` | `trim() -> String` (ASCII-only) | ✅ L0 | Trims ASCII spaces (`0x09-0x0D`, `0x20`). Unicode whitespace trim needs L1 tables. |
-| `trim_start()` | `trim_start()` | ✅ L0 | Same ASCII subset |
+| `trim() -> &str` | `trim() -> String` | ✅ L0 | ASCII whitespace (0x09-0x0D, 0x20) |
+| `trim_start()` | `trim_start()` | ✅ L0 | Same |
 | `trim_end()` | `trim_end()` | ✅ L0 | Same |
 | `trim_matches(pat)` | — | ⚠️ L0 | Generic predicate-based, deferred |
 
@@ -470,14 +621,14 @@ equivalent (or explains why it's deferred). Legend:
 
 | Rust | xpp equivalent | Tag | Notes |
 |------|---------------|-----|-------|
-| `replace(from, to)` | `replace(const String& from, const String& to) -> String` | ✅ L0 | All occurrences, byte-level. Pure scanning + building a new String. |
-| `replacen(from, to, n)` | `replacen(p, t, n)` | ✅ L0 | Same, capped |
+| `replace(from, to)` | `replace(from, to) -> String` | ✅ L0 | All occurrences, returns new String |
+| `replacen(from, to, n)` | `replacen(from, to, n)` | ✅ L0 | Capped |
 
 ### 9. Repeat
 
 | Rust | xpp equivalent | Tag | Notes |
 |------|---------------|-----|-------|
-| `repeat(n) -> String` | `repeat(size_t n) -> String` | ✅ L0 | `result.reserve(len() * n)` + looped append |
+| `repeat(n) -> String` | `repeat(size_t n) -> String` | ✅ L0 | `reserve(len() * n)` + looped append |
 
 ### 10. Comparison
 
@@ -485,16 +636,16 @@ equivalent (or explains why it's deferred). Legend:
 |------|---------------|-----|-------|
 | `==` / `!=` | `operator==` / `operator!=` | ✅ L0 | Byte-wise |
 | `<` / `>` | `operator<` | ✅ L0 | Lexicographic on bytes |
-| `eq_ignore_ascii_case` | `eq_ignore_ascii_case` | ⚠️ L0 | Trivial (lowercase ASCII bytes in compare). Deferred. |
+| `eq_ignore_ascii_case` | — | ⚠️ L0 | Trivial, deferred |
 
 ### 11. Iteration
 
 | Rust | xpp equivalent | Tag | Notes |
 |------|---------------|-----|-------|
-| `chars() -> Chars` | `chars() -> Chars` | ✅ L0 | Code point iterator, already in design |
-| `Chars::count()` | `Chars::count()` | ✅ L0 | Count remaining code points. O(remaining). Copies iterator position, does not modify String. |
-| `char_indices() -> CharIndices` | `char_indices() -> CharIndices` | ⚠️ L0 | `(byte_offset, char32_t)` pairs. Trivial to add. Deferred. |
-| `bytes() -> Bytes` | Use `as_bytes()` or range-for on `Span` | ✅ L0 | `Span<const uint8_t>` is iterable. No separate Bytes type needed. |
+| `chars() -> Chars` | `chars() -> Chars` | ✅ L0 | Code point iterator |
+| `Chars::count()` | `Chars::count()` | ✅ L0 | Count remaining CPs |
+| `char_indices() -> CharIndices` | — | ⚠️ L0 | `(byte_offset, char32_t)` pairs. Deferred. |
+| `bytes() -> Bytes` | `as_bytes()` or range-for on `Span` | ✅ L0 | Span is iterable |
 | `split_whitespace()` | — | ❌ L1 | Unicode whitespace table needed |
 
 ### 12. Case (all L1)
@@ -503,7 +654,7 @@ equivalent (or explains why it's deferred). Legend:
 |------|-----|-----|-----|
 | `to_lowercase()` | — | ❌ L1 | Unicode case folding table |
 | `to_uppercase()` | — | ❌ L1 | Same |
-| `to_ascii_lowercase()` | — | ⚠️ L0 | Trivial byte transform. Deferred for now. |
+| `to_ascii_lowercase()` | — | ⚠️ L0 | Trivial byte transform. Deferred. |
 | `to_ascii_uppercase()` | — | ⚠️ L0 | Same |
 
 ---
@@ -512,44 +663,47 @@ equivalent (or explains why it's deferred). Legend:
 
 | Category | Count |
 |----------|-------|
-| ✅ L0 — implement now | **30** methods |
-| ⚠️ L0 — defer to L0.1 | **14** methods (iterators, lossy, retain, ascii_case) |
+| ✅ L0 — implement now | **35** methods |
+| ⚠️ L0 — defer to L0.1 | **12** methods (iterators, lossy, ascii_case) |
 | ❌ L1 — `libxpp-ext/unicode` | **9** methods (case, normalize, grapheme, utf16) |
 
 ### L0 Implementation Order
 
 ```
-Phase 1 (core, ~400 lines):
-  new, from_utf8, from_utf8_unchecked, as_bytes, into_bytes,
-  len, empty, char_len, chars, clear, push, push_str,
-  substr, find, rfind, starts_with, ends_with, contains,
-  operator==, operator<
+Phase 1 (core, ~350 lines):
+  new, from_utf8, from_utf8_unchecked, as_bytes, into_bytes, into_std_string,
+  len, empty, char_len, capacity, reserve, try_reserve,
+  shrink_to_fit, try_shrink_to_fit, chars, clear, push, push_str,
+  substr, find, rfind, contains, starts_with, ends_with,
+  operator==, operator!=, operator<
 
-Phase 2 (mutation, ~150 lines):
+Phase 2 (mutation, ~200 lines):
   pop, truncate, insert, insert_str, remove, split_off,
-  capacity, reserve, shrink_to_fit, with_capacity
+  replace, replacen, repeat, retain
 
-Phase 3 (utility, ~150 lines):
-  replace, replacen, repeat,
-  trim, trim_start, trim_end
+Phase 3 (utility, ~120 lines):
+  trim, trim_start, trim_end, try_push_str, operator==(const char*)
 
-Phase 4 (deferred L0.1, ~250 lines):
-  from_utf8_lossy, retain, char_indices,
+Phase 4 (deferred L0.1, ~200 lines):
+  from_utf8_lossy, char_indices,
   split/splitn/rsplitn/lines iterators,
   eq_ignore_ascii_case, to_ascii_lowercase, to_ascii_uppercase
 ```
 
-Total: ~950 lines of implementation + ~400 lines of tests across all phases.
+Total: ~870 lines of implementation + ~500 lines of tests across all phases.
 
 ## File Placement
 
 ```
 libxpp/xpp/fmt.h       — XPP_HAS_FMTLIB detection (included by string.h)
-libxpp/xpp/string.h    — String + Chars + Utf8Error + fmt formatter (if available)
+libxpp/xpp/string.h    — String + Chars + Utf8Error + fmt formatter
 libxpp/xpp/string_test.cpp
 ```
 
-Dependencies: `std::vector<uint8_t>`, `xpp/result.h`, `xpp/option.h`, `xpp/span.h`.
+Dependencies: `xpp/vec.h`, `xpp/result.h`, `xpp/option.h`, `xpp/span.h`.
+
+No dependency on `<vector>` or `<string>` for the core type — only
+`into_std_string()` brings in `<string>`.
 
 ## fmtlib Integration
 
@@ -566,9 +720,7 @@ a `XPP_FMT_CORE` user override) and exposes one macro:
 #endif
 ```
 
-`xpp/string.h` conditionally provides the `fmt::formatter` specialisation
-so that every user of `#include <xpp/string.h>` gets fmt support
-automatically when `{fmt}` is available:
+`xpp/string.h` conditionally provides the `fmt::formatter` specialisation:
 
 ```cpp
 // xpp/string.h (excerpt)
@@ -589,31 +741,38 @@ struct fmt::formatter<xpp::String> : fmt::formatter<fmt::string_view> {
 #endif /* XPP_HAS_FMTLIB */
 ```
 
-**Usage:**
-```cpp
-#include <xpp/string.h>
-
-auto s = String::from_utf8("hello世界").unwrap();
-fmt::print("{}\n", s);      // "hello世界"
-fmt::print("{:>10}\n", s);  // " hello世界"
-```
-
-No separate `#include <xpp/fmt.h>` needed — `string.h` pulls it in.
-When `{fmt}` is absent the header compiles harmlessly.
-
 ## C++11 Compatibility
 
 The entire design uses only C++11 features:
-- Range-for loop through `Chars` iterator + `begin()`/`end()` adapter.
+- Range-for loop through `Chars` iterator.
 - No `std::string_view` — views use `Span<const uint8_t>`.
 - No `constexpr` — decode functions are plain functions.
-- Inline namespace `_::` holds helper functions to keep the header light.
+- `Vec<uint8_t>` provides all mutating operations with both assert-on-OOM and
+  `try_*` variants, beyond what C++11 `std::vector` offers.
+
+## Key Changes from std::vector-based Design
+
+| Aspect | Old (std::vector) | New (Vec<uint8_t>) |
+|--------|-------------------|---------------------|
+| Internal storage | `std::vector<uint8_t>` | `Vec<uint8_t>` |
+| `from_utf8()` | Takes `std::vector<uint8_t>` | Takes `Vec<uint8_t>` |
+| `into_bytes()` | Returns `std::vector<uint8_t>` | Returns `Vec<uint8_t>` |
+| Utf8Error storage | `std::vector<uint8_t>` | `Vec<uint8_t>` |
+| Capacity API | `reserve()` only (no try) | `reserve()` + `try_reserve()` |
+| OOM handling | Throw or abort | Dual API: assert / Result |
+| `split_off()` | Manual reimplementation | Delegates to `Vec::split_off()` |
+| `clear()` | `vector::clear()` | `Vec::clear()` (preserves capacity) |
+| `retain()` | `erase(remove_if(...))` | `Vec::retain(Pred)` |
+| Dependencies | `<vector>` | `xpp/vec.h` |
+| Allocator | `std::allocator` | xpp allocator protocol (pluggable) |
 
 ## Open Questions
 
-1. **`std::hash` specialisation?** Yes — hash the underlying bytes
-   (`std::vector<uint8_t>` doesn't have a built-in `std::hash`, so we provide
-   one). Byte-identical strings are hash-identical.
+1. **`std::hash` specialisation?** Yes — hash the underlying bytes via
+   `Vec<uint8_t>`'s `as_span()`.
 2. **`operator<<` for logging?** Minimal — `os.write((const char*)s.as_bytes().data(), s.len())`.
 3. **`from_utf8_lossy`?** Future — replace invalid sequences with U+FFFD.
-   Needs only the validator already present. Candidate for L0.1.
+   Candidate for L0.1.
+4. **Allocator template parameter?** Not in L0. `String` always uses
+   `GlobalAllocator`. Custom allocators can be added as a template parameter
+   (`String<Alloc>`) in a follow-up if needed, matching `Vec<T, Alloc>`.
