@@ -258,6 +258,54 @@ resolve(10)                    // ImmediatePromiseNode { value: 10 }
 
 ---
 
+## 4.5. PromiseResolver — Promise 的「回答」端
+
+到目前为止只讲了 Promise 的「问」端——`poll()`：「你好了没？」但谁来说「好了，给你值」？
+
+**Promise 的设计把「问」和「答」拆成两个独立角色**：
+
+```
+Promise<T>           →  给消费者用    →  poll(waker)    「你好了没？」
+PromiseResolver<T>   →  给生产者用    →  resolve(value)  「好了，给你值」
+
+两者共享一个 ResolveState<T>:
+  ┌───────────────────┐
+  │  ResolveState<T>   │
+  │  Option<T> value    │  ← 值存在这里
+  │  AtomicWaker waker  │  ← 记录谁在等
+  │  atomic<bool> done  │  ← 「好了吗」标志
+  └────────┬──────────┘
+           │
+     ┌─────┴─────┐
+     ▼             ▼
+  Arc<T>        ArcWeak<T>
+  (Promise 持有)  (Resolver 持有)
+```
+
+**Promise 持有 `Arc<ResolveState>`** — 强引用。只要还有人在 `await()`，state 就活着。
+
+**PromiseResolver 持有 `ArcWeak<ResolveState>`** — 弱引用。如果 Promise 已经被销毁（没人等了），`resolver.resolve(v)` 静默丢弃，不会 crash。
+
+```cpp
+// 创建一个 Promise/Resolver 对
+auto [promise, resolver] = xpp::async<int>();
+
+// 消费者
+promise.await();              // 阻塞等
+
+// 生产者（可以在另一个线程）
+resolver.resolve(42);         // 「来，这是答案」
+```
+
+**为什么需要这种分离？** 因为异步事件的「生产」和「消费」天然在不同地方：
+
+- **消费端**：用户写 `first_line()`，链式 `.then().await()` — 用 `Promise<T>`
+- **生产端**：timer 回调、fd 事件、线程池完成 — 用 `PromiseResolver<T>`
+
+**Adapter 模式的核心就是把这两端接起来**——外部事件源拿到 PromiseResolver，事件发生时调 `resolve()`；用户拿到 Promise，在 poll 循环里等结果。
+
+---
+
 ## 5. Adapter 模式 — 这是真正「深入」的部分
 
 前面讲的是「链式调用」，但异步编程真正的难点不在这里。真正的难点是：**怎么把外部的异步事件（timer 到期、fd 可读、线程池完成）变成 Promise？**
