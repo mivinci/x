@@ -27,7 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <vector>
+#include <xpp/vec.h>
 
 #include <xpp/option.h>
 #include <xpp/promise.h>
@@ -157,7 +157,7 @@ public:
 
   /** @brief Read the entire file contents into a byte vector.
    *  @return Promise resolving to the file's contents. */
-  Promise<std::vector<uint8_t>> read_all();
+  Promise<Vec<uint8_t>> read_all();
 
   /** @brief Read the entire file contents into a string.
    *  @return Promise resolving to the file's contents as a string. */
@@ -209,7 +209,7 @@ Promise<bool>                 exists(const char *path);
 /** @brief Read an entire file into a byte vector.
  *  @param path Filesystem path.
  *  @return Promise resolving to the file's contents. */
-Promise<std::vector<uint8_t>> read(const char *path);
+Promise<Vec<uint8_t>> read(const char *path);
 
 /** @brief Write a buffer to a file (creates/truncates the file).
  *  @param path Filesystem path.

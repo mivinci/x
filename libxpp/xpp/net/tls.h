@@ -21,10 +21,10 @@
 #include <cstddef>
 #include <cstring>
 #include <string>
-#include <vector>
 
 #include <xpp/option.h>
 #include <xpp/result.h>
+#include <xpp/vec.h>
 
 #include <x/base/error.h>
 #include <x/net/tls.h>
@@ -158,12 +158,12 @@ public:
     return std::move(*this);
   }
   /** @brief Set ALPN protocol list (e.g. {"h2", "http/1.1"}). */
-  TlsConfig &with_alpn(const std::vector<std::string> &protocols) & {
+  TlsConfig &with_alpn(const Vec<std::string> &protocols) & {
     m_alpn = protocols;
     rebuild_alpn_ptrs();
     return *this;
   }
-  TlsConfig &&with_alpn(const std::vector<std::string> &protocols) && {
+  TlsConfig &&with_alpn(const Vec<std::string> &protocols) && {
     with_alpn(protocols);
     return std::move(*this);
   }
@@ -209,8 +209,8 @@ private:
   std::string               m_key;
   std::string               m_ca;
   std::string               m_key_password;
-  std::vector<std::string>  m_alpn;
-  std::vector<const char *> m_alpn_ptrs;
+  Vec<std::string>  m_alpn;
+  Vec<const char *> m_alpn_ptrs;
   xTlsConf                  m_conf{};
 
   void fixup_ptrs() {
@@ -223,10 +223,10 @@ private:
   void rebuild_alpn_ptrs() {
     m_alpn_ptrs.clear();
     if (!m_alpn.empty()) {
-      m_alpn_ptrs.reserve(m_alpn.size() + 1);
+      m_alpn_ptrs.reserve(m_alpn.len() + 1);
       for (auto &p : m_alpn)
-        m_alpn_ptrs.push_back(p.c_str());
-      m_alpn_ptrs.push_back(nullptr);
+        m_alpn_ptrs.push(p.c_str());
+      m_alpn_ptrs.push(nullptr);
     }
     m_conf.alpn = m_alpn_ptrs.empty() ? nullptr : m_alpn_ptrs.data();
   }

@@ -18,11 +18,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <vector>
 
 #include <xpp/io/error.h>
 #include <xpp/net/addr.h>
 #include <xpp/option.h>
+#include <xpp/vec.h>
 #include <xpp/promise.h>
 #include <xpp/result.h>
 
@@ -79,7 +79,7 @@ class LookupHostAdapter;
  * @param hostname Hostname to resolve.
  * @return Promise resolving to a vector of SocketAddr (empty on error).
  */
-Promise<std::vector<SocketAddr>> lookup_host(const char *hostname);
+Promise<Vec<SocketAddr>> lookup_host(const char *hostname);
 
 /* ── Internal adapter ─────────────────────────────────────────────── */
 
@@ -88,13 +88,13 @@ namespace _ {
 /// DNS resolve adapter — bridges xDnsResolve to PromiseResolver.
 class LookupHostAdapter {
 private:
-  PromiseResolver<std::vector<SocketAddr>> m_resolver;
+  PromiseResolver<Vec<SocketAddr>> m_resolver;
   std::string                              m_host;
   xDnsQuery                                m_query = nullptr;
 
 public:
   /** @brief Start a DNS resolution for the given hostname. */
-  LookupHostAdapter(PromiseResolver<std::vector<SocketAddr>> r, const char *hostname)
+  LookupHostAdapter(PromiseResolver<Vec<SocketAddr>> r, const char *hostname)
       : m_resolver(std::move(r)), m_host(hostname) {
     m_query = xDnsResolve(m_host.c_str(), nullptr, nullptr, on_resolve, this);
   }
@@ -115,12 +115,12 @@ private:
     auto *self    = static_cast<LookupHostAdapter *>(arg);
     self->m_query = nullptr; // query is done, no need to cancel in dtor
 
-    std::vector<SocketAddr> addrs;
+    Vec<SocketAddr> addrs;
     if (result && result->error == xErrno_Ok) {
       for (xDnsAddr *a = result->addrs; a; a = a->next) {
         auto sa =
           SocketAddr::from_sockaddr(reinterpret_cast<struct sockaddr *>(&a->addr), a->addrlen);
-        if (sa.is_some()) addrs.push_back(std::move(sa).unwrap());
+        if (sa.is_some()) addrs.push(std::move(sa).unwrap());
       }
     }
     if (result) xDnsResultFree(result);
@@ -134,8 +134,8 @@ private:
 
 /* ── Implementation ───────────────────────────────────────────────── */
 
-inline Promise<std::vector<SocketAddr>> lookup_host(const char *hostname) {
-  return xpp::adapt<std::vector<SocketAddr>, _::LookupHostAdapter>(hostname);
+inline Promise<Vec<SocketAddr>> lookup_host(const char *hostname) {
+  return xpp::adapt<Vec<SocketAddr>, _::LookupHostAdapter>(hostname);
 }
 
 } // namespace net

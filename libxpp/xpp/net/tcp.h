@@ -27,7 +27,6 @@
 #include <cstring>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include <xpp/handle.h>
 #include <xpp/io/async_fd.h>
@@ -339,7 +338,7 @@ public:
     }
     auto hp = std::move(hp_r).unwrap();
 
-    return lookup_host(hp.first.c_str()).then([port = hp.second](std::vector<SocketAddr> addrs) {
+    return lookup_host(hp.first.c_str()).then([port = hp.second](Vec<SocketAddr> addrs) {
       if (addrs.empty()) {
         return xpp::resolve(
           io::Result<TcpListener>(xpp::err, io::Error::from_kind(io::ErrorKind::HostNotFound)));
@@ -513,7 +512,7 @@ inline Promise<io::Result<TcpStream>> TcpStream::connect(const char             
   }
   auto hp = std::move(hp_r).unwrap();
 
-  return lookup_host(hp.first.c_str()).then([port = hp.second, tls](std::vector<SocketAddr> addrs) {
+  return lookup_host(hp.first.c_str()).then([port = hp.second, tls](Vec<SocketAddr> addrs) {
     if (addrs.empty()) {
       return xpp::resolve(
         io::Result<TcpStream>(xpp::err, io::Error::from_kind(io::ErrorKind::HostNotFound)));
