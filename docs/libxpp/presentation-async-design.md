@@ -615,3 +615,24 @@ A: POSIX（Linux/macOS）。EventLoop 底层是 epoll（Linux）或 kqueue（mac
 
 **Q: 既然整个系统是单线程，thread pool 怎么用？**
 A: `xpp::work(fn)` 把耗时任务扔到 libx 的后台线程池，返回 `Promise<T>`。resolver 在 worker 线程 resolve，event loop 线程的 await 被 waker 唤醒。两个线程之间没有数据竞争——只有 atomic flag + waker 的并发。
+
+```cpp
+// 主线程：发起一个 CPU 密集的计算，不阻塞 event loop
+auto result = xpp::work([]() -> int {
+    // 这段在后台线程跑
+    int sum = 0;
+    for (int i = 0; i < 1000000; i++) sum += i;
+    return sum;
+}).await();
+
+// result 拿到时，主线程从未被阻塞过——
+// await() 内部的循环在等 worker 线程 resolve 时才 park，
+// 其他时间 event loop 照常处理 fd 事件和 timer。
+
+// 实际场景：读文件 + 解析 + 写回，解析在 worker 线程
+auto data = File::open("data.bin").await().read_all().await();
+auto parsed = xpp::work([&]() {
+    return heavy_parse(data);  // CPU 密集，扔到线程池
+}).await();
+File::open("output.bin").await().write_all(parsed.as_bytes()).await();
+```
