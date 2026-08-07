@@ -24,6 +24,7 @@ Go 有 goroutine。Rust 有 tokio。C++ 有什么？
 ```
 
 **结果就是——**
+
 ```c
 // 「读一个配置文件，提取第一行」——四层回调：
 void on_opened(uv_fs_t *req)         { /* alloc buf, start fstat */ }
@@ -48,7 +49,7 @@ line := strings.SplitN(string(data), "\n", 2)[0]
 
 ---
 
-## 1. 统一异步模型：Promise\<T\>
+## 1. 统一异步模型：Promise<T>
 
 libxpp 的统一语言就一个类型：**`Promise<T>`**——一个「未来的值」。
 
@@ -94,11 +95,11 @@ xpp::Promise<String> first_line() {
 
 **设计要点**：
 
-| 决策 | 为什么 |
-|------|--------|
+| 决策                         | 为什么                                                           |
+| -------------------------- | ------------------------------------------------------------- |
 | `then(fn)` 返回 `Promise<U>` | 如果 `fn` 返回 `Promise<U>`，自动 flatten，不会出现 `Promise<Promise<U>>` |
-| Move-only | 一个 Promise 只有一个消费者，没有「谁先 await 谁拿值」的语义混乱 |
-| 不继承 `std::future` | `std::future` 没有 `then()`，没有组合子，设计哲学完全不同 |
+| Move-only                  | 一个 Promise 只有一个消费者，没有「谁先 await 谁拿值」的语义混乱                      |
+| 不继承 `std::future`          | `std::future` 没有 `then()`，没有组合子，设计哲学完全不同                      |
 
 ---
 
@@ -209,13 +210,58 @@ poll(waker) → Option<T>
 ```
 
 **为什么是 one-shot poll 而不是 `is_ready() + take()`？**
+
 - 两步 API 有 TOCTOU（time-of-check-time-of-use）问题
 - one-shot 把「检查」和「取走」原子化
 - 这也意味着：每个 Promise 只能 await 一次，await 完就空了
 
 ---
 
-## 4. PromiseNode 层级 — 六种节点，一种接口
+## 4. 双人舞：PromiseNode 与 PromiseResolver
+
+Promise 系统由**五个部件**组成。理解它们的职责和关系，就理解了全部：
+
+```
+用户代码
+  │
+  ▼
+Promise<T>  ←─────────────────────────────────────────────────────┐
+  │  句柄。用户只跟它交互                                           │
+  │  .then(fn) / .await() / co_await                              │
+  ▼                                                               │
+PromiseNode<T>  ←── 问端                                           │
+  │  虚基类。poll(waker) → Option<T>                               │
+  │  六种子类：Immediate / Transform / Chain / Adapter /           │
+  │  Coroutine / Yield                                             │
+  │                                                               │
+  │  所有 node 从 Arena 分配 — 跟 malloc 无关                       │
+  │  then() 链的 node 在同一个 arena 里连着分配，一次 free 全部释放   │
+  │                                                               │
+  ▼                                                               │
+ResolveState<T>  ←── 数据的家                                       │
+  │  Option<T> value         ← 值住在这里                           │
+  │  AtomicWaker waker       ← 记录谁在等                           │
+  │  atomic<bool> resolved   ← 「好了没」                            │
+  │                                                               │
+  │  PromiseNode    持有 Arc<ResolveState>    — 强引用               │
+  │  PromiseResolver 持有 ArcWeak<ResolveState> — 弱引用              │
+  └─────────┬──────────────────────────────────────────────────────┘
+            │
+   ┌────────┴────────┐
+   ▼                 ▼
+PromiseResolver<T>  PromiseWaker
+  答端                 闹钟
+  .resolve(value)      .fire() / .park()
+  生产者调用            驱动 poll 循环
+```
+
+**PromiseWaker**：连接 PromiseNode 和 EventLoop 的中间人。`poll()` 返回 None 时，waker 被注册到 `ResolveState` 的 `AtomicWaker` 里；外部事件调 `resolve()` 时，waker 被 fire，`park()` 返回，再来一轮 poll。
+
+**Arena**：PromiseNode 不从 heap malloc。每个 PromiseNode 自带一个 arena chunk，bump pointer 分配——`then()` 链上的所有中间 node 在同一个 arena 里接连分出来，全部释放时一次 free。O(N) 的 malloc 降为 O(1)。
+
+---
+
+### 4.1 PromiseNode — 问端：六种节点，一个接口
 
 所有 Promise 背后都是 `PromiseNode<T>`，只有一个虚函数：
 
@@ -226,16 +272,18 @@ class PromiseNode {
 };
 ```
 
-| 节点类型 | 用途 | poll 行为 |
-|----------|------|-----------|
-| `ImmediatePromiseNode` | 已经是值（`resolve(42)`） | 直接返回 Some，忽略 waker |
-| `TransformPromiseNode` | `.then(fn)` | poll 上游 → 拿到值 → 调 fn |
-| `ChainPromiseNode` | 自动 flatten | poll 外层 → 拿到 Promise → 切到内层 poll |
-| `AdapterPromiseNode` | 外部异步源 | poll 共享的 ResolveState |
-| `CoroutinePromiseNode` | `co_await` | poll 协程的 AwaitState |
-| `YieldPromiseNode` | yield() | 直接返回 Some(Void{}) |
+六种节点的区别在&#x4E8E;**「值从哪来」**。按来源分三组：
 
-**这里有一个精妙的设计**：`then()` 链不是 callback 链，是 **节点链**。
+| 来源                | 节点                     | 什么时候 poll 返回 Some                                        | 示例                                                  |
+| ----------------- | ---------------------- | -------------------------------------------------------- | --------------------------------------------------- |
+| **已有值**           | `ImmediatePromiseNode` | 马上。`resolve(42)` — 值早就在了，不需要等                            | `xpp::resolve(42)` / `xpp::resolve()`               |
+|                   | `YieldPromiseNode`     | 马上。`yield()` — 专门给事件循环留个呼吸口                              | `xpp::yield()`（`defer(fn)` 内部就是它套一层 then）           |
+| **从别的 Promise 来** | `TransformPromiseNode` | poll 上游拿到值 → `fn(value)` ⚠️ 如果 fn 返回 Promise，自动委托给 Chain | `p.then([](int x){ return x * 2; })`                |
+|                   | `ChainPromiseNode`     | poll 上游拿到 Promise → 切到内层继续 poll                          | `p.then([]{ return inner; })` — fn 返回 Promise 时自动生成 |
+| **从外部世界来**        | `AdapterPromiseNode`   | poll 共享的 `ResolveState` — 外部事件调 `resolve()` 时值到位         | `after(100)` / `work([]{ ... })`                    |
+|                   | `CoroutinePromiseNode` | poll `co_await` 的 `AwaitState` — 协程自己管理挂起/恢复             | 协程体里的 `co_await some_promise;`                      |
+
+**关键洞察**：`then()` 链不是 callback 链，是 **节点链**。
 
 ```cpp
 resolve(10)                    // ImmediatePromiseNode { value: 10 }
@@ -247,62 +295,63 @@ resolve(10)                    // ImmediatePromiseNode { value: 10 }
   });
   // → 结果 = 21
 
-// await() 时做的不是「回调套回调」，而是：
-// poll(外)→poll(中)→poll(内)→10→*2→+1→21
+// await() 内部做的事不是「回调套回调」：
+// poll(外) → poll(中) → poll(内) → 10 → *2 → +1 → 21
 ```
 
-**好处**：
-- 每一步的中间值都不需要堆分配
-- 调用栈是浅的（poll 递归展开，不是 callback 嵌套）
-- 类型全部静态推导，没有 `std::function` 的虚调用开销
+**为什么节点比回调好**：
+
+- 每一步的中间值都不需要堆分配 — 值沿着链传递，不拷贝
+- 调用栈是浅的 — poll 递归展开，不是 callback 嵌套
+- 类型全部静态推导 — 没有 `std::function` 的虚调用开销
 
 ---
 
-## 4.5. PromiseResolver — Promise 的「回答」端
+### 4.2 PromiseResolver — 答端：「问」和「答」为什么必须分家
 
-到目前为止只讲了 Promise 的「问」端——`poll()`：「你好了没？」但谁来说「好了，给你值」？
+PromiseNode 只管「问」，但谁来「答」？**PromiseResolver**。
 
-**Promise 的设计把「问」和「答」拆成两个独立角色**：
+这不是一个可有可无的辅助类 —— 而是 Promise 系统的**另一半**。异步编程里「问」和「答」天然在不同地方：
+
+- **问端**：用户写 `read_all().then(decode).await()` — 在 EventLoop 线程里
+- **答端**：fd 可读了、timer 到期了、thread pool 完成了 — 在一些外部回调里
+
+Promise 的设计把两端拆成两个独立类型，各持自己的引用，中间通过 `ResolveState` 共享状态：
 
 ```
-Promise<T>           →  给消费者用    →  poll(waker)    「你好了没？」
-PromiseResolver<T>   →  给生产者用    →  resolve(value)  「好了，给你值」
+PromiseNode 持有 Arc<ResolveState>        — 强引用。「只要我还活着，state 就在」
 
-两者共享一个 ResolveState<T>:
-  ┌───────────────────┐
-  │  ResolveState<T>   │
-  │  Option<T> value    │  ← 值存在这里
-  │  AtomicWaker waker  │  ← 记录谁在等
-  │  atomic<bool> done  │  ← 「好了吗」标志
-  └────────┬──────────┘
-           │
-     ┌─────┴─────┐
-     ▼             ▼
-  Arc<T>        ArcWeak<T>
-  (Promise 持有)  (Resolver 持有)
+PromiseResolver 持有 ArcWeak<ResolveState> — 弱引用。「如果 Promise 已经销毁了，
+                                             我的 resolve() 就静默丢弃，不 crash」
 ```
 
-**Promise 持有 `Arc<ResolveState>`** — 强引用。只要还有人在 `await()`，state 就活着。
-
-**PromiseResolver 持有 `ArcWeak<ResolveState>`** — 弱引用。如果 Promise 已经被销毁（没人等了），`resolver.resolve(v)` 静默丢弃，不会 crash。
+**为什么是 ArcWeak？** `PromiseResolver::resolve()` 可能在任何线程、任何时候调用。如果 Promise 已经 `await()` 完并且被析构了，`ResolveState` 已经释放。Weak 引用让 Resolver 安全地检测到「没人等了」而不发生 use-after-free。
 
 ```cpp
 // 创建一个 Promise/Resolver 对
 auto [promise, resolver] = xpp::async<int>();
 
-// 消费者
-promise.await();              // 阻塞等
+// 消费者（问端）
+promise.await();              // 在 poll 循环里等
 
-// 生产者（可以在另一个线程）
-resolver.resolve(42);         // 「来，这是答案」
+// 生产者（答端 — 可以在任何地方、任何时候调用）
+resolver.resolve(42);         // 「好了，给你值」
 ```
 
-**为什么需要这种分离？** 因为异步事件的「生产」和「消费」天然在不同地方：
+---
 
-- **消费端**：用户写 `first_line()`，链式 `.then().await()` — 用 `Promise<T>`
-- **生产端**：timer 回调、fd 事件、线程池完成 — 用 `PromiseResolver<T>`
+### 4.3 两种答端模式
 
-**Adapter 模式的核心就是把这两端接起来**——外部事件源拿到 PromiseResolver，事件发生时调 `resolve()`；用户拿到 Promise，在 poll 循环里等结果。
+PromiseResolver 的连接方式有两类，区别在于**谁拿着 Resolver**：
+
+| 模式                  | 谁 resolve | 典型场景                        | Resolver 生命周期   |
+| ------------------- | --------- | --------------------------- | --------------- |
+| **直接 resolve**      | 你手上的代码    | `.then()` 里异步调用 `resolve()` | 你手动管理           |
+| **Adapter resolve** | 外部事件源回调   | timer 到期回调「顺便」调 `resolve()` | Adapter 析构时自动取消 |
+
+第二种是 Adapter 模式的核心——也是下一节的内容。
+
+**两种模式共享同一个 `poll_state()` 算法**（下一节会看到为什么这个算法的 double-check 设计是必须的）。
 
 ---
 
@@ -362,7 +411,7 @@ AdapterPromiseNode:  Arc<ResolveState>   (强引用，保证 ResolveState 存活
 PromiseResolver:     ArcWeak<ResolveState> (弱引用，Promise 销毁后 resolve 静默丢弃)
 ```
 
-为什么？因为 `PromiseResolver::resolve()` 可能在任何线程、任何时候调用——包括 Promise 已经 `await()` 完并被销毁之后。用 weak 引用避免了 use-after-free，也不需要 `shared_ptr` + `weak_ptr` 的锁开销。
+为什么？因为 `PromiseResolver::resolve()` 可能在任何线程、任何时候调用——包括 Promise 已经 `await()` 完并被销毁之后。用 weak 引用避免了 use-after-free。
 
 **2. poll_state() 的三步检查（double-check）**
 
@@ -385,6 +434,7 @@ Option<T> poll_state(ResolveState<T> &s, const PromiseWaker &waker) {
 ```
 
 **为什么需要 double-check？** 看这个并发时序：
+
 1. T1: poll_state 检查 resolved → false
 2. T2: resolve() 设 resolved=true → fire waker
 3. T1: register_waker
@@ -397,8 +447,10 @@ Option<T> poll_state(ResolveState<T> &s, const PromiseWaker &waker) {
 用户代码：
 
 ```cpp
-auto p = xpp::adapt<int, TimerAdapter>(1000);  // 1 秒后 resolve
-p = Promise<int>();  // 销毁 Promise → 触发 ~AdapterPromiseNode → ~TimerAdapter → 取消 timer
+{
+    auto p = xpp::adapt<int, TimerAdapter>(1000);  // 1 秒后 resolve
+    // ... 用 p 干点事
+}  // ← p 析构 → ~AdapterPromiseNode → ~TimerAdapter → 取消 timer
 ```
 
 不需要手动 `cancel()` —— RAII 保证。这是 C++ 的天然优势。
@@ -452,34 +504,7 @@ C++20 协程把 `compute()` 编译成一个状态机。`co_await` 背后驱动�
 
 ---
 
-## 7. 线程安全：一把锁都没有
-
-这是最容易被忽视但最有意思的部分。
-
-### PromiseResolver 跨线程 resolve
-
-```cpp
-// 线程 A: 网络回调
-void on_data(const uint8_t *buf, size_t len, void *userdata) {
-    auto *resolver = static_cast<PromiseResolver<Vec<uint8_t>>*>(userdata);
-    resolver->resolve(Vec<uint8_t>(buf, buf + len));  // ← 线程安全！
-}
-
-// 线程 B: 用户代码
-Vec<uint8_t> data = read_from_net().await();  // ← 也在 EventLoop 线程
-```
-
-**怎么做到**：
-- `ResolveState` 用 `std::atomic<bool>` 标记 resolved
-- `AtomicPromiseWaker` 用 atomic CAS 保证只有一个 waker 被注册
-- `PromiseResolver` 持 `ArcWeak`，Promise 销毁后 resolve 静默丢弃
-- `await()` 必须跑在 EventLoop 线程——这是唯一的线程安全约定
-
-**没有 mutex。不需要。** 因为状态转移是单向的（pending → resolved），atomic 足够。
-
----
-
-## 8. 性能细节
+## 7. 性能细节
 
 ### Per-Chain Arena（链式 arena 分配）
 
@@ -487,8 +512,9 @@ Vec<uint8_t> data = read_from_net().await();  // ← 也在 EventLoop 线程
 
 ```cpp
 resolve(1).then(f1).then(f2).then(f3).then(f4)
-// 6 个 Node：1 个 Immediate + 4 个 Transform + 1 个 Chain
-// 6 次 malloc / 6 次 free
+// 1 个 Immediate + 4 个 Transform
+// （fn 返回普通值时不生成 Chain；只有 fn 返回 Promise 时才额外追加 ChainNode）
+// 不含 arena：6 次 malloc / 6 次 free
 ```
 
 xpp 用一个 **256 字节的 bump allocator** 挂在整个链上。所有节点都在这个 arena 里分配：
@@ -506,62 +532,61 @@ xpp 用一个 **256 字节的 bump allocator** 挂在整个链上。所有节点
 
 实际的 malloc 数：**O(1)** 而不是 **O(N)**。
 
-### CompressedPair EBO
-
-```
-sizeof(std::vector<int>)  = 24  // ptr + size + cap
-sizeof(xpp::Vec<int>)     = 24  // CompactPair<(ptr,size,cap), Allocator>
-                                // EBO: GlobalAllocator 是 empty class, 0 字节
-                                // 内存布局跟 std::vector 完全一致
-```
-
-**安全特性的额外成本：零。**
-
 ---
 
-## 9. 与其他异步模型对比
+## 8. 与其他异步模型对比
 
-| 模型 | 代表 | 优点 | 缺点 |
-|------|------|------|------|
-| 回调 | libuv, Node.js | 简单直接 | 控制流碎片化，错误处理痛苦 |
-| Future/Promise | xpp, Rust, JS Promise | 链式组合，类型安全 | 需要 `then()` 链或 `await` |
-| 协程 | C++20, Go goroutine | 像同步代码 | C++20 要求，编译慢，调试难 |
-| Actor | Erlang, Akka | 天然分布 | 消息传递开销，类型边界模糊 |
+| 模型             | 代表                                | 优点                 | 缺点                          |
+| -------------- | --------------------------------- | ------------------ | --------------------------- |
+| 回调             | libuv, Node.js                    | 简单直接               | 控制流碎片化，错误处理痛苦               |
+| 无栈协程 (Future/Promise) | Rust Future, C++20 co_await, xpp, JS Promise | 链式组合，类型安全，零栈开销      | 需要显式 `await` / `then` / `co_await` |
+| 有栈协程           | Go goroutine, xpp fiber, ucontext          | 同步写法，旧 C++ 也能用      | 每协程独立栈（KB~MB），调度不可控          |
+| Actor          | Erlang, Akka                      | 天然分布               | 消息传递开销，类型边界模糊               |
 
 xpp 的定位：**用 Rust Future 的模型，在 C++11 上跑，保留协程升级路径**。
 
-三条路径的演进关系：
+两种机制路径共享同一个 EventLoop + poll/waker 核心：
 
 ```
-      C++11 .then()/.await()
-              │
-      ┌───────┴────────┐
-      ▼                ▼
-  C++11 fiber      C++20 co_await
-  (栈协程，          (编译器状态机，
-   兼容旧代码)        零语法糖开销)
+              EventLoop + poll/waker
+                       │
+            ┌──────────┴──────────┐
+            ▼                     ▼
+        无栈协程                  有栈协程
+   ┌─────┴─────┐                  │
+   ▼           ▼                  ▼
+C++11 .await()  C++20 co_await  C++11 fiber
+(显式 poll/waker,  (编译器生成状态机,  (ucontext,
+  C++11 兼容)      零语法糖开销)      独立栈, 旧代码可用)
 ```
-
-全部运行在同一个 EventLoop + poll/waker 核心上。
 
 ---
 
-## 10. 总结：C++ Done Right
+## 9. 总结：C++ Done Right
 
-**1. 一个 EventLoop，一个模型，全部组件接入。**
-不是「选 libuv 还是 ASIO」——用 libxpp，所有异步操作说的都是同一种语言（`Promise<T>`）。P2P 连接、文件 IO、DNS 解析、定时器——全部跑在一个 EventLoop 上，没有「这个回调在哪个线程」的问题。
+**1. Poll + Waker — 跟 Rust Future 同构的异步核心**  
+一个接口 `poll(waker) → Option<T>` 驱动全部。Readiness check 和 value 取走原子化，避免了 TOCTOU。waker 连接 EventLoop，外部事件触发时自唤醒。
 
-**2. Adapter = Arc/ArcWeak + atomic double-check**
-零锁的跨线程桥接。构造即启动，析构即取消。不需要生命周期管理 API。任何外部异步源（timer、fd、thread pool）用 10 行 Adapter 就能接入 Promise 系统。
+**2. PromiseNode — 六种节点，值从哪来**  
+已有值（Immediate / Yield）、从上游 Promise 来（Transform / Chain）、从外部世界来（Adapter / Coroutine）——三类来源，职责清晰。`.then()` 链就是节点链，不是回调链。
 
-**3. 安全特性零开销**
-CompressedPair EBO 让 Vec 和 std::vector 一样大。Arena allocation 让 then 链的 malloc 从 O(N) 降到 O(1)。一切 check 在 debug mode，release 优化掉。
+**3. PromiseNode + PromiseResolver — 问答分离**  
+PromiseNode 只问不管答。答端 PromiseResolver 用 ArcWeak 弱引用安全地跨线程 resolve——强引用在、就投递值；已析构、就静默丢弃。
 
-**C++ 不缺库。C++ 缺的是一个不说不同方言的家。** libxpp 就是这个家。
+**4. Adapter 模式 — 任意外部源接入**  
+Arc/ArcWeak + poll_state() atomic double-check。构造即启动，析构即取消。timer、fd、thread pool 用 10 行 Adapter 就能接入 Promise 系统。
+
+**5. 多种消费风格，一个内核**  
+C++11 `.await()`、C++20 `co_await`、C++11 fiber——三套写法，底层是同一套 poll/waker。无栈有栈并行可选，不互相排斥。
+
+**6. 零开销**  
+Arena allocation 让 then 链的 malloc 从 O(N) 降到 O(1)。所有 debug check 在 release 优化掉。
+
+**C++ 不缺库。C++ 缺的是一套不说不同方言的异步语言。** libxpp 给出的就是这门语言。
 
 ---
 
-## 11. 为什么 Rust 的设计能搬到 C++
+## 10. 为什么 Rust 的设计能搬到 C++
 
 > Rust 和 C++ 在值语义层高度同构。安全层不同构——搬不过来的得用设计补。
 
@@ -569,14 +594,14 @@ CompressedPair EBO 让 Vec 和 std::vector 一样大。Arena allocation 让 then
 
 Rust 的类型系统本来长在 C++ 的根上。这些是**直译**，不是仿写：
 
-| Rust | C++ (xpp) | 为什么是同一回事 |
-|------|-----------|-----------------|
-| `Option<T>` | tagged union + bool | 都是 sum type：值是 T，或者不是 |
-| `Result<T, E>` | 同上 | 同一个代数——要么有值，要么有错误 |
+| Rust                | C++ (xpp)               | 为什么是同一回事                            |
+| ------------------- | ----------------------- | ----------------------------------- |
+| `Option<T>`         | tagged union + bool     | 都是 sum type：值是 T，或者不是               |
+| `Result<T, E>`      | 同上                      | 同一个代数——要么有值，要么有错误                   |
 | move 默认，Copy opt-in | move ctor + `std::move` | move semantics 是 C++11 发明的，Rust 学去的 |
-| `impl Drop` | `~T()` | RAII 是 C++ 发明的，Rust 拿走了 |
-| `Future::poll` | `PromiseNode::poll` | 同一个问题（「好了没」），同一个答案（poll + waker） |
-| 泛型单态化 | 模板实例化 | 两个编译器做一模一样的代码膨胀 |
+| `impl Drop`         | `~T()`                  | RAII 是 C++ 发明的，Rust 拿走了             |
+| `Future::poll`      | `PromiseNode::poll`     | 同一个问题（「好了没」），同一个答案（poll + waker）    |
+| 泛型单态化               | 模板实例化                   | 两个编译器做一模一样的代码膨胀                     |
 
 **RAII、move、泛型——这三根柱子就是 C++ 给的。** Rust 只是扫干净了 unsafe 的后路，没发明新柱子。
 
@@ -584,12 +609,12 @@ Rust 的类型系统本来长在 C++ 的根上。这些是**直译**，不是仿
 
 Rust 能给编译器写数学证明。C++ 是信任程序员。这些**搬不过来**：
 
-| Rust 证明 | C++ 没有 | xpp 的对策 |
-|-----------|---------|-----------|
-| borrow checker | 引用就是裸指针 | 单线程 EventLoop + `Arc/ArcWeak` — 靠架构规避多所有者 |
-| `Send + Sync` | 没有 | `poll_state()` 的 acquire/release + atomic double-check |
-| `match` 穷尽性 | `if/else` 漏了不报错 | `Option<T>` + debug assert — 漏了至少炸，不会悄无声息 |
-| lifetime 注解 | 注释，靠人读 | Move-only Promise — 消费即销毁，没有持有引用的问题 |
+| Rust 证明        | C++ 没有          | xpp 的对策                                                |
+| -------------- | --------------- | ------------------------------------------------------ |
+| borrow checker | 引用就是裸指针         | 单线程 EventLoop + `Arc/ArcWeak` — 靠架构规避多所有者              |
+| `Send + Sync`  | 没有              | `poll_state()` 的 acquire/release + atomic double-check |
+| `match` 穷尽性    | `if/else` 漏了不报错 | `Option<T>` + debug assert — 漏了至少炸，不会悄无声息              |
+| lifetime 注解    | 注释，靠人读          | Move-only Promise — 消费即销毁，没有持有引用的问题                    |
 
 **核心差异**：Rust 的安全是证明出来的（编译器算），C++ 的安全是约定出来的（你不犯错就没事）。xpp 的设计是在约定之上加了一层检查——debug assert 让犯错变成 crash，而不是 silent corruption。
 
@@ -599,22 +624,60 @@ Rust 能给编译器写数学证明。C++ 是信任程序员。这些**搬不过
 
 ---
 
-## Q&A 预备
+## Q\&A 预备
 
-**Q: 为什么不直接用 ASIO / libuv？**
-A: ASIO 的 `awaitable` 在 C++11 下不可用。libuv 是回调模型，我们需要类型安全的组合。xpp 的 EventLoop 下面嵌的是 libx 自己的事件循环（epoll/kqueue 包装），更轻。
+**Q: 为什么不直接用 ASIO / libuv？**  
+A: 定位不同。ASIO / libuv 是**事件库**——给 epoll/kqueue 套层回调基础设施。xpp 想要的是**统一且完备的异步运行时**：同一套 `Promise<T>` 模型 + EventLoop 之上，封装 IO / Net / HTTP / Channel 等基础模块，让业务代码用同一种异步语言写所有事情。
 
-**Q: Fiber 的实现原理？**
-A: 用的是 `ucontext` / `makecontext` / `swapcontext`（POSIX 栈协程）。每个 fiber 有自己的栈（默认 128KB）。`xFiberYield()` 把控制权交还给 event loop。
+- **统一** — 从 `File::open` 到 `TcpStream::connect` 到 `mpsc::send`，全部返回 `Promise<T>`，不需要把 ASIO 的回调再手动包成 Promise。
+- **完备** — 运行时自带文件 IO、TCP/UDP/DNS、HTTP、Channel、Fiber 等模块，不是只有事件骨架让用户自己造轮子。
 
-**Q: 为什么不直接用 Rust？**
+直接用 ASIO / libuv 意味着要么在它们的回调模型上重造 Promise（ASIO `awaitable` C++11 不可用，libuv 是纯回调），要么接受「基础模块用 ASIO、async 用 xpp」这种割裂的栈。
+
+**Q: 那为什么不基于 ASIO / libuv 做？**  
+A: 四个原因。
+
+- **范式冲突** — ASIO / libuv 是**推模型**（completion handler:操作完成 → ASIO 主动调你的回调），xpp 是**拉模型**（poll/waker:你自己问「好了没」，没好就睡等 waker 叫醒）。要在推模型上嫁接拉模型，每个 ASIO 异步操作都要插入「推转拉」中间层：completion handler → resolver.resolve() → waker.fire()，每一步都是一次 indirect call + atomic CAS。更致命的是两个 run loop（ASIO 的 `io_context`、xpp 的 `EventLoop`）必须一个嵌在另一个里面跑——谁的 IO 超时谁说了算？谁先调度谁？这类耦合在设计层就没干净答案。
+
+- **结构设计** — libx 的事件循环通过 `xEventLoopEnter` / `xEventLoopLeave` 绑定到线程（`__thread` TLS），任何回调里直接用 `xEventLoopCurrent()` 拿当前 loop。ASIO / libuv 相反——`io_context` / `uv_loop_t*` 必须在每个 API 调用和回调里手传，一旦传错线程就是数据竞争甚至死锁。前者声明式：线程拥有 loop；后者命令式：你在哪里跑 loop 是你自己的事——代价就是把所有风险摊给调用者。
+
+- **性能** — `event_bench.cpp` 里的 libuv baseline 对比压测，libx 的事件循环在 wake latency、timer、offload 等微指标上吊打 libuv。ASIO 同理。自己写的事件循环在这件事上没输过。
+
+- **内存模型** — Timer/Work 有对象池（freelist，最多缓存 256 个 timer struct），跨线程通信用 lock-free MPSC + Treiber stack，wake 带 coalescing（重复调用跳过 syscall）。libuv 到处 malloc 没有池，ASIO 内部用 mutex 护队列——高频小对象分配的开销不在一个数量级。
+
+- **Taste** — ASIO / Boost 的设计臃肿，命名风格跟 STL 一样诡异：`std::vector` 是类型,`std::move` 是函数——同一种 `lowercase_underscored` 风格,类型和值不分。读一行代码需要额外的脑力判断「这是类还是函数」。我宁可从 OS API 直写，简洁、干净、自己说了算。
+
+**Q: 为什么不直接用 Rust？**  
 A: 这是个工程问题不是语言问题。团队 C++ 技术栈，业务代码 C++，依赖库 C++。xpp 的目标是「在 C++ 里写出 Rust 的安全感」，不是「换个语言」。
 
-**Q: 跨平台吗？**
-A: POSIX（Linux/macOS）。EventLoop 底层是 epoll（Linux）或 kqueue（macOS）。Windows 暂无支持（IOCP 架构差异大）。
+**Q: 跨平台吗？**  
+A: Linux 走 epoll，macOS 走 kqueue，Windows 走 WSAPoll——三种后端通过同一个接口提供 edge-triggered 事件通知（WSAPoll 底层是 poll，通过禁用事件 + re-arm 模拟 ET）。后续计划做第二套 proactor 事件机制：IOCP 支持 Windows，io_uring 支持 Linux/macOS。
 
-**Q: 既然整个系统是单线程，thread pool 怎么用？**
+**Q: Fiber 的实现原理？**  
+A: 用的是 `ucontext` / `makecontext` / `swapcontext`（POSIX 栈协程）。每个 fiber 有自己的栈（默认 128KB）。`xFiberYield()` 把控制权交还给 event loop。
+
+**Q: Promise 解决了异步返回，并发协调用啥？**  
+A: sync 模块提供了 Tokio 风格的 channel：`oneshot`（单发单收）、`mpsc`（多生产者单消费者）、`broadcast`（一对多）、`watch`（值版本跟踪）。Promise 管「做完一件事通知我」，channel 管「多个事之间怎么传数据」——两套东西正交互补，都跑在 EventLoop 上。
+
+```cpp
+// 工厂：bounded mpsc，cap=64
+auto [tx, rx] = xpp::sync::mpsc::channel<int>(64);
+
+// 多个生产者：copy 出多份 Sender，各自 send
+auto tx2 = tx;
+tx.send(1).await();               // 缓冲满则挂起协程
+tx.send(2).await();
+tx2.send(100).await();            // 跟 tx 并发，互不阻塞
+
+// 单一消费者：None 表示所有 sender 都 drop 了、channel 自动 close
+while (auto v = rx.recv().await()) {
+    use(v.unwrap());
+}
+```
+
+**Q: 单个 EventLoop 是单线程的，CPU 密集任务怎么办？**  
 A: `xpp::work(fn)` 把耗时任务扔到 libx 的后台线程池，返回 `Promise<T>`。resolver 在 worker 线程 resolve，event loop 线程的 await 被 waker 唤醒。两个线程之间没有数据竞争——只有 atomic flag + waker 的并发。
+（至于"开多个 EventLoop 各跑各的线程，再靠 channel/mpsc 互通"那种多线程拓扑，也是支持的——EventLoop 单线程不意味着整个软件只能跑一个线程。）
 
 ```cpp
 // 主线程：发起一个 CPU 密集的计算，不阻塞 event loop
@@ -639,13 +702,13 @@ File::open("output.bin").await().write_all(parsed.as_bytes()).await();
 
 ---
 
-## 12. Appendix: Beyond Async — The Rest of libxpp
+## 11. Appendix: Beyond Async — The Rest of libxpp
 
 Promise 是骨架。但同构移植不只异步机制——libxpp 还搬了 Rust 的整个标准库哲学：用类型系统取代文档和注释。
 
 下面逐个看「之前 C++ 怎么写 → libxpp 怎么写 → 为什么」。
 
-### Option\<T\> — A Value or Nothing
+### Option<T> — A Value or Nothing
 
 **C++ 现状**：用 `nullptr`、`std::optional`（C++17 起）、或 `T*` + 人肉检查。
 
@@ -678,7 +741,7 @@ if (user.is_some()) {
 
 **设计理由**：`is_some()`/`is_none()` 显式，不依赖隐式 `operator bool()`。`unwrap()` debug 模式下检查，release 优化掉。
 
-### Result\<T, E\> — Success or Error
+### Result<T, E> — Success or Error
 
 **C++ 现状**：用返回值码（`int`）、`errno`、异常三者混用，每个库有自己的错误处理。
 
@@ -723,7 +786,7 @@ if (result.is_ok()) {
 
 **设计理由**：不抛异常（项目无 RTTI、无异常），不用 out-param，不用 `goto cleanup`。`XPP_TRY` 宏让错误传播变成一行，对标 Rust 的 `?`。
 
-### Vec\<T, Alloc\> — Contiguous Growable Array
+### Vec<T, Alloc> — Contiguous Growable Array
 
 **C++ 现状**：`std::vector` 很好，但 OOM 时抛 `std::bad_alloc`——项目不用异常。
 
@@ -739,12 +802,12 @@ if (r.is_err()) { handle_oom(); }
 
 **设计理由**：
 
-| std::vector | xpp::Vec |
-|-------------|----------|
+| std::vector             | xpp::Vec                                  |
+| ----------------------- | ----------------------------------------- |
 | OOM → throw `bad_alloc` | OOM → `Result<void, AllocError>` 或 assert |
-| `front()` 空容器 UB | `first()` → `Option<T&>` |
-| `push_back` | `push` (双 API) |
-| 24 字节（3 指针） | 24 字节（CompressedPair EBO） |
+| `front()` 空容器 UB        | `first()` → `Option<T&>`                  |
+| `push_back`             | `push` (双 API)                            |
+| 24 字节（3 指针）             | 24 字节（CompressedPair EBO）                 |
 
 ### String — UTF-8 Guaranteed at the Type Level
 
@@ -768,7 +831,7 @@ if (r.is_err()) { handle_bad_utf8(r.unwrap_err()); }
 
 **设计理由**：`const String&` 本身就成了「这是合法 Unicode」的证明——不在注释里，在类型里。
 
-### Span\<T\> — Non-owning View
+### Span<T> — Non-owning View
 
 **C++ 现状**：裸指针 + 长度分开传，容易对不上。C++20 有 `std::span`。
 
@@ -787,15 +850,15 @@ process(Span<const uint8_t>(ptr, len));  // 裸指针+长度 → Span
 
 ### 总结：什么是「同构移植」
 
-回到 Section 11 的框架——这些类型全是**值语义层直译**：
+回到 Section 10 的框架——这些类型全是**值语义层直译**：
 
-| Rust | libxpp (C++11) | 同构方式 |
-|------|--------------|---------|
-| `Option<T>` | `Option<T>` | tagged union + bool，直译 |
-| `Result<T,E>` | `Result<T,E>` | 同上 |
-| `Vec<T>` | `Vec<T, Alloc>` | 方法一一对应，加 Alloc 模板参数 |
-| `String` | `String` | UTF-8 保证、chars() 迭代器、split_off |
-| `&[T]` | `Span<T>` | 胖指针，直译 |
-| `Box<T>` | `Box<T>` | unique_ptr 语义，直译 |
+| Rust          | libxpp (C++11)  | 同构方式                           |
+| ------------- | --------------- | ------------------------------ |
+| `Option<T>`   | `Option<T>`     | tagged union + bool，直译         |
+| `Result<T,E>` | `Result<T,E>`   | 同上                             |
+| `Vec<T>`      | `Vec<T, Alloc>` | 方法一一对应，加 Alloc 模板参数            |
+| `String`      | `String`        | UTF-8 保证、chars() 迭代器、split_off |
+| `&[T]`        | `Span<T>`       | 胖指针，直译                         |
+| `Box<T>`      | `Box<T>`        | unique_ptr 语义，直译               |
 
 **它们跟 Promise 的关系**：Promise 用 Option 表 "pending or ready"，用 Result 表 "success or OOM"，用 Vec 存文件内容，用 String 表 UTF-8 文本。异步机制是骨架，这些类型是血肉。缺哪一个都不完整。
