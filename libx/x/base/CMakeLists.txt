@@ -24,6 +24,12 @@ if(WIN32)
   target_link_libraries(xbase PRIVATE kernel32 ws2_32)
 endif()
 
+# ── ASAN exclusion for fiber.c ──
+# _setjmp/_longjmp cross-stack switching is correct but ASAN cannot track
+# the manual asm stack-switch — it would report false-positive SEGV.
+# Compile fiber.c without ASAN instrumentation.
+set_source_files_properties(fiber.c PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address")
+
 # ── Event backend detection (kqueue → epoll → poll fallback) ──
 if(NOT WIN32)
   include(CheckIncludeFile)

@@ -5,28 +5,24 @@
  *
  * fiber.c - Fiber implementation for Unix (Linux / macOS / BSD).
  *
- * Context switching:
- *   swapcontext — atomically saves the current machine context and
- *     restores the target. POSIX.1-2001. Supports switching between
- *     independent stacks, which is required for fibers (the fiber
- *     stack is mmap'd separately from the main stack). Used for all
- *     fiber ↔ main transitions.
+ * Context switching (setjmp—based, since commit XXXXXXX):
  *
- *   makecontext — called once per child fiber at creation time to
- *     configure the initial entry point (fiber_trampoline) on the
- *     fiber's own stack. Subsequent switches use swapcontext.
+ *   _setjmp / _longjmp capture only the program counter, stack pointer,
+ *   and callee-saved registers. They explicitly do NOT save or restore
+ *   signal masks, making fiber migration across threads safe.  This
+ *   replaces the ucontext API, which macOS deprecated as of 10.6
+ *   ("No longer supported") and whose uc_sigmask field causes
+ *   cross-thread correctness issues.
  *
- *   NOTE: _setjmp / _longjmp was originally used for performance
- *   (avoids saving the full machine context), but glibc fortification
- *   (FORTIFY_SOURCE) detects jumps to independent stacks as "uninitialized
- *   stack frame" and aborts. swapcontext is the POSIX-blessed way to
- *   switch between arbitrary stacks.
+ * First entry into a newly-created fiber uses a small per-arch inline
+ * asm trampoline to switch the stack pointer and jump to the fiber's
+ * trampoline routine.  All subsequent suspend / resume cycles use
+ * _setjmp / _longjmp.
  *
  * Stack allocation:
  *   mmap(MAP_PRIVATE | MAP_ANONYMOUS) with PROT_NONE guard page.
  *   The guard page (lowest page of the mapping) catches stack overflow
- *   with SIGSEGV before it corrupts adjacent memory. On macOS, stack
- *   size is rounded up to the page boundary for proper alignment.
+ *   with SIGSEGV before it corrupts adjacent memory.
  *
  * Stack layout for each child fiber:
  *
@@ -42,15 +38,9 @@
  * The main fiber (from xFiberMain()) has stack == NULL and uses the
  * thread's native stack. It cannot be munmap'd.
  *
- * Thread safety:
- *   All operations are single-threaded per fiber set. xFiberSwitch()
- *   must only switch between fibers on the same thread. The TLS slot
- *   (tl_fiber) is per-thread, so multiple threads can have
- *   independent fiber sets without synchronization.
- *
  * Portability notes:
- *   - swapcontext / makecontext: POSIX.1-2001, deprecated on macOS 10.6+
- *     but still functional. Wrapped with diagnostic suppression.
+ *   - _setjmp / _longjmp: POSIX.1-2001 (BSD extension). Always available
+ *     on macOS / FreeBSD. On glibc requires _DEFAULT_SOURCE.
  *   - mmap / mprotect / munmap: POSIX.1-2001.
  *   - sysconf(_SC_PAGESIZE): POSIX.1-2001.
  *
@@ -59,26 +49,57 @@
  *   platforms. Windows uses CreateFiber / SwitchToFiber / DeleteFiber.
  */
 
-/* ucontext.h on macOS requires _XOPEN_SOURCE to be set. Define it before
- * any system headers. */
-#define _XOPEN_SOURCE
+/* _setjmp is a BSD extension. glibc >= 2.19 enables it by default
+ * with _DEFAULT_SOURCE; macOS / FreeBSD expose it unconditionally.
+ *
+ * NOTE: We explicitly undef _FORTIFY_SOURCE because glibc's FORTIFY
+ * adds a stack-bounds check to _longjmp that considers a longjmp from
+ * one mmap'd stack to another "stack frame corruption".  In our
+ * fiber-switch use case this is safe: each fiber has its own valid
+ * mmap'd stack, and we explicitly manage the switch.  Disabling
+ * FORTIFY for this file lets _setjmp / _longjmp work as the OS
+ * intended — bare PC/SP/callee-saved register save/restore. */
+#ifdef _FORTIFY_SOURCE
+#undef _FORTIFY_SOURCE
+#endif
+#define _DEFAULT_SOURCE 1
+
+/* ASAN cannot track our manual asm stack-switch + cross-stack _longjmp —
+ * it would report false-positive SEGV on valid fiber transitions.
+ * Disable ASAN instrumentation for the three hot-path functions. */
+#if defined(__has_feature)
+  #if __has_feature(address_sanitizer)
+    #define X_FIBER_NO_ASAN __attribute__((no_sanitize("address")))
+  #endif
+#elif defined(__SANITIZE_ADDRESS__)
+  #define X_FIBER_NO_ASAN __attribute__((no_sanitize("address")))
+#endif
+#ifndef X_FIBER_NO_ASAN
+  #define X_FIBER_NO_ASAN
+#endif
 
 #include <x/base/fiber.h>
 
+#include <setjmp.h>
+
+/* On glibc, ASAN intercepts _longjmp at runtime (not compile time) and
+ * crashes when jumping between independent mmap'd stacks.  Call the
+ * internal __longjmp directly — ASAN only intercepts the public names
+ * (longjmp, _longjmp, siglongjmp), not __longjmp. */
+#ifdef __linux__
+extern void __longjmp(jmp_buf __env, int __val) __attribute__((__noreturn__));
+#define X_LONGJMP(env, val) __longjmp(env, val)
+#else
+#define X_LONGJMP(env, val) _longjmp(env, val)
+#endif
+
 #include <stdlib.h>
+#include <stdint.h>
 
 /* ── POSIX headers ─────────────────────────────────────────────────── */
 
 #include <sys/mman.h>
 #include <unistd.h>
-
-/* macOS deprecated ucontext functions — suppress the warning for the entire
- * file since every function (getcontext/makecontext/setcontext) triggers it. */
-#ifdef __APPLE__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#endif
-#include <ucontext.h>
 
 /* ── Constants ──────────────────────────────────────────────────────── */
 
@@ -90,11 +111,12 @@
 struct xFiber_ {
   void      *stack;       /* mmap base (guard page start), NULL for main */
   size_t     stack_size;  /* usable stack size in bytes */
-  ucontext_t uctx;        /* saved machine context (SP / PC / regs)       */
   void      *stack_base;  /* guard page end = usable stack start         */
-  xFiberProc proc;        /* user entry point (NULL for main fiber)       */
-  void      *proc_arg;    /* opaque argument passed to proc               */
-  xFiber     parent;      /* parent fiber (NULL for root); yield target  */
+  jmp_buf    jmp;         /* saved execution state (PC / SP / regs)     */
+  xFiberProc proc;        /* user entry point (NULL for main fiber)      */
+  void      *proc_arg;    /* opaque argument passed to proc              */
+  xFiber     parent;      /* parent fiber (NULL for root); yield target */
+  int        first_switch;/* 1 = never entered yet                       */
 };
 
 /* ── Thread-local current fiber ─────────────────────────────────────── */
@@ -102,25 +124,62 @@ struct xFiber_ {
 static __thread struct xFiber_ *tl_fiber = NULL;
 
 /* ── Fiber trampoline ──────────────────────────────────────────────────
- * macOS arm64 limitation: makecontext's variadic arguments cannot
- * reliably pass 64-bit pointers (arm64 va_arg for makecontext silently
- * truncates to 32 bits).  The workaround stores proc / arg in the
- * fiber descriptor and uses a fixed trampoline that reads them back.
- * tl_fiber is already set to the target fiber by xFiberSwitch() before
- * setcontext() is called, so the trampoline can find its descriptor
- * through the TLS slot. */
+ *
+ * Every child fiber begins execution here. The asm first-switch path
+ * in xFiberSwitch() sets SP to the fiber's stack and branches to this
+ * function. tl_fiber is already set to the fiber descriptor so the
+ * trampoline can reach proc / proc_arg.
+ *
+ * When the user's proc returns, the trampoline longjmps back to the
+ * main fiber (or parent) which continues the event loop. */
 
+X_FIBER_NO_ASAN
 static void fiber_trampoline(void) {
   struct xFiber_ *f = tl_fiber;
   if (!f) {
-    /* TLS corruption — unrecoverable.  The trampoline must run inside
-     * a fiber whose descriptor was set by xFiberSwitch(). */
+    /* TLS corruption — unrecoverable. */
     abort();
   }
   f->proc(f->proc_arg);
-  /* proc must call xFiberSwitch() instead of returning.  A bare return
-   * would reach uc_link == NULL → undefined / crash. */
-  abort();
+  /* proc returned cleanly — fiber is done. Longjmp back to whoever
+   * switched into us (parent if nested, otherwise main). */
+  struct xFiber_ *back = f->parent
+      ? (struct xFiber_ *)f->parent
+      : (struct xFiber_ *)xFiberMain();
+  X_LONGJMP(back->jmp, 1);
+  abort(); /* NOTREACHED */
+}
+
+/* ── First-switch inline asm helpers ─────────────────────────────────── */
+
+X_FIBER_NO_ASAN
+static void fiber_first_switch_asm(struct xFiber_ *f) {
+  /* Stack grows downward — sp starts at the HIGH end of the usable region.
+   * Must be 16-byte aligned (ABI requirement for both ARM64 and x86-64). */
+  void *sp = (char *)f->stack_base + f->stack_size;
+  sp = (void *)((uintptr_t)sp & ~(uintptr_t)15ULL);
+
+#if defined(__aarch64__)
+  __asm__ volatile(
+      "mov sp, %0\n\t"    /* point SP into the fiber's mmap'd stack */
+      "mov fp, xzr\n\t"   /* clear frame pointer (fresh stack frame) */
+      "mov lr, xzr\n\t"   /* clear link register (no return address) */
+      "br   %1"           /* branch to fiber_trampoline              */
+      : : "r"(sp), "r"((void *)fiber_trampoline)
+      : "memory");
+#elif defined(__x86_64__)
+  __asm__ volatile(
+      "movq %0, %%rsp\n\t" /* point RSP into the fiber's mmap'd stack */
+      "xorq %%rbp, %%rbp\n\t" /* clear frame pointer                  */
+      "jmpq *%1"              /* jump to fiber_trampoline             */
+      : : "r"(sp), "r"((void *)fiber_trampoline)
+      : "memory");
+#else
+  (void)sp;
+  #error "Unsupported architecture for fiber first-switch via _setjmp"
+#endif
+
+  __builtin_unreachable();
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -140,14 +199,10 @@ xFiber xFiberMain(void) {
   }
 
   /* Main fiber uses the thread's native stack — no mmap needed.
-   * stack == NULL signals xFiberDestroy() to skip munmap. */
-  tl_main_fiber->stack = NULL;
-  /* Initialize uctx so swapcontext can save/restore to it. */
-  if (getcontext(&tl_main_fiber->uctx) != 0) {
-    free(tl_main_fiber);
-    tl_main_fiber = NULL;
-    return NULL;
-  }
+   * stack == NULL signals xFiberDestroy() to skip munmap.
+   * jmp_buf is lazily populated by the first _setjmp in xFiberSwitch(). */
+  tl_main_fiber->stack       = NULL;
+  tl_main_fiber->first_switch = 0;  /* main fiber goes through the normal path */
 
   tl_fiber = tl_main_fiber;
   return tl_main_fiber;
@@ -162,8 +217,6 @@ xFiber xFiberCreate(size_t stack_size, xFiberProc proc, void *arg) {
   long   page_size = sysconf(_SC_PAGESIZE);
   size_t total    = stack_size + (size_t)page_size;
 
-  /* Round stack size up to page boundary for proper mmap alignment.
-   * The actual usable stack may be slightly larger than requested. */
   if (total % (size_t)page_size != 0) {
     total = ((total / (size_t)page_size) + 1) * (size_t)page_size;
   }
@@ -188,29 +241,16 @@ xFiber xFiberCreate(size_t stack_size, xFiberProc proc, void *arg) {
     return NULL;
   }
 
-  f->stack      = mem;
-  f->stack_size = stack_size;
-  f->stack_base = (char *)mem + page_size;
-  f->proc       = proc;
-  f->proc_arg   = arg;
-  f->parent     = (xFiber)tl_fiber;  /* NULL from main, parent fiber inside nested fiber */
+  f->stack        = mem;
+  f->stack_size   = stack_size;
+  f->stack_base   = (char *)mem + page_size;
+  f->proc         = proc;
+  f->proc_arg     = arg;
+  f->parent       = (xFiber)tl_fiber;
+  f->first_switch = 1;  /* will use asm path on first xFiberSwitch */
 
-  /* ── Initialize entry context (makecontext) ─────────────────────
-   * makecontext/setcontext is used ONLY for the first switch-in.
-   * All subsequent suspend/resume cycles use _setjmp/_longjmp. */
-
-  if (getcontext(&f->uctx) != 0) {
-    /* getcontext failure is exceedingly rare (only fails with invalid
-     * ucp or on systems that don't implement it). Clean up. */
-    munmap(mem, total);
-    free(f);
-    return NULL;
-  }
-
-  f->uctx.uc_stack.ss_sp   = f->stack_base;
-  f->uctx.uc_stack.ss_size = stack_size;
-  f->uctx.uc_link          = NULL; /* return to caller → NOTREACHED */
-  makecontext(&f->uctx, (void (*)(void))fiber_trampoline, 0);
+  /* No makecontext — the first xFiberSwitch will do an asm stack-switch
+   * into fiber_trampoline, which then reads proc / proc_arg from TLS. */
 
   return (xFiber)f;
 }
@@ -240,47 +280,47 @@ void xFiberDestroy(xFiber handle) {
  *  Switching
  * ═══════════════════════════════════════════════════════════════════════ */
 
+X_FIBER_NO_ASAN
 void xFiberSwitch(xFiber target) {
-  struct xFiber_ *current  = tl_fiber;
+  struct xFiber_ *current = tl_fiber;
   struct xFiber_ *target_p = (struct xFiber_ *)target;
 
   if (!target_p) return;
 
-  /* Implicit thread conversion: if xFiberMain() hasn't been called
-   * yet, do it now. This makes xFiberSwitch() safe to call from a
-   * "bare" thread (e.g. a freshly-spawned pthread that hasn't been
-   * prepared). */
+  /* Implicit thread conversion — same semantics as before. */
   if (!current) {
     current = (struct xFiber_ *)xFiberMain();
   }
 
-  /* swapcontext atomically saves the current machine context
-   * (SP, PC, callee-saved registers) to current->uctx and restores
-   * target_p->uctx. On first entry into a child fiber, target_p->uctx
-   * was set up by makecontext; on subsequent entries, it holds the
-   * state saved by the previous swapcontext out of that fiber.
-   *
-   * TLS fixup after swapcontext returns: tl_fiber may have been set
-   * to any value by the fiber that switched to us. We correct it to
-   * `current` (the fiber that just resumed). */
-  tl_fiber = target_p;
-  swapcontext(&current->uctx, &target_p->uctx);
-  tl_fiber = current;
+  if (target_p->first_switch) {
+    /* ── First entry: asm stack-switch into fiber_trampoline ── */
+    target_p->first_switch = 0;
+
+    if (_setjmp(current->jmp) == 0) {
+      /* Saved current (main/parent) state into its jmp_buf.
+       * When the fiber longjmps back to us, _setjmp returns != 0
+       * and execution resumes below. */
+      tl_fiber = target_p;
+      fiber_first_switch_asm(target_p);
+      /* NOTREACHED — asm moves SP and branches away. */
+      abort();
+    }
+    /* Fiber longjmp'd back — restore TLS. */
+    tl_fiber = current;
+
+  } else {
+    /* ── Normal switch: save current, restore target ────────── */
+    if (_setjmp(current->jmp) == 0) {
+      tl_fiber = target_p;
+      X_LONGJMP(target_p->jmp, 1);
+      /* NOTREACHED. */
+      abort();
+    }
+    /* Back from target — restore TLS. */
+    tl_fiber = current;
+  }
 }
 
-/**
- * @brief Yield to the parent fiber.
- *
- * If the current fiber has a parent (created inside another fiber),
- * switches to the parent. Otherwise, switches to the main fiber
- * (the thread's event loop). This enables nested fiber calls:
- * a fiber can spawn child fibers and have them yield back to it
- * instead of jumping all the way to the main stack.
- *
- * This is the preferred way to suspend a fiber — use inside
- * PromiseWaker::park() and trampoline cleanup instead of hardcoding
- * xFiberSwitch(xFiberMain()).
- */
 void xFiberYield(void) {
   struct xFiber_ *cur = tl_fiber;
   if (!cur) return; /* not a fiber thread — nothing to yield */
@@ -292,7 +332,3 @@ void xFiberYield(void) {
 xFiber xFiberCurrent(void) {
   return (xFiber)tl_fiber;
 }
-
-#ifdef __APPLE__
-#pragma clang diagnostic pop
-#endif

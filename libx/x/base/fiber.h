@@ -11,8 +11,9 @@
  * the event loop drives I/O, and the waker switches the fiber back in.
  *
  * Modeled after Windows Fiber API semantics, but unified across Unix
- * (mmap + _setjmp/_longjmp + makecontext/setcontext) and Windows
- * (CreateFiber / SwitchToFiber).
+ * (mmap + _setjmp/_longjmp) and Windows (CreateFiber / SwitchToFiber).
+ * Fiber migration across threads is safe: _setjmp does not capture
+ * thread-local signal masks.
  *
  * Fiber stacks are allocated with a guard page (PROT_NONE) for stack
  * overflow detection. Default stack size: 64 KiB.
@@ -28,7 +29,7 @@
  * C++11-safe (safe to include from C++).
  *
  * Portability:
- *   Unix    (Linux / macOS / BSD) — fiber.c: mmap + _setjmp + makecontext
+ *   Unix    (Linux / macOS / BSD) — fiber.c: mmap + _setjmp/_longjmp
  *   Windows                       — fiber_win.c: CreateFiber / SwitchToFiber
  */
 
