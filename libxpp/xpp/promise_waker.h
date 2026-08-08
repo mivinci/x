@@ -5,29 +5,20 @@
  *
  * promise_waker.h - PromiseWaker + AtomicPromiseWaker.
  *
- * PromiseWaker captures an event loop handle + done flag.  When fired,
- * it sets done = true and (in the fiber path) switches back to the
- * waiting fiber.
+ * PromiseWaker coordinates suspend/wake between a wait-er (await()) and a
+ * resolver (PromiseResolver, another thread).  The state (loop, done flag,
+ * optional fiber) lives in an Arc<WakerCore> so copies share the same data.
  *
- * The constructor requires a live WaitScope — it asserts m_loop != NULL.
- * There is no inert/null-waker state.  AtomicPromiseWaker uses
- * Option<PromiseWaker> to model "waker not yet registered".
+ *   - Same-thread wake: sets done=true + optional xFiberSwitch
+ *   - Cross-thread wake: xEventLoopPost → callback sets done=true +
+ *     optional xFiberSwitch
+ *   - park(): spins on done flag with xFiberYield / xEventLoopRun
  *
- * The implementation is split in two at XPP_FIBER:
+ * The done flag is reliably shared because PromiseWaker copies share the
+ * identical Arc<WakerCore> — analogous to how Rust's Waker is an
+ * Arc<dyn Wake> and clone shares the Arc.
  *
- *   !XPP_FIBER — same-thread sets the flag directly, cross-thread posts
- *                 on_done.  park() runs X_RUN_ONCE in a loop.
- *
- *   XPP_FIBER  — adds fiber-aware wake/park: same-thread wake does a
- *                 direct xFiberSwitch; park() calls xFiberYield() instead
- *                 of running the event loop.
- *
- * The done flag is a pointer to m_storage rather than an inline bool.
- * This is necessary because PromiseWaker is copyable, and copies must
- * share the same flag — AtomicPromiseWaker stores a copy, and its wake()
- * must visibly set the flag that wait()'s park() checks.
- *
- * sizeof(PromiseWaker): 24B (32B with XPP_FIBER).
+ * sizeof(PromiseWaker) = sizeof(Arc<WakerCore>) = sizeof(WakerCore*) = 8B.
  *
  * C++11-compatible.
  */
@@ -37,6 +28,7 @@
 
 #include <atomic>
 
+#include <xpp/arc.h>
 #include <xpp/event.h>
 #include <xpp/option.h>
 
@@ -46,158 +38,97 @@
 
 namespace xpp {
 
+/* ── WakerCore ────────────────────────────────────────────────────── */
+
+namespace _ {
+
+struct WakerCore {
+  xEventLoop loop;
+  bool       done = false;
+
+  explicit WakerCore(xEventLoop l) : loop(l) {}
+
+#if XPP_FIBER
+  xFiber fiber = nullptr;
+#endif
+};
+
+} // namespace _
+
 /* ═══════════════════════════════════════════════════════════════════════
- *  PromiseWaker — declaration
+ *  PromiseWaker
  * ═══════════════════════════════════════════════════════════════════════ */
 
 /**
- * @brief Waker — captures event loop + done flag + optional fiber.
+ * @brief Waker — suspend/wake bridge between awaiter and resolver.
  *
- * Must be constructed inside a WaitScope.  The event loop handle is
- * asserted non-null — there is no inert-waker state.
- *
- * Implementation is split at XPP_FIBER:
- *   - Non-fiber: same-thread sets flag directly, cross-thread posts
- *     on_done.  park() runs xEventLoopRun(X_RUN_ONCE) in a loop.
- *   - Fiber: same-thread does a direct xFiberSwitch to resume the
- *     waiting fiber.  park() calls xFiberYield() instead.
+ * Owns an Arc<WakerCore> so that copies (e.g. the one stored inside
+ * AtomicPromiseWaker and the local one on the await() stack) share a
+ * single done flag, loop handle, and fiber handle.  Cross-thread
+ * callbacks posted via xEventLoopPost receive a raw pointer to the
+ * WakerCore — safe as long as any Arc copy is alive.
  */
 class PromiseWaker {
 public:
-  /**
-   * @brief Construct a waker bound to the current event loop.
-   *
-   * The event loop handle is captured from xEventLoopCurrent().
-   * Must be inside a WaitScope — absence is a fatal assert.
-   *
-   * When XPP_FIBER is enabled, also captures the current fiber
-   * handle via xFiberCurrent() for cooperative parking.
-   */
   PromiseWaker();
-
-  /**
-   * @brief Notify the waiter that the promise may be ready.
-   *
-   * Same-thread: sets the done flag, then (if fiber) does a direct
-   * xFiberSwitch to resume the waiting fiber.
-   *
-   * Cross-thread: posts set-done + optional fiber-switch to the
-   * event loop's done queue.
-   */
   void wake() const;
-
-  /**
-   * @brief Park the current context until wake() is called, then reset.
-   *
-   * Non-fiber: runs xEventLoopRun(X_RUN_ONCE) in a busy-wait loop.
-   * Fiber:     calls xFiberYield() to suspend and yield the CPU
-   *            back to the event loop.
-   */
   void park() const;
 
 private:
-  xEventLoop m_loop;
-  bool      *m_done;
-  bool       m_storage = false;
-#if XPP_FIBER
-  xFiber m_fiber = nullptr;
+  Arc<_::WakerCore> core;
 
-  /// Cross-thread: sets the done flag + switches to the fiber.
-  static void on_fiber_cross_thread_wake(void *arg);
-#endif
-
-  /// Cross-thread done callback (non-fiber path).
-  static void on_done(void *arg);
+  static void on_wake(void *arg);
 };
 
 /* ═══════════════════════════════════════════════════════════════════════
- *  PromiseWaker — implementation (non-fiber)
+ *  PromiseWaker — implementation
  * ═══════════════════════════════════════════════════════════════════════ */
 
-#if !XPP_FIBER
-
-inline PromiseWaker::PromiseWaker() : m_done(&m_storage) {
-  m_loop = xEventLoopCurrent();
-  XPP_ASSERT(m_loop, "PromiseWaker requires a WaitScope");
+inline PromiseWaker::PromiseWaker()
+    : core(Arc<_::WakerCore>::make(xEventLoopCurrent())) {
+#if XPP_FIBER
+  core->fiber = xFiberCurrent();
+#endif
 }
 
 inline void PromiseWaker::wake() const {
-  if (m_loop == xEventLoopCurrent()) {
-    *m_done = true;
+  if (core->loop == xEventLoopCurrent()) {
+#if XPP_FIBER
+    if (core->fiber) {
+      xFiberSwitch(core->fiber);
+      return;
+    }
+#endif
+    core->done = true;
   } else {
-    xEventLoopPost(m_loop, &on_done,
-                   const_cast<void *>(static_cast<const void *>(this)));
+    xEventLoopPost(core->loop, &on_wake,
+                   const_cast<void *>(static_cast<const void *>(&(*core))));
   }
 }
 
 inline void PromiseWaker::park() const {
-  while (!*m_done) {
-    xEventLoopRun(m_loop, X_RUN_ONCE);
-  }
-  *m_done = false;
-}
-
-inline void PromiseWaker::on_done(void *arg) {
-  *static_cast<PromiseWaker *>(arg)->m_done = true;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
- *  PromiseWaker — implementation (fiber)
- * ═══════════════════════════════════════════════════════════════════════ */
-
-#else // XPP_FIBER
-
-inline PromiseWaker::PromiseWaker() : m_done(&m_storage) {
-  m_loop  = xEventLoopCurrent();
-  m_fiber = xFiberCurrent();
-  XPP_ASSERT(m_loop, "PromiseWaker requires a WaitScope");
-}
-
-inline void PromiseWaker::wake() const {
-  if (m_loop == xEventLoopCurrent()) {
-    *m_done = true;
-    if (m_fiber) {
-      // Switch to the fiber on the spot — no event loop post needed.
-      // wake() is always called on the main stack (fiber is suspended),
-      // so swapcontext saves the current main-stack frame and jumps to
-      // the fiber's saved context at park().  The main stack is frozen
-      // in place; when the fiber later yields, it resumes here and the
-      // call chain unwinds normally.
-      xFiberSwitch(m_fiber);
-    }
-  } else {
-    if (m_fiber) {
-      xEventLoopPost(m_loop, &on_fiber_cross_thread_wake,
-                     const_cast<void *>(static_cast<const void *>(this)));
-    } else {
-      xEventLoopPost(m_loop, &on_done,
-                     const_cast<void *>(static_cast<const void *>(this)));
-    }
-  }
-}
-
-inline void PromiseWaker::park() const {
-  while (!*m_done) {
-    if (m_fiber) {
+  while (!core->done) {
+#if XPP_FIBER
+    if (core->fiber) {
       xFiberYield();
-    } else {
-      xEventLoopRun(m_loop, X_RUN_ONCE);
+    } else
+#endif
+    {
+      xEventLoopRun(core->loop, X_RUN_ONCE);
     }
   }
-  *m_done = false;
+  core->done = false;
 }
 
-inline void PromiseWaker::on_fiber_cross_thread_wake(void *arg) {
-  auto *w    = static_cast<PromiseWaker *>(arg);
-  *w->m_done = true;
-  xFiberSwitch(w->m_fiber);
+inline void PromiseWaker::on_wake(void *arg) {
+  auto *c = static_cast<_::WakerCore *>(arg);
+  c->done = true;
+#if XPP_FIBER
+  if (c->fiber) {
+    xFiberSwitch(c->fiber);
+  }
+#endif
 }
-
-inline void PromiseWaker::on_done(void *arg) {
-  *static_cast<PromiseWaker *>(arg)->m_done = true;
-}
-
-#endif // XPP_FIBER
 
 /* ═══════════════════════════════════════════════════════════════════════
  *  AtomicPromiseWaker
@@ -224,12 +155,6 @@ public:
   AtomicPromiseWaker(const AtomicPromiseWaker &)            = delete;
   AtomicPromiseWaker &operator=(const AtomicPromiseWaker &) = delete;
 
-  /**
-   * @brief Store a waker for later notification.
-   *
-   * If a concurrent wake() is in flight, the waker is immediately
-   * fired to prevent lost wakes.
-   */
   void register_waker(PromiseWaker waker) {
     uint8_t expected = WAITING;
     if (m_state.compare_exchange_strong(expected, REGISTERING, std::memory_order_acquire,
@@ -244,12 +169,6 @@ public:
     }
   }
 
-  /**
-   * @brief Fire the stored waker if one is registered.
-   *
-   * If register_waker() is concurrently storing a waker, the
-   * WAKING bit is set and register_waker() will self-wake on exit.
-   */
   void wake() {
     uint8_t prev = m_state.fetch_or(WAKING, std::memory_order_acq_rel);
     if (prev == WAITING) {
