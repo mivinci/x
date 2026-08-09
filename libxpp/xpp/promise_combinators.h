@@ -25,7 +25,7 @@
 #include <xpp/own.h>
 #include <xpp/panic.h>
 #include <xpp/promise_node.h>
-#include <xpp/promise_waker.h>
+#include <xpp/promise_context.h>
 #include <xpp/void.h>
 
 namespace xpp {
@@ -53,8 +53,8 @@ public:
   explicit AllTuplePromiseNode(Promise<Ts> &&...promises)
       : m_children{_extract_node(std::move(promises))...} {}
 
-  Option<ResultType> poll(const PromiseWaker &waker) override {
-    poll_all(waker, std::index_sequence_for<Ts...>{});
+  Option<ResultType> poll(const PromiseContext &cx) override {
+    poll_all(cx, std::index_sequence_for<Ts...>{});
     if (m_remaining == 0) {
       return Option<ResultType>(collect(std::index_sequence_for<Ts...>{}));
     }
@@ -66,11 +66,11 @@ private:
   std::tuple<Option<typename FixVoid<Ts>::Type>...> m_results;
   size_t                                            m_remaining = N;
 
-  template <size_t... Is> void poll_all(const PromiseWaker &w, std::index_sequence<Is...>) {
+  template <size_t... Is> void poll_all(const PromiseContext &w, std::index_sequence<Is...>) {
     (poll_one<Is>(w), ...);
   }
 
-  template <size_t I> void poll_one(const PromiseWaker &w) {
+  template <size_t I> void poll_one(const PromiseContext &w) {
     if (!std::get<I>(m_results).is_some()) {
       auto r = std::get<I>(m_children)->poll(w);
       if (r.is_some()) {
@@ -99,10 +99,10 @@ public:
     static_assert(sizeof...(Promises) == N, "promise count mismatch");
   }
 
-  Option<Void> poll(const PromiseWaker &waker) override {
+  Option<Void> poll(const PromiseContext &cx) override {
     for (size_t i = 0; i < N; i++) {
       if (!m_done[i]) {
-        if (m_children[i]->poll(waker).is_some()) {
+        if (m_children[i]->poll(cx).is_some()) {
           m_done[i] = true;
           m_remaining--;
         }
@@ -134,9 +134,9 @@ public:
     static_assert(sizeof...(Promises) == N, "promise count mismatch");
   }
 
-  Option<ValueType> poll(const PromiseWaker &waker) override {
+  Option<ValueType> poll(const PromiseContext &cx) override {
     for (size_t i = 0; i < N; i++) {
-      auto r = m_children[i]->poll(waker);
+      auto r = m_children[i]->poll(cx);
       if (r.is_some()) {
         return r;
       }
@@ -158,9 +158,9 @@ public:
     static_assert(sizeof...(Promises) == N, "promise count mismatch");
   }
 
-  Option<Void> poll(const PromiseWaker &waker) override {
+  Option<Void> poll(const PromiseContext &cx) override {
     for (size_t i = 0; i < N; i++) {
-      if (m_children[i]->poll(waker).is_some()) {
+      if (m_children[i]->poll(cx).is_some()) {
         return Option<Void>(Void{});
       }
     }

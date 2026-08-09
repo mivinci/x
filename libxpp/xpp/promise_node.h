@@ -23,7 +23,7 @@
 #include <xpp/own.h>
 #include <xpp/panic.h>
 #include <xpp/promise_allocator.h>
-#include <xpp/promise_waker.h>
+#include <xpp/promise_context.h>
 #include <xpp/void.h>
 
 namespace xpp {
@@ -53,7 +53,7 @@ template <class U> struct ReducePromise<Promise<U>> {
 /**
  * @brief Core async computation interface, analogous to Rust's Future trait.
  *
- * poll(const PromiseWaker &) → Option<ValueType>:
+ * poll(const PromiseContext &) → Option<ValueType>:
  *   Some(value) = ready, value extracted in the same call
  *   None        = pending, waker stored for later notification
  *
@@ -67,7 +67,7 @@ public:
 
   virtual ~PromiseNode() = default;
 
-  virtual Option<ValueType> poll(const PromiseWaker &waker) = 0;
+  virtual Option<ValueType> poll(const PromiseContext &cx) = 0;
 };
 
 template <> class PromiseNode<void> {
@@ -76,7 +76,7 @@ public:
 
   virtual ~PromiseNode() = default;
 
-  virtual Option<Void> poll(const PromiseWaker &waker) = 0;
+  virtual Option<Void> poll(const PromiseContext &cx) = 0;
 };
 
 /* ── Convenience typedef: arena-aware Own for PromiseNode ─────────── */
@@ -90,7 +90,7 @@ public:
 
   explicit ImmediatePromiseNode(T &&value) : m_val(std::move(value)) {}
 
-  Option<ValueType> poll(const PromiseWaker &) override {
+  Option<ValueType> poll(const PromiseContext &) override {
     return Option<ValueType>(std::move(m_val));
   }
 
@@ -100,7 +100,7 @@ private:
 
 template <> class ImmediatePromiseNode<void> final : public PromiseNode<void> {
 public:
-  Option<Void> poll(const PromiseWaker &) override {
+  Option<Void> poll(const PromiseContext &) override {
     return Option<Void>(Void{});
   }
 };
@@ -114,8 +114,8 @@ public:
   TransformPromiseNode(_::OwnPromiseNode<T> dep, Func &&func)
       : m_dep(std::move(dep)), m_fn(std::move(func)) {}
 
-  Option<OutputType> poll(const PromiseWaker &waker) override {
-    auto r = m_dep->poll(waker);
+  Option<OutputType> poll(const PromiseContext &cx) override {
+    auto r = m_dep->poll(cx);
     if (r.is_none()) return none;
     return Option<OutputType>(::xpp::_voidwrap::call1<U>(m_fn, std::move(r).unwrap()));
   }
@@ -133,8 +133,8 @@ public:
   TransformPromiseNode(_::OwnPromiseNode<void> dep, Func &&func)
       : m_dep(std::move(dep)), m_fn(std::move(func)) {}
 
-  Option<OutputType> poll(const PromiseWaker &waker) override {
-    auto r = m_dep->poll(waker);
+  Option<OutputType> poll(const PromiseContext &cx) override {
+    auto r = m_dep->poll(cx);
     if (r.is_none()) return none;
     std::move(r).unwrap(); // consume the Void
     return Option<OutputType>(::xpp::_voidwrap::call<U>(m_fn));
@@ -151,8 +151,8 @@ public:
   TransformPromiseNode(_::OwnPromiseNode<T> dep, Func &&func)
       : m_dep(std::move(dep)), m_fn(std::move(func)) {}
 
-  Option<Void> poll(const PromiseWaker &waker) override {
-    auto r = m_dep->poll(waker);
+  Option<Void> poll(const PromiseContext &cx) override {
+    auto r = m_dep->poll(cx);
     if (r.is_none()) return none;
     ::xpp::_voidwrap::call1<void>(m_fn, std::move(r).unwrap());
     return Option<Void>(Void{});
@@ -169,8 +169,8 @@ public:
   TransformPromiseNode(_::OwnPromiseNode<void> dep, Func &&func)
       : m_dep(std::move(dep)), m_fn(std::move(func)) {}
 
-  Option<Void> poll(const PromiseWaker &waker) override {
-    auto r = m_dep->poll(waker);
+  Option<Void> poll(const PromiseContext &cx) override {
+    auto r = m_dep->poll(cx);
     if (r.is_none()) return none;
     std::move(r).unwrap();
     ::xpp::_voidwrap::call<void>(m_fn);
@@ -200,15 +200,15 @@ public:
 
   explicit ChainPromiseNode(_::OwnPromiseNode<Promise<T>> outer) : m_outer(std::move(outer)) {}
 
-  Option<ValueType> poll(const PromiseWaker &waker) override {
+  Option<ValueType> poll(const PromiseContext &cx) override {
     if (m_inner) {
-      return m_inner->poll(waker);
+      return m_inner->poll(cx);
     }
-    auto outer = m_outer->poll(waker);
+    auto outer = m_outer->poll(cx);
     if (outer.is_none()) return none;
     m_inner = std::move(std::move(outer).unwrap().m_node);
     m_outer = nullptr;
-    return m_inner->poll(waker);
+    return m_inner->poll(cx);
   }
 
 private:
@@ -220,7 +220,7 @@ private:
 
 class YieldPromiseNode final : public PromiseNode<void> {
 public:
-  Option<Void> poll(const PromiseWaker &) override {
+  Option<Void> poll(const PromiseContext &) override {
     return Option<Void>(Void{});
   }
 };

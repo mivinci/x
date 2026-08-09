@@ -142,6 +142,13 @@ XCAPI(void) xFiberYield(void);
  */
 XCAPI(xFiber) xFiberCurrent(void);
 
+/**
+ * @brief Return the opaque argument passed to xFiberCreate().
+ *
+ * @return The user-supplied arg pointer, or NULL for the main fiber.
+ */
+XCAPI(void *) xFiberProcArg(xFiber fiber);
+
 #ifdef __cplusplus
 }
 #endif

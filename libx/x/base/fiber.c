@@ -215,6 +215,12 @@ xFiber xFiberCreate(size_t stack_size, xFiberProc proc, void *arg) {
   return (xFiber)f;
 }
 
+/* ── xFiberProcArg ───────────────────────────────────────────────────── */
+
+void* xFiberProcArg(xFiber fiber) {
+  return (fiber ? ((struct xFiber_ *)fiber)->proc_arg : NULL);
+}
+
 void xFiberDestroy(xFiber handle) {
   if (!handle) return;
 

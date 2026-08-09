@@ -126,7 +126,7 @@ public:
    * re-polls. Returns the resolved value. Consumes the promise.
    *
    * @par Parking
-   * PromiseWaker::park() encapsulates the waiting strategy:
+   * PromiseContext::park() encapsulates the waiting strategy:
    *   - Non-fiber: runs xEventLoopRun(X_RUN_ONCE) in a poll loop.
    *   - Fiber:     suspends via xFiberYield(), yielding to the event
    *                loop until the waker switches the fiber back in.
@@ -145,13 +145,13 @@ public:
   ValueType await() {
     XPP_ASSERT(m_node != nullptr, "await() on empty promise");
 
-    PromiseWaker waker;
+    PromiseContext cx;
     while (true) {
-      Option<ValueType> result = m_node->poll(waker);
+      Option<ValueType> result = m_node->poll(cx);
       if (result.is_some()) {
         return std::move(result).unwrap();
       }
-      waker.park();
+      cx.park();
     }
   }
 
