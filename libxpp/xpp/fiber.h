@@ -36,9 +36,8 @@
 
 #include <utility>
 
-#include <xpp/promise.h>       // Promise<T>, async(), PromiseResolver<T>
-#include <xpp/promise_node.h>  // _::FixVoid
-#include <xpp/promise_types.h> // _::fiber::Context
+#include <xpp/promise.h>      // Promise<T>, async(), PromiseResolver<T>
+#include <xpp/promise_node.h> // _::FixVoid
 
 #if XPP_FIBER
 #include <x/base/event.h>
@@ -58,9 +57,8 @@ namespace fiber {
  * @brief Opaque context header placed before user state in the
  *        single-allocation block (Context + user State).
  *
- * Defined in <xpp/promise_types.h> and shared with PromiseContext.
+ * Defined in <xpp/promise_waker.h> and shared with PromiseWaker.
  */
-// _::fiber::Context is in <xpp/promise_types.h>
 
 /**
  * @brief Forward declaration — cleanup_cb runs on event loop to destroy fiber.
@@ -190,7 +188,7 @@ auto fiber(size_t stack_size, Func &&func) -> Promise<decltype(std::declval<Func
   // Use placement new because ctx was allocated with operator new —
   // the Arc member's m_inner is uninitialized and operator=(Arc&&)
   // reads this->m_inner inside swap, which is UB on garbage.
-  new (&ctx->waker) Arc<_::WakerCore>(Arc<_::WakerCore>::make(xEventLoopCurrent(), ctx->handle));
+  new (&ctx->waker) Arc<_::WakeState>(Arc<_::WakeState>::make(xEventLoopCurrent(), ctx->handle));
 
   // Ensure the thread is fiber-capable (idempotent), then enter the fiber.
   xFiberMain();

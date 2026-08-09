@@ -3,29 +3,28 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * promise_waker.h - PromiseWaker + AtomicPromiseWaker
+ * promise_waker.h - WakeState + PromiseWaker + AtomicPromiseWaker
  *
- * PromiseWaker is the cloneable, storable wake handle (Rust's Waker).
- * It wraps an Arc<_::WakerCore> so all copies share the same heap state
- * via atomic reference counting.
+ * _::WakeState is the inner shared state {loop, done, fiber} allocated
+ * on the heap and shared via Arc.  PromiseWaker wraps the Arc and is
+ * the cloneable, storable wake handle (Rust's Waker).
  *
  * In fiber mode (XPP_FIBER), the Arc is allocated *once* per fiber
  * (by xpp::fiber()) and stored in _::fiber::Context.  Every await()
  * clones it — zero heap allocation, just an atomic fetch_add.
  * xFiberProcArg() + _::fiber::Context::waker provide direct access
- * (no offset tricks, no TLS registry — the struct is shared via
- * <xpp/promise_types.h>).
+ * (no offset tricks, no TLS registry).
  *
  * Non-fiber mode allocates a new Arc per await() (the pre-existing
  * behaviour — this is rarely used and acceptable).
  *
  * Naming (aligned with Rust):
- *   _::WakerCore      — inner state {loop, done, fiber}
- *   PromiseWaker      — public cloneable handle           (Rust: Waker)
- *   PromiseContext    — non-cloneable poll handle          (Rust: Context)
- *                       (see <xpp/promise_context.h>)
+ *   _::WakeState       — inner state {loop, done, fiber}
+ *   PromiseWaker       — public cloneable handle           (Rust: Waker)
+ *   PromiseContext     — non-cloneable poll handle          (Rust: Context)
+ *                        (see <xpp/promise_context.h>)
  *
- * sizeof(PromiseWaker) = sizeof(Arc<WakerCore>) = 8B.
+ * sizeof(PromiseWaker) = sizeof(Arc<WakeState>) = 8B.
  *
  * C++11-compatible.
  */
@@ -38,7 +37,6 @@
 #include <xpp/arc.h>
 #include <xpp/event.h>
 #include <xpp/option.h>
-#include <xpp/promise_types.h>
 
 #if XPP_FIBER
 #include <x/base/fiber.h>
@@ -49,11 +47,57 @@ namespace xpp {
 class PromiseContext; // forward — friend declaration
 
 /* ═══════════════════════════════════════════════════════════════════════
+ *  _::WakeState — inner waker state (shared via Arc)
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+namespace _ {
+
+struct WakeState {
+  xEventLoop loop;
+  bool       done = false;
+
+  WakeState() = default;
+  explicit WakeState(xEventLoop l) : loop(l) {}
+
+#if XPP_FIBER
+  xFiber fiber = nullptr;
+  WakeState(xEventLoop l, xFiber f) : loop(l), fiber(f) {}
+#endif
+};
+
+} // namespace _
+
+/* ═══════════════════════════════════════════════════════════════════════
+ *  _::fiber::Context — per-fiber execution context header
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+#if XPP_FIBER
+namespace _ {
+namespace fiber {
+
+/**
+ * @brief Per-fiber execution context.  Lives on the heap, allocated once
+ *        by xpp::fiber().  The waker field carries the per-fiber
+ *        PromiseWaker — every await() inside the fiber clones its Arc
+ *        (1 fetch_add, 0 heap alloc).
+ */
+struct Context {
+  void (*run)(void *state);
+  void (*destroy)(void *state);
+  xFiber            handle;
+  Arc<_::WakeState> waker;
+};
+
+} // namespace fiber
+} // namespace _
+#endif
+
+/* ═══════════════════════════════════════════════════════════════════════
  *  PromiseWaker — declaration
  * ═══════════════════════════════════════════════════════════════════════ */
 
 /**
- * @brief Cloneable wake handle. Wraps Arc<_::WakerCore>.
+ * @brief Cloneable wake handle. Wraps Arc<_::WakeState>.
  *
  * Copies share the same inner state via atomic refcount (one fetch_add
  * per clone).  PromiseWaker is what resolvers store and fire;
@@ -83,8 +127,8 @@ public:
   static PromiseWaker make();
 
 private:
-  explicit PromiseWaker(Arc<_::WakerCore> c) : m_core(std::move(c)) {}
-  Arc<_::WakerCore> m_core;
+  explicit PromiseWaker(Arc<_::WakeState> c) : m_core(std::move(c)) {}
+  Arc<_::WakeState> m_core;
 
   static void on_wake(void *arg);
 
@@ -106,7 +150,7 @@ inline PromiseWaker PromiseWaker::make() {
     }
   }
 #endif
-  return PromiseWaker(Arc<_::WakerCore>::make(xEventLoopCurrent()));
+  return PromiseWaker(Arc<_::WakeState>::make(xEventLoopCurrent()));
 }
 
 inline void PromiseWaker::wake() const {
@@ -125,7 +169,7 @@ inline void PromiseWaker::wake() const {
 }
 
 inline void PromiseWaker::on_wake(void *arg) {
-  auto *c = static_cast<_::WakerCore *>(arg);
+  auto *c = static_cast<_::WakeState *>(arg);
 #if XPP_FIBER
   if (c->fiber) {
     xFiberSwitch(c->fiber);
