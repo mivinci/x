@@ -757,61 +757,131 @@ Global P2P module calls these directly on the source when DataChannel or signali
 
 ### Cache (ring buffer)
 
-Single ring buffer implementation using one contiguous memory allocation. Cache size controls behavior:
+Read-through block cache.  Wraps a storage file (`xdl_storage_file_t *ctx`)
+to accelerate peer reads.  Writes pass through to storage and are NOT cached
+(caching cold blocks is wasteful — only peer reads populate the ring).
+
+Cache is bound to a single `(storage_file, ctx)` pair: `xdl_cache_create`
+takes the already-opened `ctx`, calls into it via the convenience dispatchers
+(`xdl_storage_write`/`xdl_storage_read`/...), and the caller never touches
+the storage file directly while the cache owns it.
+
+Cache size controls behavior:
 
 - `ring_bytes = 0` → passthrough, reads/writes go directly to storage (no caching)
 - `ring_bytes > 0` → ring buffer of `ring_bytes / block_size` slots, FIFO eviction
 
 ```c
-struct xdl_cache {
-    xdl_storage_t *storage;       // fallback for reads/writes
-    uint8_t  *buffer;             // single contiguous allocation (max_blocks * block_size)
-    uint32_t *block_indexes;      // max_blocks entries, UINT32_MAX = empty
-    uint32_t  max_blocks;         // 0 = passthrough
+typedef void (*xdl_cache_read_cb_t)(void *arg, const uint8_t *data, size_t len);
+
+struct xdl_cache_t {
+    xdl_storage_file_t *file;      // bound storage file (owned by cache)
+    uint8_t  *buffer;              // single contiguous allocation (max_blocks * block_size)
+    uint32_t *block_indexes;       // max_blocks entries, UINT32_MAX = empty
+    uint32_t  max_blocks;          // 0 = passthrough
     uint32_t  block_size;
-    uint32_t  head;               // next write position
+    uint32_t  head;                // next write position
 };
 
 XCAPI_LOCAL(xdl_cache_t *)
-xdl_cache_create(xdl_storage_t *storage, uint32_t block_size, size_t ring_bytes);
+xdl_cache_create(xdl_storage_file_t *file, uint32_t block_size, size_t ring_bytes);
 
-XCAPI_LOCAL(void) xdl_cache_read(xdl_cache_t *c, uint64_t offset, size_t len,
-                                  void (*done)(void *arg, const uint8_t *data, size_t len),
-                                  void *arg);
-XCAPI_LOCAL(void) xdl_cache_write(xdl_cache_t *c, uint64_t offset,
-                                  const uint8_t *data, size_t len,
-                                  void (*done)(void *arg, xErrno err), void *arg);
+XCAPI_LOCAL(int)
+xdl_cache_read(xdl_cache_t *c, uint64_t offset, size_t len,
+               xdl_cache_read_cb_t done, void *arg);
+
+XCAPI_LOCAL(int)
+xdl_cache_write(xdl_cache_t *c, uint64_t offset,
+                const uint8_t *data, size_t len,
+                xdl_storage_write_cb_t done, void *arg);
+
+/* flush/close — delegate to the underlying storage file */
+XCAPI_LOCAL(int)  xdl_cache_flush(xdl_cache_t *c, xdl_storage_flush_cb_t cb, void *arg);
+XCAPI_LOCAL(void) xdl_cache_close(xdl_cache_t *c, xdl_storage_close_cb_t cb, void *arg);
+
 XCAPI_LOCAL(void) xdl_cache_destroy(xdl_cache_t *c);
 ```
 
 **Read flow**:
-1. If `max_blocks == 0`: passthrough to `storage->read`
+1. If `max_blocks == 0`: passthrough to `xdl_storage_read(file, ...)`
 2. `target = offset / block_size`, scan `block_indexes[0..max_blocks)` for match
-3. Hit → return `buffer + index * block_size + offset % block_size`
-4. Miss → `storage->read` → memcpy into `buffer[head % max_blocks]` → return
+3. Hit → invoke `done(arg, buffer + index * block_size + offset % block_size, len)` synchronously
+4. Miss → `xdl_storage_read(file, ...)` → memcpy into `buffer[head % max_blocks]` → invoke `done`
 
-**Write flow**:
-1. `storage->write` first (persist to disk)
-2. Do NOT actively cache — only peer read requests populate the ring (avoids caching cold blocks)
+**Write flow** (write-through):
+1. `xdl_storage_write(file, ...)` — persist to disk immediately
+2. Do NOT cache the written block — only peer reads populate the ring
 
 **Eviction**: FIFO via `head` pointer. When head wraps, the oldest slot is overwritten with no free/malloc — purely memcpy.
 
 Default `ring_bytes` = 64MB (~261 blocks at 256KB). Set to 0 for HTTP-only downloads where caching provides no benefit (no P2P peer reads).
 
-### Storage vtable
+### Storage file
+
+A storage file is a handle whose first member is a pointer to a vtable.
+Callers use convenience inline dispatchers (`xdl_storage_write`/`xdl_storage_read`/...)
+which dispatch through the vtable.  This lets decorators (e.g. cache)
+wrap a storage file without exposing their internal layout.
 
 ```c
-struct xdl_storage_vtable {
-    void (*open)(xdl_task_t *task);
-    void (*read)(xdl_task_t *task, uint64_t offset, size_t len,
-                 void (*done)(xdl_task_t *task, const uint8_t *data, size_t len));
-    void (*write)(xdl_task_t *task, uint64_t offset,
-                  const uint8_t *data, size_t len,
-                  void (*done)(xdl_task_t *task, xErrno err));
-    void (*flush)(xdl_task_t *task, bool success);
+struct xdl_storage_file_t {
+  xdl_storage_vtable_t *vt;   /* must be first member */
 };
 
-xdl_storage_vtable_t *xdl_storage_file(void);
+struct xdl_storage_vtable {
+  int  (*write)(xdl_storage_file_t *f, uint64_t offset,
+                const uint8_t *data, size_t len,
+                xdl_storage_write_cb_t cb, void *arg);
+  int  (*read) (xdl_storage_file_t *f, uint64_t offset,
+                uint8_t *buf, size_t len,
+                xdl_storage_read_cb_t cb, void *arg);
+  int  (*flush)(xdl_storage_file_t *f, xdl_storage_flush_cb_t cb, void *arg);
+  void (*close)(xdl_storage_file_t *f, xdl_storage_close_cb_t cb, void *arg);
+};
+
+/* Convenience dispatchers (inline) */
+int  xdl_storage_write(xdl_storage_file_t *f, ...);
+int  xdl_storage_read (xdl_storage_file_t *f, ...);
+int  xdl_storage_flush(xdl_storage_file_t *f, xdl_storage_flush_cb_t cb, void *arg);
+void xdl_storage_close(xdl_storage_file_t *f, xdl_storage_close_cb_t cb, void *arg);
+```
+
+Callbacks:
+
+```c
+typedef void (*xdl_storage_open_cb_t) (void *arg, xErrno err, xdl_storage_file_t *f);
+typedef void (*xdl_storage_read_cb_t)(void *arg, const uint8_t *data, ssize_t len);
+typedef void (*xdl_storage_write_cb_t)(void *arg, xErrno err, ssize_t written);
+typedef void (*xdl_storage_flush_cb_t)(void *arg, xErrno err);
+typedef void (*xdl_storage_close_cb_t)(void *arg);
+```
+
+`open` is a factory function, NOT a vtable method (since there is no file yet
+to dispatch through).  The default filesystem backend lives in `storage_fs.h`:
+
+```c
+int xdl_storage_fs_open(const char *dest, xdl_storage_open_cb_t cb, void *arg);
+```
+
+Lifecycle:
+
+```
+xdl_storage_fs_open(dest, cb, arg)         // submit
+    → cb(arg, err, f)                       // async completion
+
+xdl_storage_write(f, off, data, len, cb, arg)
+xdl_storage_read (f, off, buf,  len, cb, arg)
+
+xdl_storage_flush(f, cb, arg)               // rename .part → dest
+    → cb(arg, err)
+
+xdl_storage_close(f, cb, arg)               // free f (deletes .part if not flushed)
+    → cb(arg)
+```
+
+All methods are async (callbacks fire on completion).  `open`/`write`/`read`/`flush`
+return 0 on submit success, -1 on sync error.  `close` always succeeds (best-effort
+cleanup) and fires `cb(arg)` synchronously or asynchronously.
 ```
 
 ### Progress dispatch: internal relay per task
