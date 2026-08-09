@@ -9,7 +9,7 @@ All async computations implement `PromiseNode<T>` — a virtual interface with o
 ```cpp
 template <class T> class PromiseNode {
   using ValueType = typename FixVoid<T>::Type;
-  virtual Option<ValueType> poll(const PromiseWaker &waker) = 0;
+  virtual Option<ValueType> poll(const PromiseContext &cx) = 0;
 };
 ```
 
@@ -45,10 +45,10 @@ Uses `m_inner != nullptr` as a state machine: `nullptr` = polling outer, non-nul
 
 ```cpp
 template <class T>
-Option<T> poll_state(ResolveState<T> &s, const PromiseWaker &waker) {
+Option<T> poll_state(ResolveState<T> &s, const PromiseContext &cx) {
     if (s.resolved.load(std::memory_order_acquire))
         return std::move(s.value);           // Fast path
-    s.waker.register_waker(waker);           // May race with resolve
+    s.waker.register_by_ref(cx.waker());     // May race with resolve
     if (s.resolved.load(std::memory_order_acquire)) {
         s.waker.wake();                      // Self-wake
         return std::move(s.value);
@@ -87,7 +87,7 @@ void resolve(ValueType &&value) {
 
 ## AtomicPromiseWaker — Lock-Free 2-Bit State Machine
 
-Coordinates `register_waker()` (poll side) and `wake()` (resolve side) without a mutex:
+Coordinates `register_by_ref()` (poll side) and `wake()` (resolve side) without a mutex:
 
 | State | Bits | Meaning |
 | ------- | ------ | --------- |
@@ -97,7 +97,7 @@ Coordinates `register_waker()` (poll side) and `wake()` (resolve side) without a
 | RACE | `11` | Both collided — registerer self-wakes |
 
 ```text
-register_waker(new_waker):
+register_by_ref(new_waker):
     CAS(00 → 01)
     ├─ success → store waker → exchange(01 → 00)
     │            ├─ prev == 00 → done
@@ -117,18 +117,26 @@ Three atomic operations total. No spin loops, no mutex. Memory ordering: `store(
 
 ## PromiseWaker — Same-Thread vs Cross-Thread
 
+`PromiseWaker` wraps an `Arc<_::WakeState>` — the inner state `{loop, woken, fiber}` allocated on the heap and shared via atomic refcount. All copies share the same state.
+
 ```cpp
 void wake() const {
-    if (m_loop == xEventLoopCurrent()) {
-        *m_done = true;           // Same thread — 2 instructions
+    if (m_state->loop == xEventLoopCurrent()) {
+        if (m_state->fiber) {
+            xFiberSwitch(m_state->fiber);   // Fiber: direct switch, no flag
+        } else {
+            m_state->woken = true;          // Non-fiber: set flag
+        }
     } else {
-        xEventLoopPost(m_loop,   // Cross-thread — MPSC enqueue + wake
-            [](void *a) { *static_cast<bool *>(a) = true; }, m_done);
+        xEventLoopPost(m_state->loop,       // Cross-thread — MPSC enqueue
+            &on_wake, &(*m_state));
     }
 }
 ```
 
-16 bytes, trivially copyable. Same-thread: direct flag set. Cross-thread: `xEventLoopPost` (lock-free MPSC) + `xEventLoopWake`.
+`sizeof(PromiseWaker) = sizeof(Arc<_::WakeState>) = 8B`. Same-thread fiber: direct `xFiberSwitch`. Same-thread non-fiber: flag set. Cross-thread: `xEventLoopPost` (lock-free MPSC).
+
+`PromiseContext` is the non-cloneable poll handle that owns a `PromiseWaker`. It provides `park()` (fiber: single `xFiberYield()`; non-fiber: `xEventLoopRun(X_RUN_ONCE)` loop on `woken` flag) and `waker()` (returns `const PromiseWaker&` for resolvers to clone and store).
 
 ## Nested wait() Correctness
 
@@ -156,7 +164,7 @@ wait()  (outer)
       wait()  (inner)
         poll()  →  Some(result)  →  return
     fn returns result
-  done==true  →  poll  →  Some  →  return
+  woken==true  →  poll  →  Some  →  return
 ```
 
 Both `xEventLoopRun` calls see the same thread-local loop handle. Neither inner `Run` exit unbinds it.

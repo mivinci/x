@@ -26,7 +26,6 @@
 #include <xpp/promise_adapter.h>
 #include <xpp/promise_combinators.h>
 #include <xpp/promise_node.h>
-#include <xpp/promise_waker.h>
 #include <xpp/void.h>
 
 namespace xpp {
@@ -40,8 +39,8 @@ namespace _ {
 /* ── AwaitState (type-erased) ────────────────────────────────────── */
 
 struct AwaitState {
-  virtual ~AwaitState()                        = default;
-  virtual bool poll(const PromiseWaker &waker) = 0;
+  virtual ~AwaitState()                       = default;
+  virtual bool poll(const PromiseContext &cx) = 0;
 };
 
 template <class U> struct AwaitStateImpl : AwaitState {
@@ -50,8 +49,8 @@ template <class U> struct AwaitStateImpl : AwaitState {
 
   AwaitStateImpl(_::OwnPromiseNode<U> n, Option<U> *vp) : m_node(std::move(n)), m_value_ptr(vp) {}
 
-  bool poll(const PromiseWaker &waker) override {
-    auto r = m_node->poll(waker);
+  bool poll(const PromiseContext &cx) override {
+    auto r = m_node->poll(cx);
     if (r.is_none()) return false;
     *m_value_ptr = std::move(r);
     return true;
@@ -66,8 +65,8 @@ struct VoidAwaitState : AwaitState {
 
   VoidAwaitState(_::OwnPromiseNode<void> n, bool *rp) : m_node(std::move(n)), m_ready_ptr(rp) {}
 
-  bool poll(const PromiseWaker &waker) override {
-    auto r = m_node->poll(waker);
+  bool poll(const PromiseContext &cx) override {
+    auto r = m_node->poll(cx);
     if (r.is_none()) return false;
     *m_ready_ptr = true;
     return true;
@@ -86,7 +85,7 @@ public:
   std::exception_ptr      m_exception;
   Own<AwaitState>         m_await_state;
 
-  Option<ValueType> poll(const PromiseWaker &waker) override {
+  Option<ValueType> poll(const PromiseContext &cx) override {
     while (true) {
       if (m_done) {
         if (m_exception) std::rethrow_exception(m_exception);
@@ -95,7 +94,7 @@ public:
 
       if (m_await_state) {
         /* Poll the awaited promise. If not ready, return None. */
-        if (!m_await_state->poll(waker)) return none;
+        if (!m_await_state->poll(cx)) return none;
         /* Ready — clear await state and resume coroutine. */
         m_await_state.reset();
         m_handle.resume();

@@ -183,6 +183,7 @@ xFiberDestroy
 xFiberMain
 xFiberSwitch
 xFiberYield
+xFiberProcArg
 xFree
 xFsReqCancel
 xFsReqSubmit

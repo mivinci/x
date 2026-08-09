@@ -19,7 +19,7 @@ This separation mirrors the C API where `xEventLoopCreate`/`Destroy` and `xEvent
 
 4. **`EventLoop::current()` panics outside WaitScope.** This catches the common bug of calling `Promise::await()` without an active event loop binding.
 
-5. **Fiber integration.** With `XPP_FIBER`, `PromiseWaker::park()` can suspend a fiber via `xFiberYield()` instead of blocking the thread with `X_RUN_ONCE`. The same WaitScope and EventLoop drive all fibers — no separate scheduler needed. See [`.await()` docs](promise/await.md).
+5. **Fiber integration.** With `XPP_FIBER`, `PromiseContext::park()` can suspend a fiber via `xFiberYield()` instead of blocking the thread with `X_RUN_ONCE`. The same WaitScope and EventLoop drive all fibers — no separate scheduler needed. See [`.await()` docs](promise/await.md).
 
 ## API Reference
 

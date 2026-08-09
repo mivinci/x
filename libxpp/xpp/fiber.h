@@ -57,15 +57,8 @@ namespace fiber {
  * @brief Opaque context header placed before user state in the
  *        single-allocation block (Context + user State).
  *
- * The trampoline is a non-template function (compatible with
- * xFiberCreate's void(*)(void*) signature). All template-dependent
- * work is dispatched through function pointers stored here.
+ * Defined in <xpp/promise_waker.h> and shared with PromiseWaker.
  */
-struct Context {
-  void (*run)(void *state);     ///< Call func(), resolve promise
-  void (*destroy)(void *state); ///< Destruct user state
-  xFiber handle;                ///< Fiber handle for cleanup
-};
 
 /**
  * @brief Forward declaration — cleanup_cb runs on event loop to destroy fiber.
@@ -98,6 +91,7 @@ static void cleanup_cb(void *arg) {
   void *data = ctx + 1;
   ctx->destroy(data);
   xFiberDestroy(ctx->handle);
+  ctx->~Context(); // run Arc destructor (decrements refcount)
   operator delete(ctx);
 }
 
@@ -188,6 +182,13 @@ auto fiber(size_t stack_size, Func &&func) -> Promise<decltype(std::declval<Func
     operator delete(mem);
     return Promise<T>(); // empty promise — caller should handle
   }
+
+  // Per-fiber waker — 1 heap alloc for the lifetime of this fiber.
+  // Every await() inside the fiber clones this Arc (1 fetch_add, 0 alloc).
+  // Use placement new because ctx was allocated with operator new —
+  // the Arc member's m_inner is uninitialized and operator=(Arc&&)
+  // reads this->m_inner inside swap, which is UB on garbage.
+  new (&ctx->waker) Arc<_::WakeState>(Arc<_::WakeState>::make(xEventLoopCurrent(), ctx->handle));
 
   // Ensure the thread is fiber-capable (idempotent), then enter the fiber.
   xFiberMain();

@@ -46,13 +46,13 @@ This is the key insight: `.await()` means *"wait for this Promise, letting the e
 ## How it works
 
 ```cpp
-// Simplified — the real implementation is in PromiseWaker::park()
+// Simplified — the real implementation is in PromiseContext::park()
 T Promise<T>::await() {
-    PromiseWaker waker;       // auto-detects fiber context
+    PromiseContext cx;         // auto-detects fiber context
     while (true) {
-        Option<T> result = m_node->poll(waker);
+        Option<T> result = m_node->poll(cx);
         if (result.is_some()) return result.unwrap();
-        waker.park();         // fiber: xFiberYield | non-fiber: X_RUN_ONCE
+        cx.park();             // fiber: xFiberYield | non-fiber: X_RUN_ONCE
     }
 }
 ```

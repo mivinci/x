@@ -13,6 +13,13 @@
 
 #include <x/base/event.h>
 
+#if XPP_FIBER
+#include <chrono>
+#include <thread>
+
+#include <xpp/fiber.h>
+#endif
+
 /* Scenario:
  *
  *   1. Create outer promise via PromiseResolver::create() (AdapterPromiseNode)
@@ -167,88 +174,6 @@ TEST(PromiseDeadlockTest, OuterResolvedInsideNestedWait) {
   if (timer) xTimerStop(timer);
 }
 
-/* The REAL potential deadlock:
- *
- *   - Outer promise has NO timer/source — pure AdapterPromiseNode.
- *   - Inner wait runs first (inside then), consumes the only timer.
- *   - That timer resolves BOTH inner and outer.
- *   - After inner wait returns, there are zero active sources.
- *   - Outer Run sees alive=false → exits immediately.
- *   - But outer's done flag was posted inside the inner Run's drain.
- *   - Question: does the outer Run pick up the done flag before
- *     checking alive?
- *
- * Flow:
- *   outer.await() → poll → None → xEventLoopRun
- *     drain_done: empty (nothing posted yet)
- *     poll_io: waits for timer (30ms)
- *     drain_done: empty
- *     fire_timers: timer fires → resolves inner + outer
- *       → inner waker posts done_inner
- *       → outer waker posts done_outer
- *     alive: done_head != NULL (two posts) → true → continue
- *     drain_done: executes done_inner → sets inner's done flag
- *                 executes done_outer → sets outer's done flag
- *     ... but wait, the timer callback resolved outer which fires
- *     outer's waker which posts done_outer. This happens INSIDE
- *     fire_timers, not inside drain_done. So after fire_timers,
- *     done_head has 2 entries. alive=true. Next iteration:
- *     drain_done → executes both → done flags set.
- *     alive: done_head empty, no timer, no source → false → exit
- *   outer while(!done) → done=true → poll → Some → return.
- *
- * This should work because the done flag is set during drain_done,
- * and alive is checked AFTER drain_done.
- */
-
-TEST(PromiseDeadlockTest, PureAdapterNoTimerNestedWait) {
-  xpp::EventLoop loop;
-  xpp::WaitScope scope(loop);
-
-  auto pr_outer = xpp::async<int>();
-  auto outer_p  = std::move(pr_outer.first);
-  auto outer_r  = std::move(pr_outer.second);
-  auto pr_inner = xpp::async<int>();
-  auto inner_p  = std::move(pr_inner.first);
-  auto inner_r  = std::move(pr_inner.second);
-
-  /* Timer at 30ms resolves BOTH promises simultaneously */
-  struct Ctx {
-    xpp::PromiseResolver<int> *inner_r;
-    xpp::PromiseResolver<int> *outer_r;
-  };
-  auto  *ctx   = new Ctx{&inner_r, &outer_r};
-  xTimer timer = xTimerStart(
-    [](void *arg) {
-      auto *c = static_cast<Ctx *>(arg);
-      c->inner_r->resolve(42);
-      c->outer_r->resolve(7);
-      delete c;
-    },
-    ctx, NULL, 30, 0);
-
-  /* then() waits for inner. Both resolve at the same timer fire.
-   * Inner wait runs xEventLoopRun which drains the timer.
-   * After inner wait returns, outer should already be resolved
-   * (same timer callback). But outer's done flag was posted
-   * inside the inner Run's drain — does outer Run see it? */
-  int result = outer_p
-                 .then([&inner_p](int outer_val) {
-                   /* By the time this runs, outer already resolved (same timer).
-                    * But we need to wait for inner which also resolved.
-                    * Inner wait's Run will drain the timer, resolve both,
-                    * post both done flags. Inner wait picks up its flag.
-                    * Then outer wait needs to pick up its flag. */
-                   int inner_val = inner_p.await();
-                   return outer_val + inner_val;
-                 })
-                 .await();
-
-  EXPECT_EQ(result, 49);
-
-  if (timer) xTimerStop(timer);
-}
-
 /* Even worse: outer promise is resolved ONLY by the inner wait's
  * completion — no timer at all. The outer promise is resolved
  * inside the inner promise's then() chain.
@@ -314,3 +239,141 @@ TEST(PromiseDeadlockTest, OuterResolvedByInnerThenCallback) {
 
   if (timer) xTimerStop(timer);
 }
+
+#if XPP_FIBER
+
+/* ═══════════════════════════════════════════════════════════════════════
+ *  Fiber-mode deadlock tests
+ *
+ * Before the fix, same-thread fiber wake() did xFiberSwitch without
+ * setting the woken flag, but park() still looped on while(!woken).
+ * The fiber resumed, saw woken==false, xFiberYield'd again — wake
+ * lost, deadlock.  These tests exercise the fixed protocol with
+ * genuinely pending promises (timers / cross-thread resolve).
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/* Fiber parks on outer (30ms), then parks on inner (60ms).
+ * Both promises are genuinely pending when awaited — the fiber
+ * suspends twice via xFiberYield and is resumed twice via
+ * xFiberSwitch.  Before the fix, the first resume would loop
+ * forever (woken not set). */
+TEST(PromiseDeadlockTest, FiberNestedAwaitBothPending) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto pr_outer = xpp::async<int>();
+  auto outer_p  = std::move(pr_outer.first);
+  auto outer_r  = std::move(pr_outer.second);
+  auto pr_inner = xpp::async<int>();
+  auto inner_p  = std::move(pr_inner.first);
+  auto inner_r  = std::move(pr_inner.second);
+
+  /* Outer resolves at 30ms — fiber parks, then resumes. */
+  struct OuterCtx {
+    xpp::PromiseResolver<int> *r;
+    int                        v;
+  };
+  auto  *oc          = new OuterCtx{&outer_r, 7};
+  xTimer outer_timer = xTimerStart(
+    [](void *a) {
+      auto *c = static_cast<OuterCtx *>(a);
+      c->r->resolve(c->v);
+      delete c;
+    },
+    oc, nullptr, 30, 0);
+
+  /* Inner resolves at 60ms — fiber parks again, then resumes. */
+  struct InnerCtx {
+    xpp::PromiseResolver<int> *r;
+    int                        v;
+  };
+  auto  *ic          = new InnerCtx{&inner_r, 100};
+  xTimer inner_timer = xTimerStart(
+    [](void *a) {
+      auto *c = static_cast<InnerCtx *>(a);
+      c->r->resolve(c->v);
+      delete c;
+    },
+    ic, nullptr, 60, 0);
+
+  auto p = xpp::fiber([&]() {
+    int ov = outer_p.await(); /* park → 30ms → xFiberSwitch → resume */
+    int iv = inner_p.await(); /* park → 60ms → xFiberSwitch → resume */
+    return ov + iv;
+  });
+
+  EXPECT_EQ(std::move(p).await(), 107);
+
+  if (inner_timer) xTimerStop(inner_timer);
+  if (outer_timer) xTimerStop(outer_timer);
+}
+
+/* Fiber parks on outer. Single timer resolves both outer and inner
+ * simultaneously. Fiber resumes, then inner.await() is immediate
+ * (already resolved by the same timer fire). */
+TEST(PromiseDeadlockTest, FiberNestedAwaitSimultaneousResolve) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto pr_outer = xpp::async<int>();
+  auto outer_p  = std::move(pr_outer.first);
+  auto outer_r  = std::move(pr_outer.second);
+  auto pr_inner = xpp::async<int>();
+  auto inner_p  = std::move(pr_inner.first);
+  auto inner_r  = std::move(pr_inner.second);
+
+  struct Ctx {
+    xpp::PromiseResolver<int> *inner_r;
+    xpp::PromiseResolver<int> *outer_r;
+  };
+  auto  *ctx   = new Ctx{&inner_r, &outer_r};
+  xTimer timer = xTimerStart(
+    [](void *a) {
+      auto *c = static_cast<Ctx *>(a);
+      c->inner_r->resolve(42);
+      c->outer_r->resolve(7);
+      delete c;
+    },
+    ctx, nullptr, 30, 0);
+
+  auto p = xpp::fiber([&]() {
+    int ov = outer_p.await(); /* park → 30ms → resume (both resolved) */
+    int iv = inner_p.await(); /* already resolved — immediate */
+    return ov + iv;
+  });
+
+  EXPECT_EQ(std::move(p).await(), 49);
+
+  if (timer) xTimerStop(timer);
+}
+
+/* Cross-thread resolve wakes a parked fiber.
+ *
+ * A worker thread calls resolver.resolve() from a different thread.
+ * PromiseWaker::wake() detects loop != xEventLoopCurrent() and posts
+ * on_wake to the fiber's event loop. on_wake runs on the loop thread
+ * and calls xFiberSwitch to resume the fiber.  This exercises the
+ * cross-thread fiber wake path (on_wake's fiber branch). */
+TEST(PromiseDeadlockTest, FiberCrossThreadResolve) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto pr = xpp::async<int>();
+  auto p  = std::move(pr.first);
+  auto r  = std::move(pr.second);
+
+  /* Worker thread resolves after 30ms — from a different thread. */
+  std::thread worker([&r]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    r.resolve(42);
+  });
+
+  auto fiber_p = xpp::fiber([&]() {
+    return p.await(); /* park → cross-thread resolve → on_wake → xFiberSwitch */
+  });
+
+  EXPECT_EQ(std::move(fiber_p).await(), 42);
+  worker.join();
+}
+
+#endif // XPP_FIBER

@@ -7,7 +7,6 @@
  */
 
 #include <gtest/gtest.h>
-
 #include <xpp/fiber.h>
 #include <xpp/promise.h>
 
@@ -75,6 +74,33 @@ TEST(FiberTest, WaitOnPendingPromise) {
     return r.await();
   });
   EXPECT_EQ(std::move(p).await(), 10);
+}
+
+/* Fiber awaits a genuinely pending same-thread promise (timer).
+ * Regression test for the deadlock where same-thread fiber wake()
+ * didn't set the done flag, causing park() to loop forever. */
+TEST(FiberTest, AwaitTimer) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto p = xpp::fiber([]() {
+    xpp::after(10).await();
+    return 42;
+  });
+  EXPECT_EQ(std::move(p).await(), 42);
+}
+
+TEST(FiberTest, AwaitTimerMultiple) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto p = xpp::fiber([]() {
+    xpp::after(10).await();
+    xpp::after(10).await();
+    xpp::after(10).await();
+    return 7;
+  });
+  EXPECT_EQ(std::move(p).await(), 7);
 }
 
 TEST(FiberTest, ChainWaitMultiple) {
@@ -187,9 +213,7 @@ TEST(FiberTest, NestedFiberChildReturnsToParent) {
 
   auto outer = xpp::fiber(65536, []() {
     // Spawn inner fiber — it yields back to us, not to main
-    auto inner = xpp::fiber(32768, []() {
-      return 42;
-    });
+    auto inner = xpp::fiber(32768, []() { return 42; });
     // .await() on inner: inner suspends, yields back to outer
     // When inner resolves, outer resumes and gets the value
     return std::move(inner).await() + 1;
@@ -208,8 +232,8 @@ TEST(FiberTest, NestedFiberPendingPromises) {
       int b = xpp::resolve(4).await();
       return a + b;
     });
-    int x = std::move(inner).await();
-    int y = xpp::resolve(10).await();
+    int  x     = std::move(inner).await();
+    int  y     = xpp::resolve(10).await();
     return x + y;
   });
 
@@ -243,15 +267,13 @@ TEST(FiberTest, TripleNestedFiber) {
 
   auto level1 = xpp::fiber(65536, []() {
     auto level2 = xpp::fiber(32768, []() {
-      auto level3 = xpp::fiber(16384, []() {
-        return xpp::resolve(100).await();
-      });
+      auto level3 = xpp::fiber(16384, []() { return xpp::resolve(100).await(); });
       return std::move(level3).await() + 10;
     });
     return std::move(level2).await() + 1;
   });
 
-  EXPECT_EQ(std::move(level1).await(), 111);  /* 100 + 10 + 1 */
+  EXPECT_EQ(std::move(level1).await(), 111); /* 100 + 10 + 1 */
 }
 
 } // namespace

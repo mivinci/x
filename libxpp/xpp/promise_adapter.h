@@ -23,7 +23,6 @@
 #include <xpp/own.h>
 #include <xpp/panic.h>
 #include <xpp/promise_node.h>
-#include <xpp/promise_waker.h>
 #include <xpp/void.h>
 
 namespace xpp {
@@ -44,11 +43,11 @@ template <class T> struct ResolveState {
 
 /* ── poll_state helper (shared by all node types) ────────────────── */
 
-template <class T> inline Option<T> poll_state(ResolveState<T> &s, const PromiseWaker &waker) {
+template <class T> inline Option<T> poll_state(ResolveState<T> &s, const PromiseContext &cx) {
   if (s.resolved.load(std::memory_order_acquire)) {
     return std::move(s.value);
   }
-  s.waker.register_waker(waker);
+  s.waker.register_by_ref(cx.waker());
   if (s.resolved.load(std::memory_order_acquire)) {
     s.waker.wake();
     return std::move(s.value);
@@ -56,11 +55,11 @@ template <class T> inline Option<T> poll_state(ResolveState<T> &s, const Promise
   return none;
 }
 
-inline Option<Void> poll_state(ResolveState<Void> &s, const PromiseWaker &waker) {
+inline Option<Void> poll_state(ResolveState<Void> &s, const PromiseContext &cx) {
   if (s.resolved.load(std::memory_order_acquire)) {
     return Option<Void>(Void{});
   }
-  s.waker.register_waker(waker);
+  s.waker.register_by_ref(cx.waker());
   if (s.resolved.load(std::memory_order_acquire)) {
     s.waker.wake();
     return Option<Void>(Void{});
@@ -74,8 +73,8 @@ template <class T> class ManualResolveNode : public PromiseNode<T> {
 public:
   using ValueType = typename PromiseNode<T>::ValueType;
   explicit ManualResolveNode(Arc<ResolveState<ValueType>> state) : m_state(std::move(state)) {}
-  Option<ValueType> poll(const PromiseWaker &waker) override {
-    return poll_state(*m_state, waker);
+  Option<ValueType> poll(const PromiseContext &cx) override {
+    return poll_state(*m_state, cx);
   }
 
 private:
@@ -94,8 +93,8 @@ public:
         m_adapter(PromiseResolver<T>(Arc<ResolveState<ValueType>>::downgrade(m_state)),
                   std::forward<AdapterArgs>(args)...) {}
 
-  Option<ValueType> poll(const PromiseWaker &waker) override {
-    return poll_state(*m_state, waker);
+  Option<ValueType> poll(const PromiseContext &cx) override {
+    return poll_state(*m_state, cx);
   }
 
 private:
