@@ -71,7 +71,7 @@ Re-polling is safe because the parent tracks which children are done:
 
 ## `wait()` uses `X_RUN_ONCE`
 
-`Promise::wait()` runs the event loop with `X_RUN_ONCE` (one iteration per call) rather than `X_RUN_DEFAULT`. This is critical for `race`: with two timers, the faster timer sets `done = true`, but the slower timer keeps the loop alive. `X_RUN_ONCE` returns after each event, letting `wait()` re-check `done` immediately.
+`Promise::wait()` runs the event loop with `X_RUN_ONCE` (one iteration per call) rather than `X_RUN_DEFAULT`. This is critical for `race`: with two timers, the faster timer sets `woken = true`, but the slower timer keeps the loop alive. `X_RUN_ONCE` returns after each event, letting `wait()` re-check `woken` immediately.
 
 ## Destruction Safety for `race`
 

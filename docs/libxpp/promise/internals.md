@@ -117,26 +117,26 @@ Three atomic operations total. No spin loops, no mutex. Memory ordering: `store(
 
 ## PromiseWaker — Same-Thread vs Cross-Thread
 
-`PromiseWaker` wraps an `Arc<_::WakeState>` — the inner state `{loop, done, fiber}` allocated on the heap and shared via atomic refcount. All copies share the same state.
+`PromiseWaker` wraps an `Arc<_::WakeState>` — the inner state `{loop, woken, fiber}` allocated on the heap and shared via atomic refcount. All copies share the same state.
 
 ```cpp
 void wake() const {
-    if (m_core->loop == xEventLoopCurrent()) {
-        if (m_core->fiber) {
-            xFiberSwitch(m_core->fiber);   // Fiber: direct switch, no flag
+    if (m_state->loop == xEventLoopCurrent()) {
+        if (m_state->fiber) {
+            xFiberSwitch(m_state->fiber);   // Fiber: direct switch, no flag
         } else {
-            m_core->done = true;           // Non-fiber: set flag
+            m_state->woken = true;          // Non-fiber: set flag
         }
     } else {
-        xEventLoopPost(m_core->loop,       // Cross-thread — MPSC enqueue
-            &on_wake, &(*m_core));
+        xEventLoopPost(m_state->loop,       // Cross-thread — MPSC enqueue
+            &on_wake, &(*m_state));
     }
 }
 ```
 
 `sizeof(PromiseWaker) = sizeof(Arc<_::WakeState>) = 8B`. Same-thread fiber: direct `xFiberSwitch`. Same-thread non-fiber: flag set. Cross-thread: `xEventLoopPost` (lock-free MPSC).
 
-`PromiseContext` is the non-cloneable poll handle that owns a `PromiseWaker`. It provides `park()` (fiber: single `xFiberYield()`; non-fiber: `xEventLoopRun(X_RUN_ONCE)` loop on `done` flag) and `waker()` (returns `const PromiseWaker&` for resolvers to clone and store).
+`PromiseContext` is the non-cloneable poll handle that owns a `PromiseWaker`. It provides `park()` (fiber: single `xFiberYield()`; non-fiber: `xEventLoopRun(X_RUN_ONCE)` loop on `woken` flag) and `waker()` (returns `const PromiseWaker&` for resolvers to clone and store).
 
 ## Nested wait() Correctness
 
@@ -164,7 +164,7 @@ wait()  (outer)
       wait()  (inner)
         poll()  →  Some(result)  →  return
     fn returns result
-  done==true  →  poll  →  Some  →  return
+  woken==true  →  poll  →  Some  →  return
 ```
 
 Both `xEventLoopRun` calls see the same thread-local loop handle. Neither inner `Run` exit unbinds it.
