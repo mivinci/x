@@ -5,7 +5,7 @@
  *
  * promise_waker.h - WakeState + PromiseWaker + AtomicPromiseWaker
  *
- * _::WakeState is the inner shared state {loop, done, fiber} allocated
+ * _::WakeState is the inner shared state {loop, woken, fiber} allocated
  * on the heap and shared via Arc.  PromiseWaker wraps the Arc and is
  * the cloneable, storable wake handle (Rust's Waker).
  *
@@ -19,7 +19,7 @@
  * behaviour — this is rarely used and acceptable).
  *
  * Naming (aligned with Rust):
- *   _::WakeState       — inner state {loop, done, fiber}
+ *   _::WakeState       — inner state {loop, woken, fiber}
  *   PromiseWaker       — public cloneable handle           (Rust: Waker)
  *   PromiseContext     — non-cloneable poll handle          (Rust: Context)
  *                        (see <xpp/promise_context.h>)
@@ -54,7 +54,7 @@ namespace _ {
 
 struct WakeState {
   xEventLoop loop;
-  bool       done = false;
+  bool       woken = false;
 
   WakeState() = default;
   explicit WakeState(xEventLoop l) : loop(l) {}
@@ -124,11 +124,11 @@ public:
    * In fiber mode, reuses the per-fiber Arc if called from inside a
    * fiber created by xpp::fiber().  Otherwise allocates a fresh Arc.
    */
-  static PromiseWaker make();
+  static PromiseWaker create();
 
 private:
-  explicit PromiseWaker(Arc<_::WakeState> c) : m_core(std::move(c)) {}
-  Arc<_::WakeState> m_core;
+  explicit PromiseWaker(Arc<_::WakeState> state) : m_state(std::move(state)) {}
+  Arc<_::WakeState> m_state;
 
   static void on_wake(void *arg);
 
@@ -140,7 +140,7 @@ private:
  *  PromiseWaker — implementation
  * ═══════════════════════════════════════════════════════════════════════ */
 
-inline PromiseWaker PromiseWaker::make() {
+inline PromiseWaker PromiseWaker::create() {
 #if XPP_FIBER
   auto f = xFiberCurrent();
   if (f) {
@@ -154,17 +154,17 @@ inline PromiseWaker PromiseWaker::make() {
 }
 
 inline void PromiseWaker::wake() const {
-  if (m_core->loop == xEventLoopCurrent()) {
+  if (m_state->loop == xEventLoopCurrent()) {
 #if XPP_FIBER
-    if (m_core->fiber) {
-      xFiberSwitch(m_core->fiber);
+    if (m_state->fiber) {
+      xFiberSwitch(m_state->fiber);
       return;
     }
 #endif
-    m_core->done = true;
+    m_state->woken = true;
   } else {
-    xEventLoopPost(m_core->loop, &on_wake,
-                   const_cast<void *>(static_cast<const void *>(&(*m_core))));
+    xEventLoopPost(m_state->loop, &on_wake,
+                   const_cast<void *>(static_cast<const void *>(&(*m_state))));
   }
 }
 
@@ -176,7 +176,7 @@ inline void PromiseWaker::on_wake(void *arg) {
     return;
   }
 #endif
-  c->done = true;
+  c->woken = true;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════

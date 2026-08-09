@@ -16,7 +16,7 @@
  *                xFiberYield only returns when someone calls
  *                xFiberSwitch on this fiber, i.e. PromiseWaker::wake).
  *   - Non-fiber: runs xEventLoopRun(X_RUN_ONCE) in a poll loop until
- *                the waker's done flag is set.
+ *                the waker's woken flag is set.
  *
  * C++11-compatible.
  */
@@ -74,23 +74,23 @@ private:
  *  PromiseContext — implementation
  * ═══════════════════════════════════════════════════════════════════════ */
 
-inline PromiseContext::PromiseContext() : m_waker(PromiseWaker::make()) {}
+inline PromiseContext::PromiseContext() : m_waker(PromiseWaker::create()) {}
 
 inline void PromiseContext::park() const {
 #if XPP_FIBER
-  if (m_waker.m_core->fiber) {
+  if (m_waker.m_state->fiber) {
     /* Fiber path: a single xFiberYield is sufficient — xFiberYield
      * only returns when PromiseWaker::wake() calls xFiberSwitch on
-     * this fiber.  No done flag, no loop. */
+     * this fiber.  No woken flag, no loop. */
     xFiberYield();
     return;
   }
 #endif
-  /* Non-fiber path: run the event loop until wake() sets done. */
-  while (!m_waker.m_core->done) {
-    xEventLoopRun(m_waker.m_core->loop, X_RUN_ONCE);
+  /* Non-fiber path: run the event loop until wake() sets woken. */
+  while (!m_waker.m_state->woken) {
+    xEventLoopRun(m_waker.m_state->loop, X_RUN_ONCE);
   }
-  m_waker.m_core->done = false;
+  m_waker.m_state->woken = false;
 }
 
 } // namespace xpp
