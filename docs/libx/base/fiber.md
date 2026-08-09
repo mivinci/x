@@ -74,7 +74,7 @@ Low addr
 | `xFiberCreate` | `xFiber xFiberCreate(size_t stack_size, xFiberProc proc, void *arg)` | Create a fiber on a new stack. Does NOT start execution. Returns `NULL` on failure. Also records the current fiber as `parent` for `xFiberYield()`. |
 | `xFiberDestroy` | `void xFiberDestroy(xFiber fiber)` | Delete a finished fiber and free its stack. Safe with `NULL`. |
 | `xFiberSwitch` | `void xFiberSwitch(xFiber target)` | Suspend current fiber, resume `target`. Implicitly calls `xFiberMain()` if needed. |
-| `xFiberYield` | `void xFiberYield(void)` | Suspend current fiber and switch back to its parent (falling back to main if no parent). This is the primitive used by higher-level APIs (`PromiseWaker::park()`, `xpp::fiber` trampoline) — `xFiberSwitch(xFiberMain())` is almost never what you want. |
+| `xFiberYield` | `void xFiberYield(void)` | Suspend current fiber and switch back to its parent (falling back to main if no parent). This is the primitive used by higher-level APIs (`PromiseContext::park()`, `xpp::fiber` trampoline) — `xFiberSwitch(xFiberMain())` is almost never what you want. |
 | `xFiberCurrent` | `xFiber xFiberCurrent(void)` | Return the currently executing fiber, or `NULL` if unconverted. |
 
 ### Lifecycle

@@ -62,7 +62,7 @@ xpp::race(after(10), after(50)).await();
 
 ## How Waker Sharing Works
 
-Both `all` and `race` pass the **same** `PromiseWaker` to all children. When any child fires the waker (sets `*done = true`), `wait()` re-polls the parent node.
+Both `all` and `race` pass the **same** `PromiseContext` to all children. When any child fires the waker (via `cx.waker().wake()`), `await()` re-polls the parent node.
 
 Re-polling is safe because the parent tracks which children are done:
 
