@@ -36,8 +36,9 @@
 
 #include <utility>
 
-#include <xpp/promise.h>      // Promise<T>, async(), PromiseResolver<T>
-#include <xpp/promise_node.h> // _::FixVoid
+#include <xpp/promise.h>       // Promise<T>, async(), PromiseResolver<T>
+#include <xpp/promise_node.h>  // _::FixVoid
+#include <xpp/promise_types.h> // _::fiber::Context
 
 #if XPP_FIBER
 #include <x/base/event.h>
@@ -189,8 +190,7 @@ auto fiber(size_t stack_size, Func &&func) -> Promise<decltype(std::declval<Func
   // Use placement new because ctx was allocated with operator new —
   // the Arc member's m_inner is uninitialized and operator=(Arc&&)
   // reads this->m_inner inside swap, which is UB on garbage.
-  new (&ctx->waker) Arc<_::PromiseWaker>(
-      Arc<_::PromiseWaker>::make(xEventLoopCurrent(), ctx->handle));
+  new (&ctx->waker) Arc<_::WakerCore>(Arc<_::WakerCore>::make(xEventLoopCurrent(), ctx->handle));
 
   // Ensure the thread is fiber-capable (idempotent), then enter the fiber.
   xFiberMain();

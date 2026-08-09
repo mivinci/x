@@ -26,7 +26,6 @@
 #include <xpp/promise_adapter.h>
 #include <xpp/promise_combinators.h>
 #include <xpp/promise_node.h>
-#include <xpp/promise_context.h>
 #include <xpp/void.h>
 
 namespace xpp {
@@ -40,7 +39,7 @@ namespace _ {
 /* ── AwaitState (type-erased) ────────────────────────────────────── */
 
 struct AwaitState {
-  virtual ~AwaitState()                        = default;
+  virtual ~AwaitState()                       = default;
   virtual bool poll(const PromiseContext &cx) = 0;
 };
 

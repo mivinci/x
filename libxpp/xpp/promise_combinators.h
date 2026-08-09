@@ -25,7 +25,6 @@
 #include <xpp/own.h>
 #include <xpp/panic.h>
 #include <xpp/promise_node.h>
-#include <xpp/promise_context.h>
 #include <xpp/void.h>
 
 namespace xpp {

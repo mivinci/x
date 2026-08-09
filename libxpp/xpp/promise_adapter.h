@@ -23,7 +23,6 @@
 #include <xpp/own.h>
 #include <xpp/panic.h>
 #include <xpp/promise_node.h>
-#include <xpp/promise_context.h>
 #include <xpp/void.h>
 
 namespace xpp {
@@ -48,7 +47,7 @@ template <class T> inline Option<T> poll_state(ResolveState<T> &s, const Promise
   if (s.resolved.load(std::memory_order_acquire)) {
     return std::move(s.value);
   }
-  s.waker.register_(cx);
+  s.waker.register_by_ref(cx.waker());
   if (s.resolved.load(std::memory_order_acquire)) {
     s.waker.wake();
     return std::move(s.value);
@@ -60,7 +59,7 @@ inline Option<Void> poll_state(ResolveState<Void> &s, const PromiseContext &cx) 
   if (s.resolved.load(std::memory_order_acquire)) {
     return Option<Void>(Void{});
   }
-  s.waker.register_(cx);
+  s.waker.register_by_ref(cx.waker());
   if (s.resolved.load(std::memory_order_acquire)) {
     s.waker.wake();
     return Option<Void>(Void{});

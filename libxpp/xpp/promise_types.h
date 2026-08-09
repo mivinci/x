@@ -5,10 +5,10 @@
  *
  * promise_types.h — shared types without template machinery.
  *
- * Defines _::PromiseWaker (the inner waker state) and, when XPP_FIBER
+ * Defines _::WakerCore (the inner waker state) and, when XPP_FIBER
  * is defined, _::fiber::Context (the fiber execution context header).
  *
- * Both promise_context.h and xpp/fiber.h include this header, so
+ * Both promise_waker.h and promise_context.h include this header, so
  * they can share these struct definitions without circular includes.
  * No template code, no Promise<T> — just plain structs.
  */
@@ -25,20 +25,20 @@
 
 namespace xpp {
 
-/* ── _::PromiseWaker ─────────────────────────────────────────────── */
+/* ── _::WakerCore ─────────────────────────────────────────────────── */
 
 namespace _ {
 
-struct PromiseWaker {
+struct WakerCore {
   xEventLoop loop;
   bool       done = false;
 
-  PromiseWaker() = default;
-  explicit PromiseWaker(xEventLoop l) : loop(l) {}
+  WakerCore() = default;
+  explicit WakerCore(xEventLoop l) : loop(l) {}
 
 #if XPP_FIBER
   xFiber fiber = nullptr;
-  PromiseWaker(xEventLoop l, xFiber f) : loop(l), fiber(f) {}
+  WakerCore(xEventLoop l, xFiber f) : loop(l), fiber(f) {}
 #endif
 };
 
@@ -59,8 +59,8 @@ namespace fiber {
 struct Context {
   void (*run)(void *state);
   void (*destroy)(void *state);
-  xFiber               handle;
-  Arc<_::PromiseWaker>  waker;
+  xFiber            handle;
+  Arc<_::WakerCore> waker;
 };
 
 } // namespace fiber
