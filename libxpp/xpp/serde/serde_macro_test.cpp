@@ -15,7 +15,6 @@
 #include <utility>
 
 #include <gtest/gtest.h>
-
 #include <xpp/option.h>
 #include <xpp/result.h>
 #include <xpp/serde/json.h>
@@ -34,9 +33,9 @@ XPP_SERDE(One, (x))
 
 struct Five {
   xpp::String name;
-  int32_t age;
-  bool active;
-  double score;
+  int32_t     age;
+  bool        active;
+  double      score;
   xpp::String email;
 };
 XPP_SERDE(Five, (name), (age), (active), (score), (email))
@@ -65,8 +64,8 @@ struct Twenty {
   int32_t f19;
   int32_t f20;
 };
-XPP_SERDE(Twenty, (f1), (f2), (f3), (f4), (f5), (f6), (f7), (f8), (f9), (f10),
-          (f11), (f12), (f13), (f14), (f15), (f16), (f17), (f18), (f19), (f20))
+XPP_SERDE(Twenty, (f1), (f2), (f3), (f4), (f5), (f6), (f7), (f8), (f9), (f10), (f11), (f12), (f13),
+          (f14), (f15), (f16), (f17), (f18), (f19), (f20))
 
 /* ────────────────────────────── Helpers ────────────────────────────── */
 
@@ -75,20 +74,18 @@ namespace {
 using namespace xpp;
 using namespace xpp::serde;
 
-String S(const char* s) {
+String S(const char *s) {
   return String::from_utf8(s).unwrap();
 }
 
-template <class T>
-String to_json(const T& v) {
+template <class T> String to_json(const T &v) {
   json::Serializer ser;
-  auto r = serde::serialize(v, ser);
+  auto             r = serde::serialize(v, ser);
   EXPECT_TRUE(r.is_ok()) << "serialize failed";
   return ser.buffer();
 }
 
-template <class T>
-xpp::Result<T, xpp::serde::Error> from_json(const char* s) {
+template <class T> xpp::Result<T, xpp::serde::Error> from_json(const char *s) {
   auto d_res = json::Deserializer::from_string(s);
   if (!d_res.is_ok()) {
     return xpp::err(std::move(d_res).unwrap_err());
@@ -97,7 +94,7 @@ xpp::Result<T, xpp::serde::Error> from_json(const char* s) {
   return serde::deserialize<T>(d);
 }
 
-}  // namespace
+} // namespace
 
 /* ═════════════════════════════ Tests ══════════════════════════════ */
 
@@ -115,22 +112,20 @@ TEST(SerdeMacroTest, OneFieldRoundTrip) {
 
 TEST(SerdeMacroTest, FiveFieldsRoundTrip) {
   Five src;
-  src.name = S("Alice");
-  src.age = 30;
+  src.name   = S("Alice");
+  src.age    = 30;
   src.active = true;
-  src.score = 9.5;
-  src.email = S("a@b.c");
+  src.score  = 9.5;
+  src.email  = S("a@b.c");
 
   String s = to_json(src);
-  EXPECT_EQ(s,
-            S("{\"name\":\"Alice\",\"age\":30,\"active\":true,"
-              "\"score\":9.5,\"email\":\"a@b.c\"}"));
+  EXPECT_EQ(s, S("{\"name\":\"Alice\",\"age\":30,\"active\":true,"
+                 "\"score\":9.5,\"email\":\"a@b.c\"}"));
 
-  auto r = from_json<Five>(
-      "{\"name\":\"Bob\",\"age\":25,\"active\":false,"
-      "\"score\":7.25,\"email\":\"b@c.d\"}");
+  auto r = from_json<Five>("{\"name\":\"Bob\",\"age\":25,\"active\":false,"
+                           "\"score\":7.25,\"email\":\"b@c.d\"}");
   ASSERT_TRUE(r.is_ok());
-  const Five& out = r.unwrap();
+  const Five &out = r.unwrap();
   EXPECT_EQ(out.name, S("Bob"));
   EXPECT_EQ(out.age, 25);
   EXPECT_EQ(out.active, false);
@@ -141,7 +136,7 @@ TEST(SerdeMacroTest, FiveFieldsRoundTrip) {
 TEST(SerdeMacroTest, TwentyFieldsRoundTrip) {
   Twenty src{};
   for (int i = 0; i < 20; ++i) {
-    reinterpret_cast<int32_t*>(&src)[i] = (i + 1) * 10;
+    reinterpret_cast<int32_t *>(&src)[i] = (i + 1) * 10;
   }
 
   String s = to_json(src);
@@ -153,42 +148,37 @@ TEST(SerdeMacroTest, TwentyFieldsRoundTrip) {
     EXPECT_TRUE(s.contains(needle)) << "missing field " << i;
   }
 
-  auto r = from_json<Twenty>(
-      "{\"f1\":1,\"f2\":2,\"f3\":3,\"f4\":4,\"f5\":5,"
-      "\"f6\":6,\"f7\":7,\"f8\":8,\"f9\":9,\"f10\":10,"
-      "\"f11\":11,\"f12\":12,\"f13\":13,\"f14\":14,\"f15\":15,"
-      "\"f16\":16,\"f17\":17,\"f18\":18,\"f19\":19,\"f20\":20}");
+  auto r = from_json<Twenty>("{\"f1\":1,\"f2\":2,\"f3\":3,\"f4\":4,\"f5\":5,"
+                             "\"f6\":6,\"f7\":7,\"f8\":8,\"f9\":9,\"f10\":10,"
+                             "\"f11\":11,\"f12\":12,\"f13\":13,\"f14\":14,\"f15\":15,"
+                             "\"f16\":16,\"f17\":17,\"f18\":18,\"f19\":19,\"f20\":20}");
   ASSERT_TRUE(r.is_ok());
-  const Twenty& out = r.unwrap();
+  const Twenty &out = r.unwrap();
   EXPECT_EQ(out.f1, 1);
   EXPECT_EQ(out.f10, 10);
   EXPECT_EQ(out.f20, 20);
 }
 
 TEST(SerdeMacroTest, UnknownFieldSkipped) {
-  auto r = from_json<Five>(
-      "{\"name\":\"C\",\"age\":1,\"active\":true,\"score\":0.0,"
-      "\"email\":\"x\",\"extra\":999,\"another\":\"skip me\"}");
+  auto r = from_json<Five>("{\"name\":\"C\",\"age\":1,\"active\":true,\"score\":0.0,"
+                           "\"email\":\"x\",\"extra\":999,\"another\":\"skip me\"}");
   ASSERT_TRUE(r.is_ok());
   EXPECT_EQ(r.unwrap().name, S("C"));
 }
 
 TEST(SerdeMacroTest, MissingRequiredFieldFails) {
   // Five without `email`.
-  auto r = from_json<Five>(
-      "{\"name\":\"C\",\"age\":1,\"active\":true,\"score\":0.0}");
+  auto r = from_json<Five>("{\"name\":\"C\",\"age\":1,\"active\":true,\"score\":0.0}");
   ASSERT_FALSE(r.is_ok());
-  EXPECT_EQ(r.unwrap_err().kind,
-            xpp::serde::ErrorKind::MissingField);
+  EXPECT_EQ(r.unwrap_err().kind, xpp::serde::ErrorKind::MissingField);
 }
 
 TEST(SerdeMacroTest, FieldOrderInsensitiveOnDeserialize) {
   // JSON keys in shuffled order — deserialize should still work.
-  auto r = from_json<Five>(
-      "{\"email\":\"z@x.y\",\"score\":1.5,\"active\":false,"
-      "\"age\":99,\"name\":\"Zed\"}");
+  auto r = from_json<Five>("{\"email\":\"z@x.y\",\"score\":1.5,\"active\":false,"
+                           "\"age\":99,\"name\":\"Zed\"}");
   ASSERT_TRUE(r.is_ok());
-  const Five& out = r.unwrap();
+  const Five &out = r.unwrap();
   EXPECT_EQ(out.name, S("Zed"));
   EXPECT_EQ(out.age, 99);
   EXPECT_EQ(out.active, false);
@@ -198,9 +188,8 @@ TEST(SerdeMacroTest, FieldOrderInsensitiveOnDeserialize) {
 
 TEST(SerdeMacroTest, WrongTypeFails) {
   // `age` is i32, providing a string.
-  auto r = from_json<Five>(
-      "{\"name\":\"C\",\"age\":\"not a number\",\"active\":true,"
-      "\"score\":0.0,\"email\":\"x\"}");
+  auto r = from_json<Five>("{\"name\":\"C\",\"age\":\"not a number\",\"active\":true,"
+                           "\"score\":0.0,\"email\":\"x\"}");
   ASSERT_FALSE(r.is_ok());
 }
 
@@ -211,11 +200,11 @@ TEST(SerdeMacroTest, MacroDoesNotEmitExtraFields) {
   // there are exactly 5 commas (separating 5 fields) and exactly 5
   // field names.
   Five src;
-  src.name = S("n");
-  src.age = 0;
+  src.name   = S("n");
+  src.age    = 0;
   src.active = false;
-  src.score = 0.0;
-  src.email = S("e");
+  src.score  = 0.0;
+  src.email  = S("e");
 
   String s = to_json(src);
   // Verify each field name appears in the JSON output.
@@ -228,18 +217,17 @@ TEST(SerdeMacroTest, MacroDoesNotEmitExtraFields) {
 
 TEST(SerdeMacroTest, RoundTripEquality) {
   Five src;
-  src.name = S("Round");
-  src.age = 7;
+  src.name   = S("Round");
+  src.age    = 7;
   src.active = true;
-  src.score = 3.5;
-  src.email = S("r@x.y");
+  src.score  = 3.5;
+  src.email  = S("r@x.y");
 
-  String s = to_json(src);
-  std::string tmp(reinterpret_cast<const char*>(s.as_bytes().data()),
-                  s.len());
-  auto r = from_json<Five>(tmp.c_str());
+  String      s = to_json(src);
+  std::string tmp(reinterpret_cast<const char *>(s.as_bytes().data()), s.len());
+  auto        r = from_json<Five>(tmp.c_str());
   ASSERT_TRUE(r.is_ok());
-  const Five& out = r.unwrap();
+  const Five &out = r.unwrap();
   EXPECT_EQ(out.name, src.name);
   EXPECT_EQ(out.age, src.age);
   EXPECT_EQ(out.active, src.active);

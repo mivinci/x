@@ -18,7 +18,6 @@
 #include <utility>
 
 #include <gtest/gtest.h>
-
 #include <xpp/option.h>
 #include <xpp/result.h>
 #include <xpp/serde/json.h>
@@ -33,18 +32,16 @@ namespace {
 
 struct Person {
   xpp::String name;
-  int32_t age = 0;
+  int32_t     age = 0;
 };
 
-}  // namespace
+} // namespace
 
 namespace xpp {
 namespace serde {
 
-template <>
-struct Serialize<Person> {
-  template <class S>
-  static Result<Void, Error> run(const Person& p, S& s) {
+template <> struct Serialize<Person> {
+  template <class S> static Result<Void, Error> run(const Person &p, S &s) {
     XPP_SERDE_TRY_VAR(scope, s.serialize_struct("Person", 2));
     XPP_SERDE_TRY(scope.field("name", p.name));
     XPP_SERDE_TRY(scope.field("age", p.age));
@@ -52,26 +49,24 @@ struct Serialize<Person> {
   }
 };
 
-template <>
-struct Deserialize<Person> {
-  template <class D>
-  static Result<Person, Error> run(D& d) {
+template <> struct Deserialize<Person> {
+  template <class D> static Result<Person, Error> run(D &d) {
     struct Visitor {
-      Result<Person, Error> visit_map(typename D::MapAccess& m) {
+      Result<Person, Error> visit_map(typename D::MapAccess &m) {
         Person p{};
-        bool got_name = false;
-        bool got_age = false;
+        bool   got_name = false;
+        bool   got_age  = false;
         while (true) {
           XPP_SERDE_TRY_VAR(key, m.next_key());
           if (key.is_none()) break;
-          const xpp::String& k = key.unwrap();
+          const xpp::String &k = key.unwrap();
           if (k == "name") {
             XPP_SERDE_TRY_VAR(v, m.template next_value<xpp::String>());
-            p.name = std::move(v);
+            p.name   = std::move(v);
             got_name = true;
           } else if (k == "age") {
             XPP_SERDE_TRY_VAR(v, m.template next_value<int32_t>());
-            p.age = v;
+            p.age   = v;
             got_age = true;
           } else {
             XPP_SERDE_TRY(m.next_value_ignored());
@@ -86,13 +81,13 @@ struct Deserialize<Person> {
         return ok(std::move(p));
       }
     };
-    static const char* const kFields[] = {"name", "age"};
+    static const char *const kFields[] = {"name", "age"};
     return d.deserialize_struct("Person", kFields, 2, Visitor{});
   }
 };
 
-}  // namespace serde
-}  // namespace xpp
+} // namespace serde
+} // namespace xpp
 
 namespace {
 
@@ -102,20 +97,18 @@ using namespace xpp::serde;
 /* ───────────────────── Helpers ───────────────────── */
 
 /** @brief Construct a String from a string literal (assumes valid UTF-8). */
-String S(const char* s) {
+String S(const char *s) {
   return String::from_utf8(s).unwrap();
 }
 
-template <class T>
-String to_json(const T& v) {
+template <class T> String to_json(const T &v) {
   json::Serializer ser;
-  auto r = serde::serialize(v, ser);
+  auto             r = serde::serialize(v, ser);
   EXPECT_TRUE(r.is_ok()) << "serialize failed";
   return ser.buffer();
 }
 
-template <class T>
-xpp::Result<T, xpp::serde::Error> from_json(const char* s) {
+template <class T> xpp::Result<T, xpp::serde::Error> from_json(const char *s) {
   auto d_res = json::Deserializer::from_string(s);
   if (!d_res.is_ok()) {
     return xpp::err(std::move(d_res).unwrap_err());
@@ -167,9 +160,9 @@ TEST(SerdeJsonTest, F64RoundTrip) {
 
   // 3.14 is not exactly representable; verify round-trip fidelity via
   // parse(serialize(x)) == x rather than a literal string compare.
-  String s = to_json<double>(3.14);
-  std::string tmp(reinterpret_cast<const char*>(s.as_bytes().data()), s.len());
-  auto r2 = from_json<double>(tmp.c_str());
+  String      s = to_json<double>(3.14);
+  std::string tmp(reinterpret_cast<const char *>(s.as_bytes().data()), s.len());
+  auto        r2 = from_json<double>(tmp.c_str());
   ASSERT_TRUE(r2.is_ok());
   EXPECT_DOUBLE_EQ(r2.unwrap(), 3.14);
 }
@@ -210,7 +203,7 @@ TEST(SerdeJsonTest, VecRoundTrip) {
 
   auto r = from_json<xpp::Vec<int32_t>>("[10,20,30]");
   ASSERT_TRUE(r.is_ok());
-  auto& got = r.unwrap();
+  auto &got = r.unwrap();
   ASSERT_EQ(got.len(), 3u);
   EXPECT_EQ(got[0], 10);
   EXPECT_EQ(got[1], 20);
@@ -232,19 +225,17 @@ TEST(SerdeJsonTest, VecEmptyRoundTrip) {
  */
 
 struct Team {
-  xpp::String name;
+  xpp::String      name;
   xpp::Vec<Person> members;
 };
 
-}  // namespace
+} // namespace
 
 namespace xpp {
 namespace serde {
 
-template <>
-struct Serialize<Team> {
-  template <class S>
-  static Result<Void, Error> run(const Team& t, S& s) {
+template <> struct Serialize<Team> {
+  template <class S> static Result<Void, Error> run(const Team &t, S &s) {
     XPP_SERDE_TRY_VAR(scope, s.serialize_struct("Team", 2));
     XPP_SERDE_TRY(scope.field("name", t.name));
     XPP_SERDE_TRY(scope.field("members", t.members));
@@ -252,26 +243,24 @@ struct Serialize<Team> {
   }
 };
 
-template <>
-struct Deserialize<Team> {
-  template <class D>
-  static Result<Team, Error> run(D& d) {
+template <> struct Deserialize<Team> {
+  template <class D> static Result<Team, Error> run(D &d) {
     struct Visitor {
-      Result<Team, Error> visit_map(typename D::MapAccess& m) {
+      Result<Team, Error> visit_map(typename D::MapAccess &m) {
         Team t{};
-        bool got_name = false;
+        bool got_name    = false;
         bool got_members = false;
         while (true) {
           XPP_SERDE_TRY_VAR(key, m.next_key());
           if (key.is_none()) break;
-          const xpp::String& k = key.unwrap();
+          const xpp::String &k = key.unwrap();
           if (k == "name") {
             XPP_SERDE_TRY_VAR(v, m.template next_value<xpp::String>());
-            t.name = std::move(v);
+            t.name   = std::move(v);
             got_name = true;
           } else if (k == "members") {
             XPP_SERDE_TRY_VAR(v, m.template next_value<xpp::Vec<Person>>());
-            t.members = std::move(v);
+            t.members   = std::move(v);
             got_members = true;
           } else {
             XPP_SERDE_TRY(m.next_value_ignored());
@@ -286,13 +275,13 @@ struct Deserialize<Team> {
         return ok(std::move(t));
       }
     };
-    static const char* const kFields[] = {"name", "members"};
+    static const char *const kFields[] = {"name", "members"};
     return d.deserialize_struct("Team", kFields, 2, Visitor{});
   }
 };
 
-}  // namespace serde
-}  // namespace xpp
+} // namespace serde
+} // namespace xpp
 
 namespace {
 
@@ -305,10 +294,10 @@ TEST(SerdeJsonTest, VecOfStructRoundTrip) {
   v.push(Person{S("Bob"), 25});
   EXPECT_EQ(to_json(v), "[{\"name\":\"Alice\",\"age\":30},{\"name\":\"Bob\",\"age\":25}]");
 
-  auto r = from_json<xpp::Vec<Person>>(
-      "[{\"name\":\"Alice\",\"age\":30},{\"name\":\"Bob\",\"age\":25}]");
+  auto r =
+    from_json<xpp::Vec<Person>>("[{\"name\":\"Alice\",\"age\":30},{\"name\":\"Bob\",\"age\":25}]");
   ASSERT_TRUE(r.is_ok()) << r.unwrap_err().message;
-  auto& got = r.unwrap();
+  auto &got = r.unwrap();
   ASSERT_EQ(got.len(), 2u);
   EXPECT_EQ(got[0].name, S("Alice"));
   EXPECT_EQ(got[0].age, 30);
@@ -344,15 +333,13 @@ TEST(SerdeJsonTest, NestedStructRoundTrip) {
   t.members.push(Person{S("Bob"), 25});
 
   String s = to_json(t);
-  EXPECT_EQ(s,
-            "{\"name\":\"engineering\","
-            "\"members\":[{\"name\":\"Alice\",\"age\":30},"
-            "{\"name\":\"Bob\",\"age\":25}]}");
+  EXPECT_EQ(s, "{\"name\":\"engineering\","
+               "\"members\":[{\"name\":\"Alice\",\"age\":30},"
+               "{\"name\":\"Bob\",\"age\":25}]}");
 
-  auto r = from_json<Team>(
-      "{\"name\":\"engineering\","
-      "\"members\":[{\"name\":\"Alice\",\"age\":30},"
-      "{\"name\":\"Bob\",\"age\":25}]}");
+  auto r = from_json<Team>("{\"name\":\"engineering\","
+                           "\"members\":[{\"name\":\"Alice\",\"age\":30},"
+                           "{\"name\":\"Bob\",\"age\":25}]}");
   ASSERT_TRUE(r.is_ok()) << r.unwrap_err().message;
   Team got = r.unwrap();
   EXPECT_EQ(got.name, S("engineering"));
@@ -386,14 +373,14 @@ TEST(SerdeJsonTest, I64BoundaryRoundTrip) {
 
 TEST(SerdeJsonTest, F64NanSerializeFails) {
   json::Serializer ser;
-  auto r = ser.serialize_f64(std::numeric_limits<double>::quiet_NaN());
+  auto             r = ser.serialize_f64(std::numeric_limits<double>::quiet_NaN());
   ASSERT_FALSE(r.is_ok());
   EXPECT_EQ(r.unwrap_err().kind, xpp::serde::ErrorKind::InvalidValue);
 }
 
 TEST(SerdeJsonTest, F64InfinitySerializeFails) {
   json::Serializer ser;
-  auto r = ser.serialize_f64(std::numeric_limits<double>::infinity());
+  auto             r = ser.serialize_f64(std::numeric_limits<double>::infinity());
   ASSERT_FALSE(r.is_ok());
   EXPECT_EQ(r.unwrap_err().kind, xpp::serde::ErrorKind::InvalidValue);
 }
@@ -406,7 +393,7 @@ TEST(SerdeJsonTest, F64InfinitySerializeFails) {
 TEST(SerdeJsonTest, StringWithEmbeddedNulRoundTrip) {
   // Build "a\0b" as a String
   const char buf[] = {'a', '\0', 'b'};
-  auto s_res = String::from_utf8(buf, 3);
+  auto       s_res = String::from_utf8(buf, 3);
   ASSERT_TRUE(s_res.is_ok());
   String s = s_res.unwrap();
   ASSERT_EQ(s.len(), 3u);
@@ -430,7 +417,7 @@ TEST(SerdeJsonTest, StringWithEmbeddedNulRoundTrip) {
 
 TEST(SerdeJsonTest, SerializerBufferTwiceIdempotent) {
   json::Serializer ser;
-  auto r = ser.serialize_i32(42);
+  auto             r = ser.serialize_i32(42);
   ASSERT_TRUE(r.is_ok());
   String a = ser.buffer();
   String b = ser.buffer();
@@ -439,7 +426,7 @@ TEST(SerdeJsonTest, SerializerBufferTwiceIdempotent) {
 
 TEST(SerdeJsonTest, SerializerResetClearsState) {
   json::Serializer ser;
-  auto r1 = ser.serialize_i32(42);
+  auto             r1 = ser.serialize_i32(42);
   ASSERT_TRUE(r1.is_ok());
   EXPECT_EQ(ser.buffer(), "42");
 
@@ -529,4 +516,4 @@ TEST(SerdeJsonTest, SeqFromNonArrayFails) {
   EXPECT_EQ(r.unwrap_err().kind, xpp::serde::ErrorKind::InvalidValue);
 }
 
-}  // namespace
+} // namespace

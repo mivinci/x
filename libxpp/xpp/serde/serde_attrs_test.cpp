@@ -15,7 +15,6 @@
 #include <utility>
 
 #include <gtest/gtest.h>
-
 #include <xpp/option.h>
 #include <xpp/result.h>
 #include <xpp/serde/json.h>
@@ -27,43 +26,35 @@
 
 struct WithRename {
   xpp::String api_key;
-  int32_t user_id;
+  int32_t     user_id;
 };
-XPP_SERDE(WithRename,
-  (api_key, XPP_FIELD_RENAME(api_key, "apiKey")),
-  (user_id, XPP_FIELD_RENAME(user_id, "userId")))
+XPP_SERDE(WithRename, (api_key, XPP_FIELD_RENAME(api_key, "apiKey")),
+          (user_id, XPP_FIELD_RENAME(user_id, "userId")))
 
 struct WithDefault {
   xpp::String host;
-  int32_t port;
-  int32_t retries;
+  int32_t     port;
+  int32_t     retries;
 };
-XPP_SERDE(WithDefault,
-  (host),
-  (port,    XPP_FIELD_DEFAULT(port, 8080)),
-  (retries, XPP_FIELD_DEFAULT(retries, 3)))
+XPP_SERDE(WithDefault, (host), (port, XPP_FIELD_DEFAULT(port, 8080)),
+          (retries, XPP_FIELD_DEFAULT(retries, 3)))
 
 struct WithSkip {
   xpp::String name;
-  int32_t age;
-  xpp::String internal_cache;  // not serialized
+  int32_t     age;
+  xpp::String internal_cache; // not serialized
 };
-XPP_SERDE(WithSkip,
-  (name),
-  (age),
-  (internal_cache, XPP_FIELD_SKIP(internal_cache)))
+XPP_SERDE(WithSkip, (name), (age), (internal_cache, XPP_FIELD_SKIP(internal_cache)))
 
 struct Combined {
   xpp::String public_name;
-  int32_t timeout;
-  int32_t port;
+  int32_t     timeout;
+  int32_t     port;
   xpp::String session_token;
 };
-XPP_SERDE(Combined,
-  (public_name,    XPP_FIELD_RENAME(public_name, "name")),
-  (timeout,        XPP_FIELD_DEFAULT(timeout, 30)),
-  (port,           XPP_FIELD_DEFAULT(port, 443)),
-  (session_token,  XPP_FIELD_SKIP(session_token)))
+XPP_SERDE(Combined, (public_name, XPP_FIELD_RENAME(public_name, "name")),
+          (timeout, XPP_FIELD_DEFAULT(timeout, 30)), (port, XPP_FIELD_DEFAULT(port, 443)),
+          (session_token, XPP_FIELD_SKIP(session_token)))
 
 /* ────────────────────────────── Helpers ────────────────────────────── */
 
@@ -72,20 +63,18 @@ namespace {
 using namespace xpp;
 using namespace xpp::serde;
 
-String S(const char* s) {
+String S(const char *s) {
   return String::from_utf8(s).unwrap();
 }
 
-template <class T>
-String to_json(const T& v) {
+template <class T> String to_json(const T &v) {
   json::Serializer ser;
-  auto r = serde::serialize(v, ser);
+  auto             r = serde::serialize(v, ser);
   EXPECT_TRUE(r.is_ok()) << "serialize failed";
   return ser.buffer();
 }
 
-template <class T>
-xpp::Result<T, xpp::serde::Error> from_json(const char* s) {
+template <class T> xpp::Result<T, xpp::serde::Error> from_json(const char *s) {
   auto d_res = json::Deserializer::from_string(s);
   if (!d_res.is_ok()) {
     return xpp::err(std::move(d_res).unwrap_err());
@@ -94,7 +83,7 @@ xpp::Result<T, xpp::serde::Error> from_json(const char* s) {
   return serde::deserialize<T>(d);
 }
 
-}  // namespace
+} // namespace
 
 /* ═════════════════════════════ Tests ══════════════════════════════ */
 
@@ -129,10 +118,9 @@ TEST(SerdeAttrsTest, RenameRoundTrip) {
   WithRename src;
   src.api_key = S("round");
   src.user_id = 7;
-  String s = to_json(src);
-  auto r = from_json<WithRename>(
-      std::string(reinterpret_cast<const char*>(s.as_bytes().data()),
-                  s.len()).c_str());
+  String s    = to_json(src);
+  auto   r    = from_json<WithRename>(
+    std::string(reinterpret_cast<const char *>(s.as_bytes().data()), s.len()).c_str());
   ASSERT_TRUE(r.is_ok());
   EXPECT_EQ(r.unwrap().api_key, src.api_key);
   EXPECT_EQ(r.unwrap().user_id, src.user_id);
@@ -142,8 +130,8 @@ TEST(SerdeAttrsTest, RenameRoundTrip) {
 
 TEST(SerdeAttrsTest, DefaultSerializeOutputsValue) {
   WithDefault src;
-  src.host = S("h");
-  src.port = 9090;
+  src.host    = S("h");
+  src.port    = 9090;
   src.retries = 5;
 
   String s = to_json(src);
@@ -178,8 +166,8 @@ TEST(SerdeAttrsTest, DefaultMissingHostStillFails) {
 
 TEST(SerdeAttrsTest, SkipSerializeOmitsField) {
   WithSkip src;
-  src.name = S("Alice");
-  src.age = 30;
+  src.name           = S("Alice");
+  src.age            = 30;
   src.internal_cache = S("should_not_appear");
 
   String s = to_json(src);
@@ -200,20 +188,19 @@ TEST(SerdeAttrsTest, SkipDeserializeKeepsDefaultConstructed) {
 
 TEST(SerdeAttrsTest, SkipFieldPresentInJsonIsIgnored) {
   // JSON contains `internal_cache` — should be skipped, not error.
-  auto r = from_json<WithSkip>(
-      "{\"name\":\"X\",\"age\":1,\"internal_cache\":\"surprise\"}");
+  auto r = from_json<WithSkip>("{\"name\":\"X\",\"age\":1,\"internal_cache\":\"surprise\"}");
   ASSERT_TRUE(r.is_ok());
   EXPECT_EQ(r.unwrap().name, S("X"));
-  EXPECT_EQ(r.unwrap().internal_cache, S(""));  // skip wins over JSON
+  EXPECT_EQ(r.unwrap().internal_cache, S("")); // skip wins over JSON
 }
 
 /* ── Combined ────────────────────────────────────────────────── */
 
 TEST(SerdeAttrsTest, CombinedSerializeRespectsAllAttrs) {
   Combined src;
-  src.public_name = S("svc");
-  src.timeout = 60;
-  src.port = 8443;
+  src.public_name   = S("svc");
+  src.timeout       = 60;
+  src.port          = 8443;
   src.session_token = S("secret");
 
   String s = to_json(src);
@@ -235,19 +222,18 @@ TEST(SerdeAttrsTest, CombinedDeserializeAppliesDefaults) {
 
 TEST(SerdeAttrsTest, CombinedRoundTripWithAllAttrs) {
   Combined src;
-  src.public_name = S("app");
-  src.timeout = 99;
-  src.port = 7000;
-  src.session_token = S("ignored");  // not serialized
+  src.public_name   = S("app");
+  src.timeout       = 99;
+  src.port          = 7000;
+  src.session_token = S("ignored"); // not serialized
 
   String s = to_json(src);
   // session_token is skipped on serialize — deserialized value will be empty
   auto r = from_json<Combined>(
-      std::string(reinterpret_cast<const char*>(s.as_bytes().data()),
-                  s.len()).c_str());
+    std::string(reinterpret_cast<const char *>(s.as_bytes().data()), s.len()).c_str());
   ASSERT_TRUE(r.is_ok());
   EXPECT_EQ(r.unwrap().public_name, src.public_name);
   EXPECT_EQ(r.unwrap().timeout, src.timeout);
   EXPECT_EQ(r.unwrap().port, src.port);
-  EXPECT_EQ(r.unwrap().session_token, S(""));  // skipped
+  EXPECT_EQ(r.unwrap().session_token, S("")); // skipped
 }

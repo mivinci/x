@@ -31,8 +31,28 @@
  *   Result<Void, Error> serialize_f64(double);
  *   Result<Void, Error> serialize_str(const xpp::String&);
  *   Result<Void, Error> serialize_none();
+ *   template <class T>
+ *   Result<Void, Error> serialize_some(const T& value);
  *   Result<SeqScope, Error>    serialize_seq(xpp::Option<size_t> len);
  *   Result<StructScope, Error> serialize_struct(const char* name, size_t n);
+ *   Result<VariantScope, Error> serialize_variant(const char* name,
+ *                                                  size_t tag_index,
+ *                                                  const char* tag_string);
+ *
+ * `serialize_none` / `serialize_some` form the Option encoding pair.
+ * A backend that needs an out-of-band discriminator (e.g. binary writes
+ * a 0x00 / 0x01 tag) does so in these methods; a self-delimiting
+ * backend like JSON can implement `serialize_some` as a plain forward
+ * to `serde::serialize(value, *this)`.
+ *
+ * `serialize_variant` writes the discriminator for a tagged sum type
+ * (Phase 5). `tag_index` is the active alternative's position in the
+ * alternative list (used by binary); `tag_string` is its string tag
+ * (used by JSON external tagging). The returned VariantScope is then
+ * used to emit exactly one payload:
+ *
+ *   VariantScope::payload(const T&)  -> Result<Void, Error>
+ *   VariantScope::end()             -> Result<Void, Error>
  *
  * SeqScope / StructScope are RAII handles returned by value. Their API:
  *
@@ -69,6 +89,14 @@
  *                           V&& visitor)
  *     -> decltype(std::declval<V>().visit_map(std::declval<MapAccess&>()));
  *     // visitor.visit_map(MapAccess&) -> Result<R, Error>
+ *
+ *   template <class V>
+ *   auto deserialize_variant(const char* name,
+ *                            const char* const* tags,
+ *                            size_t n,
+ *                            V&& visitor)
+ *     -> decltype(std::declval<V>().visit_variant(0, std::declval<D&>()));
+ *     // visitor.visit_variant(size_t tag_index, D&) -> Result<R, Error>
  *
  * Return types are deduced via trailing-return-type so visitors do not
  * need a `Value` typedef — they just need the right `visit_*` method.
@@ -112,11 +140,10 @@ namespace serde {
  * The expression's Ok value is discarded; use XPP_SERDE_TRY_VAR to
  * capture it.
  */
-#define XPP_SERDE_TRY(expr)                                                      \
-  do {                                                                           \
-    auto _xpp_serde_try_tmp = (expr);                                            \
-    if (!_xpp_serde_try_tmp.is_ok())                                             \
-      return xpp::err(std::move(_xpp_serde_try_tmp).unwrap_err());               \
+#define XPP_SERDE_TRY(expr)                                                                       \
+  do {                                                                                            \
+    auto _xpp_serde_try_tmp = (expr);                                                             \
+    if (!_xpp_serde_try_tmp.is_ok()) return xpp::err(std::move(_xpp_serde_try_tmp).unwrap_err()); \
   } while (0)
 
 /**
@@ -125,10 +152,10 @@ namespace serde {
  *   XPP_SERDE_TRY_VAR(name, deserializer.next_value<std::string>());
  *   // `name` is now in scope as std::string
  */
-#define XPP_SERDE_TRY_VAR(var, expr)                                             \
-  auto _xpp_serde_try_##var = (expr);                                            \
-  if (!_xpp_serde_try_##var.is_ok())                                             \
-    return xpp::err(std::move(_xpp_serde_try_##var).unwrap_err());               \
+#define XPP_SERDE_TRY_VAR(var, expr)                               \
+  auto _xpp_serde_try_##var = (expr);                              \
+  if (!_xpp_serde_try_##var.is_ok())                               \
+    return xpp::err(std::move(_xpp_serde_try_##var).unwrap_err()); \
   auto var = std::move(_xpp_serde_try_##var).unwrap()
 
 /* ──────────────────────── Primary templates ──────────────────────── */
@@ -141,11 +168,9 @@ namespace serde {
  *   template <class S>
  *   static Result<Void, Error> run(const T&, S& serializer);
  */
-template <class T>
-struct Serialize {
-  static_assert(sizeof(T) == 0,
-                "Serialize<T> is not specialized for this type. "
-                "Either provide a specialization or use the XPP_SERDE macro.");
+template <class T> struct Serialize {
+  static_assert(sizeof(T) == 0, "Serialize<T> is not specialized for this type. "
+                                "Either provide a specialization or use the XPP_SERDE macro.");
 };
 
 /**
@@ -156,11 +181,9 @@ struct Serialize {
  *   template <class D>
  *   static Result<T, Error> run(D& deserializer);
  */
-template <class T>
-struct Deserialize {
-  static_assert(sizeof(T) == 0,
-                "Deserialize<T> is not specialized for this type. "
-                "Either provide a specialization or use the XPP_SERDE macro.");
+template <class T> struct Deserialize {
+  static_assert(sizeof(T) == 0, "Deserialize<T> is not specialized for this type. "
+                                "Either provide a specialization or use the XPP_SERDE macro.");
 };
 
 /* ──────────────────── Free-function dispatchers ──────────────────── */
@@ -172,8 +195,7 @@ struct Deserialize {
  * Call sites use this rather than naming the trait directly, mirroring
  * Rust's `serde::serialize`.
  */
-template <class T, class S>
-Result<Void, Error> serialize(const T& value, S& ser) {
+template <class T, class S> Result<Void, Error> serialize(const T &value, S &ser) {
   return Serialize<typename std::decay<T>::type>::run(value, ser);
 }
 
@@ -181,152 +203,119 @@ Result<Void, Error> serialize(const T& value, S& ser) {
  * @brief Deserialize a `T` from `deser`. Dispatches to
  *        `Deserialize<T>::run(deser)`.
  */
-template <class T, class D>
-Result<T, Error> deserialize(D& deser) {
+template <class T, class D> Result<T, Error> deserialize(D &deser) {
   return Deserialize<T>::run(deser);
 }
 
 /* ──────────────── Built-in: primitive specializations ────────────── */
 
-template <>
-struct Serialize<bool> {
-  template <class S>
-  static Result<Void, Error> run(bool v, S& s) {
+template <> struct Serialize<bool> {
+  template <class S> static Result<Void, Error> run(bool v, S &s) {
     return s.serialize_bool(v);
   }
 };
-template <>
-struct Deserialize<bool> {
-  template <class D>
-  static Result<bool, Error> run(D& d) {
+template <> struct Deserialize<bool> {
+  template <class D> static Result<bool, Error> run(D &d) {
     return d.deserialize_bool();
   }
 };
 
-template <>
-struct Serialize<int32_t> {
-  template <class S>
-  static Result<Void, Error> run(int32_t v, S& s) {
+template <> struct Serialize<int32_t> {
+  template <class S> static Result<Void, Error> run(int32_t v, S &s) {
     return s.serialize_i32(v);
   }
 };
-template <>
-struct Deserialize<int32_t> {
-  template <class D>
-  static Result<int32_t, Error> run(D& d) {
+template <> struct Deserialize<int32_t> {
+  template <class D> static Result<int32_t, Error> run(D &d) {
     return d.deserialize_i32();
   }
 };
 
-template <>
-struct Serialize<int64_t> {
-  template <class S>
-  static Result<Void, Error> run(int64_t v, S& s) {
+template <> struct Serialize<int64_t> {
+  template <class S> static Result<Void, Error> run(int64_t v, S &s) {
     return s.serialize_i64(v);
   }
 };
-template <>
-struct Deserialize<int64_t> {
-  template <class D>
-  static Result<int64_t, Error> run(D& d) {
+template <> struct Deserialize<int64_t> {
+  template <class D> static Result<int64_t, Error> run(D &d) {
     return d.deserialize_i64();
   }
 };
 
-template <>
-struct Serialize<uint32_t> {
-  template <class S>
-  static Result<Void, Error> run(uint32_t v, S& s) {
+template <> struct Serialize<uint32_t> {
+  template <class S> static Result<Void, Error> run(uint32_t v, S &s) {
     return s.serialize_u32(v);
   }
 };
-template <>
-struct Deserialize<uint32_t> {
-  template <class D>
-  static Result<uint32_t, Error> run(D& d) {
+template <> struct Deserialize<uint32_t> {
+  template <class D> static Result<uint32_t, Error> run(D &d) {
     return d.deserialize_u32();
   }
 };
 
-template <>
-struct Serialize<uint64_t> {
-  template <class S>
-  static Result<Void, Error> run(uint64_t v, S& s) {
+template <> struct Serialize<uint64_t> {
+  template <class S> static Result<Void, Error> run(uint64_t v, S &s) {
     return s.serialize_u64(v);
   }
 };
-template <>
-struct Deserialize<uint64_t> {
-  template <class D>
-  static Result<uint64_t, Error> run(D& d) {
+template <> struct Deserialize<uint64_t> {
+  template <class D> static Result<uint64_t, Error> run(D &d) {
     return d.deserialize_u64();
   }
 };
 
-template <>
-struct Serialize<float> {
-  template <class S>
-  static Result<Void, Error> run(float v, S& s) {
+template <> struct Serialize<float> {
+  template <class S> static Result<Void, Error> run(float v, S &s) {
     return s.serialize_f32(v);
   }
 };
-template <>
-struct Deserialize<float> {
-  template <class D>
-  static Result<float, Error> run(D& d) {
+template <> struct Deserialize<float> {
+  template <class D> static Result<float, Error> run(D &d) {
     return d.deserialize_f32();
   }
 };
 
-template <>
-struct Serialize<double> {
-  template <class S>
-  static Result<Void, Error> run(double v, S& s) {
+template <> struct Serialize<double> {
+  template <class S> static Result<Void, Error> run(double v, S &s) {
     return s.serialize_f64(v);
   }
 };
-template <>
-struct Deserialize<double> {
-  template <class D>
-  static Result<double, Error> run(D& d) {
+template <> struct Deserialize<double> {
+  template <class D> static Result<double, Error> run(D &d) {
     return d.deserialize_f64();
   }
 };
 
-template <>
-struct Serialize<String> {
-  template <class S>
-  static Result<Void, Error> run(const String& v, S& s) {
+template <> struct Serialize<String> {
+  template <class S> static Result<Void, Error> run(const String &v, S &s) {
     return s.serialize_str(v);
   }
 };
-template <>
-struct Deserialize<String> {
-  template <class D>
-  static Result<String, Error> run(D& d) {
+template <> struct Deserialize<String> {
+  template <class D> static Result<String, Error> run(D &d) {
     return d.deserialize_str();
   }
 };
 
 /* ──────────────── Built-in: Option<T> specialization ─────────────── */
 
-template <class T>
-struct Serialize<Option<T>> {
-  template <class S>
-  static Result<Void, Error> run(const Option<T>& v, S& s) {
+template <class T> struct Serialize<Option<T>> {
+  template <class S> static Result<Void, Error> run(const Option<T> &v, S &s) {
     if (v.is_none()) return s.serialize_none();
-    // Const-ref into the Some payload; Serialize<T> sees a `const T&`.
-    return Serialize<T>::run(v.unwrap(), s);
+    // Forward to the backend's serialize_some so it can emit an
+    // out-of-band discriminator (binary: 0x01 tag). Self-delimiting
+    // backends like JSON implement serialize_some as a plain forward.
+    return s.serialize_some(v.unwrap());
   }
 };
 
-template <class T>
-struct Deserialize<Option<T>> {
-  template <class D>
-  static Result<Option<T>, Error> run(D& d) {
+template <class T> struct Deserialize<Option<T>> {
+  template <class D> static Result<Option<T>, Error> run(D &d) {
     struct Visitor {
-      Result<Option<T>, Error> visit_none() { return ok(Option<T>(none)); }
-      Result<Option<T>, Error> visit_some(D& d2) {
+      Result<Option<T>, Error> visit_none() {
+        return ok(Option<T>(none));
+      }
+      Result<Option<T>, Error> visit_some(D &d2) {
         XPP_SERDE_TRY_VAR(v, Deserialize<T>::run(d2));
         return ok(Option<T>(std::move(v)));
       }
@@ -337,10 +326,8 @@ struct Deserialize<Option<T>> {
 
 /* ──────────────── Built-in: Vec<T> specialization ────────────────── */
 
-template <class T>
-struct Serialize<Vec<T>> {
-  template <class S>
-  static Result<Void, Error> run(const Vec<T>& v, S& s) {
+template <class T> struct Serialize<Vec<T>> {
+  template <class S> static Result<Void, Error> run(const Vec<T> &v, S &s) {
     XPP_SERDE_TRY_VAR(seq, s.serialize_seq(Option<size_t>(v.len())));
     for (size_t i = 0; i < v.len(); ++i) {
       XPP_SERDE_TRY(seq.element(v[i]));
@@ -349,12 +336,10 @@ struct Serialize<Vec<T>> {
   }
 };
 
-template <class T>
-struct Deserialize<Vec<T>> {
-  template <class D>
-  static Result<Vec<T>, Error> run(D& d) {
+template <class T> struct Deserialize<Vec<T>> {
+  template <class D> static Result<Vec<T>, Error> run(D &d) {
     struct Visitor {
-      Result<Vec<T>, Error> visit_seq(typename D::SeqAccess& seq) {
+      Result<Vec<T>, Error> visit_seq(typename D::SeqAccess &seq) {
         Vec<T> out;
         while (true) {
           XPP_SERDE_TRY_VAR(next, seq.template next_element<T>());
@@ -368,7 +353,7 @@ struct Deserialize<Vec<T>> {
   }
 };
 
-}  // namespace serde
-}  // namespace xpp
+} // namespace serde
+} // namespace xpp
 
-#endif  // XPP_SERDE_SERDE_H
+#endif // XPP_SERDE_SERDE_H

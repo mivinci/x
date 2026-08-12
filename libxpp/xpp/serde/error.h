@@ -41,12 +41,12 @@ namespace serde {
  * tag the error more precisely.
  */
 enum class ErrorKind {
-  Unexpected,     ///< Unexpected token or structural mismatch.
-  Eof,            ///< Input ended before a value was fully read.
-  InvalidValue,   ///< Value present but wrong type or out of range.
-  MissingField,   ///< Required struct field absent on deserialize.
-  UnknownField,   ///< Input contains a field not declared on the type.
-  Custom,         ///< Backend- or user-defined error via `Error::custom`.
+  Unexpected,   ///< Unexpected token or structural mismatch.
+  Eof,          ///< Input ended before a value was fully read.
+  InvalidValue, ///< Value present but wrong type or out of range.
+  MissingField, ///< Required struct field absent on deserialize.
+  UnknownField, ///< Input contains a field not declared on the type.
+  Custom,       ///< Backend- or user-defined error via `Error::custom`.
 };
 
 /**
@@ -81,7 +81,7 @@ struct Error {
   }
 
   /** @brief Custom error from a NUL-terminated UTF-8 literal. */
-  static Error custom(const char* msg) {
+  static Error custom(const char *msg) {
     return custom(ErrorKind::Custom, msg);
   }
 
@@ -96,13 +96,13 @@ struct Error {
   }
 
   /** @brief Typed error from a NUL-terminated UTF-8 literal. */
-  static Error custom(ErrorKind k, const char* msg) {
+  static Error custom(ErrorKind k, const char *msg) {
     return custom(k, _make_string(msg));
   }
 
- private:
+private:
   /** @brief Best-effort String construction; non-UTF-8 yields empty String. */
-  static String _make_string(const char* s) {
+  static String _make_string(const char *s) {
     if (!s) return String();
     auto r = String::from_utf8(s);
     return r.is_ok() ? std::move(r).unwrap() : String();
@@ -126,11 +126,11 @@ inline Error error(ErrorKind k, String msg) {
 }
 
 /** @brief String-literal overload — common case in error paths. */
-inline Error error(ErrorKind k, const char* msg) {
+inline Error error(ErrorKind k, const char *msg) {
   return Error::custom(k, msg);
 }
 
-}  // namespace serde
-}  // namespace xpp
+} // namespace serde
+} // namespace xpp
 
-#endif  // XPP_SERDE_ERROR_H
+#endif // XPP_SERDE_ERROR_H
