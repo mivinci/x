@@ -12,6 +12,8 @@
  */
 
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -221,6 +223,259 @@ TEST(SerdeJsonTest, VecEmptyRoundTrip) {
   auto r = from_json<xpp::Vec<int32_t>>("[]");
   ASSERT_TRUE(r.is_ok());
   EXPECT_EQ(r.unwrap().len(), 0u);
+}
+
+/* ───────────────────── Nested composite round-trips ─────────────────────
+ * The whole point of a serde framework is that composites compose. These
+ * tests exercise the trait recursion: Vec<Person>, Option<Person>, and
+ * a struct that itself contains a Vec<String>.
+ */
+
+struct Team {
+  xpp::String name;
+  xpp::Vec<Person> members;
+};
+
+}  // namespace
+
+namespace xpp {
+namespace serde {
+
+template <>
+struct Serialize<Team> {
+  template <class S>
+  static Result<Void, Error> run(const Team& t, S& s) {
+    XPP_SERDE_TRY_VAR(scope, s.serialize_struct("Team", 2));
+    XPP_SERDE_TRY(scope.field("name", t.name));
+    XPP_SERDE_TRY(scope.field("members", t.members));
+    return scope.end();
+  }
+};
+
+template <>
+struct Deserialize<Team> {
+  template <class D>
+  static Result<Team, Error> run(D& d) {
+    struct Visitor {
+      Result<Team, Error> visit_map(typename D::MapAccess& m) {
+        Team t{};
+        bool got_name = false;
+        bool got_members = false;
+        while (true) {
+          XPP_SERDE_TRY_VAR(key, m.next_key());
+          if (key.is_none()) break;
+          const xpp::String& k = key.unwrap();
+          if (k == "name") {
+            XPP_SERDE_TRY_VAR(v, m.template next_value<xpp::String>());
+            t.name = std::move(v);
+            got_name = true;
+          } else if (k == "members") {
+            XPP_SERDE_TRY_VAR(v, m.template next_value<xpp::Vec<Person>>());
+            t.members = std::move(v);
+            got_members = true;
+          } else {
+            XPP_SERDE_TRY(m.next_value_ignored());
+          }
+        }
+        if (!got_name) {
+          return err(error(ErrorKind::MissingField, "missing 'name'"));
+        }
+        if (!got_members) {
+          return err(error(ErrorKind::MissingField, "missing 'members'"));
+        }
+        return ok(std::move(t));
+      }
+    };
+    static const char* const kFields[] = {"name", "members"};
+    return d.deserialize_struct("Team", kFields, 2, Visitor{});
+  }
+};
+
+}  // namespace serde
+}  // namespace xpp
+
+namespace {
+
+using namespace xpp;
+using namespace xpp::serde;
+
+TEST(SerdeJsonTest, VecOfStructRoundTrip) {
+  xpp::Vec<Person> v;
+  v.push(Person{S("Alice"), 30});
+  v.push(Person{S("Bob"), 25});
+  EXPECT_EQ(to_json(v), "[{\"name\":\"Alice\",\"age\":30},{\"name\":\"Bob\",\"age\":25}]");
+
+  auto r = from_json<xpp::Vec<Person>>(
+      "[{\"name\":\"Alice\",\"age\":30},{\"name\":\"Bob\",\"age\":25}]");
+  ASSERT_TRUE(r.is_ok()) << r.unwrap_err().message;
+  auto& got = r.unwrap();
+  ASSERT_EQ(got.len(), 2u);
+  EXPECT_EQ(got[0].name, S("Alice"));
+  EXPECT_EQ(got[0].age, 30);
+  EXPECT_EQ(got[1].name, S("Bob"));
+  EXPECT_EQ(got[1].age, 25);
+}
+
+TEST(SerdeJsonTest, OptionOfStructSomeRoundTrip) {
+  Option<Person> some(Person{S("Alice"), 30});
+  EXPECT_EQ(to_json(some), "{\"name\":\"Alice\",\"age\":30}");
+
+  auto r = from_json<Option<Person>>("{\"name\":\"Alice\",\"age\":30}");
+  ASSERT_TRUE(r.is_ok()) << r.unwrap_err().message;
+  ASSERT_FALSE(r.unwrap().is_none());
+  EXPECT_EQ(r.unwrap().unwrap().name, S("Alice"));
+}
+
+TEST(SerdeJsonTest, OptionOfStructNoneRoundTrip) {
+  Option<Person> none(xpp::none);
+  EXPECT_EQ(to_json(none), "null");
+
+  auto r = from_json<Option<Person>>("null");
+  ASSERT_TRUE(r.is_ok());
+  EXPECT_TRUE(r.unwrap().is_none());
+}
+
+TEST(SerdeJsonTest, NestedStructRoundTrip) {
+  Team t{
+    S("engineering"),
+    xpp::Vec<Person>(),
+  };
+  t.members.push(Person{S("Alice"), 30});
+  t.members.push(Person{S("Bob"), 25});
+
+  String s = to_json(t);
+  EXPECT_EQ(s,
+            "{\"name\":\"engineering\","
+            "\"members\":[{\"name\":\"Alice\",\"age\":30},"
+            "{\"name\":\"Bob\",\"age\":25}]}");
+
+  auto r = from_json<Team>(
+      "{\"name\":\"engineering\","
+      "\"members\":[{\"name\":\"Alice\",\"age\":30},"
+      "{\"name\":\"Bob\",\"age\":25}]}");
+  ASSERT_TRUE(r.is_ok()) << r.unwrap_err().message;
+  Team got = r.unwrap();
+  EXPECT_EQ(got.name, S("engineering"));
+  ASSERT_EQ(got.members.len(), 2u);
+  EXPECT_EQ(got.members[0].name, S("Alice"));
+  EXPECT_EQ(got.members[0].age, 30);
+  EXPECT_EQ(got.members[1].name, S("Bob"));
+  EXPECT_EQ(got.members[1].age, 25);
+}
+
+/* ───────────────────── i64 boundary round-trips ───────────────────── */
+
+TEST(SerdeJsonTest, I64BoundaryRoundTrip) {
+  EXPECT_EQ(to_json<int64_t>(INT64_MAX), std::to_string(INT64_MAX).c_str());
+  EXPECT_EQ(to_json<int64_t>(INT64_MIN), std::to_string(INT64_MIN).c_str());
+
+  auto rmax = from_json<int64_t>(std::to_string(INT64_MAX).c_str());
+  ASSERT_TRUE(rmax.is_ok()) << rmax.unwrap_err().message;
+  EXPECT_EQ(rmax.unwrap(), INT64_MAX);
+
+  auto rmin = from_json<int64_t>(std::to_string(INT64_MIN).c_str());
+  ASSERT_TRUE(rmin.is_ok()) << rmin.unwrap_err().message;
+  EXPECT_EQ(rmin.unwrap(), INT64_MIN);
+}
+
+/* ───────────────────── f64 special values ─────────────────────
+ * JSON has no representation for NaN / Infinity. We refuse to
+ * serialize them rather than emit non-conforming JSON. Deserialize
+ * also rejects them, since xJson would parse "NaN" as a string.
+ */
+
+TEST(SerdeJsonTest, F64NanSerializeFails) {
+  json::Serializer ser;
+  auto r = ser.serialize_f64(std::numeric_limits<double>::quiet_NaN());
+  ASSERT_FALSE(r.is_ok());
+  EXPECT_EQ(r.unwrap_err().kind, xpp::serde::ErrorKind::InvalidValue);
+}
+
+TEST(SerdeJsonTest, F64InfinitySerializeFails) {
+  json::Serializer ser;
+  auto r = ser.serialize_f64(std::numeric_limits<double>::infinity());
+  ASSERT_FALSE(r.is_ok());
+  EXPECT_EQ(r.unwrap_err().kind, xpp::serde::ErrorKind::InvalidValue);
+}
+
+/* ───────────────────── String with embedded NUL ─────────────────────
+ * xpp::String is byte-based and supports embedded NULs. xJson's
+ * xJsonNewStringN takes an explicit length so it should preserve them.
+ */
+
+TEST(SerdeJsonTest, StringWithEmbeddedNulRoundTrip) {
+  // Build "a\0b" as a String
+  const char buf[] = {'a', '\0', 'b'};
+  auto s_res = String::from_utf8(buf, 3);
+  ASSERT_TRUE(s_res.is_ok());
+  String s = s_res.unwrap();
+  ASSERT_EQ(s.len(), 3u);
+
+  EXPECT_EQ(to_json<String>(s), "\"a\\u0000b\"");
+
+  auto r = from_json<String>("\"a\\u0000b\"");
+  ASSERT_TRUE(r.is_ok()) << r.unwrap_err().message;
+  String got = r.unwrap();
+  ASSERT_EQ(got.len(), 3u);
+  EXPECT_EQ(got.as_bytes()[0], 'a');
+  EXPECT_EQ(got.as_bytes()[1], '\0');
+  EXPECT_EQ(got.as_bytes()[2], 'b');
+}
+
+/* ───────────────────── Serializer reuse ─────────────────────
+ * `buffer()` does not invalidate the Serializer; calling it multiple
+ * times should return the same string. `reset()` clears internal
+ * state so a fresh tree can be emitted.
+ */
+
+TEST(SerdeJsonTest, SerializerBufferTwiceIdempotent) {
+  json::Serializer ser;
+  auto r = ser.serialize_i32(42);
+  ASSERT_TRUE(r.is_ok());
+  String a = ser.buffer();
+  String b = ser.buffer();
+  EXPECT_EQ(a, b);
+}
+
+TEST(SerdeJsonTest, SerializerResetClearsState) {
+  json::Serializer ser;
+  auto r1 = ser.serialize_i32(42);
+  ASSERT_TRUE(r1.is_ok());
+  EXPECT_EQ(ser.buffer(), "42");
+
+  ser.reset();
+
+  // After reset, buffer() returns "null" (no root).
+  EXPECT_EQ(ser.buffer(), "null");
+
+  // Emit a fresh value.
+  auto r2 = ser.serialize_str(S("hello"));
+  ASSERT_TRUE(r2.is_ok());
+  EXPECT_EQ(ser.buffer(), "\"hello\"");
+}
+
+/* ───────────────────── Deserializer move semantics ───────────────────── */
+
+TEST(SerdeJsonTest, DeserializerMoveTransfersOwnership) {
+  auto d_res = json::Deserializer::from_string("42");
+  ASSERT_TRUE(d_res.is_ok());
+  json::Deserializer src = std::move(d_res).unwrap();
+
+  // Sanity check: src works before move.
+  auto r1 = src.deserialize_i32();
+  ASSERT_TRUE(r1.is_ok());
+  EXPECT_EQ(r1.unwrap(), 42);
+
+  // Move src into dst. src is now in a moved-from state; only
+  // destruction is safe per C++ moved-from contract.
+  json::Deserializer dst = std::move(src);
+
+  // dst holds the parsed tree; it should work.
+  auto r2 = dst.deserialize_i32();
+  ASSERT_TRUE(r2.is_ok());
+  EXPECT_EQ(r2.unwrap(), 42);
+
+  // src is destroyed at end of scope — no crash.
 }
 
 /* ───────────────────── Struct round-trip ───────────────────── */

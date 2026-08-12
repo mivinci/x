@@ -23,6 +23,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -88,10 +90,17 @@ class Serializer {
     return ok(Void{});
   }
   Result<Void, Error> serialize_f32(float v) {
-    emit(xJsonNewDouble(static_cast<double>(v)));
-    return ok(Void{});
+    return serialize_f64(static_cast<double>(v));
   }
   Result<Void, Error> serialize_f64(double v) {
+    // JSON has no representation for NaN / Infinity. Refuse rather
+    // than emit non-conforming JSON.
+    if (std::isnan(v) || std::isinf(v)) {
+      return err(error(ErrorKind::InvalidValue,
+                       v > 0 ? "infinity not representable in JSON"
+                             : (v < 0 ? "-infinity not representable in JSON"
+                                      : "NaN not representable in JSON")));
+    }
     emit(xJsonNewDouble(v));
     return ok(Void{});
   }
@@ -141,6 +150,21 @@ class Serializer {
     String out = String::from_utf8(s).unwrap();
     std::free(s);
     return out;
+  }
+
+  /**
+   * @brief Release the current tree and clear the scope stack.
+   *
+   * Safe to call at any time: after `buffer()`, mid-build, or after
+   * an error. Brings the Serializer back to its freshly-constructed
+   * state so a new tree can be emitted from scratch.
+   */
+  void reset() {
+    if (root_) {
+      xJsonFree(root_);
+      root_ = nullptr;
+    }
+    stack_.clear();
   }
 
   /* ── Scope types (borrow the Serializer) ── */
@@ -278,7 +302,12 @@ class Deserializer {
       if (index_ >= size_) return ok(Option<T>(none));
       xJson* elem = xJsonArrayGet(arr_, index_);
       ++index_;
-      if (!elem) return ok(Option<T>(none));
+      if (!elem) {
+        // size_ said the element exists, but the lookup failed — this
+        // can only happen if the underlying xJson tree is corrupt.
+        return err(error(ErrorKind::Unexpected,
+                         "array index in bounds but xJsonArrayGet returned NULL"));
+      }
       Deserializer sub(elem);
       XPP_SERDE_TRY_VAR(v, Deserialize<T>::run(sub));
       return ok(Option<T>(std::move(v)));
@@ -447,9 +476,7 @@ class Deserializer {
   auto deserialize_struct(const char* name, const char* const* fields, size_t n,
                           V&& visitor)
       -> decltype(std::declval<V>().visit_map(std::declval<MapAccess&>())) {
-    (void)name;
-    (void)fields;
-    (void)n;
+    (void)name; (void)fields; (void)n;  // JSON does not use these hints.
     if (xJsonType(node_) != XJSON_OBJECT) {
       return err(error(ErrorKind::InvalidValue, "expected JSON object"));
     }

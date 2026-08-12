@@ -18,6 +18,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <ostream>
 #include <utility>
 
 #include <xpp/option.h>
@@ -647,6 +648,22 @@ private:
 
     Vec<uint8_t> m_bytes;
 };
+
+/**
+ * @brief Stream insertion for xpp::String — writes the raw UTF-8 bytes.
+ *
+ * Defined outside the class so the header can stay <ostream>-free by
+ * default; users who need streaming pull <ostream> themselves. We place
+ * it here unconditionally because serde::Error.message is a String and
+ * gtest's EXPECT_EQ/ASSERT_TRUE << err.message pattern needs it.
+ */
+template <class Ch, class Tr>
+std::basic_ostream<Ch, Tr>& operator<<(std::basic_ostream<Ch, Tr>& os,
+                                       const String& s) {
+    auto bytes = s.as_bytes();
+    return os.write(reinterpret_cast<const Ch*>(bytes.data()),
+                    static_cast<std::streamsize>(bytes.size()));
+}
 
 } // namespace xpp
 
