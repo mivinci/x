@@ -19,6 +19,7 @@
   - [String](libxpp/string.md)
   - [Variant](libxpp/variant.md)
   - [Vec](libxpp/vec.md)
+  - [Serde](libxpp/serde.md)
   - [Opaque Handle Wrapper](libxpp/handle.md)
   - [Shared](libxpp/smart-pointers/shared.md)
   - [Compiler Macros](libxpp/compiler.md)
