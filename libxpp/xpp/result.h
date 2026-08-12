@@ -16,9 +16,9 @@
 #include <type_traits>
 #include <utility>
 
+#include <xpp/enum.h>
 #include <xpp/option.h>
 #include <xpp/panic.h>
-#include <xpp/variant.h>
 
 namespace xpp {
 namespace _ {
@@ -455,7 +455,7 @@ public:
   }
 
 private:
-  Variant<T, E> m_data;
+  Enum<T, E> m_data;
 };
 
 /**
@@ -602,7 +602,7 @@ public:
   }
 
 private:
-  Variant<OkSentinel, E> m_data;
+  Enum<OkSentinel, E> m_data;
 };
 
 /* ── Option::ok_or / ok_or_else: out-of-line because they depend on Result. ── */

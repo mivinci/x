@@ -80,7 +80,7 @@ if (cached) use(**cached);
 - [Option](option.md) — A value or nothing (Rust Option)
 - [String](string.md) — UTF-8 string (Rust String)
 - [Vec](vec.md) — Contiguous growable array (Rust Vec)
-- [Variant](variant.md) — Type-safe tagged union
+- [Enum](enum.md) — Type-safe tagged union
 - [Timer](timer.md) — Callback-based timer with pause/resume
 - [Filesystem](fs.md) — Async file I/O (`File`, `stat`, `exists`, `create_dir`, `rename`)
 - [I/O](io/README.md) — Reactive async I/O for non-blocking fds (`AsyncFd`, `read`, `write`, `Error`)

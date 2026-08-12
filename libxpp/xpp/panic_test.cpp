@@ -12,8 +12,8 @@
 #include <cstddef>
 
 #include <gtest/gtest.h>
+#include <xpp/enum.h>
 #include <xpp/panic.h>
-#include <xpp/variant.h>
 
 extern "C" {
 #include <x/base/log.h>
@@ -111,27 +111,27 @@ TEST(PanicDeathTest, RoutesThroughXLogCallback) {
     "");
 }
 
-/* ── Variant panic paths ── */
+/* ── Enum panic paths ── */
 
-TEST(PanicDeathTest, VariantGetWrongType) {
+TEST(PanicDeathTest, EnumGetWrongType) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(([] {
-                 xpp::Variant<int, double> v(3.14);
+                 xpp::Enum<int, double> v(3.14);
                  (void)v.get<int>();
                }()),
-               "get<T>\\(\\) on Variant holding a different type");
+               "get<T>\\(\\) on Enum holding a different type");
 }
 
-TEST(PanicTest, VariantGetCorrectType) {
-  xpp::Variant<int, double> v(42);
+TEST(PanicTest, EnumGetCorrectType) {
+  xpp::Enum<int, double> v(42);
   EXPECT_EQ(v.get<int>(), 42);
 }
 
-TEST(PanicDeathTest, VariantGetWrongIndex) {
+TEST(PanicDeathTest, EnumGetWrongIndex) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(([] {
-                 xpp::Variant<int, double> v(xpp::InPlaceIndex<1>{}, 3.14);
+                 xpp::Enum<int, double> v(xpp::InPlaceIndex<1>{}, 3.14);
                  (void)v.get<0>();
                }()),
-               "get<N>\\(\\) on Variant holding a different alternative");
+               "get<N>\\(\\) on Enum holding a different alternative");
 }

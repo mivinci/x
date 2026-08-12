@@ -518,7 +518,7 @@ template <class Host, class T> T field_type(T Host::*);
   N
 
 /* ════════════════════════════════════════════════════════════════════
- * XPP_ENUM_SERDE — tagged-variant derive for Enum<Ts...> / Variant<Ts...>
+ * XPP_ENUM_SERDE — tagged-variant derive for Enum<Ts...>
  *
  * Two strategies: external (default) and adjacent.
  *
