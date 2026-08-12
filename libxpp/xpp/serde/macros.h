@@ -60,10 +60,14 @@
 #define XPP_FE_END _xpp_fe_end
 
 /* XPP_FE_IS_END(x) — 1 if x is (XPP_FE_END), 0 otherwise.
- * x must be a paren-wrapped token (name). */
+ * x is a paren-wrapped token list. We compare the FIRST token inside
+ * the parens to XPP_FE_END via token-paste (the remaining tokens are
+ * left to UNWRAP later). This works because field tuples are always
+ * `(field_name, ...)` — the first token is either a field name or
+ * _xpp_fe_end. */
 #define XPP_FE_IS_END(x) XPP_FE_IS_END_X x
-#define XPP_FE_IS_END_X(content) \
-    XPP_FE_IS_END_DISPATCH(XPP_FE_IEP_##content)
+#define XPP_FE_IS_END_X(first, ...) \
+    XPP_FE_IS_END_DISPATCH(XPP_FE_IEP_##first)
 #define XPP_FE_IEP__xpp_fe_end ~, 1
 #define XPP_FE_IS_END_DISPATCH(...) \
     XPP_FE_IS_END_DISPATCH_(__VA_ARGS__, 0)
@@ -442,13 +446,106 @@ T field_type(T Host::*);
 #define XPP_SERDE_CAT_I(a, b) a##b
 #define XPP_SERDE_CAT(a, b) XPP_SERDE_CAT_I(a, b)
 
-/* Serialize: emit `XPP_SERDE_TRY(scope.field("name", v.name));` */
-#define XPP_SERDE_EMIT_SER_FIELD(data, name) \
-    XPP_SERDE_TRY(scope.field(XPP_SERDE_STR(name), v.name));
+/* ── Attribute macros (public API) ────────────────────────────────────
+ *
+ * Each attribute expands DIRECTLY into the C++ code appropriate for
+ * the current emit context. The emit macros use a 3-stage tuple pack
+ * + EVAL3 + unpack pattern so attr macros get fully expanded before
+ * being pasted into the dispatch call.
+ *
+ * Syntax for XPP_SERDE call sites:
+ *
+ *   XPP_SERDE(Type,
+ *     (plain_field),
+ *     (renamed_field,   XPP_FIELD_RENAME(renamed_field, "jsonName")),
+ *     (defaulted_field,  XPP_FIELD_DEFAULT(defaulted_field, 80)),
+ *     (skipped_field,    XPP_FIELD_SKIP(skipped_field)))
+ */
 
-/* Deserialize: emit one `else if (k == "name")` branch. `data` is the
- * host type so we can derive the field type via decltype. */
-#define XPP_SERDE_EMIT_DE_FIELD(data, name) \
+#define XPP_FIELD_RENAME(field, json)     XPP_SERDE_ATTR_RENAME, field, json
+#define XPP_FIELD_DEFAULT(field, val)    XPP_SERDE_ATTR_DEFAULT, field, val
+#define XPP_FIELD_SKIP(field)            XPP_SERDE_ATTR_SKIP, field
+
+/* ── HAS = 0/1 detector ──────────────────────────────────────────── */
+
+#define XPP_SERDE_FIELD_HAS(...) \
+    XPP_SERDE_FIELD_HAS_I(, ##__VA_ARGS__)
+#define XPP_SERDE_FIELD_HAS_I(...) \
+    XPP_SERDE_FIELD_HAS_II(XPP_SERDE_FIELD_HAS_NARG(__VA_ARGS__))
+#define XPP_SERDE_FIELD_HAS_NARG(...) \
+    XPP_SERDE_FIELD_HAS_NARG_(__VA_ARGS__, 1, 1, 1, 1, 1, 0)
+#define XPP_SERDE_FIELD_HAS_NARG_(_1, _2, _3, _4, _5, _6, has, ...) has
+#define XPP_SERDE_FIELD_HAS_II(n) n
+
+/* ── EVAL — forces macro expansion of args ──────────────────────── */
+
+#define XPP_SERDE_EVAL(...) __VA_ARGS__
+#define XPP_SERDE_EVAL2(...) XPP_SERDE_EVAL(XPP_SERDE_EVAL(__VA_ARGS__))
+#define XPP_SERDE_EVAL3(...) XPP_SERDE_EVAL2(XPP_SERDE_EVAL2(__VA_ARGS__))
+
+/* ── Field emitters — tuple-based dispatch ──────────────────────── */
+
+#define XPP_SERDE_EMIT_SER_FIELD(data, name, ...) \
+    XPP_SERDE_EMIT_SER_FIELD_I(data, name, ##__VA_ARGS__)
+#define XPP_SERDE_EMIT_SER_FIELD_I(data, name, ...) \
+    XPP_SERDE_EMIT_SER_FIELD_II( (data, name, \
+        XPP_SERDE_FIELD_HAS(__VA_ARGS__), XPP_SERDE_EVAL3(__VA_ARGS__)) )
+#define XPP_SERDE_EMIT_SER_FIELD_II(tuple) XPP_SERDE_EMIT_SER_FIELD_III tuple
+#define XPP_SERDE_EMIT_SER_FIELD_III(data, name, has, ...) \
+    XPP_SERDE_SER_##has(data, name, ##__VA_ARGS__)
+
+#define XPP_SERDE_EMIT_DE_FIELD(data, name, ...) \
+    XPP_SERDE_EMIT_DE_FIELD_I(data, name, ##__VA_ARGS__)
+#define XPP_SERDE_EMIT_DE_FIELD_I(data, name, ...) \
+    XPP_SERDE_EMIT_DE_FIELD_II( (data, name, \
+        XPP_SERDE_FIELD_HAS(__VA_ARGS__), XPP_SERDE_EVAL3(__VA_ARGS__)) )
+#define XPP_SERDE_EMIT_DE_FIELD_II(tuple) XPP_SERDE_EMIT_DE_FIELD_III tuple
+#define XPP_SERDE_EMIT_DE_FIELD_III(data, name, has, ...) \
+    XPP_SERDE_DE_##has(data, name, ##__VA_ARGS__)
+
+#define XPP_SERDE_INIT_GOT(data, name, ...) \
+    XPP_SERDE_INIT_GOT_I(data, name, ##__VA_ARGS__)
+#define XPP_SERDE_INIT_GOT_I(data, name, ...) \
+    XPP_SERDE_INIT_GOT_II( (data, name, \
+        XPP_SERDE_FIELD_HAS(__VA_ARGS__), XPP_SERDE_EVAL3(__VA_ARGS__)) )
+#define XPP_SERDE_INIT_GOT_II(tuple) XPP_SERDE_INIT_GOT_III tuple
+#define XPP_SERDE_INIT_GOT_III(data, name, has, ...) \
+    XPP_SERDE_INIT_##has(data, name, ##__VA_ARGS__)
+
+#define XPP_SERDE_EMIT_FIELD_NAME(data, name, ...) \
+    XPP_SERDE_EMIT_FIELD_NAME_I(data, name, ##__VA_ARGS__)
+#define XPP_SERDE_EMIT_FIELD_NAME_I(data, name, ...) \
+    XPP_SERDE_EMIT_FIELD_NAME_II( (data, name, \
+        XPP_SERDE_FIELD_HAS(__VA_ARGS__), XPP_SERDE_EVAL3(__VA_ARGS__)) )
+#define XPP_SERDE_EMIT_FIELD_NAME_II(tuple) XPP_SERDE_EMIT_FIELD_NAME_III tuple
+#define XPP_SERDE_EMIT_FIELD_NAME_III(data, name, has, ...) \
+    XPP_SERDE_NAME_##has(data, name, ##__VA_ARGS__)
+
+#define XPP_SERDE_CHECK_REQUIRED(data, name, ...) \
+    XPP_SERDE_CHECK_REQUIRED_I(data, name, ##__VA_ARGS__)
+#define XPP_SERDE_CHECK_REQUIRED_I(data, name, ...) \
+    XPP_SERDE_CHECK_REQUIRED_II( (data, name, \
+        XPP_SERDE_FIELD_HAS(__VA_ARGS__), XPP_SERDE_EVAL3(__VA_ARGS__)) )
+#define XPP_SERDE_CHECK_REQUIRED_II(tuple) XPP_SERDE_CHECK_REQUIRED_III tuple
+#define XPP_SERDE_CHECK_REQUIRED_III(data, name, has, ...) \
+    XPP_SERDE_CHECK_##has(data, name, ##__VA_ARGS__)
+
+/* ── Per-emit, per-attr implementations ──────────────────────────── */
+
+/* Serialize: emit `scope.field("name", v.name);` */
+#define XPP_SERDE_SER_0(data, name, ...) \
+    XPP_SERDE_TRY(scope.field(XPP_SERDE_STR(name), v.name));
+#define XPP_SERDE_SER_1(data, name, kind, ...) \
+    XPP_SERDE_SER_##kind(data, name, ##__VA_ARGS__)
+#define XPP_SERDE_SER_XPP_SERDE_ATTR_RENAME(data, name, _field, _json) \
+    XPP_SERDE_TRY(scope.field(_json, v.name));
+#define XPP_SERDE_SER_XPP_SERDE_ATTR_DEFAULT(data, name, _field, _val) \
+    XPP_SERDE_TRY(scope.field(XPP_SERDE_STR(name), v.name));
+#define XPP_SERDE_SER_XPP_SERDE_ATTR_SKIP(data, name, _field) \
+    /* omitted from serialize output */
+
+/* Deserialize: emit one `else if (k == "name")` branch. */
+#define XPP_SERDE_DE_0(data, name, ...) \
     else if (k == XPP_SERDE_STR(name)) { \
         XPP_SERDE_TRY_VAR(v, m.template next_value< \
             decltype(::xpp::serde::_::field_type<data>( \
@@ -456,21 +553,71 @@ T field_type(T Host::*);
         out.name = std::move(v); \
         XPP_SERDE_CAT(got_, name) = true; \
     }
+#define XPP_SERDE_DE_1(data, name, kind, ...) \
+    XPP_SERDE_DE_##kind(data, name, ##__VA_ARGS__)
+#define XPP_SERDE_DE_XPP_SERDE_ATTR_RENAME(data, name, _field, _json) \
+    else if (k == _json) { \
+        XPP_SERDE_TRY_VAR(v, m.template next_value< \
+            decltype(::xpp::serde::_::field_type<data>( \
+                &data::name))>()); \
+        out.name = std::move(v); \
+        XPP_SERDE_CAT(got_, name) = true; \
+    }
+#define XPP_SERDE_DE_XPP_SERDE_ATTR_DEFAULT(data, name, _field, _val) \
+    else if (k == XPP_SERDE_STR(name)) { \
+        XPP_SERDE_TRY_VAR(v, m.template next_value< \
+            decltype(::xpp::serde::_::field_type<data>( \
+                &data::name))>()); \
+        out.name = std::move(v); \
+        XPP_SERDE_CAT(got_, name) = true; \
+    }
+#define XPP_SERDE_DE_XPP_SERDE_ATTR_SKIP(data, name, _field) \
+    /* no branch — field keeps its default-constructed value */
 
-/* Initialize `got_<field> = false;` for every field. */
-#define XPP_SERDE_INIT_GOT(data, name) \
+/* got_X init */
+#define XPP_SERDE_INIT_0(data, name, ...) \
     bool XPP_SERDE_CAT(got_, name) = false;
+#define XPP_SERDE_INIT_1(data, name, kind, ...) \
+    XPP_SERDE_INIT_##kind(data, name, ##__VA_ARGS__)
+#define XPP_SERDE_INIT_XPP_SERDE_ATTR_RENAME(data, name, _field, _json) \
+    bool XPP_SERDE_CAT(got_, name) = false;
+#define XPP_SERDE_INIT_XPP_SERDE_ATTR_DEFAULT(data, name, _field, _val) \
+    bool XPP_SERDE_CAT(got_, name) = false;  /* CHECK applies default if still false */
+#define XPP_SERDE_INIT_XPP_SERDE_ATTR_SKIP(data, name, _field) \
+    /* no got_X var needed */
 
-/* Emit a string literal for the field-name array (trailing comma). */
-#define XPP_SERDE_EMIT_FIELD_NAME(data, name) \
+/* Field-name array entry */
+#define XPP_SERDE_NAME_0(data, name, ...) \
     XPP_SERDE_STR(name),
+#define XPP_SERDE_NAME_1(data, name, kind, ...) \
+    XPP_SERDE_NAME_##kind(data, name, ##__VA_ARGS__)
+#define XPP_SERDE_NAME_XPP_SERDE_ATTR_RENAME(data, name, _field, _json) \
+    _json,
+#define XPP_SERDE_NAME_XPP_SERDE_ATTR_DEFAULT(data, name, _field, _val) \
+    XPP_SERDE_STR(name),
+#define XPP_SERDE_NAME_XPP_SERDE_ATTR_SKIP(data, name, _field) \
+    /* not in field-name array */
 
-/* After the loop, verify every required field was seen. */
-#define XPP_SERDE_CHECK_REQUIRED(data, name) \
+/* Missing-field check */
+#define XPP_SERDE_CHECK_0(data, name, ...) \
     if (!XPP_SERDE_CAT(got_, name)) { \
         return err(error(ErrorKind::MissingField, \
             "missing field '" XPP_SERDE_STR(name) "'")); \
     }
+#define XPP_SERDE_CHECK_1(data, name, kind, ...) \
+    XPP_SERDE_CHECK_##kind(data, name, ##__VA_ARGS__)
+#define XPP_SERDE_CHECK_XPP_SERDE_ATTR_RENAME(data, name, _field, _json) \
+    if (!XPP_SERDE_CAT(got_, name)) { \
+        return err(error(ErrorKind::MissingField, \
+            "missing field '" _json "'")); \
+    }
+#define XPP_SERDE_CHECK_XPP_SERDE_ATTR_DEFAULT(data, name, _field, _val) \
+    if (!XPP_SERDE_CAT(got_, name)) { \
+        out.name = _val; \
+        XPP_SERDE_CAT(got_, name) = true; \
+    }
+#define XPP_SERDE_CHECK_XPP_SERDE_ATTR_SKIP(data, name, _field) \
+    /* no required check */
 
 /* ═══ XPP_SERDE main macro ═══ */
 
