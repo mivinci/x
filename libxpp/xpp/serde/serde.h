@@ -29,7 +29,7 @@
  *   Result<Void, Error> serialize_u64(uint64_t);
  *   Result<Void, Error> serialize_f32(float);
  *   Result<Void, Error> serialize_f64(double);
- *   Result<Void, Error> serialize_str(const std::string&);
+ *   Result<Void, Error> serialize_str(const xpp::String&);
  *   Result<Void, Error> serialize_none();
  *   Result<SeqScope, Error>    serialize_seq(xpp::Option<size_t> len);
  *   Result<StructScope, Error> serialize_struct(const char* name, size_t n);
@@ -49,7 +49,7 @@
  *   Result<uint64_t, Error>      deserialize_u64();
  *   Result<float, Error>         deserialize_f32();
  *   Result<double, Error>        deserialize_f64();
- *   Result<std::string, Error>   deserialize_str();
+ *   Result<xpp::String, Error>  deserialize_str();
  *
  *   template <class V>
  *   auto deserialize_option(V&& visitor)
@@ -77,7 +77,7 @@
  * `json::Deserializer::SeqAccess`) and expose:
  *
  *   template <class T> Result<xpp::Option<T>, Error> SeqAccess::next_element();
- *   template <class K> Result<xpp::Option<K>, Error> MapAccess::next_key();
+ *   Result<xpp::Option<xpp::String>, Error> MapAccess::next_key();
  *   template <class V> Result<V, Error>              MapAccess::next_value();
  *   Result<Void, Error>                              MapAccess::next_value_ignored();
  *
@@ -95,6 +95,7 @@
 #include <xpp/option.h>
 #include <xpp/result.h>
 #include <xpp/serde/error.h>
+#include <xpp/string.h>
 #include <xpp/vec.h>
 #include <xpp/void.h>
 
@@ -293,16 +294,16 @@ struct Deserialize<double> {
 };
 
 template <>
-struct Serialize<std::string> {
+struct Serialize<String> {
   template <class S>
-  static Result<Void, Error> run(const std::string& v, S& s) {
+  static Result<Void, Error> run(const String& v, S& s) {
     return s.serialize_str(v);
   }
 };
 template <>
-struct Deserialize<std::string> {
+struct Deserialize<String> {
   template <class D>
-  static Result<std::string, Error> run(D& d) {
+  static Result<String, Error> run(D& d) {
     return d.deserialize_str();
   }
 };

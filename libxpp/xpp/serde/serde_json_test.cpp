@@ -21,6 +21,7 @@
 #include <xpp/result.h>
 #include <xpp/serde/json.h>
 #include <xpp/serde/serde.h>
+#include <xpp/string.h>
 #include <xpp/vec.h>
 #include <xpp/void.h>
 
@@ -29,7 +30,7 @@ namespace {
 /* ─────────── Reference example: hand-written Person specialization ─────────── */
 
 struct Person {
-  std::string name;
+  xpp::String name;
   int32_t age = 0;
 };
 
@@ -59,11 +60,11 @@ struct Deserialize<Person> {
         bool got_name = false;
         bool got_age = false;
         while (true) {
-          XPP_SERDE_TRY_VAR(key, m.template next_key<std::string>());
+          XPP_SERDE_TRY_VAR(key, m.next_key());
           if (key.is_none()) break;
-          const std::string& k = key.unwrap();
+          const xpp::String& k = key.unwrap();
           if (k == "name") {
-            XPP_SERDE_TRY_VAR(v, m.template next_value<std::string>());
+            XPP_SERDE_TRY_VAR(v, m.template next_value<xpp::String>());
             p.name = std::move(v);
             got_name = true;
           } else if (k == "age") {
@@ -98,8 +99,13 @@ using namespace xpp::serde;
 
 /* ───────────────────── Helpers ───────────────────── */
 
+/** @brief Construct a String from a string literal (assumes valid UTF-8). */
+String S(const char* s) {
+  return String::from_utf8(s).unwrap();
+}
+
 template <class T>
-std::string to_json(const T& v) {
+String to_json(const T& v) {
   json::Serializer ser;
   auto r = serde::serialize(v, ser);
   EXPECT_TRUE(r.is_ok()) << "serialize failed";
@@ -107,7 +113,7 @@ std::string to_json(const T& v) {
 }
 
 template <class T>
-xpp::Result<T, xpp::serde::Error> from_json(const std::string& s) {
+xpp::Result<T, xpp::serde::Error> from_json(const char* s) {
   auto d_res = json::Deserializer::from_string(s);
   if (!d_res.is_ok()) {
     return xpp::err(std::move(d_res).unwrap_err());
@@ -129,7 +135,7 @@ TEST(SerdeJsonTest, BoolRoundTrip) {
 TEST(SerdeJsonTest, I32RoundTrip) {
   EXPECT_EQ(to_json<int32_t>(42), "42");
   EXPECT_EQ(to_json<int32_t>(-1), "-1");
-  EXPECT_EQ(to_json<int32_t>(INT32_MIN), std::to_string(INT32_MIN));
+  EXPECT_EQ(to_json<int32_t>(INT32_MIN), std::to_string(INT32_MIN).c_str());
   auto r = from_json<int32_t>("-12345");
   ASSERT_TRUE(r.is_ok());
   EXPECT_EQ(r.unwrap(), -12345);
@@ -137,8 +143,8 @@ TEST(SerdeJsonTest, I32RoundTrip) {
 
 TEST(SerdeJsonTest, I64RoundTrip) {
   int64_t big = static_cast<int64_t>(INT32_MAX) + 100;
-  EXPECT_EQ(to_json<int64_t>(big), std::to_string(big));
-  auto r = from_json<int64_t>(std::to_string(big));
+  EXPECT_EQ(to_json<int64_t>(big), std::to_string(big).c_str());
+  auto r = from_json<int64_t>(std::to_string(big).c_str());
   ASSERT_TRUE(r.is_ok());
   EXPECT_EQ(r.unwrap(), big);
 }
@@ -159,18 +165,19 @@ TEST(SerdeJsonTest, F64RoundTrip) {
 
   // 3.14 is not exactly representable; verify round-trip fidelity via
   // parse(serialize(x)) == x rather than a literal string compare.
-  std::string s = to_json<double>(3.14);
-  auto r2 = from_json<double>(s);
+  String s = to_json<double>(3.14);
+  std::string tmp(reinterpret_cast<const char*>(s.as_bytes().data()), s.len());
+  auto r2 = from_json<double>(tmp.c_str());
   ASSERT_TRUE(r2.is_ok());
   EXPECT_DOUBLE_EQ(r2.unwrap(), 3.14);
 }
 
 TEST(SerdeJsonTest, StringRoundTrip) {
-  EXPECT_EQ(to_json<std::string>("hello"), "\"hello\"");
-  EXPECT_EQ(to_json<std::string>("a\"b\nc"), "\"a\\\"b\\nc\"");
-  auto r = from_json<std::string>("\"world\"");
+  EXPECT_EQ(to_json<String>(S("hello")), "\"hello\"");
+  EXPECT_EQ(to_json<String>(S("a\"b\nc")), "\"a\\\"b\\nc\"");
+  auto r = from_json<String>("\"world\"");
   ASSERT_TRUE(r.is_ok());
-  EXPECT_EQ(r.unwrap(), "world");
+  EXPECT_EQ(r.unwrap(), S("world"));
 }
 
 /* ───────────────────── Option round-trips ───────────────────── */
@@ -219,19 +226,19 @@ TEST(SerdeJsonTest, VecEmptyRoundTrip) {
 /* ───────────────────── Struct round-trip ───────────────────── */
 
 TEST(SerdeJsonTest, PersonRoundTrip) {
-  Person p{"Alice", 30};
+  Person p{S("Alice"), 30};
   EXPECT_EQ(to_json(p), "{\"name\":\"Alice\",\"age\":30}");
 
   auto r = from_json<Person>("{\"name\":\"Bob\",\"age\":25}");
   ASSERT_TRUE(r.is_ok()) << r.unwrap_err().message;
-  EXPECT_EQ(r.unwrap().name, "Bob");
+  EXPECT_EQ(r.unwrap().name, S("Bob"));
   EXPECT_EQ(r.unwrap().age, 25);
 }
 
 TEST(SerdeJsonTest, PersonUnknownFieldSkipped) {
   auto r = from_json<Person>("{\"name\":\"Alice\",\"age\":30,\"extra\":\"x\"}");
   ASSERT_TRUE(r.is_ok()) << r.unwrap_err().message;
-  EXPECT_EQ(r.unwrap().name, "Alice");
+  EXPECT_EQ(r.unwrap().name, S("Alice"));
   EXPECT_EQ(r.unwrap().age, 30);
 }
 

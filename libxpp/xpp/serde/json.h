@@ -31,6 +31,7 @@
 #include <xpp/option.h>
 #include <xpp/result.h>
 #include <xpp/serde/serde.h>
+#include <xpp/string.h>
 #include <xpp/vec.h>
 #include <xpp/void.h>
 
@@ -94,8 +95,8 @@ class Serializer {
     emit(xJsonNewDouble(v));
     return ok(Void{});
   }
-  Result<Void, Error> serialize_str(const std::string& v) {
-    emit(xJsonNewStringN(v.data(), v.size()));
+  Result<Void, Error> serialize_str(const String& v) {
+    emit(xJsonNewStringN(reinterpret_cast<const char*>(v.as_bytes().data()), v.len()));
     return ok(Void{});
   }
   Result<Void, Error> serialize_none() {
@@ -130,11 +131,14 @@ class Serializer {
    * without resetting will produce a tree whose root replaces the old
    * one (and the old root is freed).
    */
-  std::string buffer() const {
-    if (!root_) return "null";
+  String buffer() const {
+    if (!root_) {
+      // "null" is always valid UTF-8.
+      return String::from_utf8("null").unwrap();
+    }
     char* s = xJsonStringify(root_);
-    if (!s) return std::string();
-    std::string out(s);
+    if (!s) return String();
+    String out = String::from_utf8(s).unwrap();
     std::free(s);
     return out;
   }
@@ -243,8 +247,18 @@ class Deserializer {
   }
 
   /** @brief Parse `s` and return an owning Deserializer at the root. */
-  static Result<Deserializer, Error> from_string(const std::string& s) {
-    xJson* root = xJsonParseCopy(s.data(), s.size());
+  static Result<Deserializer, Error> from_string(const String& s) {
+    return from_bytes(reinterpret_cast<const char*>(s.as_bytes().data()), s.len());
+  }
+
+  /** @brief Parse a NUL-terminated C string and return an owning Deserializer. */
+  static Result<Deserializer, Error> from_string(const char* s) {
+    return from_bytes(s, std::strlen(s));
+  }
+
+  /** @brief Parse `len` bytes starting at `s`. */
+  static Result<Deserializer, Error> from_bytes(const char* s, size_t len) {
+    xJson* root = xJsonParseCopy(s, len);
     if (!root) {
       return err(error(ErrorKind::Unexpected, "failed to parse JSON"));
     }
@@ -285,19 +299,22 @@ class Deserializer {
     MapAccess(const MapAccess&) = delete;
     MapAccess& operator=(const MapAccess&) = delete;
 
-    template <class K>
-    Result<Option<K>, Error> next_key() {
-      if (done_) return ok(Option<K>(none));
+    Result<Option<String>, Error> next_key() {
+      if (done_) return ok(Option<String>(none));
       if (!has_pending_) {
         if (!xJsonIteratorNext(iter_)) {
           done_ = true;
-          return ok(Option<K>(none));
+          return ok(Option<String>(none));
         }
         has_pending_ = true;
       }
       size_t len = 0;
       const char* key = xJsonIteratorKey(iter_, &len);
-      return ok(Option<K>(K(key, len)));
+      auto r = String::from_utf8(key, len);
+      if (!r.is_ok()) {
+        return err(error(ErrorKind::InvalidValue, "invalid UTF-8 in object key"));
+      }
+      return ok(Option<String>(std::move(r).unwrap()));
     }
 
     template <class V>
@@ -394,13 +411,17 @@ class Deserializer {
     return err(error(ErrorKind::InvalidValue, "expected number"));
   }
 
-  Result<std::string, Error> deserialize_str() {
+  Result<String, Error> deserialize_str() {
     if (xJsonType(node_) != XJSON_STRING) {
       return err(error(ErrorKind::InvalidValue, "expected string"));
     }
     size_t len = xJsonStringLength(node_);
     const char* s = xJsonString(node_);
-    return ok(std::string(s, len));
+    auto r = String::from_utf8(s, len);
+    if (!r.is_ok()) {
+      return err(error(ErrorKind::InvalidValue, "invalid UTF-8 in JSON string"));
+    }
+    return ok(std::move(r).unwrap());
   }
 
   /* ── Composite reads (visitor-driven) ── */
