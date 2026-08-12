@@ -48,14 +48,13 @@ XPP_SERDE(ShapeTriangle, (base), (height))
 /* ── Variant type + external serde ── */
 
 using Shape = xpp::Enum<ShapeCircle, ShapeSquare, ShapeTriangle>;
-XPP_VARIANT_SERDE(Shape, (ShapeCircle, "circle"), (ShapeSquare, "square"),
-                  (ShapeTriangle, "triangle"))
+XPP_ENUM_SERDE(Shape, (ShapeCircle, "circle"), (ShapeSquare, "square"), (ShapeTriangle, "triangle"))
 
 /* ── Variant type + adjacent serde ── */
 
 using AdjShape = xpp::Enum<ShapeCircle, ShapeSquare>;
-XPP_VARIANT_SERDE_ADJACENT(AdjShape, "tag", "content", (ShapeCircle, "circle"),
-                           (ShapeSquare, "square"))
+XPP_ENUM_SERDE_ADJACENT(AdjShape, "tag", "content", (ShapeCircle, "circle"),
+                        (ShapeSquare, "square"))
 
 /* ── Struct containing a variant field ── */
 

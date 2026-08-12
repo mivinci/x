@@ -1,4 +1,6 @@
-# serde — Serialization Framework
+# Serde
+
+[← libxpp](../README.md)
 
 ## Introduction
 
@@ -86,7 +88,7 @@ XPP_SERDE(Config,
 ## Tagged Variants
 
 Sum types use `Enum<Ts...>` (alias for `Variant<Ts...>`) plus
-`XPP_VARIANT_SERDE`:
+`XPP_ENUM_SERDE`:
 
 ```cpp
 struct ShapeCircle   { double r; };
@@ -99,7 +101,7 @@ XPP_SERDE(ShapeTriangle, (base), (height))
 
 using Shape = xpp::Enum<ShapeCircle, ShapeSquare, ShapeTriangle>;
 
-XPP_VARIANT_SERDE(Shape,
+XPP_ENUM_SERDE(Shape,
   (ShapeCircle,   "circle"),
   (ShapeSquare,   "square"),
   (ShapeTriangle, "triangle"))
@@ -109,8 +111,8 @@ XPP_VARIANT_SERDE(Shape,
 
 | Strategy | JSON shape | Macro |
 |---|---|---|
-| External (default) | `{"circle": {"r": 1.0}}` | `XPP_VARIANT_SERDE` |
-| Adjacent | `{"tag": "circle", "content": {"r": 1.0}}` | `XPP_VARIANT_SERDE_ADJACENT(Type, "tag", "content", ...)` |
+| External (default) | `{"circle": {"r": 1.0}}` | `XPP_ENUM_SERDE` |
+| Adjacent | `{"tag": "circle", "content": {"r": 1.0}}` | `XPP_ENUM_SERDE_ADJACENT(Type, "tag", "content", ...)` |
 
 Adjacent is how Stripe webhooks (`{"type": "...", "data": {...}}`) and
 GraphQL responses are shaped — pick this when the protocol separates the
@@ -118,58 +120,21 @@ discriminator from the payload.
 
 ```cpp
 using AdjShape = xpp::Enum<ShapeCircle, ShapeSquare>;
-XPP_VARIANT_SERDE_ADJACENT(AdjShape, "tag", "content",
+XPP_ENUM_SERDE_ADJACENT(AdjShape, "tag", "content",
   (ShapeCircle, "circle"),
   (ShapeSquare, "square"))
 ```
 
 Internal tagging (`{"type": "circle", "r": 1.0}`) is just adjacent with
-a single content field — use `XPP_VARIANT_SERDE_ADJACENT` with the
+a single content field — use `XPP_ENUM_SERDE_ADJACENT` with the
 appropriate `tag_field` name and put the payload fields inline.
 
 Unknown tags produce `Err(Error{ErrorKind::UnknownField, ...})`.
 
 ## Backends
 
-### JSON
-
-```cpp
-xpp::serde::json::Serializer ser;
-xpp::serde::serialize(person, ser);
-xpp::String json = ser.buffer();
-
-auto d = xpp::serde::json::Deserializer::from_string(json).unwrap();
-auto r = xpp::serde::deserialize<Person>(d);
-```
-
-### Binary
-
-Compact, length-prefixed, little-endian. No field names on the wire.
-
-```cpp
-xpp::serde::bin::Serializer ser;
-xpp::serde::serialize(person, ser);
-xpp::Vec<uint8_t> bytes = ser.into_buffer();
-
-auto d = xpp::serde::bin::Deserializer::from_bytes(bytes).unwrap();
-auto r = xpp::serde::deserialize<Person>(d);
-```
-
-Wire format:
-
-| Type | Encoding |
-|---|---|
-| `bool` | 1 byte (`0x00` / `0x01`) |
-| `i32` / `u32` | 4 bytes LE |
-| `i64` / `u64` | 8 bytes LE |
-| `f32` / `f64` | 4 / 8 bytes IEEE 754 LE (NaN/Inf rejected) |
-| `String` | `u32` length + UTF-8 bytes (no NUL) |
-| `Option::None` | `0x00` |
-| `Option::Some(v)` | `0x01` + value |
-| `Vec<T>` | `u32` count + count * element |
-| `struct` | field values back-to-back, no names |
-| `Enum` (external) | `u32` tag_index + payload |
-| `Enum` (adjacent) | `struct{tag: String, content: struct{...}}` |
+- [JSON](json.md) — wraps `libx/x/json/`, DOM-based, human-readable
+- [Binary](bin.md) — compact length-prefixed little-endian format
 
 ## Error Model
 
@@ -206,4 +171,4 @@ No use of `if constexpr`, fold expressions, structured bindings,
 | `libxpp/xpp/serde/error.h` | `ErrorKind` + `Error` |
 | `libxpp/xpp/serde/json.h` | JSON backend |
 | `libxpp/xpp/serde/bin.h` | Binary backend |
-| `libxpp/xpp/serde/macros.h` | `XPP_SERDE` + `XPP_VARIANT_SERDE` macros |
+| `libxpp/xpp/serde/macros.h` | `XPP_SERDE` + `XPP_ENUM_SERDE` macros |

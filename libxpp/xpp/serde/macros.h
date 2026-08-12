@@ -518,7 +518,7 @@ template <class Host, class T> T field_type(T Host::*);
   N
 
 /* ════════════════════════════════════════════════════════════════════
- * XPP_VARIANT_SERDE — tagged-variant derive for Enum<Ts...> / Variant<Ts...>
+ * XPP_ENUM_SERDE — tagged-variant derive for Enum<Ts...> / Variant<Ts...>
  *
  * Two strategies: external (default) and adjacent.
  *
@@ -526,7 +526,7 @@ template <class Host, class T> T field_type(T Host::*);
  *   JSON:     {"circle": {...payload...}}
  *   Binary:   [u32 tag_index][payload bytes]
  *
- *   XPP_VARIANT_SERDE(Shape,
+ *   XPP_ENUM_SERDE(Shape,
  *     (ShapeCircle, "circle")
  *     (ShapeSquare, "square"))
  *
@@ -534,7 +534,7 @@ template <class Host, class T> T field_type(T Host::*);
  *   JSON:     {"tag":"circle","content":{...payload...}}
  *   Binary:   [tag_string bytes][payload bytes]
  *
- *   XPP_VARIANT_SERDE_ADJACENT(Shape, "tag", "content",
+ *   XPP_ENUM_SERDE_ADJACENT(Shape, "tag", "content",
  *     (ShapeCircle, "circle")
  *     (ShapeSquare, "square"))
  * ════════════════════════════════════════════════════════════════════ */
@@ -546,54 +546,53 @@ template <class Host, class T> T field_type(T Host::*);
  * macro argument list is collected, so we EVAL3 inside a tuple and
  * unpack in a second stage. */
 
-#define XPP_VARIANT_SER(data, ...) XPP_VARIANT_SER_I((data, XPP_SERDE_EVAL3(__VA_ARGS__)))
-#define XPP_VARIANT_SER_I(tuple)   XPP_VARIANT_SER_II tuple
-#define XPP_VARIANT_SER_II(data, alt, tag)                                \
+#define XPP_ENUM_SER(data, ...) XPP_ENUM_SER_I((data, XPP_SERDE_EVAL3(__VA_ARGS__)))
+#define XPP_ENUM_SER_I(tuple)   XPP_ENUM_SER_II tuple
+#define XPP_ENUM_SER_II(data, alt, tag)                                   \
   if (v.template is<alt>()) {                                             \
     XPP_SERDE_TRY_VAR(scope, s.serialize_variant(#data, v.index(), tag)); \
     XPP_SERDE_TRY(scope.payload(v.template get<alt>()));                  \
     return scope.end();                                                   \
   } else
 
-#define XPP_VARIANT_DE(data, ...) XPP_VARIANT_DE_I((data, XPP_SERDE_EVAL3(__VA_ARGS__)))
-#define XPP_VARIANT_DE_I(tuple)   XPP_VARIANT_DE_II tuple
-#define XPP_VARIANT_DE_II(data, alt, tag)           \
+#define XPP_ENUM_DE(data, ...) XPP_ENUM_DE_I((data, XPP_SERDE_EVAL3(__VA_ARGS__)))
+#define XPP_ENUM_DE_I(tuple)   XPP_ENUM_DE_II tuple
+#define XPP_ENUM_DE_II(data, alt, tag)              \
   if (std::strcmp(tag_str, tag) == 0) {             \
     XPP_SERDE_TRY_VAR(v, Deserialize<alt>::run(d)); \
     return ok(data(std::move(v)));                  \
   } else
 
-#define XPP_VARIANT_TAG(data, ...)   XPP_VARIANT_TAG_I((XPP_SERDE_EVAL3(__VA_ARGS__)))
-#define XPP_VARIANT_TAG_I(tuple)     XPP_VARIANT_TAG_II tuple
-#define XPP_VARIANT_TAG_II(alt, tag) tag,
+#define XPP_ENUM_TAG(data, ...)   XPP_ENUM_TAG_I((XPP_SERDE_EVAL3(__VA_ARGS__)))
+#define XPP_ENUM_TAG_I(tuple)     XPP_ENUM_TAG_II tuple
+#define XPP_ENUM_TAG_II(alt, tag) tag,
 
-#define XPP_VARIANT_SERDE(Type, ...) \
-  XPP_VARIANT_SERDE_(Type, XPP_FIELD_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define XPP_ENUM_SERDE(Type, ...) XPP_ENUM_SERDE_(Type, XPP_FIELD_COUNT(__VA_ARGS__), __VA_ARGS__)
 
-#define XPP_VARIANT_SERDE_(Type, N, ...)                                                          \
-  namespace xpp {                                                                                 \
-  namespace serde {                                                                               \
-  template <> struct Serialize<Type> {                                                            \
-    template <class S> static Result<Void, Error> run(const Type &v, S &s) {                      \
-      XPP_FOR_EACH(XPP_VARIANT_SER, Type, __VA_ARGS__)                                            \
-      return err(error(ErrorKind::InvalidValue, "variant index out of range"));                   \
-    }                                                                                             \
-  };                                                                                              \
-  template <> struct Deserialize<Type> {                                                          \
-    template <class D> static Result<Type, Error> run(D &d) {                                     \
-      static const char *const kTags[] = {XPP_FOR_EACH(XPP_VARIANT_TAG, _, __VA_ARGS__) nullptr}; \
-      struct Visitor {                                                                            \
-        Result<Type, Error> visit_variant(size_t tag_index, D &d) {                               \
-          (void)tag_index;                                                                        \
-          const char *tag_str = kTags[tag_index];                                                 \
-          XPP_FOR_EACH(XPP_VARIANT_DE, Type, __VA_ARGS__)                                         \
-          return err(error(ErrorKind::UnknownField, "unknown variant tag"));                      \
-        }                                                                                         \
-      };                                                                                          \
-      return d.deserialize_variant(#Type, kTags, N, Visitor{});                                   \
-    }                                                                                             \
-  };                                                                                              \
-  }                                                                                               \
+#define XPP_ENUM_SERDE_(Type, N, ...)                                                          \
+  namespace xpp {                                                                              \
+  namespace serde {                                                                            \
+  template <> struct Serialize<Type> {                                                         \
+    template <class S> static Result<Void, Error> run(const Type &v, S &s) {                   \
+      XPP_FOR_EACH(XPP_ENUM_SER, Type, __VA_ARGS__)                                            \
+      return err(error(ErrorKind::InvalidValue, "variant index out of range"));                \
+    }                                                                                          \
+  };                                                                                           \
+  template <> struct Deserialize<Type> {                                                       \
+    template <class D> static Result<Type, Error> run(D &d) {                                  \
+      static const char *const kTags[] = {XPP_FOR_EACH(XPP_ENUM_TAG, _, __VA_ARGS__) nullptr}; \
+      struct Visitor {                                                                         \
+        Result<Type, Error> visit_variant(size_t tag_index, D &d) {                            \
+          (void)tag_index;                                                                     \
+          const char *tag_str = kTags[tag_index];                                              \
+          XPP_FOR_EACH(XPP_ENUM_DE, Type, __VA_ARGS__)                                         \
+          return err(error(ErrorKind::UnknownField, "unknown variant tag"));                   \
+        }                                                                                      \
+      };                                                                                       \
+      return d.deserialize_variant(#Type, kTags, N, Visitor{});                                \
+    }                                                                                          \
+  };                                                                                           \
+  }                                                                                            \
   }
 
 /* ── Adjacent strategy ──
@@ -606,9 +605,9 @@ template <class Host, class T> T field_type(T Host::*);
  * The alternative tuple (alt, tag) is unpacked via the 3-stage
  * EVAL3 + tuple pack/unpack pattern (same as Phase 3). */
 
-#define XPP_VARIANT_SER_ADJ(data, ...) XPP_VARIANT_SER_ADJ_I((data, XPP_SERDE_EVAL3(__VA_ARGS__)))
-#define XPP_VARIANT_SER_ADJ_I(tuple)   XPP_VARIANT_SER_ADJ_II tuple
-#define XPP_VARIANT_SER_ADJ_II(data, alt, tag)                                   \
+#define XPP_ENUM_SER_ADJ(data, ...) XPP_ENUM_SER_ADJ_I((data, XPP_SERDE_EVAL3(__VA_ARGS__)))
+#define XPP_ENUM_SER_ADJ_I(tuple)   XPP_ENUM_SER_ADJ_II tuple
+#define XPP_ENUM_SER_ADJ_II(data, alt, tag)                                      \
   if (v.template is<alt>()) {                                                    \
     XPP_SERDE_TRY_VAR(scope, s.serialize_struct(#data, 2));                      \
     XPP_SERDE_TRY(scope.field(kTagField, xpp::String::from_utf8(tag).unwrap())); \
@@ -616,26 +615,26 @@ template <class Host, class T> T field_type(T Host::*);
     return scope.end();                                                          \
   } else
 
-#define XPP_VARIANT_DE_ADJ(data, ...) XPP_VARIANT_DE_ADJ_I((data, XPP_SERDE_EVAL3(__VA_ARGS__)))
-#define XPP_VARIANT_DE_ADJ_I(tuple)   XPP_VARIANT_DE_ADJ_II tuple
-#define XPP_VARIANT_DE_ADJ_II(data, alt, _tag)          \
+#define XPP_ENUM_DE_ADJ(data, ...) XPP_ENUM_DE_ADJ_I((data, XPP_SERDE_EVAL3(__VA_ARGS__)))
+#define XPP_ENUM_DE_ADJ_I(tuple)   XPP_ENUM_DE_ADJ_II tuple
+#define XPP_ENUM_DE_ADJ_II(data, alt, _tag)             \
   if (tag == _tag) {                                    \
     XPP_SERDE_TRY_VAR(v, m.template next_value<alt>()); \
     return ok(data(std::move(v)));                      \
   } else
 
-#define XPP_VARIANT_SERDE_ADJACENT(Type, tag_field, content_field, ...)                     \
-  XPP_VARIANT_SERDE_ADJACENT_(Type, tag_field, content_field, XPP_FIELD_COUNT(__VA_ARGS__), \
-                              __VA_ARGS__)
+#define XPP_ENUM_SERDE_ADJACENT(Type, tag_field, content_field, ...)                     \
+  XPP_ENUM_SERDE_ADJACENT_(Type, tag_field, content_field, XPP_FIELD_COUNT(__VA_ARGS__), \
+                           __VA_ARGS__)
 
-#define XPP_VARIANT_SERDE_ADJACENT_(Type, tag_field, content_field, N, ...)                 \
+#define XPP_ENUM_SERDE_ADJACENT_(Type, tag_field, content_field, N, ...)                    \
   namespace xpp {                                                                           \
   namespace serde {                                                                         \
   template <> struct Serialize<Type> {                                                      \
     template <class S> static Result<Void, Error> run(const Type &v, S &s) {                \
       static const char *const kTagField     = tag_field;                                   \
       static const char *const kContentField = content_field;                               \
-      XPP_FOR_EACH(XPP_VARIANT_SER_ADJ, Type, __VA_ARGS__)                                  \
+      XPP_FOR_EACH(XPP_ENUM_SER_ADJ, Type, __VA_ARGS__)                                     \
       return err(error(ErrorKind::InvalidValue, "variant index out of range"));             \
     }                                                                                       \
   };                                                                                        \
@@ -651,7 +650,7 @@ template <class Host, class T> T field_type(T Host::*);
           XPP_SERDE_TRY_VAR(k2, m.next_key());                                              \
           if (k2.is_none())                                                                 \
             return err(error(ErrorKind::MissingField, "missing content field in variant")); \
-          XPP_FOR_EACH(XPP_VARIANT_DE_ADJ, Type, __VA_ARGS__)                               \
+          XPP_FOR_EACH(XPP_ENUM_DE_ADJ, Type, __VA_ARGS__)                                  \
           XPP_SERDE_TRY(m.next_value_ignored());                                            \
           return err(error(ErrorKind::UnknownField, "unknown variant tag"));                \
         }                                                                                   \
