@@ -191,8 +191,11 @@ TEST(SerdeBinTest, I32RoundTrip) {
 }
 
 TEST(SerdeBinTest, I64RoundTrip) {
-  for (int64_t v : {0LL, 1LL, -1LL, static_cast<int64_t>(INT32_MAX) + 100,
-                    static_cast<int64_t>(INT32_MIN) - 100, INT64_MIN, INT64_MAX}) {
+  const int64_t vals[] = {0LL, 1LL, -1LL,
+                          static_cast<int64_t>(INT32_MAX) + 100,
+                          static_cast<int64_t>(INT32_MIN) - 100,
+                          INT64_MIN, INT64_MAX};
+  for (int64_t v : vals) {
     auto bytes = to_bin<int64_t>(v);
     ASSERT_EQ(bytes.len(), 8u);
     auto r = from_bin<int64_t>(bytes);
@@ -212,7 +215,8 @@ TEST(SerdeBinTest, U32RoundTrip) {
 }
 
 TEST(SerdeBinTest, U64RoundTrip) {
-  for (uint64_t v : {0ull, 1ull, 42ull, UINT64_MAX}) {
+  const uint64_t vals[] = {0ull, 1ull, 42ull, UINT64_MAX};
+  for (uint64_t v : vals) {
     auto bytes = to_bin<uint64_t>(v);
     ASSERT_EQ(bytes.len(), 8u);
     auto r = from_bin<uint64_t>(bytes);
