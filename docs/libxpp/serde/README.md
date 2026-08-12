@@ -87,7 +87,7 @@ XPP_SERDE(Config,
 
 ## Tagged Variants
 
-Sum types use `Enum<Ts...>` (alias for `Variant<Ts...>`) plus
+Sum types use `Enum<Ts...>` plus
 `XPP_ENUM_SERDE`:
 
 ```cpp

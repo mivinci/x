@@ -3,13 +3,13 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * variant.h - Type-safe tagged union for exactly one of N types.
+ * enum.h - Type-safe tagged union for exactly one of N types.
  *
  * C++11-compatible replacement for std::variant.
  */
 
-#ifndef XPP_VARIANT_H
-#define XPP_VARIANT_H
+#ifndef XPP_ENUM_H
+#define XPP_ENUM_H
 
 #include <cstddef>
 #include <tuple>
@@ -24,11 +24,11 @@ namespace xpp {
  * @brief Index-based tag for in-place constructing the N-th alternative.
  *
  * Analogous to std::in_place_index_t<N>. Used to disambiguate constructor
- * overloads when types alone are insufficient (e.g. Variant<int, int>).
+ * overloads when types alone are insufficient (e.g. Enum<int, int>).
  *
  * Usage:
- *   Variant<int, int> a(InPlaceIndex<0>{}, 42);  // first int
- *   Variant<int, int> b(InPlaceIndex<1>{}, 42);  // second int
+ *   Enum<int, int> a(InPlaceIndex<0>{}, 42);  // first int
+ *   Enum<int, int> b(InPlaceIndex<1>{}, 42);  // second int
  */
 template <size_t N> struct InPlaceIndex {
   static constexpr size_t k_value = N;
@@ -48,7 +48,7 @@ template <size_t I, class T> struct TypeIndex<I, T> {
   static constexpr size_t k_value = I;
 };
 
-// Visit the active alternative of a Variant by its runtime index.
+// Visit the active alternative of a Enum by its runtime index.
 // fn(ptr) is invoked exactly once with a typed pointer to the live
 // object (T* or const T*, mirroring the constness of `storage`); the
 // recursion bottoms out at the matching index. fn should return void.
@@ -75,7 +75,7 @@ template <class Tuple> struct VisitByIndex<Tuple, 0> {
   template <class Fn, class Storage> static void run(size_t, Storage &, Fn &&) {}
 };
 
-// Functor-style visitors used by Variant. Generic lambdas (C++14)
+// Functor-style visitors used by Enum. Generic lambdas (C++14)
 // would express these in three lines each; explicit functors keep
 // libx++ buildable on C++11 toolchains.
 
@@ -107,21 +107,21 @@ template <class Storage> struct MoveConstructVisitor {
  * Always holds a value (no empty/default state). C++11-compatible.
  *
  * Usage:
- *   Variant<int, float> a(42);       // holds int
- *   Variant<int, float> b(3.14f);    // holds float
+ *   Enum<int, float> a(42);       // holds int
+ *   Enum<int, float> b(3.14f);    // holds float
  *   a.is<int>();                    // true
  *   a.get<int>();                   // 42
  */
-template <class... Types> class Variant {
+template <class... Types> class Enum {
   static constexpr size_t k_count = sizeof...(Types);
-  static_assert(k_count >= 2, "Variant requires at least two types");
+  static_assert(k_count >= 2, "Enum requires at least two types");
   using Tuple = std::tuple<Types...>;
 
 public:
   /** Construct from a value of one of the Types. */
   template <class T, class = typename std::enable_if<
-                       !std::is_same<typename std::decay<T>::type, Variant>::value>::type>
-  Variant(T &&val) : m_index(index_of<typename std::decay<T>::type>()) {
+                       !std::is_same<typename std::decay<T>::type, Enum>::value>::type>
+  Enum(T &&val) : m_index(index_of<typename std::decay<T>::type>()) {
     using D = typename std::decay<T>::type;
     new (&m_storage) D(std::forward<T>(val));
   }
@@ -130,38 +130,38 @@ public:
    * @brief Construct the N-th alternative in place from @p args.
    *
    * Disambiguates when multiple Types share the same type (e.g.
-   * Variant<int, int>) or when explicit selection is desired.
+   * Enum<int, int>) or when explicit selection is desired.
    *
    * @tparam N     Index into Types... (must be < sizeof...(Types)).
    * @tparam Args  Constructor argument types for the selected type.
    * @param  args  Forwarded to the selected type's constructor.
    *
    * Usage:
-   *   Variant<int, std::string> a(InPlaceIndex<1>{}, "hi");
+   *   Enum<int, std::string> a(InPlaceIndex<1>{}, "hi");
    */
-  template <size_t N, class... Args> Variant(InPlaceIndex<N>, Args &&...args) : m_index(N) {
+  template <size_t N, class... Args> Enum(InPlaceIndex<N>, Args &&...args) : m_index(N) {
     static_assert(N < k_count, "InPlaceIndex out of range");
     using T = typename std::tuple_element<N, Tuple>::type;
     new (&m_storage) T(std::forward<Args>(args)...);
   }
 
-  Variant(const Variant &o) : m_index(o.m_index) {
+  Enum(const Enum &o) : m_index(o.m_index) {
     copy_from(o);
   }
 
-  Variant(Variant &&o) noexcept : m_index(o.m_index) {
+  Enum(Enum &&o) noexcept : m_index(o.m_index) {
     move_from(std::move(o));
   }
 
-  ~Variant() {
+  ~Enum() {
     destroy();
   }
 
-  Variant &operator=(const Variant &o) {
+  Enum &operator=(const Enum &o) {
     if (this != &o) {
       // Copy-and-swap: copy first so that if copy_from throws,
       // *this is left unchanged (strong exception-safety guarantee).
-      Variant tmp(o);
+      Enum tmp(o);
       destroy();
       m_index = tmp.m_index;
       move_from(std::move(tmp));
@@ -169,7 +169,7 @@ public:
     return *this;
   }
 
-  Variant &operator=(Variant &&o) noexcept {
+  Enum &operator=(Enum &&o) noexcept {
     if (this != &o) {
       destroy();
       m_index = o.m_index;
@@ -196,17 +196,17 @@ public:
    * verified the active alternative, use get_unchecked<T>().
    */
   template <class T> T &get() & {
-    XPP_ASSERT(is<T>(), "get<T>() on Variant holding a different type");
+    XPP_ASSERT(is<T>(), "get<T>() on Enum holding a different type");
     return *reinterpret_cast<T *>(&m_storage);
   }
 
   template <class T> const T &get() const & {
-    XPP_ASSERT(is<T>(), "get<T>() on Variant holding a different type");
+    XPP_ASSERT(is<T>(), "get<T>() on Enum holding a different type");
     return *reinterpret_cast<const T *>(&m_storage);
   }
 
   template <class T> T &&get() && {
-    XPP_ASSERT(is<T>(), "get<T>() on Variant holding a different type");
+    XPP_ASSERT(is<T>(), "get<T>() on Enum holding a different type");
     return std::move(*reinterpret_cast<T *>(&m_storage));
   }
 
@@ -217,17 +217,17 @@ public:
    * ensure is<T>().
    */
   template <class T> T &get_unchecked() & noexcept {
-    XPP_DEBUG_ASSERT(is<T>(), "internal: Variant must hold T");
+    XPP_DEBUG_ASSERT(is<T>(), "internal: Enum must hold T");
     return *reinterpret_cast<T *>(&m_storage);
   }
 
   template <class T> const T &get_unchecked() const & noexcept {
-    XPP_DEBUG_ASSERT(is<T>(), "internal: Variant must hold T");
+    XPP_DEBUG_ASSERT(is<T>(), "internal: Enum must hold T");
     return *reinterpret_cast<const T *>(&m_storage);
   }
 
   template <class T> T &&get_unchecked() && noexcept {
-    XPP_DEBUG_ASSERT(is<T>(), "internal: Variant must hold T");
+    XPP_DEBUG_ASSERT(is<T>(), "internal: Enum must hold T");
     return std::move(*reinterpret_cast<T *>(&m_storage));
   }
 
@@ -235,26 +235,26 @@ public:
    * @brief Get reference to the N-th alternative.
    *
    * Panics if !is<N>(). Use this overload to disambiguate when Types
-   * contains duplicates (e.g. Variant<int, int>), where get<T>() is
+   * contains duplicates (e.g. Enum<int, int>), where get<T>() is
    * unambiguous only for unique T.
    */
   template <size_t N> typename std::tuple_element<N, Tuple>::type &get() & {
     static_assert(N < k_count, "index out of range");
-    XPP_ASSERT(m_index == N, "get<N>() on Variant holding a different alternative");
+    XPP_ASSERT(m_index == N, "get<N>() on Enum holding a different alternative");
     using T = typename std::tuple_element<N, Tuple>::type;
     return *reinterpret_cast<T *>(&m_storage);
   }
 
   template <size_t N> const typename std::tuple_element<N, Tuple>::type &get() const & {
     static_assert(N < k_count, "index out of range");
-    XPP_ASSERT(m_index == N, "get<N>() on Variant holding a different alternative");
+    XPP_ASSERT(m_index == N, "get<N>() on Enum holding a different alternative");
     using T = typename std::tuple_element<N, Tuple>::type;
     return *reinterpret_cast<const T *>(&m_storage);
   }
 
   template <size_t N> typename std::tuple_element<N, Tuple>::type &&get() && {
     static_assert(N < k_count, "index out of range");
-    XPP_ASSERT(m_index == N, "get<N>() on Variant holding a different alternative");
+    XPP_ASSERT(m_index == N, "get<N>() on Enum holding a different alternative");
     using T = typename std::tuple_element<N, Tuple>::type;
     return std::move(*reinterpret_cast<T *>(&m_storage));
   }
@@ -267,7 +267,7 @@ public:
    */
   template <size_t N> typename std::tuple_element<N, Tuple>::type &get_unchecked() & noexcept {
     static_assert(N < k_count, "index out of range");
-    XPP_DEBUG_ASSERT(m_index == N, "internal: Variant must hold N-th alternative");
+    XPP_DEBUG_ASSERT(m_index == N, "internal: Enum must hold N-th alternative");
     using T = typename std::tuple_element<N, Tuple>::type;
     return *reinterpret_cast<T *>(&m_storage);
   }
@@ -275,14 +275,14 @@ public:
   template <size_t N>
   const typename std::tuple_element<N, Tuple>::type &get_unchecked() const & noexcept {
     static_assert(N < k_count, "index out of range");
-    XPP_DEBUG_ASSERT(m_index == N, "internal: Variant must hold N-th alternative");
+    XPP_DEBUG_ASSERT(m_index == N, "internal: Enum must hold N-th alternative");
     using T = typename std::tuple_element<N, Tuple>::type;
     return *reinterpret_cast<const T *>(&m_storage);
   }
 
   template <size_t N> typename std::tuple_element<N, Tuple>::type &&get_unchecked() && noexcept {
     static_assert(N < k_count, "index out of range");
-    XPP_DEBUG_ASSERT(m_index == N, "internal: Variant must hold N-th alternative");
+    XPP_DEBUG_ASSERT(m_index == N, "internal: Enum must hold N-th alternative");
     using T = typename std::tuple_element<N, Tuple>::type;
     return std::move(*reinterpret_cast<T *>(&m_storage));
   }
@@ -302,12 +302,12 @@ private:
     m_index = k_count;
   }
 
-  void copy_from(const Variant &o) {
+  void copy_from(const Enum &o) {
     _::VisitByIndex<Tuple, k_count>::run(o.m_index, o.m_storage,
                                          _::CopyConstructVisitor<Storage>{&m_storage});
   }
 
-  void move_from(Variant &&o) {
+  void move_from(Enum &&o) {
     _::VisitByIndex<Tuple, k_count>::run(o.m_index, o.m_storage,
                                          _::MoveConstructVisitor<Storage>{&m_storage});
   }
@@ -317,27 +317,6 @@ private:
   size_t  m_index;
 };
 
-/**
- * @brief Alias for Variant<Ts...> intended for serde-tagged sum types.
- *
- * `Enum<Ts...>` is the exact same type as `Variant<Ts...>`; the alias
- * exists so that user code can express intent — "this is a
- * discriminated union whose alternatives carry string tags at
- * (de)serialize time". The tag table itself lives in the
- * Serialize/Deserialize specializations generated by
- * XPP_VARIANT_SERDE, not on the type.
- *
- * The long-term plan is to rename `Variant` to `Enum` outright and
- * drop this alias; for now both names refer to the same template.
- *
- * Usage:
- *   struct ShapeCircle { double r; };
- *   struct ShapeSquare { double s; };
- *   using Shape = xpp::Enum<ShapeCircle, ShapeSquare>;
- *   XPP_VARIANT_SERDE(Shape, (ShapeCircle, "circle")(ShapeSquare, "square"));
- */
-template <class... Ts> using Enum = Variant<Ts...>;
-
 } // namespace xpp
 
-#endif // XPP_VARIANT_H
+#endif // XPP_ENUM_H

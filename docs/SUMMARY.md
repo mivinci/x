@@ -17,7 +17,7 @@
   - [Result](libxpp/result.md)
   - [Option](libxpp/option.md)
   - [String](libxpp/string.md)
-  - [Variant](libxpp/variant.md)
+  - [Enum](libxpp/enum.md)
   - [Vec](libxpp/vec.md)
   - [Serde](libxpp/serde/README.md)
     - [JSON Backend](libxpp/serde/json.md)

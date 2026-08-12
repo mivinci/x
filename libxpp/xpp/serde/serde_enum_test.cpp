@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * serde_variant_test.cpp - Tests for tagged variants (Phase 5).
+ * serde_enum_test.cpp - Tests for tagged variants (Phase 5).
  *
  * Verifies:
  *  - external tagging round-trips through JSON and binary
@@ -17,13 +17,13 @@
 #include <utility>
 
 #include <gtest/gtest.h>
+#include <xpp/enum.h>
 #include <xpp/option.h>
 #include <xpp/result.h>
 #include <xpp/serde/bin.h>
 #include <xpp/serde/json.h>
 #include <xpp/serde/macros.h>
 #include <xpp/string.h>
-#include <xpp/variant.h>
 #include <xpp/vec.h>
 #include <xpp/void.h>
 
@@ -45,12 +45,12 @@ struct ShapeTriangle {
 };
 XPP_SERDE(ShapeTriangle, (base), (height))
 
-/* ── Variant type + external serde ── */
+/* ── Enum type + external serde ── */
 
 using Shape = xpp::Enum<ShapeCircle, ShapeSquare, ShapeTriangle>;
 XPP_ENUM_SERDE(Shape, (ShapeCircle, "circle"), (ShapeSquare, "square"), (ShapeTriangle, "triangle"))
 
-/* ── Variant type + adjacent serde ── */
+/* ── Enum type + adjacent serde ── */
 
 using AdjShape = xpp::Enum<ShapeCircle, ShapeSquare>;
 XPP_ENUM_SERDE_ADJACENT(AdjShape, "tag", "content", (ShapeCircle, "circle"),
@@ -104,7 +104,7 @@ xpp::String S(const char *s) {
 
 /* ═══ External tagging ═══ */
 
-TEST(SerdeVariantTest, ExternalJsonCircleRoundTrip) {
+TEST(SerdeEnumTest, ExternalJsonCircleRoundTrip) {
   Shape v(ShapeCircle{1.0});
   auto  json = to_json(v);
   EXPECT_EQ(json, S(R"({"circle":{"r":1.0}})"));
@@ -115,7 +115,7 @@ TEST(SerdeVariantTest, ExternalJsonCircleRoundTrip) {
   EXPECT_DOUBLE_EQ(r.unwrap().get<ShapeCircle>().r, 1.0);
 }
 
-TEST(SerdeVariantTest, ExternalJsonSquareRoundTrip) {
+TEST(SerdeEnumTest, ExternalJsonSquareRoundTrip) {
   Shape v(ShapeSquare{2.5});
   auto  json = to_json(v);
   EXPECT_EQ(json, S(R"({"square":{"s":2.5}})"));
@@ -126,7 +126,7 @@ TEST(SerdeVariantTest, ExternalJsonSquareRoundTrip) {
   EXPECT_DOUBLE_EQ(r.unwrap().get<ShapeSquare>().s, 2.5);
 }
 
-TEST(SerdeVariantTest, ExternalJsonTriangleRoundTrip) {
+TEST(SerdeEnumTest, ExternalJsonTriangleRoundTrip) {
   Shape v(ShapeTriangle{3.0, 4.0});
   auto  json = to_json(v);
   EXPECT_EQ(json, S(R"({"triangle":{"base":3.0,"height":4.0}})"));
@@ -138,7 +138,7 @@ TEST(SerdeVariantTest, ExternalJsonTriangleRoundTrip) {
   EXPECT_DOUBLE_EQ(r.unwrap().get<ShapeTriangle>().height, 4.0);
 }
 
-TEST(SerdeVariantTest, ExternalBinCircleRoundTrip) {
+TEST(SerdeEnumTest, ExternalBinCircleRoundTrip) {
   Shape v(ShapeCircle{1.0});
   auto  bytes = to_bin(v);
   // binary: u32 tag_index(0) + f64 r(1.0)
@@ -150,7 +150,7 @@ TEST(SerdeVariantTest, ExternalBinCircleRoundTrip) {
   EXPECT_DOUBLE_EQ(r.unwrap().get<ShapeCircle>().r, 1.0);
 }
 
-TEST(SerdeVariantTest, ExternalBinSquareRoundTrip) {
+TEST(SerdeEnumTest, ExternalBinSquareRoundTrip) {
   Shape v(ShapeSquare{2.0});
   auto  bytes = to_bin(v);
   ASSERT_EQ(bytes.len(), 4u + 8u);
@@ -161,7 +161,7 @@ TEST(SerdeVariantTest, ExternalBinSquareRoundTrip) {
   EXPECT_DOUBLE_EQ(r.unwrap().get<ShapeSquare>().s, 2.0);
 }
 
-TEST(SerdeVariantTest, ExternalBinTriangleRoundTrip) {
+TEST(SerdeEnumTest, ExternalBinTriangleRoundTrip) {
   Shape v(ShapeTriangle{3.0, 4.0});
   auto  bytes = to_bin(v);
   // binary: u32 tag_index(2) + f64 base(3.0) + f64 height(4.0)
@@ -174,13 +174,13 @@ TEST(SerdeVariantTest, ExternalBinTriangleRoundTrip) {
   EXPECT_DOUBLE_EQ(r.unwrap().get<ShapeTriangle>().height, 4.0);
 }
 
-TEST(SerdeVariantTest, ExternalUnknownTagJson) {
+TEST(SerdeEnumTest, ExternalUnknownTagJson) {
   auto r = from_json<Shape>(S(R"({"hexagon":{"s":3.0}})"));
   ASSERT_FALSE(r.is_ok());
   EXPECT_EQ(r.unwrap_err().kind, xpp::serde::ErrorKind::UnknownField);
 }
 
-TEST(SerdeVariantTest, ExternalUnknownTagBin) {
+TEST(SerdeEnumTest, ExternalUnknownTagBin) {
   // Construct binary with tag_index=99 (out of range)
   xpp::Vec<uint8_t> bytes;
   // u32 LE: 99
@@ -200,7 +200,7 @@ TEST(SerdeVariantTest, ExternalUnknownTagBin) {
 
 /* ═══ Adjacent tagging ═══ */
 
-TEST(SerdeVariantTest, AdjacentJsonCircleRoundTrip) {
+TEST(SerdeEnumTest, AdjacentJsonCircleRoundTrip) {
   AdjShape v(ShapeCircle{1.0});
   auto     json = to_json(v);
   EXPECT_EQ(json, S(R"({"tag":"circle","content":{"r":1.0}})"));
@@ -211,7 +211,7 @@ TEST(SerdeVariantTest, AdjacentJsonCircleRoundTrip) {
   EXPECT_DOUBLE_EQ(r.unwrap().get<ShapeCircle>().r, 1.0);
 }
 
-TEST(SerdeVariantTest, AdjacentJsonSquareRoundTrip) {
+TEST(SerdeEnumTest, AdjacentJsonSquareRoundTrip) {
   AdjShape v(ShapeSquare{2.0});
   auto     json = to_json(v);
   EXPECT_EQ(json, S(R"({"tag":"square","content":{"s":2.0}})"));
@@ -222,7 +222,7 @@ TEST(SerdeVariantTest, AdjacentJsonSquareRoundTrip) {
   EXPECT_DOUBLE_EQ(r.unwrap().get<ShapeSquare>().s, 2.0);
 }
 
-TEST(SerdeVariantTest, AdjacentBinCircleRoundTrip) {
+TEST(SerdeEnumTest, AdjacentBinCircleRoundTrip) {
   AdjShape v(ShapeCircle{1.0});
   auto     bytes = to_bin(v);
   // binary adjacent: struct{tag:str, content:struct{r:f64}}
@@ -237,7 +237,7 @@ TEST(SerdeVariantTest, AdjacentBinCircleRoundTrip) {
   EXPECT_DOUBLE_EQ(r.unwrap().get<ShapeCircle>().r, 1.0);
 }
 
-TEST(SerdeVariantTest, AdjacentBinSquareRoundTrip) {
+TEST(SerdeEnumTest, AdjacentBinSquareRoundTrip) {
   AdjShape v(ShapeSquare{2.0});
   auto     bytes = to_bin(v);
   auto     r     = from_bin<AdjShape>(bytes);
@@ -246,7 +246,7 @@ TEST(SerdeVariantTest, AdjacentBinSquareRoundTrip) {
   EXPECT_DOUBLE_EQ(r.unwrap().get<ShapeSquare>().s, 2.0);
 }
 
-TEST(SerdeVariantTest, AdjacentUnknownTagJson) {
+TEST(SerdeEnumTest, AdjacentUnknownTagJson) {
   auto r = from_json<AdjShape>(S(R"({"tag":"hexagon","content":{"s":3.0}})"));
   ASSERT_FALSE(r.is_ok());
   EXPECT_EQ(r.unwrap_err().kind, xpp::serde::ErrorKind::UnknownField);
@@ -254,7 +254,7 @@ TEST(SerdeVariantTest, AdjacentUnknownTagJson) {
 
 /* ═══ Nested variant inside a struct ═══ */
 
-TEST(SerdeVariantTest, NestedVariantInStructJson) {
+TEST(SerdeEnumTest, NestedEnumInStructJson) {
   Drawing d;
   d.title = S("My Drawing");
   d.shape = Shape(ShapeCircle{3.0});
@@ -267,7 +267,7 @@ TEST(SerdeVariantTest, NestedVariantInStructJson) {
   EXPECT_DOUBLE_EQ(r.unwrap().shape.get<ShapeCircle>().r, 3.0);
 }
 
-TEST(SerdeVariantTest, NestedVariantInStructBin) {
+TEST(SerdeEnumTest, NestedEnumInStructBin) {
   Drawing d;
   d.title = S("My Drawing");
   d.shape = Shape(ShapeTriangle{3.0, 4.0});
@@ -283,7 +283,7 @@ TEST(SerdeVariantTest, NestedVariantInStructBin) {
 
 /* ═══ Cross-backend: JSON → value → binary → value ═══ */
 
-TEST(SerdeVariantTest, CrossBackendJsonToBin) {
+TEST(SerdeEnumTest, CrossBackendJsonToBin) {
   Shape v(ShapeSquare{5.0});
   auto  json = to_json(v);
   auto  r1   = from_json<Shape>(json);

@@ -1,8 +1,8 @@
-# variant.h — Tagged Union
+# enum.h — Tagged Union
 
 ## Introduction
 
-`variant.h` provides `Variant<Types...>`, a type-safe tagged union holding exactly one of the specified types. It is the C++11 replacement for `std::variant` (C++17), serving as the storage foundation for `Result<T, E>`.
+`enum.h` provides `Enum<Types...>`, a type-safe tagged union holding exactly one of the specified types. It is the C++11 replacement for `std::variant` (C++17), serving as the storage foundation for `Result<T, E>`.
 
 Always holds a value — no empty/default state. The active alternative is tracked by a runtime `size_t` index. Accessing the wrong alternative panics.
 
@@ -12,8 +12,8 @@ Always holds a value — no empty/default state. The active alternative is track
 
 | Expression | Description |
 |---|---|
-| `Variant<T...>(val)` | Construct from a value of one of the types. |
-| `Variant<T...>(InPlaceIndex<N>, args...)` | In-place construct the N-th alternative. |
+| `Enum<T...>(val)` | Construct from a value of one of the types. |
+| `Enum<T...>(InPlaceIndex<N>, args...)` | In-place construct the N-th alternative. |
 
 ### Observers
 
@@ -42,7 +42,7 @@ Always holds a value — no empty/default state. The active alternative is track
 ### Basic usage
 
 ```cpp
-xpp::Variant<int, float, std::string> v(42);
+xpp::Enum<int, float, std::string> v(42);
 assert(v.is<int>());
 assert(v.index() == 0);
 
@@ -53,8 +53,8 @@ int x = v.get<int>();  // 42
 ### Disambiguating duplicate types
 
 ```cpp
-xpp::Variant<int, int> a(xpp::InPlaceIndex<0>{}, 42);  // first int
-xpp::Variant<int, int> b(xpp::InPlaceIndex<1>{}, 99);  // second int
+xpp::Enum<int, int> a(xpp::InPlaceIndex<0>{}, 42);  // first int
+xpp::Enum<int, int> b(xpp::InPlaceIndex<1>{}, 99);  // second int
 
 assert(a.get<0>() == 42);
 assert(b.get<1>() == 99);
@@ -63,7 +63,7 @@ assert(b.get<1>() == 99);
 ### In-place construction
 
 ```cpp
-xpp::Variant<int, std::string> v(
+xpp::Enum<int, std::string> v(
     xpp::InPlaceIndex<1>{}, "hello world");
 assert(v.get<std::string>() == "hello world");
 ```
@@ -79,7 +79,7 @@ if (v.is<int>()) {
 
 ## Comparison
 
-| | `xpp::Variant<T...>` | `std::variant<T...>` (C++17) | Rust `enum` |
+| | `xpp::Enum<T...>` | `std::variant<T...>` (C++17) | Rust `enum` |
 |---|---|---|---|
 | Standard | C++11 | C++17 | — |
 | Empty state | None | `valueless_by_exception` possible | None |
@@ -94,7 +94,7 @@ if (v.is<int>()) {
 
 ```cpp
 template <class... Types>
-class Variant {
+class Enum {
     using Storage = typename std::aligned_union<0, Types...>::type;
     Storage m_storage;
     size_t  m_index;
@@ -141,9 +141,9 @@ This is a linear scan (O(N)) that beats `std::visit` for small N (2–4 types, w
 Copy assignment uses copy-and-swap:
 
 ```cpp
-Variant& operator=(const Variant &o) {
+Enum& operator=(const Enum &o) {
     if (this != &o) {
-        Variant tmp(o);     // Copy first (may throw)
+        Enum tmp(o);     // Copy first (may throw)
         destroy();          // Only then destroy old value
         m_index = tmp.m_index;
         move_from(std::move(tmp));  // Move tmp's value in

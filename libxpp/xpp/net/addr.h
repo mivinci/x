@@ -25,10 +25,10 @@
 #include <cstring>
 #include <string>
 
+#include <xpp/enum.h>
 #include <xpp/option.h>
 #include <xpp/result.h>
 #include <xpp/span.h>
-#include <xpp/variant.h>
 
 namespace xpp {
 namespace net {
@@ -420,7 +420,7 @@ inline Ipv6Addr Ipv4Addr::to_ipv6_compatible() const noexcept {
 /**
  * @brief An IP address, either IPv4 or IPv6.
  *
- * Wraps a Variant<Ipv4Addr, Ipv6Addr> for type-safe access.
+ * Wraps a Enum<Ipv4Addr, Ipv6Addr> for type-safe access.
  * Supports parsing from strings (tries IPv4 first, then IPv6).
  *
  * @see xpp::net::Ipv4Addr, xpp::net::Ipv6Addr
@@ -429,11 +429,11 @@ class IpAddr {
 public:
   /** @brief Construct an IpAddr from an Ipv4Addr. */
   static inline IpAddr from(Ipv4Addr addr) noexcept {
-    return IpAddr(Variant<Ipv4Addr, Ipv6Addr>(addr));
+    return IpAddr(Enum<Ipv4Addr, Ipv6Addr>(addr));
   }
   /** @brief Construct an IpAddr from an Ipv6Addr. */
   static inline IpAddr from(Ipv6Addr addr) noexcept {
-    return IpAddr(Variant<Ipv4Addr, Ipv6Addr>(addr));
+    return IpAddr(Enum<Ipv4Addr, Ipv6Addr>(addr));
   }
 
   /**
@@ -512,9 +512,9 @@ public:
   }
 
 private:
-  Variant<Ipv4Addr, Ipv6Addr> m_data;
+  Enum<Ipv4Addr, Ipv6Addr> m_data;
 
-  explicit IpAddr(Variant<Ipv4Addr, Ipv6Addr> data) noexcept : m_data(std::move(data)) {}
+  explicit IpAddr(Enum<Ipv4Addr, Ipv6Addr> data) noexcept : m_data(std::move(data)) {}
 };
 
 /* ── SocketAddrV4 ──────────────────────────────────────────────────── */
@@ -755,7 +755,7 @@ private:
 /**
  * @brief A socket address, either IPv4 or IPv6.
  *
- * Wraps a Variant<SocketAddrV4, SocketAddrV6>. Supports parsing from
+ * Wraps a Enum<SocketAddrV4, SocketAddrV6>. Supports parsing from
  * strings (bracketed IPv6 or plain IPv4 format), and conversion to/from
  * POSIX sockaddr structures.
  *
@@ -765,11 +765,11 @@ class SocketAddr {
 public:
   /** @brief Construct a SocketAddr from a SocketAddrV4. */
   static inline SocketAddr from(SocketAddrV4 addr) noexcept {
-    return SocketAddr(Variant<SocketAddrV4, SocketAddrV6>(addr));
+    return SocketAddr(Enum<SocketAddrV4, SocketAddrV6>(addr));
   }
   /** @brief Construct a SocketAddr from a SocketAddrV6. */
   static inline SocketAddr from(SocketAddrV6 addr) noexcept {
-    return SocketAddr(Variant<SocketAddrV4, SocketAddrV6>(addr));
+    return SocketAddr(Enum<SocketAddrV4, SocketAddrV6>(addr));
   }
 
   /**
@@ -838,7 +838,7 @@ public:
   }
 
   /** @brief Returns the IP address regardless of variant. */
-  inline IpAddr   ip() const;
+  inline IpAddr ip() const;
   /** @brief Returns the port regardless of variant. */
   inline uint16_t port() const;
 
@@ -886,10 +886,9 @@ public:
   inline void to_sockaddr(struct sockaddr_storage *out, socklen_t *out_len) const;
 
 private:
-  Variant<SocketAddrV4, SocketAddrV6> m_data;
+  Enum<SocketAddrV4, SocketAddrV6> m_data;
 
-  explicit SocketAddr(Variant<SocketAddrV4, SocketAddrV6> data) noexcept
-      : m_data(std::move(data)) {}
+  explicit SocketAddr(Enum<SocketAddrV4, SocketAddrV6> data) noexcept : m_data(std::move(data)) {}
 };
 
 /* ── SocketAddr deferred methods ───────────────────────────────────── */

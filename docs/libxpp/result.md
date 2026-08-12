@@ -32,7 +32,7 @@ graph TD
     end
 
     subgraph "Type System"
-        VARIANT["Variant&lt;T, E&gt;"]
+        ENUM["Enum&lt;T, E&gt;"]
         OPTION["Option&lt;T&gt;"]
         IS_OPT["is_option&lt;T&gt; trait"]
     end
@@ -49,7 +49,7 @@ graph TD
 
     OK --> RESULT
     ERR --> RESULT
-    RESULT --> VARIANT
+    RESULT --> ENUM
     RESULT --> MAP
     RESULT --> MAP_ERR
     RESULT --> AND_THEN
@@ -227,27 +227,27 @@ auto transposed2 = std::move(not_found).transpose();
 
 ## Implementation Notes
 
-### Storage: Variant\<T, E\>
+### Storage: Enum\<T, E\>
 
 ```cpp
 template <class T, typename E>
 class Result {
-    Variant<T, E> m_data;
+    Enum<T, E> m_data;
 };
 ```
 
-`Result` delegates all storage and destruction to `Variant<T, E>`. The Ok variant is index 0, Err is index 1. `is_ok()` is `m_data.index() == 0`.
+`Result` delegates all storage and destruction to `Enum<T, E>`. The Ok variant is index 0, Err is index 1. `is_ok()` is `m_data.index() == 0`.
 
 ### Void Specialization
 
 ```cpp
 template <class E>
 class Result<void, E> {
-    Variant<OkSentinel, E> m_data;
+    Enum<OkSentinel, E> m_data;
 };
 ```
 
-`OkSentinel` is a zero-size tag struct. The `Variant<OkSentinel, E>` stores `OkSentinel` at index 0 and `E` at index 1 — no storage overhead for the success case. `is_ok()` checks `m_data.is<OkSentinel>()` (index 0), `is_err()` checks `m_data.is<E>()` (index 1).
+`OkSentinel` is a zero-size tag struct. The `Enum<OkSentinel, E>` stores `OkSentinel` at index 0 and `E` at index 1 — no storage overhead for the success case. `is_ok()` checks `m_data.is<OkSentinel>()` (index 0), `is_err()` checks `m_data.is<E>()` (index 1).
 
 ### Option Bridge: ok_or / ok_or_else
 
