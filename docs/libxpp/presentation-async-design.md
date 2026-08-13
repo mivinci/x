@@ -1,6 +1,13 @@
 # xpp 异步机制设计 — 技术分享
 
-> 对象：程序员同事 | 时长：约 25 分钟 | 重点：设计决策，非 API 罗列
+> 这个项目的构想诞生于 2022 年。当时我在做自己的编程语言，过程中发现 Rust 的语义设计跟 C++ 几乎同构——C++ 不缺能力，缺的是把这些能力组织起来的运行时。STL 并不完美，甚至可以说丑陋。于是有了一个想法：给 C++ 补一套机制，让它跟 Rust 一样安全、一样好用。
+>
+> 但工程量比想象中大得多。Rust 的 `Future` trait 怎么落到 C++11 上？下游每个模块怎么设计？模块之间怎么有机结合而不互相冲突？数学上的结构美感怎么保住？这些问题每一个都要精雕细琢。断断续续搞了几年——中间去研究了一阵 cloud native 和 LLM——始终没能一口气推到底。
+>
+> 直到 AI coding 水平发展到能一起做这种事，进度才指数上升。这份分享讲的就是这几年沉淀下来的设计，重点不在 API 罗列，在**为什么这么设计**。
+>
+> 开源地址：github.com/mivinci/x — 记得三连呀 ～～  
+> 文档地址：le0.me/x
 
 ---
 
@@ -20,7 +27,6 @@ Go 有 goroutine。Rust 有 tokio。C++ 有什么？
 
 → 四个组件，四种线程模型。你在四套调度系统之间传数据。
 → 业务逻辑永远跟「这个回调在哪个线程跑」纠缠在一起。
-→ 线上出了问题，你看一眼 perf 的线程视图就想辞职。
 ```
 
 **结果就是——**
@@ -143,7 +149,7 @@ xpp::Promise<Vec<uint8_t>> fetch_body(const char *url) {
 
 ### 一次完整调用，端到端走读
 
-用 `fetch_http()` 的 `await` 版本，把每个步骤拆开看。
+把这一行拆开看：
 
 ```cpp
 // 一次 HTTP GET，返回 Response
@@ -228,7 +234,7 @@ poll(cx) → Option<T>
 - one-shot 把「检查」和「取走」原子化
 - 这也意味着：每个 Promise 只能 await 一次，await 完就空了
 
-> **注**：本节只讲流程层面——poll/waker 在哪里触发、park 怎么被唤醒。AsyncFd 内部用什么数据结构把「waker 注册到等待表」做对、跨线程安全性怎么保证，是 Section 5「Adapter 模式」的话题。Section 3 的读者只需要知道：fd 注册到 EventLoop、回调里能 resolve、waker 被 wake，就够了。
+> **注**：本节只讲流程层面——poll/waker 在哪里触发、park 怎么被唤醒。AsyncFd 内部用什么数据结构把「waker 注册到等待表」做对、跨线程安全性怎么保证，是 Section 4「PromiseNode 与 PromiseResolver」的话题。本节读者只需要知道：fd 注册到 EventLoop、回调里能 resolve、waker 被 wake，就够了。
 
 ---
 
@@ -271,6 +277,8 @@ PromiseResolver<T>  PromiseContext
 ```
 
 **PromiseContext**：连接 PromiseNode 和 EventLoop 的中间人。`poll()` 返回 None 时，`cx.waker()` 被注册到 `ResolveState` 的 `AtomicWaker` 里；外部事件调 `resolve()` 时，waker 被 wake，`park()` 返回，再来一轮 poll。
+
+> **注**：这是通用 Adapter 的设计。特定实现可能简化——比如 `AsyncFd` 因为是 single-threaded + 一个 fd 对应一个等待位，直接把 `PromiseResolver` 作为成员变量挂在对象上，不走 `Arc<ResolveState>`。机制本质一致，数据结构按场景裁剪。
 
 **Arena**：PromiseNode 不从 heap malloc。每个 PromiseNode 自带一个 arena chunk，bump pointer 分配——`then()` 链上的所有中间 node 在同一个 arena 里接连分出来，全部释放时一次 free。O(N) 的 malloc 降为 O(1)。
 
@@ -474,6 +482,8 @@ Option<T> poll_state(ResolveState<T> &s, const PromiseContext &cx) {
 
 ## 6. await() 的三种变体
 
+Section 1 讲了三种**消费方式**（then / await / co_await）——那是 Promise 给到调用方后，调用方怎么用。本节换视角：**聚焦 `.await()` 这一支**，看它在不同上下文下行为怎么变。`co_await` 是编译器帮我写状态机，本质同源；`.then()` 不阻塞、没有「上下文」概念。只有 `.await()` 会真的把当前执行流挂起，所以它的"在哪挂、怎么醒"才有三种变体：
+
 xpp 的 Promise 支持三种使用风格，**底层是同一套 poll 机制**：
 
 ### 风格 1：C++11 .await()（直接跑 event loop）
@@ -618,14 +628,14 @@ A 线程的 fiber 里 `tx.send(v).await()`，B 线程的 fiber 里 `rx.recv().aw
 | 2 | 同    | 同     | channel | 同 fiber 里 `tx.send().await()` + `rx.recv().await()` |
 | 3 | 同    | 跨     | 直接     | fiber A `await()`，fiber B 在某处 `resolver.resolve()` |
 | 4 | 同    | 跨     | channel | 同 EventLoop 上多 fiber 用 mpsc/oneshot 通信     |
-| 5 | 跨    | 跨     | 直接     | `xpp::work(fn)` — worker 线程池跑完直接 resolve    |
-| 6 | 跨    | 跨     | channel | 多个 EventLoop 各跑线程，channel 互通               |
+| 5 | 跨    | –     | 直接     | `xpp::work(fn)` — worker 线程跑 fn，跑完直接 resolve（worker 不是 fiber） |
+| 6 | 跨    | –     | channel | 多个 EventLoop 各跑线程，channel 互通（每个线程内部可能用 fiber） |
 
 **一个边界情况**：Adapter 模式（timer 到期 / fd 可读）的 `resolve` 来自 EventLoop 调度回调，不在任何 fiber 里。按这个分类维度，它落进 #1——await 在某 fiber 内，resolve 来自同线程的 EventLoop 回调，没有跨 fiber 也没有跨线程。严格说"被调方"不是 fiber 而是 EventLoop 本身，但值传递路径等价于 #1。
 
 ---
 
-## 8. 性能细节
+## 8. 性能细节：Per-Chain Arena
 
 ### Per-Chain Arena（链式 arena 分配）
 
@@ -700,8 +710,11 @@ Arc/ArcWeak + poll_state() atomic double-check。构造即启动，析构即取�
 **5. 多种消费风格，一个内核**  
 C++11 `.await()`、C++20 `co_await`、C++11 fiber——三套写法，底层是同一套 poll/waker。无栈有栈并行可选，不互相排斥。
 
-**6. 零开销**  
-Arena allocation 让 then 链的 malloc 从 O(N) 降到 O(1)。所有 debug check 在 release 优化掉。
+**6. 调用拓扑 — 单线程 EventLoop，多线程软件**  
+EventLoop 单线程，**不等于整个软件只能跑一个线程**。六种调用拓扑覆盖同/跨线程 × 同/跨 fiber × 直接/channel 的所有组合：直接 `.await()` 链、同 EventLoop 跨 fiber、`xpp::work` 后台线程池、多 EventLoop + channel 互通——都跑在同一套 poll/waker 之上。Promise 管「做完一件事通知我」，channel 管「多个事之间怎么传数据」，两套正交互补。
+
+**7. 零开销**  
+Per-Chain Arena 让 then 链的 malloc 从 O(N) 降到 O(1)：链上所有 PromiseNode 共享一个 256 字节 bump allocator，链结束时一次 free。Timer/Work 有对象池（freelist），跨线程通信用 lock-free MPSC + Treiber stack，wake 带 coalescing。所有 debug check 在 release 优化掉。
 
 **C++ 不缺库。C++ 缺的是一套不说不同方言的异步语言。** libxpp 给出的就是这门语言。
 
@@ -941,3 +954,185 @@ process(Span<const uint8_t>(ptr, len));  // 裸指针+长度 → Span
 | `Box<T>`      | `Box<T>`        | unique_ptr 语义，直译               |
 
 **它们跟 Promise 的关系**：Promise 用 Option 表 "pending or ready"，用 Result 表 "success or OOM"，用 Vec 存文件内容，用 String 表 UTF-8 文本。异步机制是骨架，这些类型是血肉。缺哪一个都不完整。
+
+---
+
+## 13. Appendix: 范畴论视角 — Promise 是个 Monad
+
+> 如果有时间，补这一节。没有也不影响前面的理解。
+
+前面 12 节讲的是工程实现。但 xpp 的 Promise 背后有一个干净的数学结构——理解它，能解释为什么 `.then()`、`Promise.all`、`XPP_TRY` 这些 API "就该长这样"。
+
+### 为什么要在乎范畴论
+
+范畴论不是事后给工程披一件数学外衣。它给的是一个**完备性论证**：如果你要异步值具备下面五条工程能力，最终只会落到 monad 这一套结构上。
+
+1. **异步值是一等值**——能存进变量、能当参数返回值、能放进容器
+2. **串行组合**——`f()` 后接 `g()`，能写成链，不嵌套
+3. **并行组合**——多个异步值能合并成一个（`Promise.all`）
+4. **组合不依赖括号位置**——`(a then b) then c` ≡ `a then (b then c)`，链可重构
+5. **嵌套可拍平**——异步返回异步时，`Promise<Promise<T>>` 能压成 `Promise<T>`
+
+**这五条 = monad 三条律**。不是巧合——是范畴论保证的等价。少要一条可以走别的路子（回调缺 4、actor 缺 5、stackful coroutine 把 1-5 全藏在 runtime 里不在类型层面显式），但少了对应的工程能力。
+
+xpp 选 Promise 这套形态，**既是冲着数学结构、也是冲着工程能力**——两者在这里是同一件事的两面：数学结构保证了工程能力不漏底，工程需求恰好落到数学结构的最小解上。这不是凑出来的 API——是异步在类型论里的标准形态。
+
+**直觉上**：functor 是"可以往里头灌函数"的容器——容器外形不变，里面值变了。monad 是 functor 的强化，多了"把嵌套拍平"的能力。`Vec`、`Option`、`Promise` 表面天差地别，骨子里是同一个结构。
+
+### 先回顾范畴论里的 functor 和 monad
+
+**Functor** `F : C → D` 是"范畴到范畴的映射"——把对象映到对象、态射映到态射，**保持复合和单位元**：
+
+- 对象 `X ∈ C`  ↦  `F(X) ∈ D`
+- 态射 `f : X → Y`  ↦  `F(f) : F(X) → F(Y)`
+- 满足两条律：
+  - `F(g ∘ f) = F(g) ∘ F(f)`（保持复合）
+  - `F(id_X) = id_{F(X)}`（保持单位元）
+
+**Monad** 是**范畴到自身的 functor**（endofunctor）`T : C → C`，再加两个自然变换：
+
+- `return : A → T(A)`（把值装进容器）
+- `bind : T(A) → (A → T(B)) → T(B)`（等价于 `fmap + join`，`join : T(T(A)) → T(A)` 负责拍平嵌套）
+
+满足三条律：左单位、右单位、结合律（下面展开）。
+
+**编程里的特例**：只用 `C = D = Type` 范畴（对象是类型，态射是函数）。所以编程里说的 functor/monad 都是 `Type → Type` 的 endofunctor——源范畴和目标范畴是同一个。
+
+### Promise 套进 functor 定义
+
+把范畴论定义逐条对应到 Promise：
+
+| 范畴论 | Promise 里的写法 |
+|---|---|
+| 范畴 C | `Type` 范畴（对象是类型，态射是函数） |
+| 对象 X | 类型 `int`、`string`、`Response` |
+| 态射 `f : X → Y` | 函数 `f : int → string` |
+| 复合 `g ∘ f` | 函数复合 `g(f(x))` |
+| `id_X` | `[](auto x) { return x; }` |
+| Functor F | `Promise<_>` 类型构造子 |
+| 对象映射 `F(X)` | `Promise<int>` |
+| 态射映射 `F(f)` | `fmap(f) = [p](Promise<int> p) { return p.then(f); }` |
+
+两条 functor 律对应到具体行为：
+
+**律 1 `F(g ∘ f) = F(g) ∘ F(f)`** —— "先合成再 then" 等价于 "一个一个 then"：
+
+```cpp
+// 左边：先把 f、g 合成成一个函数，再 then
+p.then([](int x) { return g(f(x)); })
+
+// 右边：先 then f，再 then g
+p.then(f).then(g)
+
+// 两者行为一致
+```
+
+**律 2 `F(id_X) = id_{F(X)}`** —— "then 一个什么都不做的函数" 等于 "没 then"：
+
+```cpp
+p.then([](auto x) { return x; })   // 等于 p 本身
+```
+
+**律的实用含义**：Promise 是个透明容器，`then` 不偷偷加副作用、不偷偷改状态。你能放心地 `then` 来 `then` 去，不会出现"咦怎么行为变了"。
+
+### Promise 套进 monad 定义
+
+Functor 只能处理"函数返回普通值"——`f : A → B` 被 `fmap` 提升成 `F(A) → F(B)`。但当函数自己返回容器时 `f : A → F(B>`，`fmap` 会得到 `F(F(B>>`（套两层）。
+
+Monad 多一步 `join : F(F(B>> → F(B>`，把嵌套压扁。`bind = fmap + join`。
+
+Promise 的对应：
+
+| 范畴论 | Promise 里的写法 |
+|---|---|
+| endofunctor `T : Type → Type` | `Promise<_>` |
+| `return : A → T(A)` | `xpp::resolve(a)` |
+| `bind : T(A) → (A → T(B)) → T(B)` | `p.then(f)` 当 `f : A → Promise<B>` |
+| `join : T(T(A)) → T(A)` | `ChainPromiseNode`（自动把 `Promise<Promise<B>>` 拍平成 `Promise<B>`）|
+
+三条 monad 律：
+
+| 律 | 形式 | xpp 含义 |
+|---|---|---|
+| 左单位 | `resolve(a).then(f) ≡ f(a)` | 已有值再 then，等于直接调 f |
+| 右单位 | `p.then(resolve) ≡ p` | 把值再包一层，等于没包 |
+| 结合律 | `(p.then(f)).then(g) ≡ p.then(x => f(x).then(g))` | 链怎么括不影响结果 |
+
+**`.then()` 既是 `fmap` 又是 `bind`** —— C++ 重载了。普通函数走 fmap 路径；返回 Promise 的函数走 bind+join 路径（`ChainPromiseNode` 把 `P(P(B))` 拍平成 `P(B)`）。这是为什么 `.then()` 链不会出现 `Promise<Promise<Promise<T>>>`。
+
+### Async 函数是 Kleisli 箭头
+
+同步世界是 **Set** 范畴：对象是类型，态射是 `A → B`。
+
+异步世界是 **Kleisli 范畴 Kl(P)**：对象还是类型，态射是 `A → P(B)`（叫 Kleisli 箭头）。
+
+- 单位态射：`resolve : A → P(A)`
+- Kleisli 复合 `>=>`：`(f >=> g)(a) = f(a).then(g)`
+
+**你写 `f().then(g)` 时，你在做 Kleisli 复合** —— 只是写法是链式而不是函数式。
+
+### `.await` 是 direct-style 语法糖
+
+`.await : P(A) → A` 看起来是从 monad 里"逃出来"——但它在纯函数式里写不出来（会破坏 referential transparency）。
+
+`async/await` 的本质：**编译器把 direct-style 代码 desugar 成 Kleisli 复合**。你写：
+
+```cpp
+auto a = f().await();
+auto b = g(a).await();
+return h(b);
+```
+
+编译器翻译成：
+
+```cpp
+return f().then([](A a) {
+    return g(a).then([](A b) {
+        return resolve(h(b));
+    });
+});
+```
+
+完全是 Kleisli 复合。`await` 让程序员不用手写 `.then()` 嵌套——这就是"语法糖"的精确含义。
+
+Rust 的 `?` 错误传播操作符也是同一个东西，只是作用在 `Result` monad 而不是 `Promise` monad。结构完全同构。
+
+### 其他 async 操作都是 monad 的衍生
+
+| 操作 | 范畴论名字 | 类型 |
+|---|---|---|
+| `Promise.all([p1, ..., pn])` | `sequence` (Applicative) | `List<P(A)> → P(List<A>)` |
+| `Promise.race(p1, p2)` | `Alternative` 的 `<\|>` | `P(A) × P(A) → P(A)` |
+| 错误传播 `XPP_TRY` | `MonadError` | `P<Result<T, E>>` 的短路传播 |
+
+`all` 是 `traverse`/`sequence`——把"列表 of monad"翻成"monad of list"。`race` 是 `Alternative`——两个 monad 值选一个。**这些都不是凭空加的 API，是 monad 结构自然衍生的**。
+
+### CPS 是"所有 monad 之母"
+
+回调形式 `A → (B → R) → R` 就是 **continuation monad** `Cont R`。
+
+范畴论有个深刻结果：**任何 monad 都能用 CPS 编码**（通过 `call/cc`）。所以：
+
+- Promise 是 CPS 的 reification（把 continuation 物化成值）
+- Future/Task 也是 CPS 的 reification，细节不同
+- async/await 是 CPS 的 syntax sugar
+
+它们在范畴论里都是同一个构造的不同呈现。**Section 0 讲的"回调 vs Promise 形式上等价"**，本质就是这个——CPS 是共同的根。
+
+### Promise 在 monad 家族中的位置
+
+xpp 里这些类型全是 monad，各自承载一种"副作用"：
+
+| 类型 | "副作用" |
+|---|---|
+| `Option<T>` | "可能没有值" |
+| `Result<T, E>` | "可能失败" |
+| `Vec<T>` | "可能有多个值" |
+| `Promise<T>` | "值会晚到" |
+| Haskell `IO<T>` | "依赖外部世界" |
+
+都有 `return` 和 `bind`，都形成 Kleisli 范畴。**Promise 是这个家族里"时间维度"的那一个**。
+
+### 一句话
+
+> **xpp 的 Promise 是 `Promise` monad 在 C++11 上的实现。`.then()` 既是 `fmap` 又是 `bind`，`async/await` 是 Kleisli 复合的 direct-style 语法糖。这不是凑出来的 API——是异步在类型论里的标准形态。**
