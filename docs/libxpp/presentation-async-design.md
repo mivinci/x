@@ -147,15 +147,13 @@ xpp::Promise<Vec<uint8_t>> fetch_body(const char *url) {
 
 ```cpp
 // 一次 HTTP GET，返回 Response
-xpp::Promise<xpp::io::Result<xpp::http::Response>> fetch_http(const char *url) {
-    return xpp::http::get(url).await();
-}
+auto resp = xpp::http::get(url).await();
 ```
 
 `http::get` 内部要做三件事：DNS 解析、TCP connect、HTTP 请求/响应读写。我们把 connect 完成后那一阶段（已经拿到 connected socket fd）放大看，poll/waker 在哪里触发。
 
 ```
-fetch_http() 被调用：
+xpp::http::get(url) 被调用：
 │
 ├─ ① http::get(url)
 │     → 内部拿到 connected socket fd
@@ -163,7 +161,7 @@ fetch_http() 被调用：
 │     → 通过 xEventAdd 注册到 EventLoop（edge-triggered，Read|Write）
 │     → 返回 Promise<Response>，背后是 AdapterPromiseNode
 │
-├─ ② co_await / .await()
+├─ ② .await()
 │     → 进入 poll 循环（就是下面那个 while(true) 循环）
 │     │
 │     ├─ 第 1 轮 poll:
@@ -196,7 +194,7 @@ fetch_http() 被调用：
 │        ... 直到 status line + headers + body 全部解析完才 Ready。
 ```
 
-**每一层 `co_await` 都在重复同一件事**：poll → 没好就 park → EventLoop 跑一轮 → 被内核叫醒 → poll → 拿到值。整个循环的伪代码就下面这几行。
+**每一层 `.await()` 都在重复同一件事**：poll → 没好就 park → EventLoop 跑一轮 → 被内核叫醒 → poll → 拿到值。整个循环的伪代码就下面这几行。
 
 ### 引擎视角：await() 内部循环
 
