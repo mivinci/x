@@ -148,8 +148,7 @@ xpp::Promise<Vec<uint8_t>> fetch_body(const char *url) {
 ```cpp
 // 一次 HTTP GET，返回 Response
 xpp::Promise<xpp::io::Result<xpp::http::Response>> fetch_http(const char *url) {
-    auto resp = co_await xpp::http::get(url);
-    return resp;
+    return xpp::http::get(url).await();
 }
 ```
 
