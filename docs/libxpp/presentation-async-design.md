@@ -165,7 +165,7 @@ first_line() 被调用：
 │     ├─ 内核：磁盘读完，文件 fd 变为可读
 │     │    → epoll 返回这个 fd 的事件
 │     │    → EventLoop 调用 AsyncFd 的回调（fd→回调 的映射在 EventLoop 里）
-│     │    → 回调里 resolve() → fire waker（在 ResolveState 的 atomic 表里查找）
+│     │    → 回调里 resolve() → wake waker（在 ResolveState 的 atomic 表里查找）
 │     │    → park() 返回，线程醒来
 │     │
 │     ├─ 第 2 轮 poll:
@@ -188,15 +188,15 @@ first_line() 被调用：
 ```cpp
 // Promise<T>::await() 的内部实现（简化）
 ValueType await() {
-    PromiseWaker waker;
+    PromiseContext cx;
     while (true) {
         // 1. 问：「你好了吗？」
-        Option<ValueType> result = m_node->poll(waker);
+        Option<ValueType> result = m_node->poll(cx);
         if (result.is_some()) {
             return result.unwrap();  // 好了，拿值走人
         }
-        // 2. 没好，睡。waker 会在「可能有进展」时叫醒我们。
-        waker.park();   // 内部跑一轮 xEventLoopRun(ONCE)
+        // 2. 没好，睡。cx 会在「可能有进展」时叫醒我们。
+        cx.park();   // 内部跑一轮 xEventLoopRun(ONCE)
     }
 }
 ```
@@ -204,9 +204,9 @@ ValueType await() {
 这就是 **Rust Future 的 poll 模型**，移植到 C++11：
 
 ```
-poll(waker) → Option<T>
+poll(cx) → Option<T>
   Some(value)  = Ready        ← 一次性的，拿了就不能再 poll
-  None         = Pending      ← waker 被注册，等后续通知
+  None         = Pending      ← cx.waker() 被注册，等后续通知
 ```
 
 **为什么是 one-shot poll 而不是 `is_ready() + take()`？**
@@ -249,13 +249,13 @@ ResolveState<T>  ←── 数据的家                                       �
             │
    ┌────────┴────────┐
    ▼                 ▼
-PromiseResolver<T>  PromiseWaker
+PromiseResolver<T>  PromiseContext
   答端                 闹钟
-  .resolve(value)      .fire() / .park()
+  .resolve(value)      .park() / .waker().wake()
   生产者调用            驱动 poll 循环
 ```
 
-**PromiseWaker**：连接 PromiseNode 和 EventLoop 的中间人。`poll()` 返回 None 时，waker 被注册到 `ResolveState` 的 `AtomicWaker` 里；外部事件调 `resolve()` 时，waker 被 fire，`park()` 返回，再来一轮 poll。
+**PromiseContext**：连接 PromiseNode 和 EventLoop 的中间人。`poll()` 返回 None 时，`cx.waker()` 被注册到 `ResolveState` 的 `AtomicWaker` 里；外部事件调 `resolve()` 时，waker 被 wake，`park()` 返回，再来一轮 poll。
 
 **Arena**：PromiseNode 不从 heap malloc。每个 PromiseNode 自带一个 arena chunk，bump pointer 分配——`then()` 链上的所有中间 node 在同一个 arena 里接连分出来，全部释放时一次 free。O(N) 的 malloc 降为 O(1)。
 
@@ -268,7 +268,7 @@ PromiseResolver<T>  PromiseWaker
 ```cpp
 template <class T>
 class PromiseNode {
-    virtual Option<T> poll(const PromiseWaker &waker) = 0;
+    virtual Option<T> poll(const PromiseContext &cx) = 0;
 };
 ```
 
@@ -377,7 +377,7 @@ void my_timer_cb(xTimer *t, void *userdata) {
 
 ```
                     ┌──────────────────────┐
-                    │  AdapterPromiseNode   │  ← 实现 poll(waker)
+                    │  AdapterPromiseNode   │  ← 实现 poll(cx)
                     │  ┌─────────────────┐  │
                     │  │ Arc<ResolveState>│  │  ← 状态共享（Arc）
                     │  │  Option<T> value │  │
@@ -416,16 +416,16 @@ PromiseResolver:     ArcWeak<ResolveState> (弱引用，Promise 销毁后 resolv
 **2. poll_state() 的三步检查（double-check）**
 
 ```cpp
-Option<T> poll_state(ResolveState<T> &s, const PromiseWaker &waker) {
+Option<T> poll_state(ResolveState<T> &s, const PromiseContext &cx) {
     // Step 1: fast path — 已经 resolved 了？
     if (s.resolved.load(acquire)) return std::move(s.value);
 
     // Step 2: 注册 waker（可能和 resolve 并发）
-    s.waker.register_waker(waker);
+    s.waker.register_by_ref(cx.waker());
 
     // Step 3: double-check — 注册 waker 期间 resolve 了吗？
     if (s.resolved.load(acquire)) {
-        s.waker.wake();          // self-wake：我们已经注册了 waker，
+        cx.waker().wake();    // self-wake：我们已经注册了 waker，
         return std::move(s.value); // 但值已经在了，直接拿走
     }
 
@@ -436,11 +436,11 @@ Option<T> poll_state(ResolveState<T> &s, const PromiseWaker &waker) {
 **为什么需要 double-check？** 看这个并发时序：
 
 1. T1: poll_state 检查 resolved → false
-2. T2: resolve() 设 resolved=true → fire waker
-3. T1: register_waker
-4. T1: 没人再 fire waker 了 → **死等**
+2. T2: resolve() 设 resolved=true → wake waker
+3. T1: register_by_ref
+4. T1: 没人再 wake waker 了 → **死等**
 
-加上 double-check 后，T1 在 register_waker 之后再查一次——如果 T2 在此期间 resolved，T1 自唤醒。
+加上 double-check 后，T1 在 register_by_ref 之后再查一次——如果 T2 在此期间 resolved，T1 自唤醒。
 
 **3. 自动取消**
 
@@ -467,8 +467,8 @@ xpp 的 Promise 支持三种使用风格，**底层是同一套 poll 机制**：
 int result = fetch_data().await();
 // ↓ await() 内部
 while (true) {
-    if (poll(waker)) return value;
-    waker.park();  // → xEventLoopRun(ONCE)
+    if (poll(cx)) return value;
+    cx.park();  // → xEventLoopRun(ONCE)
 }
 ```
 
@@ -556,8 +556,8 @@ xpp 的定位：**用 Rust Future 的模型，在 C++11 上跑，保留协程升
    ┌─────┴─────┐                  │
    ▼           ▼                  ▼
 C++11 .await()  C++20 co_await  C++11 fiber
-(显式 poll/waker,  (编译器生成状态机,  (ucontext,
-  C++11 兼容)      零语法糖开销)      独立栈, 旧代码可用)
+(显式 poll/waker,  (编译器生成状态机,  (makecontext 启动,
+  C++11 兼容)      零语法糖开销)      _setjmp/_longjmp 切换, 旧代码可用)
 ```
 
 ---
@@ -654,7 +654,7 @@ A: 这是个工程问题不是语言问题。团队 C++ 技术栈，业务代码
 A: Linux 走 epoll，macOS 走 kqueue，Windows 走 WSAPoll——三种后端通过同一个接口提供 edge-triggered 事件通知（WSAPoll 底层是 poll，通过禁用事件 + re-arm 模拟 ET）。后续计划做第二套 proactor 事件机制：IOCP 支持 Windows，io_uring 支持 Linux/macOS。
 
 **Q: Fiber 的实现原理？**  
-A: 用的是 `ucontext` / `makecontext` / `swapcontext`（POSIX 栈协程）。每个 fiber 有自己的栈（默认 128KB）。`xFiberYield()` 把控制权交还给 event loop。
+A: 每个 fiber 有自己的栈（mmap 分配，默认 128KB）。首次切换用 `makecontext`/`setcontext` 设置新栈和入口函数；后续挂起/恢复全走 `_setjmp`/`_longjmp`，避开 ucontext 的 sigprocmask 开销。`xFiberYield()` 把控制权交还给 event loop。
 
 **Q: Promise 解决了异步返回，并发协调用啥？**  
 A: sync 模块提供了 Tokio 风格的 channel：`oneshot`（单发单收）、`mpsc`（多生产者单消费者）、`broadcast`（一对多）、`watch`（值版本跟踪）。Promise 管「做完一件事通知我」，channel 管「多个事之间怎么传数据」——两套东西正交互补，都跑在 EventLoop 上。
