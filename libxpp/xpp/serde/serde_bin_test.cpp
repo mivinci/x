@@ -508,7 +508,7 @@ TEST(SerdeBinTest, CrossBackendEquivalent) {
   // Serialize via JSON, deserialize back to Person
   json::Serializer js;
   ASSERT_TRUE(serde::serialize(p_json_source, js).is_ok());
-  auto jstr = js.buffer();
+  auto jstr = js.to_string();
   // Build a C-string for from_string
   std::string tmp(reinterpret_cast<const char *>(jstr.as_bytes().data()), jstr.len());
   auto        jres = json::Deserializer::from_string(tmp.c_str());

@@ -82,7 +82,7 @@ template <class T> String to_json(const T &v) {
   json::Serializer ser;
   auto             r = serde::serialize(v, ser);
   EXPECT_TRUE(r.is_ok()) << "serialize failed";
-  return ser.buffer();
+  return ser.to_string();
 }
 
 template <class T> xpp::Result<T, xpp::serde::Error> from_json(const char *s) {
