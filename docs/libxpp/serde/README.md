@@ -43,10 +43,9 @@ XPP_SERDE(Person, (name), (age))
 int main() {
   Person p{"Alice", 30};
 
-  // Serialize to JSON
-  xpp::serde::json::Serializer ser;
-  xpp::serde::serialize(p, ser);
-  xpp::String json = ser.buffer();
+  // Serialize to JSON (one-step: mirrors serde_json::to_string)
+  auto j = xpp::serde::json::to_string(p);
+  xpp::String json = std::move(j).unwrap();
   // json == R"({"name":"Alice","age":30})"
 
   // Deserialize back

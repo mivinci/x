@@ -16,21 +16,31 @@ Link target: any TU including `json.h` must link `xjson`.
 
 ### Serialize
 
+**One-step** (preferred for simple cases — mirrors `serde_json::to_string`):
+
 ```cpp
 #include <xpp/serde/json.h>
-#include <xpp/serde/serde.h>
 
 Person p{"Alice", 30};
 
-xpp::serde::json::Serializer ser;
-xpp::serde::serialize(p, ser);
-xpp::String json = ser.buffer();
-// json == R"({"name":"Alice","age":30})"
+auto r = xpp::serde::json::to_string(p);
+if (r.is_ok()) {
+  xpp::String json = std::move(r).unwrap();
+  // json == R"({"name":"Alice","age":30})"
+}
 ```
 
-`Serializer::buffer()` returns a `xpp::String` view of the JSON output.
-Call it after `serialize()` returns `Ok`. `Serializer::reset()` clears
-the internal state for reuse.
+**Two-step** (when you need to inspect or reuse the `Serializer`):
+
+```cpp
+xpp::serde::json::Serializer ser;
+xpp::serde::serialize(p, ser);
+xpp::String json = ser.to_string();
+```
+
+`Serializer::to_string()` stringifies the internal `xJson` tree to a
+compact JSON string. Call it after `serialize()` returns `Ok`.
+`Serializer::reset()` clears the internal state for reuse.
 
 ### Deserialize
 

@@ -105,7 +105,7 @@ template <class T> String to_json(const T &v) {
   json::Serializer ser;
   auto             r = serde::serialize(v, ser);
   EXPECT_TRUE(r.is_ok()) << "serialize failed";
-  return ser.buffer();
+  return ser.to_string();
 }
 
 template <class T> xpp::Result<T, xpp::serde::Error> from_json(const char *s) {
@@ -118,6 +118,18 @@ template <class T> xpp::Result<T, xpp::serde::Error> from_json(const char *s) {
 }
 
 /* ───────────────────── Primitive round-trips ───────────────────── */
+
+TEST(SerdeJsonTest, FreeFunctionToString) {
+  // json::to_string(value) is the one-step convenience wrapper.
+  auto r = json::to_string(42);
+  ASSERT_TRUE(r.is_ok());
+  EXPECT_EQ(r.unwrap(), "42");
+
+  Person p{S("Alice"), 30};
+  auto   r2 = json::to_string(p);
+  ASSERT_TRUE(r2.is_ok());
+  EXPECT_EQ(r2.unwrap(), R"({"name":"Alice","age":30})");
+}
 
 TEST(SerdeJsonTest, BoolRoundTrip) {
   EXPECT_EQ(to_json(true), "true");
@@ -419,8 +431,8 @@ TEST(SerdeJsonTest, SerializerBufferTwiceIdempotent) {
   json::Serializer ser;
   auto             r = ser.serialize_i32(42);
   ASSERT_TRUE(r.is_ok());
-  String a = ser.buffer();
-  String b = ser.buffer();
+  String a = ser.to_string();
+  String b = ser.to_string();
   EXPECT_EQ(a, b);
 }
 
@@ -428,17 +440,17 @@ TEST(SerdeJsonTest, SerializerResetClearsState) {
   json::Serializer ser;
   auto             r1 = ser.serialize_i32(42);
   ASSERT_TRUE(r1.is_ok());
-  EXPECT_EQ(ser.buffer(), "42");
+  EXPECT_EQ(ser.to_string(), "42");
 
   ser.reset();
 
   // After reset, buffer() returns "null" (no root).
-  EXPECT_EQ(ser.buffer(), "null");
+  EXPECT_EQ(ser.to_string(), "null");
 
   // Emit a fresh value.
   auto r2 = ser.serialize_str(S("hello"));
   ASSERT_TRUE(r2.is_ok());
-  EXPECT_EQ(ser.buffer(), "\"hello\"");
+  EXPECT_EQ(ser.to_string(), "\"hello\"");
 }
 
 /* ───────────────────── Deserializer move semantics ───────────────────── */

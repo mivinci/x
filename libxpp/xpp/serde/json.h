@@ -45,10 +45,10 @@ namespace json {
 
 /**
  * @brief JSON serializer. Build a tree of `xJson` nodes, then dump with
- *        `buffer()`.
+ *        `to_string()`.
  *
  * Single-use: build one tree, stringify, discard. Reusing a Serializer
- * after `buffer()` is fine but the previous tree is freed when a new
+ * after `to_string()` is fine but the previous tree is freed when a new
  * root is emitted.
  *
  * The scope handles (`StructScope`, `SeqScope`) borrow the Serializer
@@ -158,12 +158,12 @@ public:
   /**
    * @brief Return the serialized tree as a compact JSON string.
    *
-   * May be called at most once per tree; calling `buffer()` does not
-   * invalidate the Serializer, but emitting more data after `buffer()`
+   * May be called at most once per tree; calling `to_string()` does not
+   * invalidate the Serializer, but emitting more data after `to_string()`
    * without resetting will produce a tree whose root replaces the old
    * one (and the old root is freed).
    */
-  String buffer() const {
+  String to_string() const {
     if (!m_root) {
       // "null" is always valid UTF-8.
       return String::from_utf8("null").unwrap();
@@ -178,7 +178,7 @@ public:
   /**
    * @brief Release the current tree and clear the scope stack.
    *
-   * Safe to call at any time: after `buffer()`, mid-build, or after
+   * Safe to call at any time: after `to_string()`, mid-build, or after
    * an error. Brings the Serializer back to its freshly-constructed
    * state so a new tree can be emitted from scratch.
    */
@@ -572,6 +572,21 @@ private:
   const xJson *m_node;
   xJson       *m_owned_root; // nullptr for sub-deserializers
 };
+
+/**
+ * @brief Serialize `value` to a JSON string in one step.
+ *
+ * Convenience wrapper around `Serializer` + `serde::serialize` +
+ * `Serializer::to_string()`, mirroring `serde_json::to_string` in Rust.
+ *
+ *   auto s = xpp::serde::json::to_string(person);
+ *   if (s.is_ok()) { use s.unwrap(); }
+ */
+template <class T> Result<String, Error> to_string(const T &value) {
+  Serializer ser;
+  XPP_SERDE_TRY(serde::serialize(value, ser));
+  return ok(ser.to_string());
+}
 
 } // namespace json
 } // namespace serde
