@@ -26,21 +26,25 @@ Go 有 goroutine。Rust 有 tokio。C++ 有什么？
 **结果就是——**
 
 ```c
-// 「读一个配置文件，提取第一行」——四层回调：
-void on_opened(uv_fs_t *req)         { /* alloc buf, start fstat */ }
-void on_stat(uv_fs_t *req)           { /* alloc buf, start read */ }
-void on_read(uv_fs_t *req)           { /* 循环 pread, 收齐数据 */ }
-void on_done(uv_fs_t *req)           { /* 找到 '\n', 截断, 返回。哪个 buf 忘了 free？*/ }
+// 「发一个 HTTP GET 请求」——N 层回调：
+void on_resolved(uv_getaddrinfo_t *req)  { /* 拿到 IP，socket + connect */ }
+void on_connected(uv_connect_t *req)     { /* alloc buf, write request */ }
+void on_written(uv_write_t *req)         { /* start read response */ }
+void on_data(uv_stream_t *s, ssize_t n)  { /* 拼 buf，解析 status line */ }
+void on_more_data(...)                   { /* 解析 headers */ }
+void on_body_done(...)                   { /* 找到 body 结束, 回调链终于返回 */ }
 ```
 
-控制流被撕成碎片。每一步是一个孤立回调。你没法 `grep "读完文件后干什么"`——答案散落在四个函数里。
+控制流被撕成碎片。每一步是一个孤立回调。你没法 `grep "发完请求后干什么"`——答案散落在六个函数里。
 
 而 Go 的开发者从来不需要想这些——
 
 ```go
 // Go：同步写法，runtime 搞定一切
-data, _ := os.ReadFile("config.txt")
-line := strings.SplitN(string(data), "\n", 2)[0]
+resp, _ := http.Get("https://example.com/api")
+defer resp.Body.Close()
+body, _ := io.ReadAll(resp.Body)
+fmt.Println(string(body))
 ```
 
 **libxpp 的目标：给 C++ 补上这个缺失的运行时。** 一套统一的 EventLoop。一个类型安全、可组合的异步模型。零线程纠缠在业务代码里。
@@ -51,47 +55,51 @@ line := strings.SplitN(string(data), "\n", 2)[0]
 
 ## 1. 统一异步模型：Promise<T>
 
-libxpp 的统一语言就一个类型：**`Promise<T>`**——一个「未来的值」。
+**一次异步调用，本质上只有一件事**：
 
-xpp 重写上面的「读文件取第一行」：
+> 被调方交出一个 `Promise<T>`，意思是「值以后会到，你拿着这个等我」。
+
+调用方拿到 Promise 后，三个选择消费它：
+
+| 消费方式          | 含义                | 语法                       |
+| --------------- | ----------------- | ------------------------ |
+| `.await()`      | 我现在就要等             | C++11，显式 poll 循环        |
+| `.then(fn)`     | 我不等，值到了帮我调 `fn`   | C++11，链式组合              |
+| `co_await`      | 编译器帮我写状态机，写法等同同步代码 | C++20                    |
+
+三种写法底层跑同一套 `poll/waker` 机制——选哪个看编译器和品味，执行路径完全一样。
+
+下面用「发 HTTP GET 请求，读取 body」示范这三种写法。同一逻辑，三种表达。
 
 ```cpp
-// then() 链：函数式风格，每一步都是数据变换
-xpp::Promise<String> first_line() {
-    return File::open("config.txt")
-        .then([](File f) { return f.read_all(); })
-        .then([](Vec<uint8_t> bytes) {
-            auto text = String::from_utf8(std::move(bytes)).unwrap();
-            return text.substr(0, text.find("\n").unwrap_or(text.len()));
+// 风格 1：then() 链——函数式风格，每一步都是数据变换
+xpp::Promise<Vec<uint8_t>> fetch_body(const char *url) {
+    return xpp::http::get(url)
+        .then([](xpp::http::Response resp) {
+            // resp.body() 返回一个 reader（满足 AsyncReader duck type）
+            // xpp::io::read_all 是模板，对任何带 read() 的 reader 都通用
+            return xpp::io::read_all(resp.body());
         });
 }
 ```
 
-同一个逻辑，也可以用纯 `.await()` 写成一步一步的同步风格：
-
 ```cpp
-// await 风格：一步一步来，像写 Python
-xpp::Promise<String> first_line() {
-    auto file  = File::open("config.txt").await();
-    auto bytes = file.read_all().await();
-    auto text  = String::from_utf8(std::move(bytes)).unwrap();
-    return text.substr(0, text.find("\n").unwrap_or(text.len()));
+// 风格 2：await 风格——一步一步来，像写 Python
+xpp::Promise<Vec<uint8_t>> fetch_body(const char *url) {
+    auto resp = xpp::http::get(url).await();
+    return xpp::io::read_all(resp.body());
 }
 ```
 
-如果编译器支持 C++20，还能用 `co_await`：
-
 ```cpp
-// co_await 风格：编译器生成状态机，完全像同步代码
-xpp::Promise<String> first_line() {
-    auto file  = co_await File::open("config.txt");
-    auto bytes = co_await file.read_all();
-    auto text  = String::from_utf8(std::move(bytes)).unwrap();
-    co_return text.substr(0, text.find("\n").unwrap_or(text.len()));
+// 风格 3：co_await 风格——编译器生成状态机，完全像同步代码
+xpp::Promise<Vec<uint8_t>> fetch_body(const char *url) {
+    auto resp = co_await xpp::http::get(url);
+    co_return co_await xpp::io::read_all(resp.body());
 }
 ```
 
-三套写法，**底层是同一套 poll/waker 机制**。选哪个看编译器和品味——它们的执行路径完全一样。
+> **为什么不绕开示例**：HTTP GET 这个例子用到了两层异步——`http::get` 跨网络拿 Response，`io::read_all` 循环读流。两层拼接用三种写法各自怎么写，就是接下来要展示的；真正的端到端流程（DNS / connect / read 响应）留给 Section 3。
 
 **设计要点**：
 
@@ -135,26 +143,36 @@ xpp::Promise<String> first_line() {
 
 ### 一次完整调用，端到端走读
 
-用 `first_line()` 的 `await` 版本，把每个步骤拆开看。
+用 `fetch_http()` 的 `await` 版本，把每个步骤拆开看。
+
+```cpp
+// 一次 HTTP GET，返回 Response
+xpp::Promise<xpp::io::Result<xpp::http::Response>> fetch_http(const char *url) {
+    auto resp = co_await xpp::http::get(url);
+    return resp;
+}
+```
+
+`http::get` 内部要做三件事：DNS 解析、TCP connect、HTTP 请求/响应读写。我们把 connect 完成后那一阶段（已经拿到 connected socket fd）放大看，poll/waker 在哪里触发。
 
 ```
-first_line() 被调用：
+fetch_http() 被调用：
 │
-├─ ① File::open("config.txt")
-│     → 构造 AsyncFd：fd 设置为 non-blocking
-│     → 注册 fd 到 EventLoop 的 epoll（edge-triggered，Read|Write）
-│     → AsyncFd 包在 Arc 里，保证 fd 生命周期独立于回调栈
-│     → 返回 Promise<File>，背后是 AdapterPromiseNode
+├─ ① http::get(url)
+│     → 内部拿到 connected socket fd
+│     → fd 包装成 AsyncFd：fcntl 设为 non-blocking
+│     → 通过 xEventAdd 注册到 EventLoop（edge-triggered，Read|Write）
+│     → 返回 Promise<Response>，背后是 AdapterPromiseNode
 │
-├─ ② .await()
+├─ ② co_await / .await()
 │     → 进入 poll 循环（就是下面那个 while(true) 循环）
 │     │
 │     ├─ 第 1 轮 poll:
-│     │    AdapterNode 问 AsyncFd：「fd 可读了吗？」
-│     │    AsyncFd 检查内部 readiness bool → false
-│     │    回答：Pending（还没好）
-│     │    副作用：waker 被注册到 ResolveState 的 atomic wake 表里
-│     │            （不在 epoll 里——epoll 只管 fd→回调 的映射）
+│     │    AdapterNode poll：「response 数据就绪了吗？」
+│     │    底层 AsyncFd 检查内部 readiness → false（还没收齐响应）
+│     │    回答：Pending
+│     │    副作用：waker 被注册到底层等待表里
+│     │            （EventLoop 不直接知道 waker——它只管 fd→回调 的映射）
 │     │    → 代码走到 waker.park()
 │     │
 │     ├─ waker.park()
@@ -162,26 +180,24 @@ first_line() 被调用：
 │     │    → 最终调用 epoll_wait(timeout, ...)
 │     │    → 当前线程阻塞，等内核通知
 │     │
-│     ├─ 内核：磁盘读完，文件 fd 变为可读
+│     ├─ 内核：服务器响应到达，socket fd 变为可读
 │     │    → epoll 返回这个 fd 的事件
-│     │    → EventLoop 调用 AsyncFd 的回调（fd→回调 的映射在 EventLoop 里）
-│     │    → 回调里 resolve() → wake waker（在 ResolveState 的 atomic 表里查找）
+│     │    → EventLoop 调用 AsyncFd 注册的回调（fd→回调 映射在 EventLoop 里）
+│     │    → 回调里 resolve() → wake waker（查等待表，触发注册过的 waker）
 │     │    → park() 返回，线程醒来
 │     │
 │     ├─ 第 2 轮 poll:
-│     │    AdapterNode 再次问 AsyncFd：「fd 可读了吗？」
-│     │    AsyncFd 检查 → true（epoll 刚告诉我们了）
-│     │    回答：Ready(File 对象)
-│     │    → await() 拿到 File，存在 local variable file
+│     │    AdapterNode 再次 poll：「response 数据就绪了吗？」
+│     │    AsyncFd 检查 → true（epoll 刚告诉我们 fd 可读了）
+│     │    回答：Ready(Response 对象)
+│     │    → await 拿到 Response
 │     │
-│     ├─ ③ file.read_all()
-│     │    → 又返回一个新的 Promise（另一轮 epoll wait）
-│     │    → 同样的 poll 循环再来一遍：Pending → park → epoll → Ready
-│     │
-│     └─ 最终拿到 bytes → from_utf8 → substr → 返回 first_line
+│     └─ 一次 await 完成。实际 HTTP 场景往往多轮 poll：
+│        read 一段 → 还没收齐 EAGAIN → park → epoll → 再 read →
+│        ... 直到 status line + headers + body 全部解析完才 Ready。
 ```
 
-**每一层 `.await()` 都在重复同一件事**：poll → 没好就 park → EventLoop 跑一轮 → 被内核叫醒 → poll → 拿到值。整个循环的伪代码就下面这几行。
+**每一层 `co_await` 都在重复同一件事**：poll → 没好就 park → EventLoop 跑一轮 → 被内核叫醒 → poll → 拿到值。整个循环的伪代码就下面这几行。
 
 ### 引擎视角：await() 内部循环
 
@@ -214,6 +230,8 @@ poll(cx) → Option<T>
 - 两步 API 有 TOCTOU（time-of-check-time-of-use）问题
 - one-shot 把「检查」和「取走」原子化
 - 这也意味着：每个 Promise 只能 await 一次，await 完就空了
+
+> **注**：本节只讲流程层面——poll/waker 在哪里触发、park 怎么被唤醒。AsyncFd 内部用什么数据结构把「waker 注册到等待表」做对、跨线程安全性怎么保证，是 Section 5「Adapter 模式」的话题。Section 3 的读者只需要知道：fd 注册到 EventLoop、回调里能 resolve、waker 被 wake，就够了。
 
 ---
 
@@ -504,7 +522,113 @@ C++20 协程把 `compute()` 编译成一个状态机。`co_await` 背后驱动�
 
 ---
 
-## 7. 性能细节
+## 7. 调用拓扑 — 谁调谁，怎么传值
+
+前 6 节讲的是单点机制：一个 Promise 怎么 poll、怎么 resolve。但真实代码里，调用方和被调方分布在不同位置——同线程、跨线程、同 fiber、跨 fiber、走 channel、不走 channel。这一节把这些拓扑梳理清楚。
+
+### 7.1 三种值传递路径
+
+一个 Promise 被消费完拿到值，有三种底层路径，对应前 6 节的三类机制：
+
+| 路径           | 机制                                       | 谁来 resolve              | 典型场景                    |
+| ------------ | ---------------------------------------- | ---------------------- | ----------------------- |
+| **直接调用**      | 被调方返回一个 Promise，调用方 `.await()`/`.then()`   | 被调方自己（在 EventLoop 回调里） | `File::open` / timer    |
+| **Channel**  | 被调方是另一个持有 `Sender` 的代码块，调用方持有 `Receiver`  | Sender 的 `send()`      | 多任务协作、流式数据              |
+| **后台 Worker** | 被调方是后台线程池里的函数                           | Worker 线程跑完后调 `resolve` | CPU 密集任务                |
+
+后两种是第一种的「被调方不在调用方的 EventLoop 同步可达范围」时的扩展。
+
+### 7.2 Channel — 并发协调
+
+Promise 管「做完一件事通知我」，channel 管「多个事之间怎么传数据」——两套东西正交互补，都跑在 EventLoop 上。
+
+sync 模块提供 Tokio 风格的 channel：
+
+- `oneshot` — 单发单收
+- `mpsc` — 多生产者单消费者
+- `broadcast` — 一对多
+- `watch` — 值版本跟踪
+
+```cpp
+// 工厂：bounded mpsc，cap=64
+auto [tx, rx] = xpp::sync::mpsc::channel<int>(64);
+
+// 多个生产者：copy 出多份 Sender，各自 send
+auto tx2 = tx;
+tx.send(1).await();               // 缓冲满则挂起协程
+tx.send(2).await();
+tx2.send(100).await();            // 跟 tx 并发，互不阻塞
+
+// 单一消费者：None 表示所有 sender 都 drop 了、channel 自动 close
+while (auto v = rx.recv().await()) {
+    use(v.unwrap());
+}
+```
+
+`send()` 和 `recv()` 内部都是 AdapterPromiseNode——channel 的本质就是「把一次 send/recv 配对包装成 Promise」。所以前 6 节的所有机制（poll/waker/arena）对 channel 全部适用。
+
+### 7.3 Work — CPU 密集任务的后台线程池
+
+单个 EventLoop 是单线程的，CPU 密集任务不能堵住它。`xpp::work(fn)` 把任务扔到 libx 的后台线程池：
+
+```cpp
+// 主线程：发起一个 CPU 密集的计算，不阻塞 event loop
+auto result = xpp::work([]() -> int {
+    // 这段在后台线程跑
+    int sum = 0;
+    for (int i = 0; i < 1000000; i++) sum += i;
+    return sum;
+}).await();
+
+// result 拿到时，主线程从未被阻塞过——
+// await() 内部的循环在等 worker 线程 resolve 时才 park，
+// 其他时间 event loop 照常处理 fd 事件和 timer。
+```
+
+机制：`work(fn)` 返回一个 Promise（背后是 AdapterPromiseNode），把 `fn` 提交到后台线程池；worker 线程跑 `fn`，跑完调 `resolver.resolve(value)`；EventLoop 线程的 await 被 waker 唤醒。两个线程之间没有数据竞争——只有 atomic flag + waker 的并发。
+
+实际场景：读文件 + 解析 + 写回，解析在 worker 线程
+
+```cpp
+auto data = File::open("data.bin").await().read_all().await();
+auto parsed = xpp::work([&]() {
+    return heavy_parse(data);  // CPU 密集，扔到线程池
+}).await();
+File::open("output.bin").await().write_all(parsed.as_bytes()).await();
+```
+
+### 7.4 多 EventLoop 拓扑
+
+EventLoop 单线程，**不意味着整个软件只能跑一个线程**。可以开多个 EventLoop 各跑各的线程，再靠 channel 互通。
+
+```
+┌──────────────┐         ┌──────────────┐
+│  EventLoop A  │  mpsc   │  EventLoop B  │
+│  (thread 1)   │ ──────> │  (thread 2)   │
+│  fiber/await  │  channel│  fiber/await  │
+└──────────────┘         └──────────────┘
+```
+
+A 线程的 fiber 里 `tx.send(v).await()`，B 线程的 fiber 里 `rx.recv().await()` 拿到——channel 跨线程安全，waker 跨 EventLoop 唤醒。
+
+### 7.5 六种调用场景
+
+把「同/跨线程 × 同/跨 fiber × 直接/channel」三个维度组合，穷举所有调用拓扑：
+
+| # | 线程 | fiber | 通信方式   | 典型机制                                     |
+| - | ---- | ----- | ------ | ---------------------------------------- |
+| 1 | 同    | 同     | 直接     | `then` 链 / `co_await` 链 — 被调方返回 Promise，本 fiber 消费 |
+| 2 | 同    | 同     | channel | 同 fiber 里 `tx.send().await()` + `rx.recv().await()` |
+| 3 | 同    | 跨     | 直接     | fiber A `await()`，fiber B 在某处 `resolver.resolve()` |
+| 4 | 同    | 跨     | channel | 同 EventLoop 上多 fiber 用 mpsc/oneshot 通信     |
+| 5 | 跨    | 跨     | 直接     | `xpp::work(fn)` — worker 线程池跑完直接 resolve    |
+| 6 | 跨    | 跨     | channel | 多个 EventLoop 各跑线程，channel 互通               |
+
+**一个边界情况**：Adapter 模式（timer 到期 / fd 可读）的 `resolve` 来自 EventLoop 调度回调，不在任何 fiber 里。按这个分类维度，它落进 #1——await 在某 fiber 内，resolve 来自同线程的 EventLoop 回调，没有跨 fiber 也没有跨线程。严格说"被调方"不是 fiber 而是 EventLoop 本身，但值传递路径等价于 #1。
+
+---
+
+## 8. 性能细节
 
 ### Per-Chain Arena（链式 arena 分配）
 
@@ -534,7 +658,7 @@ xpp 用一个 **256 字节的 bump allocator** 挂在整个链上。所有节点
 
 ---
 
-## 8. 与其他异步模型对比
+## 9. 与其他异步模型对比
 
 | 模型             | 代表                                | 优点                 | 缺点                          |
 | -------------- | --------------------------------- | ------------------ | --------------------------- |
@@ -562,7 +686,7 @@ C++11 .await()  C++20 co_await  C++11 fiber
 
 ---
 
-## 9. 总结：C++ Done Right
+## 10. 总结：C++ Done Right
 
 **1. Poll + Waker — 跟 Rust Future 同构的异步核心**  
 一个接口 `poll(waker) → Option<T>` 驱动全部。Readiness check 和 value 取走原子化，避免了 TOCTOU。waker 连接 EventLoop，外部事件触发时自唤醒。
@@ -586,7 +710,7 @@ Arena allocation 让 then 链的 malloc 从 O(N) 降到 O(1)。所有 debug chec
 
 ---
 
-## 10. 为什么 Rust 的设计能搬到 C++
+## 11. 为什么 Rust 的设计能搬到 C++
 
 > Rust 和 C++ 在值语义层高度同构。安全层不同构——搬不过来的得用设计补。
 
@@ -607,7 +731,7 @@ Rust 的类型系统本来长在 C++ 的根上。这些是**直译**，不是仿
 
 ### 安全层——重写
 
-Rust 能给编译器写数学证明。C++ 是信任程序员。这些**搬不过来**：
+Rust 的类型系统会**在编译期证明**你的代码没有数据竞争、没有悬垂引用、所有 enum 分支都处理了——证明不出来编译就过不了。C++ 编译器不做这种证明，它只检查语法和基本类型——内存安全靠程序员自觉。这些**搬不过来**：
 
 | Rust 证明        | C++ 没有          | xpp 的对策                                                |
 | -------------- | --------------- | ------------------------------------------------------ |
@@ -617,6 +741,8 @@ Rust 能给编译器写数学证明。C++ 是信任程序员。这些**搬不过
 | lifetime 注解    | 注释，靠人读          | Move-only Promise — 消费即销毁，没有持有引用的问题                    |
 
 **核心差异**：Rust 的安全是证明出来的（编译器算），C++ 的安全是约定出来的（你不犯错就没事）。xpp 的设计是在约定之上加了一层检查——debug assert 让犯错变成 crash，而不是 silent corruption。
+
+但 libxpp 充分利用了「值语义」让使用者尽可能的避免了这些问题——比如 `Promise<T>` 是 move-only 的，await 完一次就空了，**不存在两个地方同时持有同一个未完成的 Promise**；`File` 析构即关闭 fd，`Vec<T>` 移动后原对象变空——**所有权在类型层面就写死了**。
 
 ### 一句话
 
@@ -656,53 +782,9 @@ A: Linux 走 epoll，macOS 走 kqueue，Windows 走 WSAPoll——三种后端通
 **Q: Fiber 的实现原理？**  
 A: 每个 fiber 有自己的栈（mmap 分配，默认 128KB）。首次切换用 `makecontext`/`setcontext` 设置新栈和入口函数；后续挂起/恢复全走 `_setjmp`/`_longjmp`，避开 ucontext 的 sigprocmask 开销。`xFiberYield()` 把控制权交还给 event loop。
 
-**Q: Promise 解决了异步返回，并发协调用啥？**  
-A: sync 模块提供了 Tokio 风格的 channel：`oneshot`（单发单收）、`mpsc`（多生产者单消费者）、`broadcast`（一对多）、`watch`（值版本跟踪）。Promise 管「做完一件事通知我」，channel 管「多个事之间怎么传数据」——两套东西正交互补，都跑在 EventLoop 上。
-
-```cpp
-// 工厂：bounded mpsc，cap=64
-auto [tx, rx] = xpp::sync::mpsc::channel<int>(64);
-
-// 多个生产者：copy 出多份 Sender，各自 send
-auto tx2 = tx;
-tx.send(1).await();               // 缓冲满则挂起协程
-tx.send(2).await();
-tx2.send(100).await();            // 跟 tx 并发，互不阻塞
-
-// 单一消费者：None 表示所有 sender 都 drop 了、channel 自动 close
-while (auto v = rx.recv().await()) {
-    use(v.unwrap());
-}
-```
-
-**Q: 单个 EventLoop 是单线程的，CPU 密集任务怎么办？**  
-A: `xpp::work(fn)` 把耗时任务扔到 libx 的后台线程池，返回 `Promise<T>`。resolver 在 worker 线程 resolve，event loop 线程的 await 被 waker 唤醒。两个线程之间没有数据竞争——只有 atomic flag + waker 的并发。
-（至于"开多个 EventLoop 各跑各的线程，再靠 channel/mpsc 互通"那种多线程拓扑，也是支持的——EventLoop 单线程不意味着整个软件只能跑一个线程。）
-
-```cpp
-// 主线程：发起一个 CPU 密集的计算，不阻塞 event loop
-auto result = xpp::work([]() -> int {
-    // 这段在后台线程跑
-    int sum = 0;
-    for (int i = 0; i < 1000000; i++) sum += i;
-    return sum;
-}).await();
-
-// result 拿到时，主线程从未被阻塞过——
-// await() 内部的循环在等 worker 线程 resolve 时才 park，
-// 其他时间 event loop 照常处理 fd 事件和 timer。
-
-// 实际场景：读文件 + 解析 + 写回，解析在 worker 线程
-auto data = File::open("data.bin").await().read_all().await();
-auto parsed = xpp::work([&]() {
-    return heavy_parse(data);  // CPU 密集，扔到线程池
-}).await();
-File::open("output.bin").await().write_all(parsed.as_bytes()).await();
-```
-
 ---
 
-## 11. Appendix: Beyond Async — The Rest of libxpp
+## 12. Appendix: Beyond Async — The Rest of libxpp
 
 Promise 是骨架。但同构移植不只异步机制——libxpp 还搬了 Rust 的整个标准库哲学：用类型系统取代文档和注释。
 
@@ -850,7 +932,7 @@ process(Span<const uint8_t>(ptr, len));  // 裸指针+长度 → Span
 
 ### 总结：什么是「同构移植」
 
-回到 Section 10 的框架——这些类型全是**值语义层直译**：
+回到 Section 11 的框架——这些类型全是**值语义层直译**：
 
 | Rust          | libxpp (C++11)  | 同构方式                           |
 | ------------- | --------------- | ------------------------------ |
