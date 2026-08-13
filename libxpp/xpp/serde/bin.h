@@ -108,7 +108,7 @@ public:
     auto bytes = v.as_bytes();
     write_u32(static_cast<uint32_t>(bytes.size()));
     for (size_t i = 0; i < bytes.size(); ++i)
-      buf_.push(bytes.data()[i]);
+      m_buf.push(bytes.data()[i]);
     return ok(Void{});
   }
 
@@ -129,7 +129,7 @@ public:
   /* ── Composite emits ── */
 
   Result<SeqScope, Error> serialize_seq(Option<size_t> len) {
-    size_t placeholder = buf_.len();
+    size_t placeholder = m_buf.len();
     // Always write a u32 length prefix. If the caller gave us the
     // count, write it directly; otherwise reserve 4 bytes for back-
     // patching at SeqScope::end().
@@ -138,7 +138,7 @@ public:
     } else {
       write_u32(0);
     }
-    seq_stack_.push(SeqFrame{placeholder, 0, !len.is_some()});
+    m_seq_stack.push(SeqFrame{placeholder, 0, !len.is_some()});
     return ok(SeqScope(*this));
   }
 
@@ -165,46 +165,46 @@ public:
   /// @brief Borrow the encoded bytes as a Span. Valid until next emit
   ///        or until the Serializer is destroyed.
   Span<const uint8_t> buffer() const {
-    return Span<const uint8_t>(buf_.data(), buf_.len());
+    return Span<const uint8_t>(m_buf.data(), m_buf.len());
   }
 
   /// @brief Move the encoded bytes out. The Serializer is left empty.
   Vec<uint8_t> into_buffer() {
-    return std::move(buf_);
+    return std::move(m_buf);
   }
 
   /// @brief Reset to fresh state.
   void reset() {
-    buf_.clear();
-    seq_stack_.clear();
+    m_buf.clear();
+    m_seq_stack.clear();
   }
 
   /* ── Scope types ── */
   class StructScope {
   public:
-    explicit StructScope(Serializer &ser) : ser_(ser) {}
+    explicit StructScope(Serializer &ser) : m_ser(ser) {}
     template <class T> Result<Void, Error> field(const char *key, const T &v) {
       (void)key; // binary: field name not encoded
-      return serde::serialize(v, ser_);
+      return serde::serialize(v, m_ser);
     }
     Result<Void, Error> end() {
       return ok(Void{});
     }
 
   private:
-    Serializer &ser_;
+    Serializer &m_ser;
   };
 
   class SeqScope {
   public:
-    explicit SeqScope(Serializer &ser) : ser_(ser) {}
+    explicit SeqScope(Serializer &ser) : m_ser(ser) {}
     template <class T> Result<Void, Error> element(const T &v) {
-      XPP_SERDE_TRY(serde::serialize(v, ser_));
-      ser_.seq_stack_.last().unwrap().count++;
+      XPP_SERDE_TRY(serde::serialize(v, m_ser));
+      m_ser.m_seq_stack.last().unwrap().count++;
       return ok(Void{});
     }
     Result<Void, Error> end() {
-      auto opt = ser_.seq_stack_.last();
+      auto opt = m_ser.m_seq_stack.last();
       if (opt.is_none()) {
         return err(error(ErrorKind::Unexpected, "SeqScope::end with no seq on stack"));
       }
@@ -212,34 +212,34 @@ public:
       if (f.unknown_length) {
         // Back-patch the length placeholder we reserved.
         uint32_t n = static_cast<uint32_t>(f.count);
-        uint8_t *p = ser_.buf_.data() + f.placeholder_offset;
+        uint8_t *p = m_ser.m_buf.data() + f.placeholder_offset;
         p[0]       = static_cast<uint8_t>(n & 0xFF);
         p[1]       = static_cast<uint8_t>((n >> 8) & 0xFF);
         p[2]       = static_cast<uint8_t>((n >> 16) & 0xFF);
         p[3]       = static_cast<uint8_t>((n >> 24) & 0xFF);
       }
-      ser_.seq_stack_.pop();
+      m_ser.m_seq_stack.pop();
       return ok(Void{});
     }
 
   private:
-    Serializer &ser_;
+    Serializer &m_ser;
   };
 
   /* VariantScope: writes the payload bytes after serialize_variant
    * has already written the tag_index. No key to skip. */
   class VariantScope {
   public:
-    explicit VariantScope(Serializer &ser) : ser_(ser) {}
+    explicit VariantScope(Serializer &ser) : m_ser(ser) {}
     template <class T> Result<Void, Error> payload(const T &v) {
-      return serde::serialize(v, ser_);
+      return serde::serialize(v, m_ser);
     }
     Result<Void, Error> end() {
       return ok(Void{});
     }
 
   private:
-    Serializer &ser_;
+    Serializer &m_ser;
   };
 
 private:
@@ -254,22 +254,22 @@ private:
   };
 
   void write_u8(uint8_t b) {
-    buf_.push(b);
+    m_buf.push(b);
   }
   void write_u32(uint32_t v) {
-    buf_.push(static_cast<uint8_t>(v & 0xFF));
-    buf_.push(static_cast<uint8_t>((v >> 8) & 0xFF));
-    buf_.push(static_cast<uint8_t>((v >> 16) & 0xFF));
-    buf_.push(static_cast<uint8_t>((v >> 24) & 0xFF));
+    m_buf.push(static_cast<uint8_t>(v & 0xFF));
+    m_buf.push(static_cast<uint8_t>((v >> 8) & 0xFF));
+    m_buf.push(static_cast<uint8_t>((v >> 16) & 0xFF));
+    m_buf.push(static_cast<uint8_t>((v >> 24) & 0xFF));
   }
   void write_u64(uint64_t v) {
     for (int i = 0; i < 8; ++i) {
-      buf_.push(static_cast<uint8_t>((v >> (8 * i)) & 0xFF));
+      m_buf.push(static_cast<uint8_t>((v >> (8 * i)) & 0xFF));
     }
   }
 
-  Vec<uint8_t>  buf_;
-  Vec<SeqFrame> seq_stack_;
+  Vec<uint8_t>  m_buf;
+  Vec<SeqFrame> m_seq_stack;
 };
 
 /* ────────────────────────── Deserializer ─────────────────────────── */
@@ -283,20 +283,20 @@ class Deserializer {
 public:
   /** @brief Borrowed view over `data` of length `len`. Caller must
    *         keep the buffer alive for the deserializer's lifetime. */
-  Deserializer(const uint8_t *data, size_t len) : data_(data), len_(len), pos_(0) {}
+  Deserializer(const uint8_t *data, size_t len) : m_data(data), m_len(len), m_pos(0) {}
 
   /** @brief Borrowed view over a Vec<uint8_t>. Caller retains
    *         ownership. */
-  explicit Deserializer(const Vec<uint8_t> &buf) : data_(buf.data()), len_(buf.len()), pos_(0) {}
+  explicit Deserializer(const Vec<uint8_t> &buf) : m_data(buf.data()), m_len(buf.len()), m_pos(0) {}
 
   ~Deserializer()                               = default;
   Deserializer(const Deserializer &)            = delete;
   Deserializer &operator=(const Deserializer &) = delete;
   Deserializer(Deserializer &&o) noexcept
-      : data_(o.data_), len_(o.len_), pos_(o.pos_), owned_(std::move(o.owned_)) {
-    o.data_ = nullptr;
-    o.len_  = 0;
-    o.pos_  = 0;
+      : m_data(o.m_data), m_len(o.m_len), m_pos(o.m_pos), m_owned(std::move(o.m_owned)) {
+    o.m_data = nullptr;
+    o.m_len  = 0;
+    o.m_pos  = 0;
   }
 
   /** @brief Copy `bytes` into an owning Vec and deserialize from it. */
@@ -308,7 +308,7 @@ public:
     for (size_t i = 0; i < len; ++i)
       owned.push(data[i]);
     Deserializer d(owned.data(), owned.len());
-    d.owned_ = std::move(owned);
+    d.m_owned = std::move(owned);
     return ok(std::move(d));
   }
 
@@ -326,71 +326,71 @@ public:
   class SeqAccess {
   public:
     SeqAccess(const uint8_t *data, size_t len, size_t &pos)
-        : data_(data), len_(len), pos_(pos), remaining_(0) {}
+        : m_data(data), m_len(len), m_pos(pos), m_remaining(0) {}
 
     // Called by Deserializer after reading the length prefix.
     void set_remaining(size_t n) {
-      remaining_ = n;
+      m_remaining = n;
     }
 
     template <class T> Result<Option<T>, Error> next_element() {
-      if (remaining_ == 0) return ok(Option<T>(none));
-      --remaining_;
-      Deserializer sub(data_, len_, pos_);
+      if (m_remaining == 0) return ok(Option<T>(none));
+      --m_remaining;
+      Deserializer sub(m_data, m_len, m_pos);
       XPP_SERDE_TRY_VAR(v, Deserialize<T>::run(sub));
-      pos_ = sub.pos_;
+      m_pos = sub.m_pos;
       return ok(Option<T>(std::move(v)));
     }
 
   private:
-    const uint8_t *data_;
-    size_t         len_;
-    size_t        &pos_;
-    size_t         remaining_;
+    const uint8_t *m_data;
+    size_t         m_len;
+    size_t        &m_pos;
+    size_t         m_remaining;
   };
 
   class MapAccess {
   public:
     MapAccess(const char *const *fields, size_t n, const uint8_t *data, size_t len, size_t &pos)
-        : fields_(fields), n_(n), field_index_(0), data_(data), len_(len), pos_(pos),
-          has_pending_(false) {}
+        : m_fields(fields), m_n(n), m_field_index(0), m_data(data), m_len(len), m_pos(pos),
+          m_has_pending(false) {}
 
     Result<Option<String>, Error> next_key() {
-      if (has_pending_) {
+      if (m_has_pending) {
         // next_key called twice without next_value — programming error.
         return err(error(ErrorKind::Unexpected, "next_key called again without consuming value"));
       }
-      if (field_index_ >= n_) return ok(Option<String>(none));
-      const char *k = fields_[field_index_];
+      if (m_field_index >= m_n) return ok(Option<String>(none));
+      const char *k = m_fields[m_field_index];
       // XPP_SERDE's kFields array uses nullptr as the trailing sentinel
       // AND omits SKIP'd fields — so the actual entry count can be
       // smaller than the `n` passed to deserialize_struct. Treat a
       // nullptr entry as "no more fields".
       if (k == nullptr) return ok(Option<String>(none));
-      has_pending_ = true;
-      auto r       = String::from_utf8(k);
+      m_has_pending = true;
+      auto r        = String::from_utf8(k);
       if (!r.is_ok()) {
         return err(error(ErrorKind::InvalidValue, "field name is not valid UTF-8"));
       }
       return ok(Option<String>(std::move(r).unwrap()));
     }
     template <class V> Result<V, Error> next_value() {
-      if (!has_pending_) {
+      if (!m_has_pending) {
         return err(error(ErrorKind::Unexpected, "next_value without next_key"));
       }
-      has_pending_ = false;
-      Deserializer sub(data_, len_, pos_);
+      m_has_pending = false;
+      Deserializer sub(m_data, m_len, m_pos);
       XPP_SERDE_TRY_VAR(v, Deserialize<V>::run(sub));
-      pos_ = sub.pos_;
-      ++field_index_;
+      m_pos = sub.m_pos;
+      ++m_field_index;
       return ok(std::move(v));
     }
 
     Result<Void, Error> next_value_ignored() {
-      if (!has_pending_) {
+      if (!m_has_pending) {
         return err(error(ErrorKind::Unexpected, "next_value_ignored without next_key"));
       }
-      has_pending_ = false;
+      m_has_pending = false;
       // No way to "skip" a value of unknown type in binary — the
       // visitor must actually deserialize it. We treat ignored as
       // a deserialize<Void> which... can't work. So we error: binary
@@ -405,13 +405,13 @@ public:
     }
 
   private:
-    const char *const *fields_;
-    size_t             n_;
-    size_t             field_index_;
-    const uint8_t     *data_;
-    size_t             len_;
-    size_t            &pos_;
-    bool               has_pending_;
+    const char *const *m_fields;
+    size_t             m_n;
+    size_t             m_field_index;
+    const uint8_t     *m_data;
+    size_t             m_len;
+    size_t            &m_pos;
+    bool               m_has_pending;
   };
 
   /* ── Primitive reads ── */
@@ -472,11 +472,11 @@ public:
     if (!ensure(n)) {
       return err(error(ErrorKind::Eof, "string length exceeds buffer"));
     }
-    auto r = String::from_utf8(reinterpret_cast<const char *>(data_ + pos_), n);
+    auto r = String::from_utf8(reinterpret_cast<const char *>(m_data + m_pos), n);
     if (!r.is_ok()) {
       return err(error(ErrorKind::InvalidValue, "invalid UTF-8 in string"));
     }
-    pos_ += n;
+    m_pos += n;
     return ok(std::move(r).unwrap());
   }
 
@@ -498,7 +498,7 @@ public:
     uint32_t n;
     XPP_SERDE_TRY_VAR(ok_, read_u32(n));
     (void)ok_;
-    SeqAccess seq(data_, len_, pos_);
+    SeqAccess seq(m_data, m_len, m_pos);
     seq.set_remaining(n);
     return visitor.visit_seq(seq);
   }
@@ -507,7 +507,7 @@ public:
   auto deserialize_struct(const char *name, const char *const *fields, size_t n, V &&visitor)
     -> decltype(std::declval<V>().visit_map(std::declval<MapAccess &>())) {
     (void)name;
-    MapAccess map(fields, n, data_, len_, pos_);
+    MapAccess map(fields, n, m_data, m_len, m_pos);
     return visitor.visit_map(map);
   }
 
@@ -532,40 +532,41 @@ public:
 private:
   /// Sub-deserializer sharing the buffer at a different cursor.
   /// Used by SeqAccess::next_element and MapAccess::next_value.
-  Deserializer(const uint8_t *data, size_t len, size_t pos) : data_(data), len_(len), pos_(pos) {}
+  Deserializer(const uint8_t *data, size_t len, size_t pos)
+      : m_data(data), m_len(len), m_pos(pos) {}
 
   Result<Void, Error> read_u8(uint8_t &out) {
     if (!ensure(1)) return err(error(ErrorKind::Eof, "unexpected end of buffer"));
-    out = data_[pos_++];
+    out = m_data[m_pos++];
     return ok(Void{});
   }
   Result<Void, Error> read_u32(uint32_t &out) {
     if (!ensure(4)) return err(error(ErrorKind::Eof, "unexpected end of buffer"));
-    out = static_cast<uint32_t>(data_[pos_]) | (static_cast<uint32_t>(data_[pos_ + 1]) << 8) |
-          (static_cast<uint32_t>(data_[pos_ + 2]) << 16) |
-          (static_cast<uint32_t>(data_[pos_ + 3]) << 24);
-    pos_ += 4;
+    out = static_cast<uint32_t>(m_data[m_pos]) | (static_cast<uint32_t>(m_data[m_pos + 1]) << 8) |
+          (static_cast<uint32_t>(m_data[m_pos + 2]) << 16) |
+          (static_cast<uint32_t>(m_data[m_pos + 3]) << 24);
+    m_pos += 4;
     return ok(Void{});
   }
   Result<Void, Error> read_u64(uint64_t &out) {
     if (!ensure(8)) return err(error(ErrorKind::Eof, "unexpected end of buffer"));
     uint64_t v = 0;
     for (int i = 0; i < 8; ++i) {
-      v |= static_cast<uint64_t>(data_[pos_ + i]) << (8 * i);
+      v |= static_cast<uint64_t>(m_data[m_pos + i]) << (8 * i);
     }
     out = v;
-    pos_ += 8;
+    m_pos += 8;
     return ok(Void{});
   }
 
   bool ensure(size_t need) const {
-    return pos_ + need <= len_;
+    return m_pos + need <= m_len;
   }
 
-  const uint8_t *data_;
-  size_t         len_;
-  size_t         pos_;
-  Vec<uint8_t>   owned_; // non-empty only when constructed via from_bytes
+  const uint8_t *m_data;
+  size_t         m_len;
+  size_t         m_pos;
+  Vec<uint8_t>   m_owned; // non-empty only when constructed via from_bytes
 };
 
 } // namespace bin

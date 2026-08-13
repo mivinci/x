@@ -58,7 +58,7 @@ class Serializer {
 public:
   Serializer() = default;
   ~Serializer() {
-    if (root_) xJsonFree(root_);
+    if (m_root) xJsonFree(m_root);
   }
   Serializer(const Serializer &)            = delete;
   Serializer &operator=(const Serializer &) = delete;
@@ -127,7 +127,7 @@ public:
     (void)n;
     xJson *obj = xJsonNewObject();
     emit(obj);
-    stack_.push(Frame{Frame::kStruct, obj, nullptr});
+    m_stack.push(Frame{Frame::kStruct, obj, nullptr});
     return ok(StructScope(*this));
   }
 
@@ -135,7 +135,7 @@ public:
     (void)len; // JSON doesn't need a length hint
     xJson *arr = xJsonNewArray();
     emit(arr);
-    stack_.push(Frame{Frame::kSeq, arr, nullptr});
+    m_stack.push(Frame{Frame::kSeq, arr, nullptr});
     return ok(SeqScope(*this));
   }
 
@@ -150,7 +150,7 @@ public:
     (void)tag_index;
     xJson *obj = xJsonNewObject();
     emit(obj);
-    stack_.push(Frame{Frame::kStruct, obj, tag_string});
+    m_stack.push(Frame{Frame::kStruct, obj, tag_string});
     return ok(VariantScope(*this));
   }
 
@@ -164,11 +164,11 @@ public:
    * one (and the old root is freed).
    */
   String buffer() const {
-    if (!root_) {
+    if (!m_root) {
       // "null" is always valid UTF-8.
       return String::from_utf8("null").unwrap();
     }
-    char *s = xJsonStringify(root_);
+    char *s = xJsonStringify(m_root);
     if (!s) return String();
     String out = String::from_utf8(s).unwrap();
     std::free(s);
@@ -183,63 +183,63 @@ public:
    * state so a new tree can be emitted from scratch.
    */
   void reset() {
-    if (root_) {
-      xJsonFree(root_);
-      root_ = nullptr;
+    if (m_root) {
+      xJsonFree(m_root);
+      m_root = nullptr;
     }
-    stack_.clear();
+    m_stack.clear();
   }
 
   /* ── Scope types (borrow the Serializer) ── */
   class StructScope {
   public:
-    explicit StructScope(Serializer &ser) : ser_(ser) {}
+    explicit StructScope(Serializer &ser) : m_ser(ser) {}
     template <class T> Result<Void, Error> field(const char *key, const T &v) {
-      ser_.set_next_key(key);
-      XPP_SERDE_TRY(serde::serialize(v, ser_));
+      m_ser.set_next_key(key);
+      XPP_SERDE_TRY(serde::serialize(v, m_ser));
       return ok(Void{});
     }
     Result<Void, Error> end() {
-      ser_.pop_frame();
+      m_ser.pop_frame();
       return ok(Void{});
     }
 
   private:
-    Serializer &ser_;
+    Serializer &m_ser;
   };
 
   class SeqScope {
   public:
-    explicit SeqScope(Serializer &ser) : ser_(ser) {}
+    explicit SeqScope(Serializer &ser) : m_ser(ser) {}
     template <class T> Result<Void, Error> element(const T &v) {
-      XPP_SERDE_TRY(serde::serialize(v, ser_));
+      XPP_SERDE_TRY(serde::serialize(v, m_ser));
       return ok(Void{});
     }
     Result<Void, Error> end() {
-      ser_.pop_frame();
+      m_ser.pop_frame();
       return ok(Void{});
     }
 
   private:
-    Serializer &ser_;
+    Serializer &m_ser;
   };
 
   /* VariantScope: the key is already set on the frame by
    * serialize_variant, so payload() only needs the value. */
   class VariantScope {
   public:
-    explicit VariantScope(Serializer &ser) : ser_(ser) {}
+    explicit VariantScope(Serializer &ser) : m_ser(ser) {}
     template <class T> Result<Void, Error> payload(const T &v) {
-      XPP_SERDE_TRY(serde::serialize(v, ser_));
+      XPP_SERDE_TRY(serde::serialize(v, m_ser));
       return ok(Void{});
     }
     Result<Void, Error> end() {
-      ser_.pop_frame();
+      m_ser.pop_frame();
       return ok(Void{});
     }
 
   private:
-    Serializer &ser_;
+    Serializer &m_ser;
   };
 
 private:
@@ -262,12 +262,12 @@ private:
    *        object/array).
    */
   void emit(xJson *node) {
-    if (stack_.empty()) {
-      if (root_) xJsonFree(root_);
-      root_ = node;
+    if (m_stack.empty()) {
+      if (m_root) xJsonFree(m_root);
+      m_root = node;
       return;
     }
-    Frame &f = stack_[stack_.len() - 1];
+    Frame &f = m_stack[m_stack.len() - 1];
     if (f.kind == Frame::kStruct) {
       xJsonObjectSet(f.parent, f.key, node);
     } else {
@@ -276,16 +276,16 @@ private:
   }
 
   void set_next_key(const char *key) {
-    Frame &f = stack_[stack_.len() - 1];
+    Frame &f = m_stack[m_stack.len() - 1];
     f.key    = key;
   }
 
   void pop_frame() {
-    stack_.pop();
+    m_stack.pop();
   }
 
-  xpp::Vec<Frame> stack_;
-  xJson          *root_ = nullptr;
+  xpp::Vec<Frame> m_stack;
+  xJson          *m_root = nullptr;
 };
 
 /* ────────────────────────── Deserializer ─────────────────────────── */
@@ -302,16 +302,16 @@ private:
 class Deserializer {
 public:
   /** @brief Sub-deserializer: borrows `node`, no ownership. */
-  explicit Deserializer(const xJson *node) : node_(node), owned_root_(nullptr) {}
+  explicit Deserializer(const xJson *node) : m_node(node), m_owned_root(nullptr) {}
 
   ~Deserializer() {
-    if (owned_root_) xJsonFree(owned_root_);
+    if (m_owned_root) xJsonFree(m_owned_root);
   }
   Deserializer(const Deserializer &)            = delete;
   Deserializer &operator=(const Deserializer &) = delete;
-  Deserializer(Deserializer &&o) noexcept : node_(o.node_), owned_root_(o.owned_root_) {
-    o.node_       = nullptr;
-    o.owned_root_ = nullptr;
+  Deserializer(Deserializer &&o) noexcept : m_node(o.m_node), m_owned_root(o.m_owned_root) {
+    o.m_node       = nullptr;
+    o.m_owned_root = nullptr;
   }
 
   /** @brief Parse `s` and return an owning Deserializer at the root. */
@@ -331,21 +331,21 @@ public:
       return err(error(ErrorKind::Unexpected, "failed to parse JSON"));
     }
     Deserializer d(root);
-    d.owned_root_ = root;
+    d.m_owned_root = root;
     return ok(std::move(d));
   }
 
   /* ── Nested access types ── */
   class SeqAccess {
   public:
-    explicit SeqAccess(const xJson *arr) : arr_(arr), size_(xJsonArraySize(arr)), index_(0) {}
+    explicit SeqAccess(const xJson *arr) : m_arr(arr), m_size(xJsonArraySize(arr)), m_index(0) {}
 
     template <class T> Result<Option<T>, Error> next_element() {
-      if (index_ >= size_) return ok(Option<T>(none));
-      xJson *elem = xJsonArrayGet(arr_, index_);
-      ++index_;
+      if (m_index >= m_size) return ok(Option<T>(none));
+      xJson *elem = xJsonArrayGet(m_arr, m_index);
+      ++m_index;
       if (!elem) {
-        // size_ said the element exists, but the lookup failed — this
+        // m_size said the element exists, but the lookup failed — this
         // can only happen if the underlying xJson tree is corrupt.
         return err(
           error(ErrorKind::Unexpected, "array index in bounds but xJsonArrayGet returned NULL"));
@@ -356,31 +356,31 @@ public:
     }
 
   private:
-    const xJson *arr_;
-    int          size_;
-    int          index_;
+    const xJson *m_arr;
+    int          m_size;
+    int          m_index;
   };
 
   class MapAccess {
   public:
-    explicit MapAccess(const xJson *obj) : iter_(xJsonNewIterator(obj)) {}
+    explicit MapAccess(const xJson *obj) : m_iter(xJsonNewIterator(obj)) {}
     ~MapAccess() {
-      if (iter_) xJsonFree(iter_);
+      if (m_iter) xJsonFree(m_iter);
     }
     MapAccess(const MapAccess &)            = delete;
     MapAccess &operator=(const MapAccess &) = delete;
 
     Result<Option<String>, Error> next_key() {
-      if (done_) return ok(Option<String>(none));
-      if (!has_pending_) {
-        if (!xJsonIteratorNext(iter_)) {
-          done_ = true;
+      if (m_done) return ok(Option<String>(none));
+      if (!m_has_pending) {
+        if (!xJsonIteratorNext(m_iter)) {
+          m_done = true;
           return ok(Option<String>(none));
         }
-        has_pending_ = true;
+        m_has_pending = true;
       }
       size_t      len = 0;
-      const char *key = xJsonIteratorKey(iter_, &len);
+      const char *key = xJsonIteratorKey(m_iter, &len);
       auto        r   = String::from_utf8(key, len);
       if (!r.is_ok()) {
         return err(error(ErrorKind::InvalidValue, "invalid UTF-8 in object key"));
@@ -389,44 +389,44 @@ public:
     }
 
     template <class V> Result<V, Error> next_value() {
-      if (!has_pending_) {
+      if (!m_has_pending) {
         return err(error(ErrorKind::Unexpected, "next_value without next_key"));
       }
-      has_pending_     = false;
-      xJson       *val = xJsonIteratorValue(iter_);
+      m_has_pending    = false;
+      xJson       *val = xJsonIteratorValue(m_iter);
       Deserializer sub(val);
       return Deserialize<V>::run(sub);
     }
 
     Result<Void, Error> next_value_ignored() {
-      if (!has_pending_) {
+      if (!m_has_pending) {
         return err(error(ErrorKind::Unexpected, "next_value_ignored without next_key"));
       }
-      has_pending_ = false;
+      m_has_pending = false;
       return ok(Void{});
     }
 
   private:
-    xJsonIterator *iter_;
-    bool           has_pending_ = false;
-    bool           done_        = false;
+    xJsonIterator *m_iter;
+    bool           m_has_pending = false;
+    bool           m_done        = false;
   };
 
   /* ── Primitive reads ── */
   Result<bool, Error> deserialize_bool() {
-    if (xJsonType(node_) != XJSON_BOOL) {
+    if (xJsonType(m_node) != XJSON_BOOL) {
       return err(error(ErrorKind::InvalidValue, "expected bool"));
     }
-    return ok(xJsonBool(node_) != 0);
+    return ok(xJsonBool(m_node) != 0);
   }
 
   Result<int32_t, Error> deserialize_i32() {
-    int     t = xJsonType(node_);
+    int     t = xJsonType(m_node);
     int64_t v;
     if (t == XJSON_INT) {
-      v = xJsonInt(node_);
+      v = xJsonInt(m_node);
     } else if (t == XJSON_DOUBLE) {
-      double d = xJsonDouble(node_);
+      double d = xJsonDouble(m_node);
       if (d != static_cast<double>(static_cast<int64_t>(d))) {
         return err(error(ErrorKind::InvalidValue, "expected integer, got fractional number"));
       }
@@ -441,10 +441,10 @@ public:
   }
 
   Result<int64_t, Error> deserialize_i64() {
-    int t = xJsonType(node_);
-    if (t == XJSON_INT) return ok(xJsonInt(node_));
+    int t = xJsonType(m_node);
+    if (t == XJSON_INT) return ok(xJsonInt(m_node));
     if (t == XJSON_DOUBLE) {
-      double d = xJsonDouble(node_);
+      double d = xJsonDouble(m_node);
       if (d != static_cast<double>(static_cast<int64_t>(d))) {
         return err(error(ErrorKind::InvalidValue, "expected integer, got fractional number"));
       }
@@ -475,18 +475,18 @@ public:
   }
 
   Result<double, Error> deserialize_f64() {
-    int t = xJsonType(node_);
-    if (t == XJSON_DOUBLE) return ok(xJsonDouble(node_));
-    if (t == XJSON_INT) return ok(static_cast<double>(xJsonInt(node_)));
+    int t = xJsonType(m_node);
+    if (t == XJSON_DOUBLE) return ok(xJsonDouble(m_node));
+    if (t == XJSON_INT) return ok(static_cast<double>(xJsonInt(m_node)));
     return err(error(ErrorKind::InvalidValue, "expected number"));
   }
 
   Result<String, Error> deserialize_str() {
-    if (xJsonType(node_) != XJSON_STRING) {
+    if (xJsonType(m_node) != XJSON_STRING) {
       return err(error(ErrorKind::InvalidValue, "expected string"));
     }
-    size_t      len = xJsonStringLength(node_);
-    const char *s   = xJsonString(node_);
+    size_t      len = xJsonStringLength(m_node);
+    const char *s   = xJsonString(m_node);
     auto        r   = String::from_utf8(s, len);
     if (!r.is_ok()) {
       return err(error(ErrorKind::InvalidValue, "invalid UTF-8 in JSON string"));
@@ -497,7 +497,7 @@ public:
   /* ── Composite reads (visitor-driven) ── */
   template <class V>
   auto deserialize_option(V &&visitor) -> decltype(std::declval<V>().visit_none()) {
-    if (xJsonType(node_) == XJSON_NULL) {
+    if (xJsonType(m_node) == XJSON_NULL) {
       return visitor.visit_none();
     }
     return visitor.visit_some(*this);
@@ -506,10 +506,10 @@ public:
   template <class V>
   auto deserialize_seq(V &&visitor)
     -> decltype(std::declval<V>().visit_seq(std::declval<SeqAccess &>())) {
-    if (xJsonType(node_) != XJSON_ARRAY) {
+    if (xJsonType(m_node) != XJSON_ARRAY) {
       return err(error(ErrorKind::InvalidValue, "expected JSON array"));
     }
-    SeqAccess seq(node_);
+    SeqAccess seq(m_node);
     return visitor.visit_seq(seq);
   }
 
@@ -519,10 +519,10 @@ public:
     (void)name;
     (void)fields;
     (void)n; // JSON does not use these hints.
-    if (xJsonType(node_) != XJSON_OBJECT) {
+    if (xJsonType(m_node) != XJSON_OBJECT) {
       return err(error(ErrorKind::InvalidValue, "expected JSON object"));
     }
-    MapAccess map(node_);
+    MapAccess map(m_node);
     return visitor.visit_map(map);
   }
 
@@ -535,10 +535,10 @@ public:
   auto deserialize_variant(const char *name, const char *const *tags, size_t n, V &&visitor)
     -> decltype(std::declval<V>().visit_variant(0, std::declval<Deserializer &>())) {
     (void)name;
-    if (xJsonType(node_) != XJSON_OBJECT) {
+    if (xJsonType(m_node) != XJSON_OBJECT) {
       return err(error(ErrorKind::InvalidValue, "expected JSON object for variant"));
     }
-    xJsonIterator *iter = xJsonNewIterator(node_);
+    xJsonIterator *iter = xJsonNewIterator(m_node);
     if (!iter || !xJsonIteratorNext(iter)) {
       if (iter) xJsonFree(iter);
       return err(error(ErrorKind::InvalidValue, "empty object for variant"));
@@ -569,8 +569,8 @@ public:
   }
 
 private:
-  const xJson *node_;
-  xJson       *owned_root_; // nullptr for sub-deserializers
+  const xJson *m_node;
+  xJson       *m_owned_root; // nullptr for sub-deserializers
 };
 
 } // namespace json
