@@ -170,9 +170,9 @@ xpp::http::get(url) 被调用：
 │     │    回答：Pending
 │     │    副作用：waker 被注册到底层等待表里
 │     │            （EventLoop 不直接知道 waker——它只管 fd→回调 的映射）
-│     │    → 代码走到 waker.park()
+│     │    → 代码走到 cx.park()
 │     │
-│     ├─ waker.park()
+│     ├─ cx.park()
 │     │    → 调用 xEventLoopRun(ONCE)
 │     │    → 最终调用 epoll_wait(timeout, ...)
 │     │    → 当前线程阻塞，等内核通知
@@ -181,7 +181,7 @@ xpp::http::get(url) 被调用：
 │     │    → epoll 返回这个 fd 的事件
 │     │    → EventLoop 调用 AsyncFd 注册的回调（fd→回调 映射在 EventLoop 里）
 │     │    → 回调里 resolve() → wake waker（查等待表，触发注册过的 waker）
-│     │    → park() 返回，线程醒来
+│     │    → cx.park() 返回，线程醒来
 │     │
 │     ├─ 第 2 轮 poll:
 │     │    AdapterNode 再次 poll：「response 数据就绪了吗？」
