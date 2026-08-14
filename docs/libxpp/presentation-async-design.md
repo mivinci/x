@@ -1,6 +1,6 @@
 # xpp 异步机制设计 — 技术分享
 
-> 这个项目的构想诞生于 2022 年。当时我在做自己的编程语言，过程中发现 Rust 的语义设计跟 C++ 几乎同构——C++ 不缺能力，缺的是把这些能力组织起来的运行时。STL 并不完美，甚至可以说丑陋。于是有了一个想法：给 C++ 补一套机制，让它跟 Rust 一样安全、一样好用。
+> 这个项目的构想诞生于 2022 年。当时在做自己的一个玩具编程语言，过程中发现 Rust 的语义设计跟 C++ 几乎同构——C++ 不缺能力，缺的是把这些能力组织起来的运行时。STL 并不完美，甚至可以说丑陋。于是有了一个想法：给 C++ 补一套机制，让它跟 Rust 一样安全、一样好用。
 >
 > 但工程量比想象中大得多。Rust 的 `Future` trait 怎么落到 C++11 上？下游每个模块怎么设计？模块之间怎么有机结合而不互相冲突？数学上的结构美感怎么保住？这些问题每一个都要精雕细琢。断断续续搞了几年——中间去研究了一阵 cloud native 和 LLM——始终没能一口气推到底。
 >
@@ -81,7 +81,7 @@ fmt.Println(string(body))
 // 风格 1：then() 链——函数式风格，每一步都是数据变换
 xpp::Promise<Vec<uint8_t>> fetch_body(const char *url) {
     return xpp::http::get(url)
-        .then([](xpp::http::Response resp) {
+        .then([](xpp::http::Response&& resp) {
             // resp.body() 返回一个 reader（满足 AsyncReader duck type）
             // xpp::io::read_all 是模板，对任何带 read() 的 reader 都通用
             return xpp::io::read_all(resp.body());
@@ -121,27 +121,61 @@ xpp::Promise<Vec<uint8_t>> fetch_body(const char *url) {
 
 在讲 Promise 怎么工作之前，要先讲它跑在什么上面。
 
-```
-┌─────────────────────────────┐
-│         EventLoop            │
-│  ┌───────┐  ┌──────┐        │
-│  │ epoll │  │timer │  ...   │   ← 操作系统提供的 I/O 多路复用
-│  └───┬───┘  └──┬───┘        │
-│      └────┬────┘            │
-│           ▼                  │
-│      xEventLoopRun()         │   ← 阻塞循环，「有事做才醒」
-│                              │
-│  WaitScope                   │   ← RAII，绑定线程到 EventLoop
-│    enter / leave             │
-└─────────────────────────────┘
-```
+EventLoop 是一个**单线程事件循环**——在一根线程上反复 dispatch 三类事件源，直到没有活可干或被显式 stop。
 
-**关键设计**：`EventLoop` 和 `WaitScope` 分离。
+### 五类事件源
 
-- `EventLoop` 只管 create/destroy handle + run/stop
-- `WaitScope` 管 enter/leave 线程绑定
-- 分离意味着同一个 EventLoop 可以在不同线程 enter（虽然 xpp 目前只支持单线程模式）
-- 分离也意味着嵌套 `await()` 安全 —— scope 在栈上，不会交叉污染
+| 事件源       | 注册 API                           | 触发条件                       |
+| --------- | ------------------------------- | -------------------------- |
+| I/O fd    | `xEventAdd(fd, mask, fn)`        | epoll/kqueue 返回 fd ready   |
+| Timer     | `xTimerStart(fn, timeout_ms, …)` | 定时到期                        |
+| Signal    | `xSignal(signo, fn, arg)`        | POSIX 信号到达（signalfd/self-pipe 转成事件，回调跑在 loop 线程不在 signal context） |
+| Work      | `xWorkSubmit(group, work_fn, done_fn, …)` | 后台线程池跑完 `work_fn`，`done_fn` 回到 loop 线程 |
+| Task      | `xEventLoopPost(fn, arg)`       | 别处 post 的回调（跨线程投递，不开线程池） |
+
+前三类是单线程事件——fd / timer / signal 都在 loop 线程上触发。后两类都跨线程，但性质不同：
+
+- **Work**：CPU 密集任务扔到 `xTaskGroup` 线程池，跑完后 `done_fn` 被调度回 loop 线程。`xpp::work()` 就是它的封装——Section 7 会展开
+- **Task**：`xEventLoopPost` 不开线程池，只是把 `fn` 排进 loop 的 done-queue 下一轮执行。轻量跨线程通信用这个
+
+Section 7 的 `xpp::work()` 和多 EventLoop channel 全靠这后两类。
+
+### 三种 RunMode
+
+`xEventLoopRun(loop, mode)` 的 mode：
+
+| 模式              | 行为                          | 用途              |
+| --------------- | --------------------------- | --------------- |
+| `X_RUN_DEFAULT` | 跑到 `stop()` 或没有 active handle | 主循环 `loop.run()` |
+| `X_RUN_ONCE`    | 跑一轮，阻塞到至少一个事件就返回            | `await()` 内部的 `cx.park()` |
+| `X_RUN_NOWAIT`  | 跑一轮，不阻塞，没事件也立刻返回            | 集成进外部 run loop（iOS CFRunLoop / Android Looper）的手动 pump |
+
+Section 3 会看到 `cx.park()` 内部调的就是 `X_RUN_ONCE`——跑一轮看有没有进展，没有就继续阻塞。
+
+### EventLoop / WaitScope 分离
+
+这是从 libuv 借来的设计：`EventLoop` 只管 handle 的 create/destroy 和 run/stop；`WaitScope` 管线程绑定（enter/leave）。**分离不是洁癖，是四个工程诉求共同逼出来的**：
+
+| 理由        | 说明                                                                              |
+| --------- | ------------------------------------------------------------------------------- |
+| 移动端集成     | `xEventLoopEnter` 把 libx loop 注册到当前线程，让 iOS CFRunLoop / Android Looper 能 pump 它——这是移动端集成的唯一入口 |
+| 嵌套 await 安全 | 同一线程可以嵌套多个 WaitScope（await 里面再 await），用栈管理 enter/leave 对，不会交叉污染                  |
+| 线程名调试     | Enter 时设线程名（`pthread_setname_np`），Leave 时恢复——perf / lldb 里能看出线程归属              |
+| 跨线程唤醒     | `wake()` / `stop()` 跨线程安全，可以叫醒正在 poll 的 loop——Section 7 多 EventLoop 拓扑的基础         |
+
+### 跟 libuv / tokio 的关系
+
+- **libuv**：`uv_run` 的 `UV_RUN_DEFAULT` / `UV_RUN_ONCE` / `UV_RUN_NOWAIT` 跟 xpp 三种 mode 一一对应——xpp 借了这个 API 形态
+- **tokio**：多线程 runtime，worker 之间窃取任务；xpp 目前只做单线程，多线程通过"多个 EventLoop + channel 互通"实现（Section 7 讲），不学 tokio 的 work-stealing——简单优先
+
+```cpp
+// 典型用法
+xpp::EventLoop loop;
+{
+    xpp::WaitScope scope(loop);   // enter：把 loop 绑到当前线程
+    loop.run();                   // 阻塞跑到 stop() 或无 active handle
+}                                // leave：解绑，线程名恢复
+```
 
 ---
 
