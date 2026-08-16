@@ -67,13 +67,6 @@ TEST(BytesConstruction, FromString) {
   EXPECT_EQ(b.size(), 5u);
 }
 
-TEST(BytesConstruction, Empty) {
-  Bytes b = Bytes::make_empty();
-  EXPECT_TRUE(b.empty());
-  EXPECT_EQ(b.size(), 0u);
-  EXPECT_EQ(b.data(), nullptr);
-}
-
 /* ───────────────────────────────────────────────────────────────────
  *  Copy semantics (refcount, no buffer copy)
  * ─────────────────────────────────────────────────────────────────── */

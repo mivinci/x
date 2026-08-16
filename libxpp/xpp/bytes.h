@@ -126,9 +126,6 @@ public:
 
   /* ── Factories ─────────────────────────────────────────────────── */
 
-  /** @brief Construct an empty Bytes (no allocation). */
-  static Bytes make_empty() { return Bytes(); }
-
   /** @brief Take ownership of a Vec<uint8_t>. Zero-copy. */
   static Bytes from(Vec<uint8_t> vec) {
     size_t n = vec.len();
