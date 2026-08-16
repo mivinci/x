@@ -3,6 +3,7 @@
  */
 
 #include <cstring>
+
 #include <gtest/gtest.h>
 #include <xpp/bytes.h>
 #include <xpp/string.h>
@@ -36,7 +37,7 @@ TEST(BytesConstruction, FromVec) {
 
 TEST(BytesConstruction, FromEmptyVec) {
   Vec<uint8_t> v;
-  Bytes b = Bytes::from(std::move(v));
+  Bytes        b = Bytes::from(std::move(v));
   EXPECT_TRUE(b.empty());
   EXPECT_EQ(b.size(), 0u);
 }
@@ -44,17 +45,17 @@ TEST(BytesConstruction, FromEmptyVec) {
 TEST(BytesConstruction, FromCString) {
   Bytes b = Bytes::from("hello");
   EXPECT_EQ(b.size(), 5u);
-  EXPECT_EQ(std::string(reinterpret_cast<const char*>(b.data()), b.size()), "hello");
+  EXPECT_EQ(std::string(reinterpret_cast<const char *>(b.data()), b.size()), "hello");
 }
 
 TEST(BytesConstruction, FromNullptrCString) {
   // Should panic in debug builds; just exercise the assertion path.
-  EXPECT_DEATH({ Bytes::from(static_cast<const char*>(nullptr)); }, "");
+  EXPECT_DEATH({ Bytes::from(static_cast<const char *>(nullptr)); }, "");
 }
 
 TEST(BytesConstruction, FromDataLen) {
   const uint8_t data[] = {0xde, 0xad, 0xbe, 0xef};
-  Bytes b = Bytes::from(data, 4);
+  Bytes         b      = Bytes::from(data, 4);
   EXPECT_EQ(b.size(), 4u);
   EXPECT_EQ(b[0], 0xde);
   EXPECT_EQ(b[3], 0xef);
@@ -78,15 +79,16 @@ TEST(BytesCopy, CopySharesBuffer) {
   v.push(0x03);
   Bytes a = Bytes::from(std::move(v));
 
-  Bytes b = a;  // copy
+  Bytes b = a; // copy
   EXPECT_EQ(b.size(), a.size());
-  EXPECT_EQ(b.data(), a.data());  // same pointer — no buffer copy
+  EXPECT_EQ(b.data(), a.data()); // same pointer — no buffer copy
 }
 
 TEST(BytesCopy, CopyIsCheap) {
   // Make a large Bytes, copy it — the pointer must be identical.
   Vec<uint8_t> v;
-  for (int i = 0; i < 1024; ++i) v.push(static_cast<uint8_t>(i & 0xff));
+  for (int i = 0; i < 1024; ++i)
+    v.push(static_cast<uint8_t>(i & 0xff));
   Bytes a = Bytes::from(std::move(v));
 
   Bytes b = a;
@@ -117,8 +119,8 @@ TEST(BytesMove, MoveSteals) {
   v.push(0x02);
   Bytes a = Bytes::from(std::move(v));
 
-  const uint8_t* original_ptr = a.data();
-  Bytes b = std::move(a);
+  const uint8_t *original_ptr = a.data();
+  Bytes          b            = std::move(a);
 
   EXPECT_EQ(b.data(), original_ptr);
   EXPECT_EQ(b.size(), 2u);
@@ -136,8 +138,8 @@ TEST(BytesMove, MoveAssignment) {
   v2.push(0x33);
   Bytes b = Bytes::from(std::move(v2));
 
-  const uint8_t* b_ptr = b.data();
-  a = std::move(b);
+  const uint8_t *b_ptr = b.data();
+  a                    = std::move(b);
   EXPECT_EQ(a.data(), b_ptr);
   EXPECT_EQ(a.size(), 2u);
 }
@@ -148,19 +150,21 @@ TEST(BytesMove, MoveAssignment) {
 
 TEST(BytesSlice, SliceSharesBuffer) {
   Vec<uint8_t> v;
-  for (int i = 0; i < 16; ++i) v.push(static_cast<uint8_t>(i));
+  for (int i = 0; i < 16; ++i)
+    v.push(static_cast<uint8_t>(i));
   Bytes a = Bytes::from(std::move(v));
 
   Bytes b = a.slice(4, 8);
   EXPECT_EQ(b.size(), 8u);
-  EXPECT_EQ(b.data(), a.data() + 4);  // points into a's buffer
+  EXPECT_EQ(b.data(), a.data() + 4); // points into a's buffer
   EXPECT_EQ(b[0], 0x04);
   EXPECT_EQ(b[7], 0x0b);
 }
 
 TEST(BytesSlice, SliceFromOffset) {
   Vec<uint8_t> v;
-  for (int i = 0; i < 8; ++i) v.push(static_cast<uint8_t>(i));
+  for (int i = 0; i < 8; ++i)
+    v.push(static_cast<uint8_t>(i));
   Bytes a = Bytes::from(std::move(v));
 
   Bytes b = a.slice_from(3);
@@ -213,7 +217,7 @@ TEST(BytesSlice, SlicedBytesHasItsOwnOffsetLen) {
   Bytes c = b.slice(1, 1);
   ASSERT_EQ(c.size(), 1u);
   EXPECT_EQ(c[0], 0x03);
-  EXPECT_EQ(c.data(), a.data() + 2);  // original buffer offset 2
+  EXPECT_EQ(c.data(), a.data() + 2); // original buffer offset 2
 }
 
 /* ───────────────────────────────────────────────────────────────────
@@ -240,10 +244,11 @@ TEST(BytesToVec, CopiesIntoIndependentVec) {
 
 TEST(BytesToVec, SlicedBytesToVecCopiesOnlySlice) {
   Vec<uint8_t> v;
-  for (int i = 0; i < 16; ++i) v.push(static_cast<uint8_t>(i));
+  for (int i = 0; i < 16; ++i)
+    v.push(static_cast<uint8_t>(i));
   Bytes a = Bytes::from(std::move(v));
 
-  Bytes b = a.slice(4, 3);
+  Bytes        b    = a.slice(4, 3);
   Vec<uint8_t> copy = b.to_vec();
   ASSERT_EQ(copy.len(), 3u);
   EXPECT_EQ(copy[0], 0x04);
@@ -252,7 +257,7 @@ TEST(BytesToVec, SlicedBytesToVecCopiesOnlySlice) {
 }
 
 TEST(BytesToVec, EmptyToVec) {
-  Bytes a;
+  Bytes        a;
   Vec<uint8_t> v = a.to_vec();
   EXPECT_EQ(v.len(), 0u);
 }
@@ -263,7 +268,7 @@ TEST(BytesToVec, EmptyToVec) {
 
 TEST(BytesToString, ValidUtf8) {
   Bytes b = Bytes::from("hello");
-  auto r = b.to_string();
+  auto  r = b.to_string();
   ASSERT_TRUE(r.is_ok());
   EXPECT_EQ(r.unwrap(), String::from_utf8("hello").unwrap());
 }
@@ -273,39 +278,39 @@ TEST(BytesToString, InvalidUtf8ReturnsErr) {
   v.push(0xff);
   v.push(0xfe);
   Bytes b = Bytes::from(std::move(v));
-  auto r = b.to_string();
+  auto  r = b.to_string();
   EXPECT_TRUE(r.is_err());
 }
 
 TEST(BytesToString, EmptyBytesToString) {
   Bytes b;
-  auto r = b.to_string();
+  auto  r = b.to_string();
   ASSERT_TRUE(r.is_ok());
   EXPECT_TRUE(r.unwrap().empty());
 }
 
 TEST(BytesToStringLossy, ValidUtf8Unchanged) {
-  Bytes b = Bytes::from("hello");
+  Bytes  b = Bytes::from("hello");
   String s = b.to_string_lossy();
   EXPECT_EQ(s, String::from_utf8("hello").unwrap());
 }
 
 TEST(BytesToStringLossy, InvalidBytesReplacedWithReplacementChar) {
   Vec<uint8_t> v;
-  v.push(0x68);  // 'h'
-  v.push(0x69);  // 'i'
-  v.push(0xff);  // invalid
-  Bytes b = Bytes::from(std::move(v));
+  v.push(0x68); // 'h'
+  v.push(0x69); // 'i'
+  v.push(0xff); // invalid
+  Bytes  b = Bytes::from(std::move(v));
   String s = b.to_string_lossy();
 
   // Should start with "hi" then contain U+FFFD.
-  EXPECT_GE(s.len(), 5u);  // "hi" (2 bytes) + U+FFFD (3 bytes) = 5
+  EXPECT_GE(s.len(), 5u); // "hi" (2 bytes) + U+FFFD (3 bytes) = 5
   auto expected = String::from_utf8("hi\xef\xbf\xbd").unwrap();
   EXPECT_EQ(s, expected);
 }
 
 TEST(BytesToStringLossy, EmptyBytes) {
-  Bytes b;
+  Bytes  b;
   String s = b.to_string_lossy();
   EXPECT_TRUE(s.empty());
 }
@@ -315,16 +320,16 @@ TEST(BytesToStringLossy, MultipleInvalidBytes) {
   v.push(0xff);
   v.push(0xfe);
   v.push(0xfd);
-  Bytes b = Bytes::from(std::move(v));
+  Bytes  b = Bytes::from(std::move(v));
   String s = b.to_string_lossy();
   // 3 invalid bytes → 3 replacement chars = 3 * 3 = 9 bytes
   EXPECT_EQ(s.len(), 9u);
 }
 
 TEST(BytesToStringLossy, ChineseUtf8Preserved) {
-  const char* chinese = "你好世界";
-  Bytes b = Bytes::from(chinese);
-  String s = b.to_string_lossy();
+  const char *chinese = "你好世界";
+  Bytes       b       = Bytes::from(chinese);
+  String      s       = b.to_string_lossy();
   EXPECT_EQ(s, String::from_utf8(chinese).unwrap());
 }
 
@@ -340,7 +345,8 @@ TEST(BytesIter, BeginEnd) {
   Bytes b = Bytes::from(std::move(v));
 
   Vec<uint8_t> collected;
-  for (uint8_t x : b) collected.push(x);
+  for (uint8_t x : b)
+    collected.push(x);
   ASSERT_EQ(collected.len(), 3u);
   EXPECT_EQ(collected[0], 0x01);
   EXPECT_EQ(collected[1], 0x02);
@@ -401,7 +407,7 @@ TEST(BytesSpan, AsSpan) {
 }
 
 TEST(BytesSpan, EmptyAsSpan) {
-  Bytes b;
+  Bytes               b;
   Span<const uint8_t> s = b.as_span();
   EXPECT_EQ(s.size(), 0u);
 }
