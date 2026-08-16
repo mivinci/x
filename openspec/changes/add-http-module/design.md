@@ -182,6 +182,48 @@ Promise<Result<String>> text();    // bytes() + UTF-8 validation
 
 **Why:** xpp's `Shared<T>` is `Rc<T>` by default and `Arc<T>` when `-DXPP_MT` is defined. HTTP body chunks live on the EventLoop thread in the common case (Rc is enough), but multi-EventLoop topologies need Arc. Reusing `Shared` keeps `Bytes` consistent with other xpp types and defers the threading decision to build time.
 
+### Decision 13: Client integration tests use a local `TestServer`, not an external process or transport-layer mock
+
+`Client::send` needs a real HTTP responder to exercise the push→pull bridge end-to-end. Three options were considered:
+
+- **A. External process** (`python -m http.server`, `nc -l`): rejected. CI environments differ, process lifecycle management is brittle, cross-platform inconsistency (Windows has no `nc`), and the test can't share an EventLoop with the client.
+- **B. Mock `libx/x/http/` C API at link time** (LD_PRELOAD or link shim): rejected. Either pollutes the production build with test hooks, or requires a separate build target just for tests — neither is clean. Also, mocking the C API bypasses the very code path we most need to test (callback→channel→Body integration).
+- **C. Inject a transport abstraction** (hyper's `Connect` trait pattern): rejected. Forces `Client` to become a template `Client<Connector>`, complicating the API in C++11 (SFINAE everywhere), and `libx/x/http/` has no such abstraction at the C layer — we'd be inventing one just for tests, which is over-engineering for a single-transport module.
+- **D. Local `TcpListener` speaking minimal HTTP/1.1**: **chosen**. Same pattern as `libxpp/xpp/net/tcp_test.cpp` and `tls_test.cpp` — `get_free_port()` + `TcpListener::bind` + accept loop in a fiber. The server side writes a preset HTTP response, closes the connection. Fully deterministic, no external dependencies, runs in the same `EventLoop` as the client (so real integration bugs surface), and is 50-80 lines of code in a test-only header.
+
+```cpp
+// libxpp/xpp/http/test_server.h — test-only, not part of public API
+namespace xpp::http::test {
+
+struct TestResponseSpec {
+  StatusCode                      status   = StatusCode::Ok;
+  Vec<std::pair<String, String>> headers;
+  Bytes                          body;
+  Duration                       delay    = 0ms;   // optional pre-response delay
+};
+
+class TestServer {
+public:
+  static TestServer start(TestResponseSpec spec);
+  uint16_t          port() const;
+  void              stop();
+  ~TestServer();
+};
+}  // namespace xpp::http::test
+```
+
+**Important**: `TestServer` is NOT the future `Server` module. It is a test fixture:
+
+| | `test::TestServer` | Future `Server` module |
+|---|---|---|
+| Scope | Single connection at a time, preset static response | Concurrent connections, dynamic routing |
+| Routing | None — any path returns the same response | `Router` + `Handler` |
+| Body streaming | Not supported — body buffered once at construction | Full `ChannelWriter` streaming |
+| Public API | Test-only header, `test` subnamespace | Production public API |
+| Location | `xpp/http/test_server.h` | `xpp/http/server.h` (future) |
+
+When `Server` lands, `TestServer` can be reimplemented on top of it if desired, but the test API stays stable — tests don't need to change.
+
 ## Open Questions
 
 ### Q1: libcurl global init cost
@@ -218,10 +260,116 @@ libxpp/xpp/
     ├── response.h       ← NEW: Response + ResponseBuilder
     ├── client.h         ← NEW: Client + ClientBuilder
     ├── error.h          ← NEW: Error
-    └── http.h           ← NEW: top-level http::get/post/...
+    ├── http.h           ← NEW: top-level http::get/post/...
+    └── test_server.h    ← NEW: test-only TestServer (not public API)
 ```
 
-10 new headers total. The old branch had 13 files (including a redundant `bytes/` module and `test_server.h`) — both removed.
+11 new headers total (10 production + 1 test-only). The old branch had 13 files (including a redundant `bytes/` module) — removed.
+
+## Test Strategy
+
+Tests are organized in three layers by what they need:
+
+### Layer 1 — Pure unit tests (no EventLoop, no network)
+
+These are plain Google Test cases, the same style as `xpp/string_test.cpp` or `xpp/box_test.cpp`. They run in milliseconds and are fully deterministic.
+
+- `bytes_test.cpp` — `Bytes` value semantics, copy/slice zero-copy, UTF-8 decode
+- `method_test.cpp` — `Method` enum round-trip
+- `status_test.cpp` — `StatusCode` enum + `is_*` predicates
+- `header_test.cpp` — `HeaderMap` insert/get/erase, case-insensitive, multi-value
+- `error_test.cpp` — `Error` construction + predicates
+- `request_test.cpp` — `RequestBuilder` produces correct `Request`
+- `response_test.cpp` — `ResponseBuilder` + static convenience methods
+
+### Layer 2 — Body tests (EventLoop + mpsc, no network)
+
+`Body` is the core of the design. Its logic (state machine across Empty/Once/Channel, slice leftover, channel close = EOF, `bytes()` aggregation, `text()` UTF-8 validation) is testable with a hand-fed `mpsc::Sender<Bytes>` — no HTTP, no libcurl.
+
+```cpp
+TEST(BodyTest, ChannelReadSlicesLeftover) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto [tx, rx] = xpp::sync::mpsc::channel<xpp::Bytes>(64);
+  auto body = xpp::http::Body::from_channel(std::move(rx));
+
+  tx.try_send(xpp::Bytes::from("0123456789abcdef"));
+
+  char buf[4];
+  ssize_t n = body.read(buf, 4).await();
+  ASSERT_EQ(n, 4);
+  ASSERT_EQ(std::string(buf, 4), "0123");
+
+  char buf2[16];
+  n = body.read(buf2, 16).await();
+  ASSERT_EQ(n, 12);
+  ASSERT_EQ(std::string(buf2, 12), "456789abcdef");
+
+  tx.close();
+  n = body.read(buf, 4).await();
+  ASSERT_EQ(n, 0);   // EOF
+}
+```
+
+### Layer 3 — Client integration tests (EventLoop + local TestServer)
+
+Only `Client::send` and the top-level `http::get` convenience functions need a real HTTP responder. Tests spin up `xpp::http::test::TestServer` on loopback and exercise the client end-to-end — covering the push→pull bridge, backpressure, body streaming, and error paths.
+
+```cpp
+TEST(ClientTest, GetReturns200) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto server = xpp::http::test::TestServer::start({
+    .status = xpp::http::StatusCode::Ok,
+    .headers = {{"Content-Type", "text/plain"}},
+    .body = xpp::Bytes::from("hello"),
+  });
+
+  auto resp = xpp::http::Client::builder().build().unwrap()
+    .get(("http://127.0.0.1:" + std::to_string(server.port()) + "/").c_str())
+    .await()
+    .unwrap();
+
+  EXPECT_EQ(resp.status(), xpp::http::StatusCode::Ok);
+  EXPECT_EQ(resp.headers().get("content-type").unwrap(), "text/plain");
+  auto body = resp.bytes().await().unwrap();
+  EXPECT_EQ(body.to_string().unwrap(), "hello");
+}
+
+TEST(ClientTest, GetTimeoutReturnsErr) {
+  auto server = xpp::http::test::TestServer::start({
+    .status = StatusCode::Ok,
+    .body = Bytes::from("slow"),
+    .delay = 100ms,
+  });
+
+  auto r = Client::builder().timeout(1ms).build().unwrap()
+    .get(("http://127.0.0.1:" + std::to_string(server.port()) + "/").c_str())
+    .await();
+
+  ASSERT_TRUE(r.is_err());
+  EXPECT_TRUE(r.unwrap_err().is_timeout());
+}
+```
+
+### Test file list
+
+| Test file | Layer | What it covers |
+|---|---|---|
+| `bytes_test.cpp` | 1 | `Bytes` value semantics |
+| `method_test.cpp` | 1 | `Method` enum |
+| `status_test.cpp` | 1 | `StatusCode` enum |
+| `header_test.cpp` | 1 | `HeaderMap` container |
+| `error_test.cpp` | 1 | `Error` type |
+| `request_test.cpp` | 1 | `RequestBuilder` |
+| `response_test.cpp` | 1 | `ResponseBuilder` |
+| `body_test.cpp` | 2 | `Body` state machine + channel |
+| `client_test.cpp` | 3 | `Client::send` end-to-end via TestServer |
+| `http_convenience_test.cpp` | 3 | Top-level `http::get/post/...` via TestServer |
+
+10 test files. Layers 1 and 2 run in milliseconds and never touch the network. Layer 3 binds to loopback only — no real network egress, safe in CI sandboxes.
 
 ## API Surface (Summary)
 

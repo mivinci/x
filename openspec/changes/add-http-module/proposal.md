@@ -35,6 +35,7 @@ New headers under `libxpp/xpp/http/`:
 - `client.h` — `Client` + `ClientBuilder` (timeout, redirect policy, TLS, proxy, auth)
 - `error.h` — `Error` with `Kind` enum (Connect, Dns, Timeout, TooManyRedirects, InvalidUrl, Io, Protocol, Tls, Body)
 - `http.h` — top-level convenience functions `http::get/post/put/delete_/patch/head` with `String` / `const char*` / `std::string_view` overloads
+- `test_server.h` — **test-only** helper, `xpp::http::test::TestServer` runs a minimal HTTP/1.1 responder on loopback for client integration tests; not part of the public API, lives under `xpp/http/` alongside the production headers but guarded by a `test` subnamespace
 
 ### Push→Pull bridge
 
@@ -62,11 +63,11 @@ Channel is bounded (64 chunks). When full, `try_send` returns `Full`, and the C 
 
 - **New code**:
   - `libxpp/xpp/bytes.h` — new basic type
-  - `libxpp/xpp/http/{method,status,header,body,request,response,client,error,http}.h` — 9 new headers
-- **New dependencies**: none — uses existing `xpp::Shared`, `xpp::String`, `xpp::Vec`, `xpp::Option`, `xpp::Result`, `xpp::sync::mpsc`, `xpp::io::AsyncReader`, `xpp::promise::Promise`, and `libx/x/http/` (C client API)
+  - `libxpp/xpp/http/{method,status,header,body,request,response,client,error,http,test_server}.h` — 10 new headers (9 production + 1 test-only)
+- **New dependencies**: none — uses existing `xpp::Shared`, `xpp::String`, `xpp::Vec`, `xpp::Option`, `xpp::Result`, `xpp::sync::mpsc`, `xpp::io::AsyncReader`, `xpp::net::TcpListener`, `xpp::promise::Promise`, and `libx/x/http/` (C client API)
 - **Wrapped backend**: `libx/x/http/client.h` — already in tree, no changes required
 - **Build system**: `libxpp/xpp/CMakeLists.txt` adds the `http/` subtree to the header glob and test targets
-- **Tests**: new `bytes_test.cpp`, `http_{method,status,header,body,request,response,client}_test.cpp`; all C++11-compatible, follow the existing `_test.cpp` + Google Test convention
+- **Tests**: new `bytes_test.cpp`, `http_{method,status,header,body,request,response,client,convenience}_test.cpp`; all C++11-compatible, follow the existing `_test.cpp` + Google Test convention. Client integration tests use `xpp::http::test::TestServer` (local loopback HTTP/1.1 responder) — no external process, no real network egress.
 - **No breaking changes**: pure addition. Existing libxpp public API is untouched. No new public C-linkage symbols in `libx`.
 - **C++11 constraint preserved**: no `if constexpr`, no `std::variant`/`std::optional`/`std::string_view` in headers that must stay C++11 (convenience overloads using `std::string_view` are guarded by `__cpp_lib_string_view`).
 - **Documentation**: new mdBook page under `docs/src/xpp/{bytes,http}.md` covering type model, builder usage, push→pull bridge, and per-method examples

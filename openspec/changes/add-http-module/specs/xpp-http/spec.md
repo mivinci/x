@@ -265,3 +265,27 @@ The `Body::read`, `Body::bytes`, `Body::text`, `Response::bytes`, `Response::tex
 
 - **WHEN** a Channel `Body` has no buffered chunks and the sender has not yet closed, and `Body::read(buf, 1024)` is called
 - **THEN** the returned `Promise` is `Pending`, the calling fiber is suspended, and the EventLoop is free to process other work
+
+### Requirement: `xpp::http::test::TestServer` for client integration tests
+
+The library SHALL provide a test-only `xpp::http::test::TestServer` class in `libxpp/xpp/http/test_server.h` (under `namespace xpp::http::test`, NOT part of the public API). `TestServer::start(TestResponseSpec)` SHALL bind a `xpp::net::TcpListener` on loopback port 0 (using `get_free_port()` from `net/test_helpers.h`), spawn an accept fiber on the current `EventLoop` that reads each incoming HTTP request up to the blank-line terminator (`\r\n\r\n`), optionally sleeps for `TestResponseSpec::delay`, and writes back a preset HTTP/1.1 response constructed from `TestResponseSpec::status`, `headers`, and `body`, then closes the connection. `TestServer::port()` SHALL return the bound port. `TestServer::stop()` SHALL close the listener and join the accept fiber; the destructor SHALL call `stop()`. `TestServer` SHALL NOT support concurrent connections, dynamic routing, or body streaming — it is a static-response test fixture, not a general HTTP server.
+
+#### Scenario: `TestServer` responds to a `Client::send` request
+
+- **WHEN** a `TestServer` is started with `TestResponseSpec{.status=StatusCode::Ok, .headers={{"Content-Type","text/plain"}}, .body=Bytes::from("hello")}` and `Client::builder().build().unwrap().get(("http://127.0.0.1:" + port + "/").c_str()).await()` is executed
+- **THEN** the returned `Promise` resolves to `Ok(Response)` with `status() == StatusCode::Ok`, `headers().get("content-type")` returning `Some("text/plain")`, and `bytes()` resolving to `Ok(Bytes)` equal to `"hello"`
+
+#### Scenario: `TestServer::delay` triggers client timeout
+
+- **WHEN** a `TestServer` is started with `TestResponseSpec{.delay = 100ms}` and a `Client` configured with `timeout(1ms)` calls `get` against it
+- **THEN** the returned `Promise` resolves to `Err` with `Error::is_timeout()` returning `true`
+
+#### Scenario: `TestServer` is not part of the public API
+
+- **WHEN** a user includes `xpp/http.h` (the public umbrella header) but not `xpp/http/test_server.h`
+- **THEN** the names `xpp::http::test::TestServer` and `xpp::http::test::TestResponseSpec` are not visible, and the build does not pull in `xpp::net::TcpListener` transitively
+
+#### Scenario: `TestServer` destructor cleans up the listener
+
+- **WHEN** a `TestServer` instance goes out of scope without an explicit `stop()` call
+- **THEN** the bound listening socket is closed and the accept fiber has terminated before the destructor returns

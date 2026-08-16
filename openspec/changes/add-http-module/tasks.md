@@ -47,7 +47,7 @@
 - [ ] 4.7 Write `response_test.cpp` covering: builder sets status/headers/body; static convenience methods return correct status; `bytes()`/`text()` work on Once body; `into_body()` empties the response
 - [ ] 4.8 Add test targets, build with ASan, run, fix failures
 
-## 5. Phase 5 — `Error` + `Client` + `ClientBuilder`
+## 5. Phase 5 — `Error` + `Client` + `ClientBuilder` + `TestServer`
 
 - [ ] 5.1 Create `libxpp/xpp/http/error.h` with license header and guards
 - [ ] 5.2 Implement `Error` class with `Kind` enum (Connect/Dns/Timeout/TooManyRedirects/InvalidUrl/Io/Protocol/Tls/Body), `m_kind`, `m_message`, `m_status` (Option<StatusCode>); accessors `kind()`, `message()`, `status()`, `is_connect()`, `is_timeout()`, `is_redirect()`, `is_status_error()`, `to_string()`
@@ -55,30 +55,31 @@
 - [ ] 5.4 Implement `Client` class wrapping `xHttpClient` from `libx/x/http/client.h`; `send(Request) → Promise<Result<Response>>` via SendAdapter (owns mpsc Sender + PromiseResolver); C callbacks `on_response` (construct Response with Body::from_channel), `on_data` (try_send, backpressure on Full), `on_done` (close channel + delete adapter)
 - [ ] 5.5 Implement `Client` convenience methods `get(url)`, `post(url)`, `post(url, body)`, `put`, `delete_`, `patch`, `head` with 3 URL overloads each — all delegate to `send(Request::builder()...)`
 - [ ] 5.6 Implement `ClientBuilder` with `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect`, `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`, `build() → Result<Client>`
-- [ ] 5.7 Write `error_test.cpp` covering each Kind, is_* predicates, to_string format
-- [ ] 5.8 Write `client_test.cpp` covering: `Client::builder().build()` succeeds; convenience methods construct correct Request (inspect via a mock or by intercepting `send`); URL overloads compile
-- [ ] 5.9 Write integration test `http_integration_test.cpp` that starts a local TCP listener (using `xpp::net::TcpListener`) speaking minimal HTTP/1.1 and verifies `Client::send` round-trip (status, headers, body)
-- [ ] 5.10 Add test targets, build with ASan, run, fix failures
+- [ ] 5.7 Create `libxpp/xpp/http/test_server.h` with license header, guards, and `namespace xpp::http::test`
+- [ ] 5.8 Implement `TestResponseSpec` struct (status, headers, body, delay)
+- [ ] 5.9 Implement `TestServer` class: `start(TestResponseSpec)` binds a loopback `TcpListener` (via `get_free_port()` from `net/test_helpers.h`), spawns an accept fiber that reads the request up to `\r\n\r\n`, optionally sleeps `delay`, then writes a preset HTTP/1.1 response (status line + headers + body + close). `port()` returns the bound port. `stop()` closes the listener and joins the fiber. Destructor calls `stop()`.
+- [ ] 5.10 Write `error_test.cpp` (Layer 1) covering each Kind, is_* predicates, to_string format
+- [ ] 5.11 Write `client_test.cpp` (Layer 3) using `TestServer`: `Client::builder().build()` succeeds; `send` returns `Ok(Response)` with correct status/headers/body against a preset `TestServer`; convenience methods (`get`/`post`/...) construct correct Request (verified end-to-end via TestServer response); URL overloads (`String`/`const char*`/`std::string_view`) all compile and round-trip; `timeout` configuration triggers `Error::is_timeout()` against a delayed TestServer response
+- [ ] 5.12 Add `client_test` and `error_test` targets to CMakeLists, build with ASan, run, fix failures
 
 ## 6. Phase 6 — Top-level convenience functions + docs
 
 - [ ] 6.1 Create `libxpp/xpp/http/http.h` with license header and guards
 - [ ] 6.2 Implement `xpp::http::get(url)`, `post(url)`, `post(url, body)`, `put(url)`, `put(url, body)`, `delete_(url)`, `patch(url)`, `patch(url, body)`, `head(url)` with `String`, `const char*`, `std::string_view` (guarded) overloads — each creates a default `Client` and delegates
-- [ ] 6.3 Verify the one-liner `co_await xpp::http::get("https://example.com")` compiles and runs (integration test against local listener)
+- [ ] 6.3 Write `http_convenience_test.cpp` (Layer 3) using `TestServer`: each verb (`get`/`post`/`put`/`delete_`/`patch`/`head`) round-trips against a TestServer; each URL overload compiles and round-trips; the one-liner `co_await xpp::http::get("http://127.0.0.1:<port>/")` works end-to-end
 - [ ] 6.4 Profile `http::get` cold-start cost; if `curl_global_init` overhead is measurable, add a thread-local default `Client` reused by `http::get` (document in `design.md` open question Q1)
-- [ ] 6.5 Write `http_convenience_test.cpp` covering each verb, each URL overload
-- [ ] 6.6 Add mdBook page `docs/src/xpp/bytes.md` documenting the `Bytes` type, copy/slice semantics, when to use `Bytes` vs `Vec<uint8_t>`
-- [ ] 6.7 Add mdBook page `docs/src/xpp/http.md` documenting the client API, push→pull bridge, body streaming, composition with `io::read_all` / `io::copy`, and examples from `design.md`
-- [ ] 6.8 Update `docs/src/xpp/SUMMARY.md` to include the new pages
-- [ ] 6.9 Add test targets, build with ASan, run, fix failures
+- [ ] 6.5 Add mdBook page `docs/src/xpp/bytes.md` documenting the `Bytes` type, copy/slice semantics, when to use `Bytes` vs `Vec<uint8_t>`
+- [ ] 6.6 Add mdBook page `docs/src/xpp/http.md` documenting the client API, push→pull bridge, body streaming, composition with `io::read_all` / `io::copy`, and examples from `design.md`
+- [ ] 6.7 Update `docs/src/xpp/SUMMARY.md` to include the new pages
+- [ ] 6.8 Add `http_convenience_test` target, build with ASan, run, fix failures
 
 ## 7. Phase 7 — Hardening
 
 - [ ] 7.1 Verify the entire module compiles with `-fno-exceptions -fno-rtti -std=c++11`
 - [ ] 7.2 Verify `Bytes` refcount behavior under `-DXPP_MT` (Arc path) — thread-safe shared ownership
-- [ ] 7.3 Stress test: 100 concurrent `http::get` against local listener, verify no leaks (ASan + LSan)
+- [ ] 7.3 Stress test: 100 concurrent `http::get` against `TestServer`, verify no leaks (ASan + LSan)
 - [ ] 7.4 Stress test: streaming upload of 100MB via `Body::from_channel`, verify backpressure works (channel doesn't grow unbounded)
-- [ ] 7.5 Stress test: streaming download of 100MB, verify no OOM, channel stays bounded
+- [ ] 7.5 Stress test: streaming download of 100MB via `TestServer` preset body, verify no OOM, channel stays bounded
 - [ ] 7.6 Verify `Client::drop` while a request is in-flight doesn't crash (cancelation path)
 - [ ] 7.7 Review header include graph: no cycles, no transitively pulling libx C headers into user-facing `xpp/` includes (wrap them in `client.h` internals only)
 - [ ] 7.8 Final review of all public API doc comments — every public type and method has a `///` comment
