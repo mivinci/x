@@ -22,7 +22,8 @@
 #include <xpp/option.h>
 #include <xpp/string.h>
 
-namespace xpp::http {
+namespace xpp {
+namespace http {
 
 /**
  * @brief HTTP response status code.
@@ -88,7 +89,7 @@ enum class StatusCode : uint16_t {
   PreconditionRequired        = 428,
   TooManyRequests             = 429,
   RequestHeaderFieldsTooLarge = 431,
-  UnavailableForLegalReasons = 451,
+  UnavailableForLegalReasons  = 451,
 
   // 5xx — Server Error
   InternalServerError           = 500,
@@ -136,74 +137,135 @@ inline bool is_server_error(StatusCode s) noexcept {
  *
  * Returns a borrowed C string literal. Unknown codes return "".
  */
-inline const char* to_string(StatusCode s) noexcept {
+inline const char *to_string(StatusCode s) noexcept {
   switch (s) {
-    // 1xx
-    case StatusCode::Continue:           return "Continue";
-    case StatusCode::SwitchingProtocols: return "Switching Protocols";
-    case StatusCode::Processing:         return "Processing";
-    case StatusCode::EarlyHints:         return "Early Hints";
-    // 2xx
-    case StatusCode::Ok:                          return "OK";
-    case StatusCode::Created:                     return "Created";
-    case StatusCode::Accepted:                    return "Accepted";
-    case StatusCode::NonAuthoritativeInformation: return "Non-Authoritative Information";
-    case StatusCode::NoContent:                   return "No Content";
-    case StatusCode::ResetContent:                return "Reset Content";
-    case StatusCode::PartialContent:              return "Partial Content";
-    case StatusCode::MultiStatus:                 return "Multi-Status";
-    case StatusCode::AlreadyReported:             return "Already Reported";
-    case StatusCode::ImUsed:                      return "IM Used";
-    // 3xx
-    case StatusCode::MultipleChoices:   return "Multiple Choices";
-    case StatusCode::MovedPermanently:  return "Moved Permanently";
-    case StatusCode::Found:             return "Found";
-    case StatusCode::SeeOther:          return "See Other";
-    case StatusCode::NotModified:       return "Not Modified";
-    case StatusCode::UseProxy:          return "Use Proxy";
-    case StatusCode::TemporaryRedirect: return "Temporary Redirect";
-    case StatusCode::PermanentRedirect: return "Permanent Redirect";
-    // 4xx
-    case StatusCode::BadRequest:                  return "Bad Request";
-    case StatusCode::Unauthorized:                 return "Unauthorized";
-    case StatusCode::PaymentRequired:              return "Payment Required";
-    case StatusCode::Forbidden:                   return "Forbidden";
-    case StatusCode::NotFound:                    return "Not Found";
-    case StatusCode::MethodNotAllowed:            return "Method Not Allowed";
-    case StatusCode::NotAcceptable:               return "Not Acceptable";
-    case StatusCode::ProxyAuthenticationRequired: return "Proxy Authentication Required";
-    case StatusCode::RequestTimeout:              return "Request Timeout";
-    case StatusCode::Conflict:                    return "Conflict";
-    case StatusCode::Gone:                        return "Gone";
-    case StatusCode::LengthRequired:              return "Length Required";
-    case StatusCode::PreconditionFailed:           return "Precondition Failed";
-    case StatusCode::PayloadTooLarge:             return "Payload Too Large";
-    case StatusCode::UriTooLong:                  return "URI Too Long";
-    case StatusCode::UnsupportedMediaType:        return "Unsupported Media Type";
-    case StatusCode::RangeNotSatisfiable:         return "Range Not Satisfiable";
-    case StatusCode::ExpectationFailed:           return "Expectation Failed";
-    case StatusCode::MisdirectedRequest:          return "Misdirected Request";
-    case StatusCode::UnprocessableEntity:          return "Unprocessable Entity";
-    case StatusCode::Locked:                       return "Locked";
-    case StatusCode::FailedDependency:             return "Failed Dependency";
-    case StatusCode::TooEarly:                     return "Too Early";
-    case StatusCode::UpgradeRequired:              return "Upgrade Required";
-    case StatusCode::PreconditionRequired:         return "Precondition Required";
-    case StatusCode::TooManyRequests:              return "Too Many Requests";
-    case StatusCode::RequestHeaderFieldsTooLarge:  return "Request Header Fields Too Large";
-    case StatusCode::UnavailableForLegalReasons:   return "Unavailable For Legal Reasons";
-    // 5xx
-    case StatusCode::InternalServerError:           return "Internal Server Error";
-    case StatusCode::NotImplemented:                return "Not Implemented";
-    case StatusCode::BadGateway:                    return "Bad Gateway";
-    case StatusCode::ServiceUnavailable:           return "Service Unavailable";
-    case StatusCode::GatewayTimeout:                return "Gateway Timeout";
-    case StatusCode::HttpVersionNotSupported:       return "HTTP Version Not Supported";
-    case StatusCode::VariantAlsoNegotiates:         return "Variant Also Negotiates";
-    case StatusCode::InsufficientStorage:           return "Insufficient Storage";
-    case StatusCode::LoopDetected:                  return "Loop Detected";
-    case StatusCode::NotExtended:                   return "Not Extended";
-    case StatusCode::NetworkAuthenticationRequired: return "Network Authentication Required";
+  // 1xx
+  case StatusCode::Continue:
+    return "Continue";
+  case StatusCode::SwitchingProtocols:
+    return "Switching Protocols";
+  case StatusCode::Processing:
+    return "Processing";
+  case StatusCode::EarlyHints:
+    return "Early Hints";
+  // 2xx
+  case StatusCode::Ok:
+    return "OK";
+  case StatusCode::Created:
+    return "Created";
+  case StatusCode::Accepted:
+    return "Accepted";
+  case StatusCode::NonAuthoritativeInformation:
+    return "Non-Authoritative Information";
+  case StatusCode::NoContent:
+    return "No Content";
+  case StatusCode::ResetContent:
+    return "Reset Content";
+  case StatusCode::PartialContent:
+    return "Partial Content";
+  case StatusCode::MultiStatus:
+    return "Multi-Status";
+  case StatusCode::AlreadyReported:
+    return "Already Reported";
+  case StatusCode::ImUsed:
+    return "IM Used";
+  // 3xx
+  case StatusCode::MultipleChoices:
+    return "Multiple Choices";
+  case StatusCode::MovedPermanently:
+    return "Moved Permanently";
+  case StatusCode::Found:
+    return "Found";
+  case StatusCode::SeeOther:
+    return "See Other";
+  case StatusCode::NotModified:
+    return "Not Modified";
+  case StatusCode::UseProxy:
+    return "Use Proxy";
+  case StatusCode::TemporaryRedirect:
+    return "Temporary Redirect";
+  case StatusCode::PermanentRedirect:
+    return "Permanent Redirect";
+  // 4xx
+  case StatusCode::BadRequest:
+    return "Bad Request";
+  case StatusCode::Unauthorized:
+    return "Unauthorized";
+  case StatusCode::PaymentRequired:
+    return "Payment Required";
+  case StatusCode::Forbidden:
+    return "Forbidden";
+  case StatusCode::NotFound:
+    return "Not Found";
+  case StatusCode::MethodNotAllowed:
+    return "Method Not Allowed";
+  case StatusCode::NotAcceptable:
+    return "Not Acceptable";
+  case StatusCode::ProxyAuthenticationRequired:
+    return "Proxy Authentication Required";
+  case StatusCode::RequestTimeout:
+    return "Request Timeout";
+  case StatusCode::Conflict:
+    return "Conflict";
+  case StatusCode::Gone:
+    return "Gone";
+  case StatusCode::LengthRequired:
+    return "Length Required";
+  case StatusCode::PreconditionFailed:
+    return "Precondition Failed";
+  case StatusCode::PayloadTooLarge:
+    return "Payload Too Large";
+  case StatusCode::UriTooLong:
+    return "URI Too Long";
+  case StatusCode::UnsupportedMediaType:
+    return "Unsupported Media Type";
+  case StatusCode::RangeNotSatisfiable:
+    return "Range Not Satisfiable";
+  case StatusCode::ExpectationFailed:
+    return "Expectation Failed";
+  case StatusCode::MisdirectedRequest:
+    return "Misdirected Request";
+  case StatusCode::UnprocessableEntity:
+    return "Unprocessable Entity";
+  case StatusCode::Locked:
+    return "Locked";
+  case StatusCode::FailedDependency:
+    return "Failed Dependency";
+  case StatusCode::TooEarly:
+    return "Too Early";
+  case StatusCode::UpgradeRequired:
+    return "Upgrade Required";
+  case StatusCode::PreconditionRequired:
+    return "Precondition Required";
+  case StatusCode::TooManyRequests:
+    return "Too Many Requests";
+  case StatusCode::RequestHeaderFieldsTooLarge:
+    return "Request Header Fields Too Large";
+  case StatusCode::UnavailableForLegalReasons:
+    return "Unavailable For Legal Reasons";
+  // 5xx
+  case StatusCode::InternalServerError:
+    return "Internal Server Error";
+  case StatusCode::NotImplemented:
+    return "Not Implemented";
+  case StatusCode::BadGateway:
+    return "Bad Gateway";
+  case StatusCode::ServiceUnavailable:
+    return "Service Unavailable";
+  case StatusCode::GatewayTimeout:
+    return "Gateway Timeout";
+  case StatusCode::HttpVersionNotSupported:
+    return "HTTP Version Not Supported";
+  case StatusCode::VariantAlsoNegotiates:
+    return "Variant Also Negotiates";
+  case StatusCode::InsufficientStorage:
+    return "Insufficient Storage";
+  case StatusCode::LoopDetected:
+    return "Loop Detected";
+  case StatusCode::NotExtended:
+    return "Not Extended";
+  case StatusCode::NetworkAuthenticationRequired:
+    return "Network Authentication Required";
   }
   return "";
 }
@@ -212,7 +274,7 @@ namespace _ {
 
 /// Parse leading ASCII digits from @p s up to 3 digits (100–599 range).
 /// Returns the integer, or 0 if no digits found.
-inline uint16_t parse_leading_digits(const char* p, size_t n) noexcept {
+inline uint16_t parse_leading_digits(const char *p, size_t n) noexcept {
   uint32_t v = 0;
   size_t   i = 0;
   while (i < n && i < 3 && p[i] >= '0' && p[i] <= '9') {
@@ -222,7 +284,7 @@ inline uint16_t parse_leading_digits(const char* p, size_t n) noexcept {
   return (i == 0) ? 0 : static_cast<uint16_t>(v);
 }
 
-}  // namespace _
+} // namespace _
 
 /**
  * @brief Parse a status code from a string.
@@ -231,13 +293,14 @@ inline uint16_t parse_leading_digits(const char* p, size_t n) noexcept {
  * trailing text is ignored. Returns None if no digits found or the code
  * is outside 100–599.
  */
-inline Option<StatusCode> from_string(const String& s) noexcept {
-  const char* p = reinterpret_cast<const char*>(s.as_bytes().data());
+inline Option<StatusCode> from_string(const String &s) noexcept {
+  const char *p = reinterpret_cast<const char *>(s.as_bytes().data());
   size_t      n = s.len();
 
   // Skip leading whitespace.
   size_t i = 0;
-  while (i < n && (p[i] == ' ' || p[i] == '\t')) ++i;
+  while (i < n && (p[i] == ' ' || p[i] == '\t'))
+    ++i;
   if (i == n) return none;
 
   uint16_t code = _::parse_leading_digits(p + i, n - i);
@@ -245,6 +308,7 @@ inline Option<StatusCode> from_string(const String& s) noexcept {
   return static_cast<StatusCode>(code);
 }
 
-}  // namespace xpp::http
+} // namespace http
+} // namespace xpp
 
-#endif  // XPP_HTTP_STATUS_H
+#endif // XPP_HTTP_STATUS_H

@@ -2,8 +2,8 @@
  * Unit tests for xpp::http::Method.
  */
 
-#include <xpp/http/method.h>
 #include <gtest/gtest.h>
+#include <xpp/http/method.h>
 
 using namespace xpp;
 using namespace xpp::http;
@@ -29,9 +29,8 @@ TEST(MethodToString, AllVariants) {
  * ─────────────────────────────────────────────────────────────────── */
 
 TEST(MethodFromString, UppercaseRoundTrip) {
-  for (Method m : {
-      Method::Get, Method::Post, Method::Put, Method::Delete, Method::Patch,
-      Method::Head, Method::Options, Method::Trace, Method::Connect}) {
+  for (Method m : {Method::Get, Method::Post, Method::Put, Method::Delete, Method::Patch,
+                   Method::Head, Method::Options, Method::Trace, Method::Connect}) {
     auto r = from_string(String::from_utf8(to_string(m)).unwrap());
     ASSERT_TRUE(r.is_some()) << "to_string=" << to_string(m);
     EXPECT_EQ(r.unwrap(), m);

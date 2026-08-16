@@ -2,8 +2,8 @@
  * Unit tests for xpp::http::StatusCode.
  */
 
-#include <xpp/http/status.h>
 #include <gtest/gtest.h>
+#include <xpp/http/status.h>
 
 using namespace xpp;
 using namespace xpp::http;

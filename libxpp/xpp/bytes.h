@@ -53,21 +53,21 @@ namespace _ {
  * Unlike @ref decode_one, this function does NOT assume valid UTF-8 —
  * it validates before consuming. Used only by Bytes::to_string_lossy.
  */
-inline size_t safe_utf8_step(const uint8_t* p, size_t len) {
+inline size_t safe_utf8_step(const uint8_t *p, size_t len) {
   if (len == 0) return 0;
   uint8_t b = p[0];
   if (b < 0x80) return 1;
   if ((b & 0xE0) == 0xC0) {
     if (len < 2 || (p[1] & 0xC0) != 0x80) return 0;
     uint32_t cp = ((b & 0x1F) << 6) | (p[1] & 0x3F);
-    if (cp < 0x80) return 0;  // overlong
+    if (cp < 0x80) return 0; // overlong
     return 2;
   }
   if ((b & 0xF0) == 0xE0) {
     if (len < 3 || (p[1] & 0xC0) != 0x80 || (p[2] & 0xC0) != 0x80) return 0;
     uint32_t cp = ((b & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F);
-    if (cp < 0x800) return 0;  // overlong
-    if (0xD800 <= cp && cp <= 0xDFFF) return 0;  // surrogate
+    if (cp < 0x800) return 0;                   // overlong
+    if (0xD800 <= cp && cp <= 0xDFFF) return 0; // surrogate
     return 3;
   }
   if ((b & 0xF8) == 0xF0) {
@@ -75,13 +75,13 @@ inline size_t safe_utf8_step(const uint8_t* p, size_t len) {
       return 0;
     uint32_t cp = ((b & 0x07) << 18) | ((p[1] & 0x3F) << 12) | ((p[2] & 0x3F) << 6) | (p[3] & 0x3F);
     if (cp < 0x10000) return 0;  // overlong
-    if (cp > 0x10FFFF) return 0;  // beyond Unicode
+    if (cp > 0x10FFFF) return 0; // beyond Unicode
     return 4;
   }
-  return 0;  // invalid leading byte
+  return 0; // invalid leading byte
 }
 
-}  // namespace _
+} // namespace _
 
 /**
  * @brief Immutable, reference-counted byte block.
@@ -119,10 +119,10 @@ public:
   /** @brief Empty bytes. No allocation. */
   Bytes() noexcept : m_impl(none), m_offset(0), m_len(0) {}
 
-  Bytes(const Bytes&)            = default;
-  Bytes& operator=(const Bytes&) = default;
-  Bytes(Bytes&&) noexcept       = default;
-  Bytes& operator=(Bytes&&) noexcept = default;
+  Bytes(const Bytes &)                = default;
+  Bytes &operator=(const Bytes &)     = default;
+  Bytes(Bytes &&) noexcept            = default;
+  Bytes &operator=(Bytes &&) noexcept = default;
 
   /* ── Factories ─────────────────────────────────────────────────── */
 
@@ -131,7 +131,7 @@ public:
     size_t n = vec.len();
     if (n == 0) return Bytes();
     Shared<Impl> impl = Shared<Impl>::make(std::move(vec));
-    Bytes b;
+    Bytes        b;
     b.m_impl   = some(std::move(impl));
     b.m_offset = 0;
     b.m_len    = n;
@@ -145,47 +145,54 @@ public:
   }
 
   /** @brief Copy a C string (without the trailing NUL). */
-  static Bytes from(const char* s) {
+  static Bytes from(const char *s) {
     XPP_ASSERT(s != nullptr, "Bytes::from(nullptr)");
     size_t len = std::strlen(s);
     return from(s, len);
   }
 
   /** @brief Copy @p len bytes from @p data. */
-  static Bytes from(const uint8_t* data, size_t len) {
+  static Bytes from(const uint8_t *data, size_t len) {
     Vec<uint8_t> v;
     v.reserve(len);
-    for (size_t i = 0; i < len; ++i) v.push(data[i]);
+    for (size_t i = 0; i < len; ++i)
+      v.push(data[i]);
     return from(std::move(v));
   }
 
   /** @brief Copy @p len bytes from @p data (char* overload). */
-  static Bytes from(const char* data, size_t len) {
-    return from(reinterpret_cast<const uint8_t*>(data), len);
+  static Bytes from(const char *data, size_t len) {
+    return from(reinterpret_cast<const uint8_t *>(data), len);
   }
 
   /** @brief Explicit-copy factory. Same as `from(data, len)`, but the
    *         name makes the copy visible at the call site. */
-  static Bytes copy(const char* data, size_t len) {
+  static Bytes copy(const char *data, size_t len) {
     return from(data, len);
   }
 
   /* ── Observers ─────────────────────────────────────────────────── */
 
   /** @brief Pointer to the first byte (nullptr if empty). */
-  const uint8_t* data() const noexcept {
-    const Impl* impl = m_impl.as_deref();
+  const uint8_t *data() const noexcept {
+    const Impl *impl = m_impl.as_deref();
     return impl ? impl->buf.data() + m_offset : nullptr;
   }
 
   /** @brief Number of bytes. */
-  size_t size() const noexcept { return m_len; }
+  size_t size() const noexcept {
+    return m_len;
+  }
 
   /** @brief True if size() == 0. */
-  bool empty() const noexcept { return m_len == 0; }
+  bool empty() const noexcept {
+    return m_len == 0;
+  }
 
   /** @brief STL-compatible alias for empty(). */
-  bool is_empty() const noexcept { return m_len == 0; }
+  bool is_empty() const noexcept {
+    return m_len == 0;
+  }
 
   /** @brief Read-only view over the bytes. */
   Span<const uint8_t> as_span() const noexcept {
@@ -212,7 +219,7 @@ public:
     XPP_DEBUG_ASSERT(len <= m_len - offset, "Bytes::slice: offset %zu + len %zu exceeds size %zu",
                      offset, len, m_len);
     Bytes b;
-    b.m_impl   = m_impl;             // Option copy → Shared clone → refcount++
+    b.m_impl   = m_impl; // Option copy → Shared clone → refcount++
     b.m_offset = m_offset + offset;
     b.m_len    = len;
     return b;
@@ -239,9 +246,10 @@ public:
   Vec<uint8_t> to_vec() const {
     Vec<uint8_t> v;
     v.reserve(m_len);
-    const Impl* impl = m_impl.as_deref();
-    const uint8_t* src = impl ? impl->buf.data() + m_offset : nullptr;
-    for (size_t i = 0; i < m_len; ++i) v.push(src[i]);
+    const Impl    *impl = m_impl.as_deref();
+    const uint8_t *src  = impl ? impl->buf.data() + m_offset : nullptr;
+    for (size_t i = 0; i < m_len; ++i)
+      v.push(src[i]);
     return v;
   }
 
@@ -271,7 +279,7 @@ public:
     // Slow path: walk the buffer, replace invalid sequences with U+FFFD.
     Vec<uint8_t> out;
     out.reserve(v.len());
-    const uint8_t* p   = v.data();
+    const uint8_t *p   = v.data();
     size_t         len = v.len();
     for (size_t i = 0; i < len;) {
       size_t consumed = _::safe_utf8_step(p + i, len - i);
@@ -282,7 +290,8 @@ public:
         out.push(0xBD);
         i += 1;
       } else {
-        for (size_t k = 0; k < consumed; ++k) out.push(p[i + k]);
+        for (size_t k = 0; k < consumed; ++k)
+          out.push(p[i + k]);
         i += consumed;
       }
     }
@@ -291,19 +300,25 @@ public:
 
   /* ── Iterators (raw pointers) ──────────────────────────────────── */
 
-  const uint8_t* begin() const noexcept { return data(); }
-  const uint8_t* end()   const noexcept { return data() + m_len; }
+  const uint8_t *begin() const noexcept {
+    return data();
+  }
+  const uint8_t *end() const noexcept {
+    return data() + m_len;
+  }
 
   /* ── Comparison ────────────────────────────────────────────────── */
 
   /** @brief Byte-wise equality. */
-  friend bool operator==(const Bytes& a, const Bytes& b) {
+  friend bool operator==(const Bytes &a, const Bytes &b) {
     if (a.m_len != b.m_len) return false;
     if (a.m_len == 0) return true;
     return std::memcmp(a.data(), b.data(), a.m_len) == 0;
   }
 
-  friend bool operator!=(const Bytes& a, const Bytes& b) { return !(a == b); }
+  friend bool operator!=(const Bytes &a, const Bytes &b) {
+    return !(a == b);
+  }
 
 private:
   Option<Shared<Impl>> m_impl;
@@ -316,6 +331,6 @@ private:
 static_assert(sizeof(Bytes) == sizeof(Shared<Bytes::Impl>) + 2 * sizeof(size_t),
               "Bytes must be Shared<Impl> + offset + len");
 
-}  // namespace xpp
+} // namespace xpp
 
-#endif  // XPP_BYTES_H
+#endif // XPP_BYTES_H

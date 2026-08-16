@@ -2,8 +2,8 @@
  * Unit tests for xpp::http::HeaderMap.
  */
 
-#include <xpp/http/header.h>
 #include <gtest/gtest.h>
+#include <xpp/http/header.h>
 
 using namespace xpp;
 using namespace xpp::http;
@@ -23,8 +23,8 @@ TEST(HeaderMapConstruction, FromVec) {
   Vec<std::pair<String, String>> entries;
   entries.push(std::make_pair(String::from_utf8("Content-Type").unwrap(),
                               String::from_utf8("text/plain").unwrap()));
-  entries.push(std::make_pair(String::from_utf8("X-Custom").unwrap(),
-                              String::from_utf8("v1").unwrap()));
+  entries.push(
+    std::make_pair(String::from_utf8("X-Custom").unwrap(), String::from_utf8("v1").unwrap()));
 
   HeaderMap h = HeaderMap::from_vec(std::move(entries));
   EXPECT_EQ(h.size(), 2u);
@@ -186,7 +186,7 @@ TEST(HeaderMapIteration, ForRange) {
   h.insert("X-Custom", "v1");
 
   size_t count = 0;
-  for (const auto& entry : h) {
+  for (const auto &entry : h) {
     (void)entry;
     ++count;
   }

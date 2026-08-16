@@ -28,7 +28,8 @@
 #include <xpp/string.h>
 #include <xpp/vec.h>
 
-namespace xpp::http {
+namespace xpp {
+namespace http {
 
 /**
  * @brief Case-insensitive HTTP header collection.
@@ -47,12 +48,12 @@ namespace xpp::http {
  * @endcode
  */
 class HeaderMap {
- public:
-  HeaderMap() = default;
-  HeaderMap(HeaderMap&&) noexcept            = default;
-  HeaderMap& operator=(HeaderMap&&) noexcept = default;
-  HeaderMap(const HeaderMap&)                = default;
-  HeaderMap& operator=(const HeaderMap&)     = default;
+public:
+  HeaderMap()                                 = default;
+  HeaderMap(HeaderMap &&) noexcept            = default;
+  HeaderMap &operator=(HeaderMap &&) noexcept = default;
+  HeaderMap(const HeaderMap &)                = default;
+  HeaderMap &operator=(const HeaderMap &)     = default;
 
   /* ── Factories ───────────────────────────────────────────────────── */
 
@@ -66,8 +67,7 @@ class HeaderMap {
     h.m_keys.reserve(entries.len());
     h.m_values.reserve(entries.len());
     for (size_t i = 0; i < entries.len(); ++i) {
-      h.insert_key_lowered(lowercase_ascii(entries[i].first),
-                           std::move(entries[i].second));
+      h.insert_key_lowered(lowercase_ascii(entries[i].first), std::move(entries[i].second));
     }
     return h;
   }
@@ -86,7 +86,7 @@ class HeaderMap {
   }
 
   /// @copydoc insert(String, String)
-  void insert(const char* key, const char* value) {
+  void insert(const char *key, const char *value) {
     m_keys.push(lowercase_ascii(String::from_utf8(key).unwrap_or(String())));
     m_values.push(String::from_utf8(value).unwrap_or(String()));
   }
@@ -99,23 +99,23 @@ class HeaderMap {
    * Returns None if the key is absent. The query key is lowercased
    * internally before comparison; original key bytes are not modified.
    */
-  Option<const String&> get(const String& key) const {
+  Option<const String &> get(const String &key) const {
     String lower = lowercase_ascii(key);
     for (size_t i = 0; i < m_keys.len(); ++i) {
-      if (m_keys[i] == lower) return Option<const String&>(m_values[i]);
+      if (m_keys[i] == lower) return Option<const String &>(m_values[i]);
     }
     return none;
   }
 
   /// @copydoc get(const String&)
-  Option<const String&> get(const char* key) const {
+  Option<const String &> get(const char *key) const {
     return get(String::from_utf8(key).unwrap_or(String()));
   }
 
   /**
    * @brief Case-insensitive membership test.
    */
-  bool contains(const String& key) const {
+  bool contains(const String &key) const {
     String lower = lowercase_ascii(key);
     for (size_t i = 0; i < m_keys.len(); ++i) {
       if (m_keys[i] == lower) return true;
@@ -124,7 +124,7 @@ class HeaderMap {
   }
 
   /// @copydoc contains(const String&)
-  bool contains(const char* key) const {
+  bool contains(const char *key) const {
     return contains(String::from_utf8(key).unwrap_or(String()));
   }
 
@@ -137,43 +137,49 @@ class HeaderMap {
    * is valid only while the HeaderMap is alive and unmodified.
    */
   class Values {
-   public:
+  public:
     class const_iterator {
-     public:
-      const_iterator(const HeaderMap* map, String key, size_t idx)
+    public:
+      const_iterator(const HeaderMap *map, String key, size_t idx)
           : m_map(map), m_key(std::move(key)), m_idx(idx) {
         advance_to_match();
       }
 
-      const String& operator*() const { return m_map->m_values[m_idx]; }
-      const String* operator->() const { return &m_map->m_values[m_idx]; }
+      const String &operator*() const {
+        return m_map->m_values[m_idx];
+      }
+      const String *operator->() const {
+        return &m_map->m_values[m_idx];
+      }
 
-      const_iterator& operator++() {
+      const_iterator &operator++() {
         ++m_idx;
         advance_to_match();
         return *this;
       }
 
-      bool operator!=(const const_iterator& other) const {
+      bool operator!=(const const_iterator &other) const {
         return m_idx != other.m_idx;
       }
-      bool operator==(const const_iterator& other) const {
+      bool operator==(const const_iterator &other) const {
         return m_idx == other.m_idx;
       }
 
-     private:
+    private:
       void advance_to_match() {
         while (m_idx < m_map->m_keys.len() && m_map->m_keys[m_idx] != m_key) {
           ++m_idx;
         }
       }
 
-      const HeaderMap* m_map;
+      const HeaderMap *m_map;
       String           m_key;
       size_t           m_idx;
     };
 
-    const_iterator begin() const { return const_iterator(m_map, m_key, 0); }
+    const_iterator begin() const {
+      return const_iterator(m_map, m_key, 0);
+    }
     const_iterator end() const {
       return const_iterator(m_map, m_key, m_map->m_keys.len());
     }
@@ -187,14 +193,15 @@ class HeaderMap {
       return n;
     }
 
-    bool empty() const { return size() == 0; }
+    bool empty() const {
+      return size() == 0;
+    }
 
-   private:
+  private:
     friend class HeaderMap;
-    Values(const HeaderMap* map, String key)
-        : m_map(map), m_key(std::move(key)) {}
+    Values(const HeaderMap *map, String key) : m_map(map), m_key(std::move(key)) {}
 
-    const HeaderMap* m_map;
+    const HeaderMap *m_map;
     String           m_key;
   };
 
@@ -204,12 +211,12 @@ class HeaderMap {
    * Useful for headers like Set-Cookie that may appear multiple times.
    * The returned view is invalidated by any mutation to this HeaderMap.
    */
-  Values get_all(const String& key) const {
+  Values get_all(const String &key) const {
     return Values(this, lowercase_ascii(key));
   }
 
   /// @copydoc get_all(const String&)
-  Values get_all(const char* key) const {
+  Values get_all(const char *key) const {
     return get_all(String::from_utf8(key).unwrap_or(String()));
   }
 
@@ -222,8 +229,8 @@ class HeaderMap {
    * order of remaining entries may change). Returns the number of
    * entries erased.
    */
-  size_t erase(const String& key) {
-    String lower = lowercase_ascii(key);
+  size_t erase(const String &key) {
+    String lower  = lowercase_ascii(key);
     size_t erased = 0;
     size_t i      = 0;
     while (i < m_keys.len()) {
@@ -239,14 +246,18 @@ class HeaderMap {
   }
 
   /// @copydoc erase(const String&)
-  size_t erase(const char* key) {
+  size_t erase(const char *key) {
     return erase(String::from_utf8(key).unwrap_or(String()));
   }
 
   /* ── State ─────────────────────────────────────────────────────── */
 
-  bool   empty() const noexcept { return m_keys.empty(); }
-  size_t size()  const noexcept { return m_keys.len(); }
+  bool empty() const noexcept {
+    return m_keys.empty();
+  }
+  size_t size() const noexcept {
+    return m_keys.len();
+  }
 
   void clear() {
     m_keys.clear();
@@ -256,35 +267,49 @@ class HeaderMap {
   /* ── Iteration (key, value pairs in storage order) ─────────────── */
 
   class const_iterator {
-   public:
-    const_iterator(const HeaderMap* map, size_t idx)
-        : m_map(map), m_idx(idx) {}
+  public:
+    const_iterator(const HeaderMap *map, size_t idx) : m_map(map), m_idx(idx) {}
 
-    std::pair<const String&, const String&> operator*() const {
+    std::pair<const String &, const String &> operator*() const {
       return {m_map->m_keys[m_idx], m_map->m_values[m_idx]};
     }
 
-    const_iterator& operator++() { ++m_idx; return *this; }
-    bool operator!=(const const_iterator& other) const { return m_idx != other.m_idx; }
-    bool operator==(const const_iterator& other) const { return m_idx == other.m_idx; }
+    const_iterator &operator++() {
+      ++m_idx;
+      return *this;
+    }
+    bool operator!=(const const_iterator &other) const {
+      return m_idx != other.m_idx;
+    }
+    bool operator==(const const_iterator &other) const {
+      return m_idx == other.m_idx;
+    }
 
-   private:
-    const HeaderMap* m_map;
+  private:
+    const HeaderMap *m_map;
     size_t           m_idx;
   };
 
-  const_iterator begin() const { return const_iterator(this, 0); }
-  const_iterator end()   const { return const_iterator(this, m_keys.len()); }
+  const_iterator begin() const {
+    return const_iterator(this, 0);
+  }
+  const_iterator end() const {
+    return const_iterator(this, m_keys.len());
+  }
 
   /* ── Direct array access (for serialization) ───────────────────── */
 
   /** @brief Lowercased keys in storage order. */
-  const Vec<String>& keys() const noexcept { return m_keys; }
+  const Vec<String> &keys() const noexcept {
+    return m_keys;
+  }
 
   /** @brief Values in storage order, parallel to keys(). */
-  const Vec<String>& values() const noexcept { return m_values; }
+  const Vec<String> &values() const noexcept {
+    return m_values;
+  }
 
- private:
+private:
   // Storage: parallel arrays. m_keys stores lowercased ASCII; m_values
   // stores the original value bytes (case preserved, including non-ASCII
   // for header values that allow it per RFC).
@@ -292,8 +317,8 @@ class HeaderMap {
   Vec<String> m_values;
 
   /// Lowercase an ASCII string. Non-ASCII bytes are preserved.
-  static String lowercase_ascii(const String& s) {
-    auto bytes = s.as_bytes();
+  static String lowercase_ascii(const String &s) {
+    auto         bytes = s.as_bytes();
     Vec<uint8_t> out;
     out.reserve(bytes.size());
     for (size_t i = 0; i < bytes.size(); ++i) {
@@ -311,6 +336,7 @@ class HeaderMap {
   }
 };
 
-}  // namespace xpp::http
+} // namespace http
+} // namespace xpp
 
-#endif  // XPP_HTTP_HEADER_H
+#endif // XPP_HTTP_HEADER_H
