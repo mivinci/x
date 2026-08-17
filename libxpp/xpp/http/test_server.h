@@ -194,22 +194,15 @@ private:
         return xpp::resolve();
       }
 
-      // Copy spec out of shared state before spawning the fiber —
-      // the fiber may outlive `state_opt`'s refcount if TestServer
-      // is dropped while a connection is mid-flight.
+      // Handle this connection directly in the accept-loop fiber.
+      // TestServer is a test fixture — serial connection handling is
+      // fine (tests are sequential). Avoiding fire-and-forget child
+      // fibers sidesteps a nested-fiber wake issue on Linux shared
+      // builds where `xFiberSwitch` from inside `xEventLoopRun` (called
+      // by the main thread's `park()`) can deadlock when the child
+      // fiber itself yields back through a multi-level fiber chain.
       TestResponseSpec spec_copy = s->spec;
-
-      // Spawn a fiber for this connection. Fire-and-forget: the fiber
-      // owns its TcpStream and runs to completion (or until EventLoop exit).
-      // We wrap move-only types in Shared<> because C++11 lambdas can't
-      // init-capture by move.
-      Shared<TcpStream>        stream_ptr = Shared<TcpStream>::make(std::move(accepted.first));
-      Shared<TestResponseSpec> spec_ptr   = Shared<TestResponseSpec>::make(std::move(spec_copy));
-      xpp::fiber(32 * 1024, [stream_ptr, spec_ptr]() -> Promise<void> {
-        TcpStream        stream = std::move(*stream_ptr);
-        TestResponseSpec spec   = std::move(*spec_ptr);
-        return handle_connection(std::move(stream), std::move(spec));
-      });
+      handle_connection(std::move(accepted.first), std::move(spec_copy)).await();
     }
   }
 
