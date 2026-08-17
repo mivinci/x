@@ -53,7 +53,7 @@ Channel is bounded (64 chunks). When full, `try_send` returns `Full`, and the C 
 ### New Capabilities
 
 - `xpp-bytes`: A refcounted, immutable byte block type `xpp::Bytes` with O(1) copy and O(1) slice. Lives at top-level `xpp::` namespace alongside `xpp::String` and `xpp::Vec`. Backed by `Shared<Impl>` (Rc single-threaded, Arc with `-DXPP_MT`).
-- `xpp-http`: A client-side HTTP module for libxpp. Types `Client`, `Request`, `Response`, `Body`, `Method`, `StatusCode`, `HeaderMap`, `Error`, plus top-level convenience functions `http::get/post/put/delete_/patch/head`. Body implements `AsyncReader`, composing with `xpp::io::read_all` and `xpp::io::copy`. Push→pull bridge via `xpp::sync::mpsc` channel (bounded 64). API naming aligned with `hyper` + `reqwest`.
+- `xpp-http`: A client-side HTTP module for libxpp. Types `Client`, `Request`, `Response`, `Body`, `Method`, `StatusCode`, `HeaderMap`, `Error`, plus top-level convenience function `http::get(url)`. Body implements `AsyncReader`, composing with `xpp::io::read_all` and `xpp::io::copy`. Push→pull bridge via `xpp::sync::mpsc` channel (bounded 64). API naming aligned with `hyper` + `reqwest`.
 
 ### Modified Capabilities
 

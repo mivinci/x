@@ -260,7 +260,7 @@ template <class T> Promise<void> Sender<T>::send(T value) {
 }
 
 template <class T> Promise<Option<T>> Receiver<T>::recv() {
-  if (!m_chan) return xpp::resolve(none);
+  if (!m_chan) return xpp::resolve(Option<T>(none));
 
   while (true) {
     auto v = m_chan->m_rx.try_pop();
@@ -272,7 +272,7 @@ template <class T> Promise<Option<T>> Receiver<T>::recv() {
       return xpp::resolve(xpp::some(std::move(v).unwrap()));
     }
 
-    if (closed() && m_chan->m_rx.empty()) return xpp::resolve(none);
+    if (closed() && m_chan->m_rx.empty()) return xpp::resolve(Option<T>(none));
 
     auto pr               = xpp::async<void>();
     m_chan->m_read_waiter = std::move(pr.second);
