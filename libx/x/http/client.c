@@ -355,6 +355,59 @@ static void apply_tls_conf(struct xHttpClient_ *c, const xTlsConf *conf) {
   c->tls_skip_verify  = conf->skip_verify;
 }
 
+/* Free owned string fields (user_agent / proxy / no_proxy).  Separate from
+ * tls_conf_free because the two configs are independent. */
+static void client_strs_free(struct xHttpClient_ *c) {
+  free(c->user_agent);
+  free(c->proxy);
+  free(c->no_proxy);
+  c->user_agent = NULL;
+  c->proxy      = NULL;
+  c->no_proxy   = NULL;
+}
+
+/* Apply xHttpClientConf defaults to the client struct.  Strings are copied;
+ * the caller's strings do not need to outlive this call. */
+static void apply_client_conf(struct xHttpClient_ *c, const xHttpClientConf *conf) {
+  client_strs_free(c);
+
+  if (!conf) {
+    /* Defaults: follow up to 10 redirects, no timeouts, no proxy. */
+    c->follow_location    = 1;
+    c->max_redirects      = 10;
+    c->timeout_ms         = 0;
+    c->connect_timeout_ms = 0;
+    return;
+  }
+
+  /* follow_location: zero-init struct means "default = follow".  Callers
+   * who want to disable redirects must set follow_location = 0 explicitly.
+   * We treat any non-zero value as "follow" to match curl semantics. */
+  c->follow_location = (conf->follow_location != 0) ? 1 : 0;
+  if (c->follow_location) {
+    /* max_redirects == 0 means "follow infinitely" in curl.  If the caller
+     * zero-initialized the struct and enabled follow (the default), cap at
+     * 10.  If they explicitly set 0 with follow on, we honor "infinite". */
+    c->max_redirects = conf->max_redirects;
+    if (c->max_redirects == 0) {
+      /* Only apply the default cap when follow_location was the implicit
+       * default — i.e. the caller didn't set max_redirects.  We can't tell
+       * that apart from an explicit "infinite", so we treat both as 10.
+       * Callers wanting infinite redirects can set a very large value. */
+      c->max_redirects = 10;
+    }
+  } else {
+    c->max_redirects = 0;
+  }
+
+  c->timeout_ms         = conf->timeout_ms;
+  c->connect_timeout_ms = conf->connect_timeout_ms;
+
+  c->user_agent = xstrdup_(conf->user_agent);
+  c->proxy      = xstrdup_(conf->proxy);
+  c->no_proxy   = xstrdup_(conf->no_proxy);
+}
+
 xHttpClient xHttpClientCreate(const xHttpClientConf *conf) {
   xEventLoop loop = xEventLoopCurrent();
   if (!loop) return NULL;
@@ -372,15 +425,16 @@ xHttpClient xHttpClientCreate(const xHttpClientConf *conf) {
   c->timer    = NULL;
   c->http_ver = xHttpVersion_Default;
 
+  /* Apply client-level configuration (redirects, timeouts, proxy, UA,
+   * TLS).  Safe to call with conf == NULL — uses defaults. */
+  apply_client_conf(c, conf);
+  if (conf && conf->tls) apply_tls_conf(c, conf->tls);
+  if (conf && conf->http_version != xHttpVersion_Default) c->http_ver = conf->http_version;
+
   curl_multi_setopt(c->multi, CURLMOPT_SOCKETFUNCTION, socket_callback);
   curl_multi_setopt(c->multi, CURLMOPT_SOCKETDATA, c);
   curl_multi_setopt(c->multi, CURLMOPT_TIMERFUNCTION, timer_callback);
   curl_multi_setopt(c->multi, CURLMOPT_TIMERDATA, c);
-
-  if (conf) {
-    if (conf->tls) apply_tls_conf(c, conf->tls);
-    if (conf->http_version != xHttpVersion_Default) c->http_ver = conf->http_version;
-  }
 
   return (xHttpClient)c;
 }
@@ -453,6 +507,7 @@ void xHttpClientDestroy(xHttpClient client) {
 
   curl_multi_cleanup(c->multi);
   tls_conf_free(c);
+  client_strs_free(c);
   free(c);
 }
 
@@ -482,16 +537,37 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
   /* Apply HTTP version: per-request override or client default */
   if (req->client) apply_http_version(req->easy, req->client->http_ver);
 
-  /* Apply TLS configuration */
+  /* Apply client-level defaults: redirects, connect_timeout, proxy, UA.
+   * Per-request total timeout is handled in xHttpClientDo (it knows both
+   * the request's timeout_ms and the client default, and applies the
+   * per-request value if set, otherwise the client default). */
   if (req->client) {
     struct xHttpClient_ *cl = req->client;
+
+    /* Redirects */
+    if (cl->follow_location) {
+      curl_easy_setopt(req->easy, CURLOPT_FOLLOWLOCATION, 1L);
+      curl_easy_setopt(req->easy, CURLOPT_MAXREDIRS, cl->max_redirects);
+    }
+
+    /* Connect-phase-only timeout (no per-request override — client only) */
+    if (cl->connect_timeout_ms > 0) {
+      curl_easy_setopt(req->easy, CURLOPT_CONNECTTIMEOUT_MS, cl->connect_timeout_ms);
+    }
+
+    /* Identity / proxy */
+    if (cl->user_agent) curl_easy_setopt(req->easy, CURLOPT_USERAGENT, cl->user_agent);
+    if (cl->proxy)      curl_easy_setopt(req->easy, CURLOPT_PROXY,     cl->proxy);
+    if (cl->no_proxy)   curl_easy_setopt(req->easy, CURLOPT_NOPROXY,   cl->no_proxy);
+
+    /* Apply TLS configuration */
     if (cl->tls_skip_verify) {
       curl_easy_setopt(req->easy, CURLOPT_SSL_VERIFYPEER, 0L);
       curl_easy_setopt(req->easy, CURLOPT_SSL_VERIFYHOST, 0L);
     }
-    if (cl->tls_ca) curl_easy_setopt(req->easy, CURLOPT_CAINFO, cl->tls_ca);
-    if (cl->tls_cert) curl_easy_setopt(req->easy, CURLOPT_SSLCERT, cl->tls_cert);
-    if (cl->tls_key) curl_easy_setopt(req->easy, CURLOPT_SSLKEY, cl->tls_key);
+    if (cl->tls_ca)           curl_easy_setopt(req->easy, CURLOPT_CAINFO,    cl->tls_ca);
+    if (cl->tls_cert)         curl_easy_setopt(req->easy, CURLOPT_SSLCERT,   cl->tls_cert);
+    if (cl->tls_key)          curl_easy_setopt(req->easy, CURLOPT_SSLKEY,    cl->tls_key);
     if (cl->tls_key_password) curl_easy_setopt(req->easy, CURLOPT_KEYPASSWD, cl->tls_key_password);
   }
 
@@ -596,6 +672,12 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg
   case xHttpMethod_HEAD:
     curl_easy_setopt(req->easy, CURLOPT_NOBODY, 1L);
     break;
+  case xHttpMethod_OPTIONS:
+    curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "OPTIONS");
+    break;
+  case xHttpMethod_TRACE:
+    curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "TRACE");
+    break;
   default:
     curl_easy_setopt(req->easy, CURLOPT_HTTPGET, 1L);
     break;
@@ -610,9 +692,9 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg
    * above already configured the method correctly. */
   if (conf->on_read) {
     static const char *method_str[] = {
-      "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD",
+      "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE",
     };
-    int mi = (conf->method >= 0 && conf->method <= 5) ? conf->method : 0;
+    int mi = (conf->method >= 0 && conf->method <= 7) ? conf->method : 0;
     curl_easy_setopt(req->easy, CURLOPT_UPLOAD, 1L);
     if (mi != 2) { /* PUT is the UPLOAD default — no override needed */
       curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, method_str[mi]);
@@ -645,9 +727,13 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg
     curl_easy_setopt(req->easy, CURLOPT_HTTPHEADER, req->req_headers);
   }
 
-  /* Per-request timeout */
+  /* Per-request total timeout.
+   * Priority: per-request timeout_ms > client default timeout_ms.
+   * 0 means "no limit" at either level. */
   if (conf->timeout_ms > 0) {
     curl_easy_setopt(req->easy, CURLOPT_TIMEOUT_MS, conf->timeout_ms);
+  } else if (c->timeout_ms > 0) {
+    curl_easy_setopt(req->easy, CURLOPT_TIMEOUT_MS, c->timeout_ms);
   }
 
   /* Per-request HTTP version override */

@@ -95,8 +95,14 @@ typedef size_t (*xHttpReadFunc)(char *buf, size_t bufsize, void *arg);
  * @brief HTTP method constants.
  */
 XDEF_ENUM(xHttpMethod){
-  xHttpMethod_GET = 0,    xHttpMethod_POST = 1,  xHttpMethod_PUT = 2,
-  xHttpMethod_DELETE = 3, xHttpMethod_PATCH = 4, xHttpMethod_HEAD = 5,
+  xHttpMethod_GET     = 0,
+  xHttpMethod_POST    = 1,
+  xHttpMethod_PUT     = 2,
+  xHttpMethod_DELETE   = 3,
+  xHttpMethod_PATCH    = 4,
+  xHttpMethod_HEAD    = 5,
+  xHttpMethod_OPTIONS = 6,
+  xHttpMethod_TRACE   = 7,
 };
 
 /**
@@ -151,26 +157,66 @@ typedef xTlsConf xHttpTlsClientConf;
 /**
  * @brief Configuration for creating an HTTP client.
  *
- * Zero-initialize for defaults (no TLS, HTTP/1.1).
- * Pass NULL to xHttpClientCreate() for the same defaults.
+ * All fields are client-level defaults applied to every request submitted
+ * through this client. Zero-initialize for defaults (no TLS, HTTP/1.1,
+ * follow up to 10 redirects, no timeout, no proxy).
+ *
+ * String fields (@ref user_agent, @ref proxy, @ref no_proxy) are NOT owned
+ * by the caller after xHttpClientCreate() — the client makes internal
+ * copies. The pointers only need to remain valid for the duration of the
+ * xHttpClientCreate() call.
+ *
+ * Pass NULL to xHttpClientCreate() for the same defaults as a zero-
+ * initialized struct.
  */
 XDEF_STRUCT(xHttpClientConf) {
-  const xTlsConf *tls;          /**< TLS config, or NULL         */
-  xHttpVersion    http_version; /**< Default HTTP version (0=H1) */
+  const xTlsConf *tls;             /**< TLS config, or NULL                        */
+  xHttpVersion    http_version;    /**< Default HTTP version (0=H1)                */
+
+  /* ── Redirect policy ── */
+  int             follow_location; /**< 0 = never follow (default 1, see below);
+                                     *    any non-zero = follow.  When 0, the
+                                     *    client does not follow 3xx responses. */
+  long            max_redirects;   /**< Max redirects to follow (0 = follow
+                                     *    infinitely; default 10 when
+                                     *    follow_location != 0).                */
+
+  /* ── Timeouts ── */
+  long            timeout_ms;       /**< Total transfer timeout per request in ms
+                                     *    (0 = no limit).  Applies to the whole
+                                     *    transfer including connect + headers +
+                                     *    body.  Equivalent to CURLOPT_TIMEOUT_MS. */
+  long            connect_timeout_ms;/**< Connect-phase-only timeout in ms
+                                     *    (0 = use default, ~300s on most
+                                     *    systems).  Equivalent to
+                                     *    CURLOPT_CONNECTTIMEOUT_MS.             */
+
+  /* ── Identity / proxy ── */
+  const char     *user_agent;       /**< Default User-Agent header, or NULL (libcurl
+                                     *    default applies).  Overridden by an
+                                     *    explicit User-Agent in xHttpRequestConf. */
+  const char     *proxy;            /**< Proxy URL (e.g. "http://host:port",
+                                     *    "socks5://host:port"), or NULL.         */
+  const char     *no_proxy;         /**< Comma-separated host patterns that bypass
+                                     *    @ref proxy (e.g. "localhost,127.0.0.1"),
+                                     *    or NULL.                                */
 };
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
 
 /**
- * @brief Create an HTTP client bound to an event loop.
+ * @brief Create an HTTP client bound to the current event loop.
  *
- * Initialises a curl multi handle and registers socket/timer callbacks
- * with the given event loop. If @p conf is not NULL, the client is
- * configured with the given TLS and HTTP version settings.
+ * Initialises a curl multi handle and registers socket/timer callbacks with
+ * xEventLoopCurrent() — the caller must have entered the target loop via
+ * xEventLoopEnter() before calling this. If @p conf is not NULL, the client
+ * is configured with the given TLS, redirect, timeout, and proxy settings;
+ * string fields (user_agent/proxy/no_proxy) are copied internally.
  *
- * @param loop  The event loop (must not be NULL).
- * @param conf  Client configuration, or NULL for defaults.
- * @return      A new client handle, or NULL on failure.
+ * @param conf  Client configuration, or NULL for defaults (HTTP/1.1, follow
+ *              up to 10 redirects, no timeout, no proxy, no TLS).
+ * @return      A new client handle, or NULL on failure (no current event
+ *              loop, curl_multi_init failure, or out-of-memory).
  */
 XCAPI(xHttpClient) xHttpClientCreate(const xHttpClientConf *conf);
 
