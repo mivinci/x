@@ -100,3 +100,67 @@ TEST(HttpResultAlias, DefaultErrorIsHttpError) {
   static_assert(std::is_same<http::Result<int>::error_type, Error>::value,
                 "http::Result<T> must use http::Error as the error type");
 }
+
+/* ───────────────────────────────────────────────────────────────────
+ *  Phase 5: status-carrying errors + to_string()
+ * ─────────────────────────────────────────────────────────────────── */
+
+TEST(ErrorStatus, StatusNoneByDefault) {
+  Error e(Error::Kind::Timeout, String::from_utf8("timed out").unwrap());
+  EXPECT_TRUE(e.status().is_none());
+  EXPECT_FALSE(e.is_status_error());
+}
+
+TEST(ErrorStatus, StatusSetOnProtocolError) {
+  Error e(Error::Kind::Protocol, String::from_utf8("server returned 404").unwrap(),
+          StatusCode::NotFound);
+  ASSERT_TRUE(e.status().is_some());
+  EXPECT_EQ(e.status().unwrap(), StatusCode::NotFound);
+  EXPECT_TRUE(e.is_status_error());
+  EXPECT_TRUE(e.is_protocol());
+}
+
+TEST(ErrorStatus, IsStatusErrorFalseForTransportError) {
+  // Even with a status accidentally set, is_status_error reflects status.is_some()
+  Error e(Error::Kind::Connect, String::from_utf8("refused").unwrap());
+  EXPECT_FALSE(e.is_status_error());
+}
+
+TEST(ErrorToString, FormatWithoutStatus) {
+  Error e(Error::Kind::Timeout, String::from_utf8("connect timed out").unwrap());
+  String s = e.to_string();
+  // Format: "timeout: connect timed out"
+  EXPECT_EQ(s, String::from_utf8("timeout: connect timed out").unwrap());
+}
+
+TEST(ErrorToString, FormatWithStatus) {
+  Error e(Error::Kind::Protocol, String::from_utf8("not found").unwrap(),
+          StatusCode::NotFound);
+  String s = e.to_string();
+  // Format: "protocol: not found (status 404)"
+  EXPECT_EQ(s, String::from_utf8("protocol: not found (status 404)").unwrap());
+}
+
+TEST(ErrorToString, FormatDefaultError) {
+  Error e;
+  String s = e.to_string();
+  // Default kind = Io, empty message
+  EXPECT_EQ(s, String::from_utf8("io: ").unwrap());
+}
+
+TEST(ErrorToString, AllKindsHaveNames) {
+  // Ensure kind_name() covers every enumerator — no "unknown" leak.
+  Error::Kind kinds[] = {
+      Error::Kind::Connect,    Error::Kind::Dns,         Error::Kind::Timeout,
+      Error::Kind::TooManyRedirects, Error::Kind::InvalidUrl, Error::Kind::Io,
+      Error::Kind::Protocol,   Error::Kind::Tls,         Error::Kind::Body,
+  };
+  for (auto k : kinds) {
+    Error e(k, String::from_utf8("msg").unwrap());
+    String s = e.to_string();
+    EXPECT_FALSE(s.empty());
+    // Should contain ": msg", not start with "unknown: msg"
+    EXPECT_TRUE(s.contains(String::from_utf8(": msg").unwrap()));
+    EXPECT_FALSE(s.starts_with(String::from_utf8("unknown").unwrap()));
+  }
+}

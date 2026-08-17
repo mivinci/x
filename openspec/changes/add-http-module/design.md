@@ -189,17 +189,17 @@ Promise<Result<String>> text();    // bytes() + UTF-8 validation
 - **A. External process** (`python -m http.server`, `nc -l`): rejected. CI environments differ, process lifecycle management is brittle, cross-platform inconsistency (Windows has no `nc`), and the test can't share an EventLoop with the client.
 - **B. Mock `libx/x/http/` C API at link time** (LD_PRELOAD or link shim): rejected. Either pollutes the production build with test hooks, or requires a separate build target just for tests — neither is clean. Also, mocking the C API bypasses the very code path we most need to test (callback→channel→Body integration).
 - **C. Inject a transport abstraction** (hyper's `Connect` trait pattern): rejected. Forces `Client` to become a template `Client<Connector>`, complicating the API in C++11 (SFINAE everywhere), and `libx/x/http/` has no such abstraction at the C layer — we'd be inventing one just for tests, which is over-engineering for a single-transport module.
-- **D. Local `TcpListener` speaking minimal HTTP/1.1**: **chosen**. Same pattern as `libxpp/xpp/net/tcp_test.cpp` and `tls_test.cpp` — `get_free_port()` + `TcpListener::bind` + accept loop in a fiber. The server side writes a preset HTTP response, closes the connection. Fully deterministic, no external dependencies, runs in the same `EventLoop` as the client (so real integration bugs surface), and is 50-80 lines of code in a test-only header.
+- **D. Local `TcpListener` speaking minimal HTTP/1.1**: **chosen**. Same pattern as `libxpp/xpp/net/tcp_test.cpp` and `tls_test.cpp` — `TcpListener::bind` to port 0 (kernel-assigned, race-free) + accept loop in a `xpp::fiber`. The server side writes a preset HTTP response, optionally delayed via `co_await xpp::after(ms)`, then closes the connection. Fully deterministic, no external dependencies, runs in the same `EventLoop` as the client (so real integration bugs surface), and is ~120 lines of code in a test-only header.
 
 ```cpp
 // libxpp/xpp/http/test_server.h — test-only, not part of public API
 namespace xpp::http::test {
 
 struct TestResponseSpec {
-  StatusCode                      status   = StatusCode::Ok;
-  Vec<std::pair<String, String>> headers;
+  StatusCode                      status    = StatusCode::Ok;
+  Vec<std::pair<String, String>>  headers;
   Bytes                          body;
-  Duration                       delay    = 0ms;   // optional pre-response delay
+  uint64_t                       delay_ms  = 0;   // optional pre-response delay
 };
 
 class TestServer {
@@ -224,6 +224,18 @@ public:
 
 When `Server` lands, `TestServer` can be reimplemented on top of it if desired, but the test API stays stable — tests don't need to change.
 
+### Decision 14: `TestServer` binds to port 0 (kernel-assigned), not `get_free_port()`
+
+```cpp
+auto r = TcpListener::bind(SocketAddr::from(SocketAddrV4::from(Ipv4Addr::localhost(), 0)));
+auto listener = r.unwrap().unwrap();
+uint16_t port = listener.local_addr().unwrap().port();   // real assigned port
+```
+
+**Why:** The old `get_free_port()` pattern (bind → getsockname → close → return port) has a TOCTOU race: between close and the listener's real bind, another process can grab the port. Binding directly to port 0 and reading the assigned port from `local_addr()` is race-free and atomic. libx's `xTcpListenerCreate` calls `bind()` directly, which honors port=0 per POSIX.
+
+**Alternative considered:** keep `get_free_port()` for "find a port then bind explicitly". Rejected — race window is real, especially on busy CI machines.
+
 ## Open Questions
 
 ### Q1: libcurl global init cost
@@ -245,6 +257,19 @@ libx has `proto_h2.c`, `tls.h`, `ws*.c` — none wrapped in xpp yet. Follow-up c
 ### Q5: JSON
 
 `Response::json<T>()` depends on `xpp-serde` (in flight on another branch). Will be added as a separate change once serde lands.
+
+### Q6: libx HTTP server async handler support
+
+libx's `xHttpServer` currently uses a **synchronous handler model**: `on_done(ctx, arg)` is called from the EventLoop stack and must complete the response (`xHttpCtxSend` / `xHttpCtxEndStream`) before returning. The `xHttpCtx` is invalidated once `on_done` returns — there is no way to "pause" the stream, await an async operation (DB lookup, downstream RPC), then resume the response. The only escape hatch is `xHttpConnHijack`, which is WebSocket-specific.
+
+This means:
+
+- The future `xpp::http::Server` module cannot directly map `Promise<Result<Response>> handler(Request)` onto libx's current C API — handler would need to yield (co_await) but has no yield point.
+- `TestServer` cannot be implemented on top of `xHttpServer` if it needs to delay responses (e.g. for timeout testing), because `on_done` cannot `co_await xpp::after(ms)`.
+
+**Phase 5 workaround**: `TestServer` uses `xpp::net::TcpListener` + hand-written minimal HTTP/1.1 responder (Decision 13, option D) — this sidesteps libx's synchronous handler limit entirely, since the xpp side can `co_await` freely.
+
+**Long-term**: libx should add an async handler path — e.g. an `on_done_async(ctx, arg) → xPromise<void>` vtable slot that, if set, runs the handler in a fiber and defers `conn_after_response` until the fiber completes. This is a libx-level change tracked separately (not in this HTTP module proposal).
 
 ## File Layout
 
@@ -321,11 +346,12 @@ TEST(ClientTest, GetReturns200) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  auto server = xpp::http::test::TestServer::start({
-    .status = xpp::http::StatusCode::Ok,
-    .headers = {{"Content-Type", "text/plain"}},
-    .body = xpp::Bytes::from("hello"),
-  });
+  xpp::http::test::TestResponseSpec spec;
+  spec.status  = xpp::http::StatusCode::Ok;
+  spec.headers.push_back({"Content-Type", "text/plain"});
+  spec.body    = xpp::Bytes::from("hello");
+  spec.delay_ms = 0;
+  auto server = xpp::http::test::TestServer::start(spec);
 
   auto resp = xpp::http::Client::builder().build().unwrap()
     .get(("http://127.0.0.1:" + std::to_string(server.port()) + "/").c_str())
@@ -339,13 +365,13 @@ TEST(ClientTest, GetReturns200) {
 }
 
 TEST(ClientTest, GetTimeoutReturnsErr) {
-  auto server = xpp::http::test::TestServer::start({
-    .status = StatusCode::Ok,
-    .body = Bytes::from("slow"),
-    .delay = 100ms,
-  });
+  xpp::http::test::TestResponseSpec spec;
+  spec.status   = StatusCode::Ok;
+  spec.body     = Bytes::from("slow");
+  spec.delay_ms = 100;
+  auto server = xpp::http::test::TestServer::start(spec);
 
-  auto r = Client::builder().timeout(1ms).build().unwrap()
+  auto r = Client::builder().timeout(1).build().unwrap()   // 1ms
     .get(("http://127.0.0.1:" + std::to_string(server.port()) + "/").c_str())
     .await();
 
@@ -380,9 +406,9 @@ See `specs/xpp-http/spec.md` for the formal requirements. The full C++ API is:
 - `xpp::http::StatusCode` — enum : uint16_t + helpers
 - `xpp::http::HeaderMap` — `insert`, `get`, `contains`, `get_all`, `erase`, iterators
 - `xpp::http::Body` — `empty`, `from`, `from_channel`, `read`, `bytes`, `text`, `is_empty`, `is_channel`
-- `xpp::http::Request` + `RequestBuilder` — `method`, `url`, `header`, `bearer_auth`, `basic_auth`, `body` (overloads)
+- `xpp::http::Request` + `RequestBuilder` — `method`, `url`, `header`, `bearer_auth`, `basic_auth`, `body` (overloads), `get`/`post`/... convenience terminators
 - `xpp::http::Response` + `ResponseBuilder` — `status`, `headers`, `body`, `into_body`, `bytes`, `text`, `url`; builder `status`, `header`, `body`; static `ok`/`created`/`no_content`/`bad_request`/`not_found`/`internal_server_error`
-- `xpp::http::Client` + `ClientBuilder` — `send`; builder `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect`, `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`, `build`
+- `xpp::http::Client` + `ClientBuilder` — `send`, `get`/`post`/...; builder `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect`, `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`, `build`
 - `xpp::http::Error` — `kind`, `message`, `status`, `is_connect`, `is_timeout`, `is_redirect`, `is_status_error`, `to_string`
 - `xpp::http::RedirectPolicy` — `FollowUpTo10`, `FollowAll`, `None`
 - Top-level `xpp::http::get/post/put/delete_/patch/head` with `String` / `const char*` / `std::string_view` overloads

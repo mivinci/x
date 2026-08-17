@@ -87,42 +87,42 @@ TEST(StatusToString, UnknownCodeReturnsEmpty) {
 }
 
 /* ───────────────────────────────────────────────────────────────────
- *  from_string — parsing
+ *  status_from_string — parsing
  * ─────────────────────────────────────────────────────────────────── */
 
 TEST(StatusFromString, DigitsOnly) {
-  auto r = from_string(String::from_utf8("200").unwrap());
+  auto r = status_from_string(String::from_utf8("200").unwrap());
   ASSERT_TRUE(r.is_some());
   EXPECT_EQ(r.unwrap(), StatusCode::Ok);
 
-  r = from_string(String::from_utf8("404").unwrap());
+  r = status_from_string(String::from_utf8("404").unwrap());
   ASSERT_TRUE(r.is_some());
   EXPECT_EQ(r.unwrap(), StatusCode::NotFound);
 }
 
 TEST(StatusFromString, WithReasonPhrase) {
   // "404 Not Found" should parse as 404.
-  auto r = from_string(String::from_utf8("404 Not Found").unwrap());
+  auto r = status_from_string(String::from_utf8("404 Not Found").unwrap());
   ASSERT_TRUE(r.is_some());
   EXPECT_EQ(r.unwrap(), StatusCode::NotFound);
 }
 
 TEST(StatusFromString, WithLeadingWhitespace) {
-  auto r = from_string(String::from_utf8("  200  ").unwrap());
+  auto r = status_from_string(String::from_utf8("  200  ").unwrap());
   ASSERT_TRUE(r.is_some());
   EXPECT_EQ(r.unwrap(), StatusCode::Ok);
 }
 
 TEST(StatusFromString, UnknownCodeInRange) {
   // 299 is not in the enum but is within 100–599.
-  auto r = from_string(String::from_utf8("299").unwrap());
+  auto r = status_from_string(String::from_utf8("299").unwrap());
   ASSERT_TRUE(r.is_some());
   EXPECT_EQ(static_cast<uint16_t>(r.unwrap()), 299u);
 }
 
 TEST(StatusFromString, OutOfRange) {
-  EXPECT_TRUE(from_string(String::from_utf8("99").unwrap()).is_none());
-  EXPECT_TRUE(from_string(String::from_utf8("600").unwrap()).is_none());
-  EXPECT_TRUE(from_string(String::from_utf8("abc").unwrap()).is_none());
-  EXPECT_TRUE(from_string(String::from_utf8("").unwrap()).is_none());
+  EXPECT_TRUE(status_from_string(String::from_utf8("99").unwrap()).is_none());
+  EXPECT_TRUE(status_from_string(String::from_utf8("600").unwrap()).is_none());
+  EXPECT_TRUE(status_from_string(String::from_utf8("abc").unwrap()).is_none());
+  EXPECT_TRUE(status_from_string(String::from_utf8("").unwrap()).is_none());
 }

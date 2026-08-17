@@ -94,8 +94,13 @@ inline bool eq_ci_ascii(const char *p, size_t n, const char *lower_token) {
  *
  * "GET" / "get" / "Get" → Method::Get. Unknown tokens return None.
  * Non-ASCII bytes always return None.
+ *
+ * Named `method_from_string` (not `from_string`) to avoid an ODR clash
+ * with `status_from_string` when both `method.h` and `status.h` are
+ * included in the same TU — C++ does not allow overloading on return
+ * type alone.
  */
-inline Option<Method> from_string(const String &s) noexcept {
+inline Option<Method> method_from_string(const String &s) noexcept {
   const char *p = reinterpret_cast<const char *>(s.as_bytes().data());
   size_t      n = s.len();
 

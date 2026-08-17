@@ -292,8 +292,11 @@ inline uint16_t parse_leading_digits(const char *p, size_t n) noexcept {
  * Accepts "404", "404 Not Found", "  200  ". Leading digits are parsed,
  * trailing text is ignored. Returns None if no digits found or the code
  * is outside 100–599.
+ *
+ * Named `status_from_string` (not `from_string`) to avoid an ODR clash
+ * with `method_from_string` when both headers are included in one TU.
  */
-inline Option<StatusCode> from_string(const String &s) noexcept {
+inline Option<StatusCode> status_from_string(const String &s) noexcept {
   const char *p = reinterpret_cast<const char *>(s.as_bytes().data());
   size_t      n = s.len();
 

@@ -253,6 +253,16 @@ inline ResponseBuilder Response::builder() {
   return ResponseBuilder();
 }
 
+/* ── Response::bytes() / text() — move body out and aggregate ──── */
+
+inline Promise<http::Result<Bytes>> Response::bytes() {
+  return into_body().bytes();
+}
+
+inline Promise<http::Result<String>> Response::text() {
+  return into_body().text();
+}
+
 } // namespace http
 } // namespace xpp
 
