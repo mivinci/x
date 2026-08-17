@@ -55,14 +55,16 @@ template <class T> struct Core {
     Slot() = default;
   };
 
-  Slot                   *m_buf;   ///< Pre-allocated slot array.
-  size_t                  m_cap;   ///< Maximum number of in-flight values.
-  loom::_::Atomic<size_t> m_wpos{0}; ///< Next write position (CAS'd by producers).
+  Slot                   *m_buf;      ///< Pre-allocated slot array.
+  size_t                  m_cap;      ///< Maximum number of in-flight values.
+  loom::_::Atomic<size_t> m_wpos{0};  ///< Next write position (CAS'd by producers).
   loom::_::Atomic<size_t> m_count{0}; ///< Number of values currently in the buffer.
 
   /** @brief Allocate and default-construct `cap` slots. */
   Core(size_t cap) : m_buf(new Slot[cap]), m_cap(cap) {}
-  ~Core() { delete[] m_buf; }
+  ~Core() {
+    delete[] m_buf;
+  }
 };
 
 } // namespace _
@@ -81,9 +83,9 @@ template <class T> struct Core {
  */
 template <class T> class Tx {
 public:
-  Tx(const Tx &) = default;
-  Tx &operator=(const Tx &) = default;
-  Tx(Tx &&) noexcept = default;
+  Tx(const Tx &)                = default;
+  Tx &operator=(const Tx &)     = default;
+  Tx(Tx &&) noexcept            = default;
   Tx &operator=(Tx &&) noexcept = default;
 
   /**
@@ -109,7 +111,7 @@ public:
   bool try_push(T &value) {
     // Atomically claim a capacity slot. If the old count was at or above
     // capacity, the buffer is full and we undo the claim.
-    auto *c = m_core.get();
+    auto  *c  = m_core.get();
     size_t c0 = c->m_count.fetch_add(1, std::memory_order_acquire);
     if (c0 >= c->m_cap) {
       c->m_count.fetch_sub(1, std::memory_order_relaxed);
@@ -119,21 +121,25 @@ public:
     size_t w   = c->m_wpos.fetch_add(1, std::memory_order_acq_rel);
     size_t idx = w % c->m_cap;
 
-    auto &s  = c->m_buf[idx];
-    s.data   = std::move(value);
+    auto &s = c->m_buf[idx];
+    s.data  = std::move(value);
     s.ready.store(true, std::memory_order_release);
     return true;
   }
 
   /** @brief Maximum capacity. */
-  size_t capacity() const { return m_core->m_cap; }
+  size_t capacity() const {
+    return m_core->m_cap;
+  }
 
   /** @brief Current number of buffered values. */
-  size_t count() const { return m_core->m_count.load(std::memory_order_acquire); }
+  size_t count() const {
+    return m_core->m_count.load(std::memory_order_acquire);
+  }
 
 private:
   template <class U> friend std::pair<Tx<U>, Rx<U>> channel(size_t cap);
-  Shared<_::Core<T>> m_core;
+  Shared<_::Core<T>>                                m_core;
   explicit Tx(Shared<_::Core<T>> c) : m_core(std::move(c)) {}
 };
 
@@ -151,9 +157,9 @@ private:
  */
 template <class T> class Rx {
 public:
-  Rx(const Rx &) = delete;
-  Rx &operator=(const Rx &) = delete;
-  Rx(Rx &&) noexcept = default;
+  Rx(const Rx &)                = delete;
+  Rx &operator=(const Rx &)     = delete;
+  Rx(Rx &&) noexcept            = default;
   Rx &operator=(Rx &&) noexcept = default;
 
   /**
@@ -167,8 +173,7 @@ public:
    */
   xpp::Option<T> try_pop() {
     auto *c = m_core.get();
-    if (c->m_count.load(std::memory_order_acquire) == 0)
-      return xpp::none;
+    if (c->m_count.load(std::memory_order_acquire) == 0) return xpp::none;
 
     size_t idx = m_rpos % c->m_cap;
     auto  &s   = c->m_buf[idx];
@@ -185,7 +190,13 @@ public:
     }
 
     T val = std::move(s.data);
-    s.data.~T();
+    // Replace the moved-from value with a default-constructed T so the slot
+    // holds a valid, empty object. Core's destructor will call ~T() again
+    // via delete[] — calling ~T() on the moved-from object here would be a
+    // double destructor (UB for non-trivially-destructible types like Bytes,
+    // whose Option<Arc<Impl>> member would dec a refcount on already-freed
+    // memory).
+    new (&s.data) T();
     s.ready.store(false, std::memory_order_relaxed);
     ++m_rpos;
     c->m_count.fetch_sub(1, std::memory_order_release);
@@ -193,12 +204,14 @@ public:
   }
 
   /** @brief True if no values are currently buffered. */
-  bool empty() const { return m_core->m_count.load(std::memory_order_acquire) == 0; }
+  bool empty() const {
+    return m_core->m_count.load(std::memory_order_acquire) == 0;
+  }
 
 private:
   template <class U> friend std::pair<Tx<U>, Rx<U>> channel(size_t cap);
-  Shared<_::Core<T>> m_core;
-  size_t             m_rpos = 0;
+  Shared<_::Core<T>>                                m_core;
+  size_t                                            m_rpos = 0;
   explicit Rx(Shared<_::Core<T>> c) : m_core(std::move(c)) {}
 };
 
@@ -230,7 +243,7 @@ template <class T> std::pair<Tx<T>, Rx<T>> channel(size_t cap) {
 template <class T> struct UnboundedCore {
   struct Node {
     Node *volatile next = nullptr; ///< Next node in the list.
-    T      data;                   ///< Stored value.
+    T data;                        ///< Stored value.
 
     explicit Node(T v) : data(std::move(v)) {}
   };
@@ -262,9 +275,9 @@ template <class T> struct UnboundedCore {
  */
 template <class T> class UnboundedTx {
 public:
-  UnboundedTx(const UnboundedTx &) = default;
-  UnboundedTx &operator=(const UnboundedTx &) = default;
-  UnboundedTx(UnboundedTx &&) noexcept = default;
+  UnboundedTx(const UnboundedTx &)                = default;
+  UnboundedTx &operator=(const UnboundedTx &)     = default;
+  UnboundedTx(UnboundedTx &&) noexcept            = default;
   UnboundedTx &operator=(UnboundedTx &&) noexcept = default;
 
   /**
@@ -289,7 +302,7 @@ public:
 
 private:
   template <class U> friend std::pair<UnboundedTx<U>, UnboundedRx<U>> unbounded_channel();
-  Shared<UnboundedCore<T>> m_core;
+  Shared<UnboundedCore<T>>                                            m_core;
   explicit UnboundedTx(Shared<UnboundedCore<T>> c) : m_core(std::move(c)) {}
 };
 
@@ -307,9 +320,9 @@ private:
  */
 template <class T> class UnboundedRx {
 public:
-  UnboundedRx(const UnboundedRx &) = delete;
-  UnboundedRx &operator=(const UnboundedRx &) = delete;
-  UnboundedRx(UnboundedRx &&) noexcept = default;
+  UnboundedRx(const UnboundedRx &)                = delete;
+  UnboundedRx &operator=(const UnboundedRx &)     = delete;
+  UnboundedRx(UnboundedRx &&) noexcept            = default;
   UnboundedRx &operator=(UnboundedRx &&) noexcept = default;
 
   /**
@@ -341,11 +354,13 @@ public:
   }
 
   /** @brief True if the list has no nodes. */
-  bool empty() const { return m_core->m_head.load(std::memory_order_acquire) == nullptr; }
+  bool empty() const {
+    return m_core->m_head.load(std::memory_order_acquire) == nullptr;
+  }
 
 private:
   template <class U> friend std::pair<UnboundedTx<U>, UnboundedRx<U>> unbounded_channel();
-  Shared<UnboundedCore<T>> m_core;
+  Shared<UnboundedCore<T>>                                            m_core;
   explicit UnboundedRx(Shared<UnboundedCore<T>> c) : m_core(std::move(c)) {}
 };
 
