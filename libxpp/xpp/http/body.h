@@ -33,10 +33,10 @@
 #include <utility>
 
 #include <xpp/bytes.h>
+#include <xpp/enum.h>
 #include <xpp/http/error.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
-#include <xpp/result.h>
 #include <xpp/string.h>
 #include <xpp/sync/mpsc.h>
 #include <xpp/vec.h>
@@ -75,7 +75,7 @@ namespace http {
 class Body {
 public:
   /** @brief Construct an empty body (EOF on first read). */
-  Body() : m_kind(Kind::Empty) {} // union members left uninitialized
+  Body()                        = default; // m_storage = None
   Body(const Body &)            = delete;
   Body &operator=(const Body &) = delete;
 
@@ -88,11 +88,9 @@ public:
 
   /** @brief A body holding a single Bytes buffer. Read drains it. */
   static Body from(Bytes bytes) {
+    if (bytes.size() == 0) return Body();
     Body b;
-    if (bytes.size() > 0) {
-      b.m_kind = Kind::Once;
-      new (&b.m_once) Bytes(std::move(bytes));
-    }
+    b.m_storage = xpp::some(Enum<Bytes, sync::mpsc::Receiver<Bytes>>(std::move(bytes)));
     return b;
   }
 
@@ -119,50 +117,16 @@ public:
    */
   static Body from_channel(sync::mpsc::Receiver<Bytes> rx) {
     Body b;
-    b.m_kind = Kind::Channel;
-    new (&b.m_rx) sync::mpsc::Receiver<Bytes>(std::move(rx));
+    b.m_storage = xpp::some(Enum<Bytes, sync::mpsc::Receiver<Bytes>>(std::move(rx)));
     return b;
   }
 
-  ~Body() {
-    reset();
-  }
+  ~Body() = default; // Enum + Option handle destruction
 
-  /* ── Move constructor / assignment (must transfer union + kind) ─── */
+  /* ── Move constructor / assignment ──────────────────────────────── */
 
-  inline Body(Body &&o) noexcept : m_kind(o.m_kind), m_pending(std::move(o.m_pending)) {
-    switch (m_kind) {
-    case Kind::Once:
-      new (&m_once) Bytes(std::move(o.m_once));
-      break;
-    case Kind::Channel:
-      new (&m_rx) sync::mpsc::Receiver<Bytes>(std::move(o.m_rx));
-      break;
-    case Kind::Empty:
-      break;
-    }
-    o.reset(); // destruct o's union member, set to Empty
-  }
-
-  inline Body &operator=(Body &&o) noexcept {
-    if (this != &o) {
-      reset();
-      m_kind    = o.m_kind;
-      m_pending = std::move(o.m_pending);
-      switch (m_kind) {
-      case Kind::Once:
-        new (&m_once) Bytes(std::move(o.m_once));
-        break;
-      case Kind::Channel:
-        new (&m_rx) sync::mpsc::Receiver<Bytes>(std::move(o.m_rx));
-        break;
-      case Kind::Empty:
-        break;
-      }
-      o.reset();
-    }
-    return *this;
-  }
+  Body(Body &&) noexcept            = default;
+  Body &operator=(Body &&) noexcept = default;
 
   /* ── AsyncReader concept ──────────────────────────────────────── */
 
@@ -204,13 +168,11 @@ public:
    */
   Promise<http::Result<String>> text() {
     return bytes().then([](http::Result<Bytes> r) -> http::Result<String> {
-      if (r.is_err()) return xpp::Result<String, Error>(xpp::err, r.unwrap_err());
-      auto s = r.unwrap().to_string();
-      if (s.is_err()) {
-        return xpp::Result<String, Error>(
-          xpp::err, Error(Error::Kind::Body, String::from_utf8("invalid UTF-8 in body").unwrap()));
-      }
-      return xpp::Result<String, Error>(xpp::ok, s.unwrap());
+      return r.and_then([](Bytes b) {
+        return b.to_string().map_err([](Utf8Error) {
+          return Error(Error::Kind::Body, String::from_utf8("invalid UTF-8 in body").unwrap());
+        });
+      });
     });
   }
 
@@ -218,51 +180,23 @@ public:
 
   /** @brief True if the body has no data (Empty kind or exhausted). */
   bool is_empty() const noexcept {
-    return m_kind == Kind::Empty;
+    return m_storage.is_none();
   }
 
   /** @brief True if the body is fed by a streaming channel. */
   bool is_channel() const noexcept {
-    return m_kind == Kind::Channel;
+    return m_storage.is_some() && m_storage.unwrap().template is<sync::mpsc::Receiver<Bytes>>();
   }
 
 private:
-  enum class Kind {
-    Empty,
-    Once,
-    Channel
-  };
+  using Storage = Enum<Bytes, sync::mpsc::Receiver<Bytes>>;
 
-  Kind m_kind = Kind::Empty;
-
-  // Union of storage for the non-Empty kinds. We construct/destroy
-  // these explicitly via placement new in the factories and reset().
-  union {
-    Bytes                       m_once;
-    sync::mpsc::Receiver<Bytes> m_rx;
-    // m_pending is stored separately (not in the union) because it may
-    // coexist with m_rx in Channel mode.
-  };
+  // None = Empty; Some(Once|Channel) holds the active source.
+  Option<Storage> m_storage;
 
   // In Channel mode: leftover bytes from a chunk larger than the read
   // buffer. Drained first on the next read() before consulting m_rx.
   Bytes m_pending;
-
-  /// Tear down the active member (if any) and return to Empty.
-  void reset() {
-    switch (m_kind) {
-    case Kind::Once:
-      m_once.~Bytes();
-      break;
-    case Kind::Channel:
-      m_rx.~Receiver();
-      break;
-    case Kind::Empty:
-      break;
-    }
-    m_kind = Kind::Empty;
-    // m_pending is a regular member, destroyed by ~Body.
-  }
 };
 
 /* ── Body::read() — three implementations ─────────────────────────── */
@@ -274,46 +208,38 @@ private:
 inline Promise<ssize_t> Body::read(void *buf, size_t len) {
   if (len == 0) co_return 0;
 
-  switch (m_kind) {
-  case Kind::Empty:
-    co_return 0;
+  if (m_storage.is_none()) co_return 0;
 
-  case Kind::Once: {
-    size_t n = m_once.size() < len ? m_once.size() : len;
+  Storage &s = m_storage.unwrap();
+  if (s.is<Bytes>()) {
+    Bytes &once = s.get<Bytes>();
+    size_t n    = once.size() < len ? once.size() : len;
     if (n == 0) {
-      // Already drained — switch to Empty so future reads are cheap.
-      reset();
+      m_storage = none;
       co_return 0;
     }
-    std::memcpy(buf, m_once.data(), n);
-    m_once = m_once.slice_from(n); // shrink
-    if (m_once.size() == 0) reset();
+    std::memcpy(buf, once.data(), n);
+    once = once.slice_from(n);
+    if (once.size() == 0) m_storage = none;
     co_return static_cast<ssize_t>(n);
   }
 
-  case Kind::Channel: {
-    // Drain leftover from a previous oversized chunk first.
-    if (m_pending.size() > 0) {
-      size_t n = m_pending.size() < len ? m_pending.size() : len;
-      std::memcpy(buf, m_pending.data(), n);
-      m_pending = m_pending.slice_from(n);
-      co_return static_cast<ssize_t>(n);
-    }
-    // Wait for the next chunk.
-    auto opt = co_await m_rx.recv();
-    if (opt.is_none()) co_return 0; // channel closed = EOF
-    Bytes chunk = opt.unwrap();
-    if (chunk.size() == 0) co_return 0; // defensive: empty chunk = EOF
-    size_t n = chunk.size() < len ? chunk.size() : len;
-    std::memcpy(buf, chunk.data(), n);
-    if (n < chunk.size()) {
-      // Keep the remainder for the next read.
-      m_pending = chunk.slice_from(n);
-    }
+  // Channel
+  auto &rx = s.get<sync::mpsc::Receiver<Bytes>>();
+  if (m_pending.size() > 0) {
+    size_t n = m_pending.size() < len ? m_pending.size() : len;
+    std::memcpy(buf, m_pending.data(), n);
+    m_pending = m_pending.slice_from(n);
     co_return static_cast<ssize_t>(n);
   }
-  }
-  co_return 0; // unreachable
+  auto opt = co_await rx.recv();
+  if (opt.is_none()) co_return 0; // channel closed = EOF
+  Bytes chunk = opt.unwrap();
+  if (chunk.size() == 0) co_return 0; // defensive: empty chunk = EOF
+  size_t n = chunk.size() < len ? chunk.size() : len;
+  std::memcpy(buf, chunk.data(), n);
+  if (n < chunk.size()) m_pending = chunk.slice_from(n);
+  co_return static_cast<ssize_t>(n);
 }
 
 #else // !XPP_HAS_COROUTINES
@@ -325,40 +251,38 @@ inline Promise<ssize_t> Body::read(void *buf, size_t len) {
 inline Promise<ssize_t> Body::read(void *buf, size_t len) {
   if (len == 0) return xpp::resolve(static_cast<ssize_t>(0));
 
-  switch (m_kind) {
-  case Kind::Empty:
-    return xpp::resolve(static_cast<ssize_t>(0));
+  if (m_storage.is_none()) return xpp::resolve(static_cast<ssize_t>(0));
 
-  case Kind::Once: {
-    size_t n = m_once.size() < len ? m_once.size() : len;
+  Storage &s = m_storage.unwrap();
+  if (s.is<Bytes>()) {
+    Bytes &once = s.get<Bytes>();
+    size_t n    = once.size() < len ? once.size() : len;
     if (n == 0) {
-      reset();
+      m_storage = none;
       return xpp::resolve(static_cast<ssize_t>(0));
     }
-    std::memcpy(buf, m_once.data(), n);
-    m_once = m_once.slice_from(n);
-    if (m_once.size() == 0) reset();
+    std::memcpy(buf, once.data(), n);
+    once = once.slice_from(n);
+    if (once.size() == 0) m_storage = none;
     return xpp::resolve(static_cast<ssize_t>(n));
   }
 
-  case Kind::Channel: {
-    if (m_pending.size() > 0) {
-      size_t n = m_pending.size() < len ? m_pending.size() : len;
-      std::memcpy(buf, m_pending.data(), n);
-      m_pending = m_pending.slice_from(n);
-      return xpp::resolve(static_cast<ssize_t>(n));
-    }
-    auto opt = m_rx.recv().await();
-    if (opt.is_none()) return xpp::resolve(static_cast<ssize_t>(0));
-    Bytes chunk = opt.unwrap();
-    if (chunk.size() == 0) return xpp::resolve(static_cast<ssize_t>(0));
-    size_t n = chunk.size() < len ? chunk.size() : len;
-    std::memcpy(buf, chunk.data(), n);
-    if (n < chunk.size()) m_pending = chunk.slice_from(n);
+  // Channel
+  auto &rx = s.get<sync::mpsc::Receiver<Bytes>>();
+  if (m_pending.size() > 0) {
+    size_t n = m_pending.size() < len ? m_pending.size() : len;
+    std::memcpy(buf, m_pending.data(), n);
+    m_pending = m_pending.slice_from(n);
     return xpp::resolve(static_cast<ssize_t>(n));
   }
-  }
-  return xpp::resolve(static_cast<ssize_t>(0));
+  auto opt = rx.recv().await();
+  if (opt.is_none()) return xpp::resolve(static_cast<ssize_t>(0));
+  Bytes chunk = opt.unwrap();
+  if (chunk.size() == 0) return xpp::resolve(static_cast<ssize_t>(0));
+  size_t n = chunk.size() < len ? chunk.size() : len;
+  std::memcpy(buf, chunk.data(), n);
+  if (n < chunk.size()) m_pending = chunk.slice_from(n);
+  return xpp::resolve(static_cast<ssize_t>(n));
 }
 
 #else // !XPP_FIBER
@@ -377,46 +301,44 @@ inline Promise<ssize_t> Body::read(void *buf, size_t len) {
 inline Promise<ssize_t> Body::read(void *buf, size_t len) {
   if (len == 0) return xpp::resolve(static_cast<ssize_t>(0));
 
-  switch (m_kind) {
-  case Kind::Empty:
-    return xpp::resolve(static_cast<ssize_t>(0));
+  if (m_storage.is_none()) return xpp::resolve(static_cast<ssize_t>(0));
 
-  case Kind::Once: {
-    size_t n = m_once.size() < len ? m_once.size() : len;
+  Storage &s = m_storage.unwrap();
+  if (s.is<Bytes>()) {
+    Bytes &once = s.get<Bytes>();
+    size_t n    = once.size() < len ? once.size() : len;
     if (n == 0) {
-      reset();
+      m_storage = none;
       return xpp::resolve(static_cast<ssize_t>(0));
     }
-    std::memcpy(buf, m_once.data(), n);
-    m_once = m_once.slice_from(n);
-    if (m_once.size() == 0) reset();
+    std::memcpy(buf, once.data(), n);
+    once = once.slice_from(n);
+    if (once.size() == 0) m_storage = none;
     return xpp::resolve(static_cast<ssize_t>(n));
   }
 
-  case Kind::Channel: {
-    // Drain pending first — synchronous.
-    if (m_pending.size() > 0) {
-      size_t n = m_pending.size() < len ? m_pending.size() : len;
-      std::memcpy(buf, m_pending.data(), n);
-      m_pending = m_pending.slice_from(n);
-      return xpp::resolve(static_cast<ssize_t>(n));
-    }
-    // Need a chunk from the channel. Capture buf + this by pointer —
-    // the caller's fiber/stack holds them alive while awaiting.
-    // Body itself is captured via `this` (the Promise returned is
-    // awaited by the same caller that owns the Body).
-    return m_rx.recv().then([this, buf, len](Option<Bytes> opt) {
-      if (opt.is_none()) return xpp::resolve(static_cast<ssize_t>(0));
-      Bytes chunk = opt.unwrap();
-      if (chunk.size() == 0) return xpp::resolve(static_cast<ssize_t>(0));
-      size_t n = chunk.size() < len ? chunk.size() : len;
-      std::memcpy(buf, chunk.data(), n);
-      if (n < chunk.size()) m_pending = chunk.slice_from(n);
-      return xpp::resolve(static_cast<ssize_t>(n));
-    });
+  // Channel
+  auto &rx = s.get<sync::mpsc::Receiver<Bytes>>();
+  // Drain pending first — synchronous.
+  if (m_pending.size() > 0) {
+    size_t n = m_pending.size() < len ? m_pending.size() : len;
+    std::memcpy(buf, m_pending.data(), n);
+    m_pending = m_pending.slice_from(n);
+    return xpp::resolve(static_cast<ssize_t>(n));
   }
-  }
-  return xpp::resolve(static_cast<ssize_t>(0));
+  // Need a chunk from the channel. Capture buf + this by pointer —
+  // the caller's fiber/stack holds them alive while awaiting.
+  // Body itself is captured via `this` (the Promise returned is
+  // awaited by the same caller that owns the Body).
+  return rx.recv().then([this, buf, len](Option<Bytes> opt) {
+    if (opt.is_none()) return xpp::resolve(static_cast<ssize_t>(0));
+    Bytes chunk = opt.unwrap();
+    if (chunk.size() == 0) return xpp::resolve(static_cast<ssize_t>(0));
+    size_t n = chunk.size() < len ? chunk.size() : len;
+    std::memcpy(buf, chunk.data(), n);
+    if (n < chunk.size()) m_pending = chunk.slice_from(n);
+    return xpp::resolve(static_cast<ssize_t>(n));
+  });
 }
 
 #endif // XPP_FIBER
