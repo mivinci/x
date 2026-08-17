@@ -5,21 +5,27 @@
  *
  * test_server.h — Minimal HTTP/1.1 test server for xpp::http client tests.
  *
- * A static-response test fixture: bind a loopback TcpListener on port 0
- * (kernel-assigned), accept connections, read each request up to the
- * blank-line terminator (\r\n\r\n), optionally drain the request body
- * (Content-Length), optionally sleep `delay_ms` (to test client timeouts),
- * then write back a preset HTTP/1.1 response and close.
+ * A static-response test fixture: bind a loopback xTcpListener on port 0
+ * (kernel-assigned), accept connections, optionally delay `delay_ms`
+ * (to test client timeouts), then write back a preset HTTP/1.1 response
+ * and close.
+ *
+ * Implementation: pure libx C API (xTcpListener + xTcpConn + xTimer).
+ * No xpp::fiber, no .then() chains. The accept callback runs on the
+ * EventLoop thread and synchronously writes the response (or schedules
+ * a timer for delayed responses). This avoids fiber/xEventLoopRun
+ * interaction issues on Linux shared builds.
  *
  * NOT the future `xpp::http::Server` module — test-only, no routing,
- * no concurrency limit, no streaming. Kept in `xpp::http::test`
- * subnamespace and NOT included from the public `xpp/http.h` umbrella.
+ * no concurrency, no streaming. Kept in `xpp::http::test` subnamespace
+ * and NOT included from the public `xpp/http.h` umbrella.
  */
 
 #ifndef XPP_HTTP_TEST_SERVER_H
 #define XPP_HTTP_TEST_SERVER_H
 
-#include <strings.h> // strncasecmp
+#include <arpa/inet.h>  // ntohs, sockaddr_in
+#include <sys/socket.h> // getsockname, sockaddr_storage
 
 #include <atomic>
 #include <cstddef>
@@ -28,31 +34,20 @@
 #include <utility>
 
 #include <xpp/bytes.h>
-#include <xpp/fiber.h>
 #include <xpp/http/status.h>
-#include <xpp/net/addr.h>
-#include <xpp/net/tcp.h>
-#include <xpp/option.h>
-#include <xpp/promise.h>
-#include <xpp/shared.h>
 #include <xpp/string.h>
 #include <xpp/vec.h>
+
+#include <x/base/base.h>  // XDEF_HANDLE
+#include <x/base/event.h> // xTimerStart, xEventLoopCurrent
+#include <x/net/tcp.h>    // xTcpListener, xTcpConn, xTcpConnSend, xTcpConnClose
 
 namespace xpp {
 namespace http {
 namespace test {
 
-using xpp::net::Ipv4Addr;
-using xpp::net::SocketAddr;
-using xpp::net::SocketAddrV4;
-using xpp::net::TcpListener;
-using xpp::net::TcpStream;
-
 /**
  * @brief Preset HTTP response for `TestServer` to return.
- *
- * All fields are value-initialized — a default-constructed `TestResponseSpec`
- * produces a `200 OK` with empty body and no delay.
  */
 struct TestResponseSpec {
   StatusCode                     status = StatusCode::Ok;
@@ -67,8 +62,7 @@ struct TestResponseSpec {
  *
  * Bind to `127.0.0.1:0` (kernel-assigned port), accept connections on
  * the current `EventLoop`, and respond to every request with the same
- * preset `TestResponseSpec`. Closes the connection after each response
- * (no keep-alive).
+ * preset `TestResponseSpec`. Closes the connection after each response.
  *
  * Usage:
  * @code
@@ -77,17 +71,11 @@ struct TestResponseSpec {
  *
  *   xpp::http::test::TestResponseSpec spec;
  *   spec.status = xpp::http::StatusCode::Ok;
- *   spec.headers.push_back({String::from_utf8("Content-Type").unwrap(),
- *                           String::from_utf8("text/plain").unwrap()});
  *   spec.body   = xpp::Bytes::from("hello");
  *
  *   auto server = xpp::http::test::TestServer::start(spec);
  *   // server.port() → kernel-assigned port
  * @endcode
- *
- * The server runs on the caller's `EventLoop` — no background thread.
- * `stop()` closes the listener and unblocks pending accepts; the
- * destructor calls `stop()`.
  */
 class TestServer {
 public:
@@ -104,33 +92,31 @@ public:
   /**
    * @brief Start a `TestServer` bound to `127.0.0.1:0`.
    *
-   * Must be called inside a `WaitScope` (uses `.await()` for the
-   * synchronous `bind()`). Returns a move-only `TestServer` value.
+   * Must be called inside a `WaitScope` (the current thread must have
+   * entered an `EventLoop`). Returns a move-only `TestServer` value.
    */
   static TestServer start(TestResponseSpec spec) {
     TestServer ts;
-    ts.state_ = Shared<State>::make();
-    State *s  = ts.state_.as_deref();
-    XPP_ASSERT(s != nullptr, "TestServer: state alloc failed");
-    s->spec = std::move(spec);
+    ts.spec_ = std::move(spec);
 
-    // Bind to loopback port 0 — kernel assigns a free port.
-    auto addr   = SocketAddr::from(SocketAddrV4::from(Ipv4Addr::localhost(), 0));
-    auto bind_r = TcpListener::bind(addr).await();
-    XPP_ASSERT(bind_r.is_ok(), "TestServer: bind failed");
-    s->listener = std::move(bind_r).unwrap();
+    // Build the response bytes once — reused for every connection.
+    ts.response_buf_ = build_response(ts.spec_);
 
-    auto local = s->listener.local_addr();
-    XPP_ASSERT(local.is_some(), "TestServer: local_addr failed");
-    ts.port_ = local.unwrap().port();
+    // Create the listener. xTcpListenerCreate uses xEventLoopCurrent(),
+    // so the caller must have entered an EventLoop.
+    ts.listener_ = xTcpListenerCreate("127.0.0.1", 0, nullptr, on_accept, &ts);
+    XPP_ASSERT(ts.listener_ != nullptr, "TestServer: xTcpListenerCreate failed");
 
-    // Start the accept loop in a fiber. The fiber's `.await()` calls
-    // inside the loop register wakers with the EventLoop, so accepts
-    // actually fire. The fiber's outer Promise is held in `state->accept_fiber`
-    // so it doesn't get detached and lose its resolver before the first
-    // accept resolves.
-    s->accept_fiber =
-      xpp::fiber(64 * 1024, [state_opt = ts.state_]() { accept_loop(state_opt).await(); });
+    // Get the kernel-assigned port.
+    xSocket sock = xTcpListenerSocket(ts.listener_);
+    XPP_ASSERT(sock != nullptr, "TestServer: xTcpListenerSocket failed");
+
+    struct sockaddr_storage addr;
+    socklen_t               addrlen = sizeof(addr);
+    if (getsockname(xSocketFd(sock), (struct sockaddr *)&addr, &addrlen) == 0) {
+      ts.port_ = ntohs(((struct sockaddr_in *)&addr)->sin_port);
+    }
+    XPP_ASSERT(ts.port_ > 0, "TestServer: getsockname failed");
 
     return ts;
   }
@@ -143,149 +129,25 @@ public:
   /**
    * @brief Stop the server.
    *
-   * Closes the listening socket. Pending accept promises will never
-   * resolve — the then-chain simply stops scheduling new accepts.
-   * In-flight connection fibers continue until they finish or the
-   * `EventLoop` exits.
-   *
+   * Closes the listening socket. In-flight connections are not affected.
    * Idempotent.
    */
   void stop() {
-    if (state_) {
-      State *s = state_.as_deref();
-      if (s) {
-        s->running.store(false, std::memory_order_release);
-        // Closing the listener causes `accept()` to return immediately
-        // with a closed TcpStream — the accept_loop fiber sees this
-        // and exits.
-        s->listener = TcpListener();
-      }
+    if (listener_) {
+      xTcpListenerDestroy(listener_);
+      listener_ = nullptr;
     }
   }
 
 private:
-  struct State {
-    TcpListener       listener;
-    TestResponseSpec  spec;
-    std::atomic<bool> running{true};
-    // Holds the accept-loop fiber promise. Keeps the fiber's resolver
-    // alive so its internal `.await()` calls can be woken.
-    Promise<void> accept_fiber;
-  };
+  TestResponseSpec spec_;
+  String           response_buf_;
+  xTcpListener     listener_ = nullptr;
+  uint16_t         port_     = 0;
 
-  Option<Shared<State>> state_;
-  uint16_t              port_ = 0;
+  /* ── Build the HTTP/1.1 response bytes ─────────────────────────── */
 
-  /* ── Accept loop (then-chain, no fiber) ─────────────────────────── */
-
-  static Promise<void> accept_loop(Option<Shared<State>> state_opt) {
-    while (true) {
-      State *s = state_opt.as_deref();
-      if (!s || !s->running.load(std::memory_order_acquire)) {
-        return xpp::resolve();
-      }
-
-      // Await next connection. This `.await()` is what registers the
-      // waker with the EventLoop — without it, the accept promise never
-      // resolves even when a connection arrives.
-      auto accepted = s->listener.accept().await();
-      if (!accepted.first.is_open()) {
-        // Listener closed.
-        return xpp::resolve();
-      }
-
-      // Handle this connection directly in the accept-loop fiber.
-      // TestServer is a test fixture — serial connection handling is
-      // fine (tests are sequential). Avoiding fire-and-forget child
-      // fibers sidesteps a nested-fiber wake issue on Linux shared
-      // builds where `xFiberSwitch` from inside `xEventLoopRun` (called
-      // by the main thread's `park()`) can deadlock when the child
-      // fiber itself yields back through a multi-level fiber chain.
-      TestResponseSpec spec_copy = s->spec;
-      handle_connection(std::move(accepted.first), std::move(spec_copy)).await();
-    }
-  }
-
-  /* ── Per-connection handling (runs inside a fiber) ─────────────── */
-
-  static Promise<void> handle_connection(TcpStream stream, TestResponseSpec spec) {
-    // 1. Read request line + headers up to \r\n\r\n.
-    //    Buffer is large enough for typical request headers; if the
-    //    headers don't fit, we still respond (best-effort).
-    static const size_t kBufSize = 8192;
-    char                buf[kBufSize];
-    size_t              total        = 0;
-    size_t              header_end   = 0; // index of the byte after the final \n
-    bool                headers_done = false;
-
-    while (total < kBufSize && !headers_done) {
-      ssize_t n = stream.read(buf + total, kBufSize - total).await();
-      if (n <= 0) {
-        // Client closed or error — give up.
-        return xpp::resolve();
-      }
-      total += n;
-
-      // Search for \r\n\r\n in the newly-received data.
-      // Start from the earliest position where the terminator could
-      // begin (overlap with previously-received bytes).
-      size_t search_start = (total > n + 3) ? (total - n - 3) : 0;
-      for (size_t i = search_start; i + 3 < total; i++) {
-        if (buf[i] == '\r' && buf[i + 1] == '\n' && buf[i + 2] == '\r' && buf[i + 3] == '\n') {
-          header_end   = i + 4;
-          headers_done = true;
-          break;
-        }
-      }
-    }
-
-    if (!headers_done) {
-      // Headers didn't fit in kBufSize — still try to respond.
-      header_end = total;
-    }
-
-    // 2. Parse Content-Length (case-insensitive) and drain request body.
-    size_t content_length     = 0;
-    bool   has_content_length = false;
-    for (size_t i = 0; i + 15 < header_end; i++) {
-      if (strncasecmp(buf + i, "Content-Length:", 15) == 0) {
-        // Skip whitespace after the colon.
-        size_t j = i + 15;
-        while (j < header_end && (buf[j] == ' ' || buf[j] == '\t'))
-          j++;
-        content_length     = static_cast<size_t>(strtoul(buf + j, nullptr, 10));
-        has_content_length = true;
-        break;
-      }
-    }
-
-    if (has_content_length) {
-      // Body bytes already in buf: total - header_end
-      size_t body_received = (total > header_end) ? (total - header_end) : 0;
-      size_t remaining = (content_length > body_received) ? (content_length - body_received) : 0;
-
-      // Drain remaining body bytes from the socket.
-      char drain[1024];
-      while (remaining > 0) {
-        size_t  to_read = (remaining < sizeof(drain)) ? remaining : sizeof(drain);
-        ssize_t n       = stream.read(drain, to_read).await();
-        if (n <= 0) break; // short read — give up draining
-        remaining -= static_cast<size_t>(n);
-      }
-    }
-
-    // 3. Optional pre-response delay (for timeout tests).
-    if (spec.delay_ms > 0) {
-      xpp::after(spec.delay_ms).await();
-    }
-
-    // 4. Build HTTP/1.1 response bytes.
-    //    Format: "HTTP/1.1 <code> <reason>\r\n"
-    //            "<Header>: <Value>\r\n"...
-    //            "Content-Length: <n>\r\n"
-    //            "Connection: close\r\n"
-    //            "\r\n"
-    //            <body>
+  static String build_response(const TestResponseSpec &spec) {
     String resp;
     // Status line
     resp.push_str(String::from_utf8("HTTP/1.1 ").unwrap());
@@ -295,7 +157,7 @@ private:
     resp.push_str(to_reason_phrase(spec.status));
     resp.push_str(String::from_utf8("\r\n").unwrap());
 
-    // User-provided headers (verbatim)
+    // User-provided headers
     for (const auto &h : spec.headers) {
       resp.push_str(h.first);
       resp.push_str(String::from_utf8(": ").unwrap());
@@ -303,40 +165,67 @@ private:
       resp.push_str(String::from_utf8("\r\n").unwrap());
     }
 
-    // Always set Content-Length and Connection: close so the client
-    // knows the response boundary.
+    // Content-Length + Connection: close
     resp.push_str(String::from_utf8("Content-Length: ").unwrap());
     resp.push_str(String::from_utf8(std::to_string(spec.body.size()).c_str()).unwrap());
     resp.push_str(String::from_utf8("\r\n").unwrap());
     resp.push_str(String::from_utf8("Connection: close\r\n\r\n").unwrap());
 
-    // 5. Write response headers + body in one or more write() calls.
-    //    We write headers first, then body — simpler than building
-    //    a single contiguous buffer (body may be large).
-    const uint8_t *header_data = resp.as_bytes().data();
-    size_t         header_len  = resp.as_bytes().size();
-
-    size_t sent = 0;
-    while (sent < header_len) {
-      ssize_t n = stream.write(header_data + sent, header_len - sent).await();
-      if (n <= 0) return xpp::resolve(); // write error — give up
-      sent += static_cast<size_t>(n);
-    }
-
-    // Body
+    // Body (appended to the same buffer for a single send)
     if (spec.body.size() > 0) {
-      const uint8_t *body_data = spec.body.data();
-      size_t         body_len  = spec.body.size();
-      size_t         body_sent = 0;
-      while (body_sent < body_len) {
-        ssize_t n = stream.write(body_data + body_sent, body_len - body_sent).await();
-        if (n <= 0) break;
-        body_sent += static_cast<size_t>(n);
-      }
+      auto body_bytes = spec.body.as_span();
+      // String is UTF-8 — body may be binary, but for test purposes
+      // appending raw bytes works because String stores Vec<uint8_t>.
+      // We use a const-char* cast since xTcpConnSend takes const char*.
+      resp.push_str(
+        String::from_utf8(reinterpret_cast<const char *>(body_bytes.data()), body_bytes.size())
+          .unwrap_or(String()));
     }
+    return resp;
+  }
 
-    // Connection closes when `stream` goes out of scope (fiber exit).
-    return xpp::resolve();
+  /* ── Accept callback (runs on EventLoop thread) ────────────────── */
+
+  static void on_accept(xTcpListener /*listener*/, xTcpConn conn, const struct sockaddr * /*addr*/,
+                        socklen_t /*addrlen*/, void        *arg) {
+    auto *self = static_cast<TestServer *>(arg);
+
+    if (self->spec_.delay_ms > 0) {
+      // Delayed response — schedule a timer.
+      // The timer callback writes the response and closes the connection.
+      // We allocate the args on the heap; the timer callback frees them.
+      auto  *delay_arg = new DelayArg{self, conn};
+      xTimer timer =
+        xTimerStart(on_delay_timer, delay_arg, on_delay_cancel, self->spec_.delay_ms, 0);
+      (void)timer; // timer handle is owned by the event loop; it fires once
+    } else {
+      // Immediate response — write synchronously and close.
+      send_response(self, conn);
+      xTcpConnClose(conn);
+    }
+  }
+
+  struct DelayArg {
+    TestServer *self;
+    xTcpConn    conn;
+  };
+
+  static void on_delay_timer(void *arg) {
+    auto *da = static_cast<DelayArg *>(arg);
+    send_response(da->self, da->conn);
+    xTcpConnClose(da->conn);
+    delete da;
+  }
+
+  static void on_delay_cancel(void *arg) {
+    auto *da = static_cast<DelayArg *>(arg);
+    xTcpConnClose(da->conn);
+    delete da;
+  }
+
+  static void send_response(const TestServer *self, xTcpConn conn) {
+    auto bytes = self->response_buf_.as_bytes();
+    xTcpConnSend(conn, reinterpret_cast<const char *>(bytes.data()), bytes.size());
   }
 
   /** @brief Minimal reason-phrase table for common status codes. */
