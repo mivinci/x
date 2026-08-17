@@ -155,7 +155,7 @@ The library SHALL provide `Body::empty()`, `Body::from(Bytes)`, `Body::from(Vec<
 
 ### Requirement: `xpp::http::Request` and `RequestBuilder`
 
-The library SHALL provide `xpp::http::Request` with accessors `method()`, `url()`, `headers()`, `body()` (borrow), `into_body()` (move), `has_body()`. The library SHALL provide `Request::builder()` returning a `RequestBuilder` with fluent methods `method`, `url` (3 overloads: `String`, `const char*`, `std::string_view` guarded), `header`, `bearer_auth`, `basic_auth`. Termination methods `body(...)` SHALL return `Result<Request>`. Convenience termination methods `get(url)`, `post(url)`, `post(url, body)`, `put`, `delete_`, `patch`, `head` SHALL construct the `Request` with the appropriate method and body in one call.
+The library SHALL provide `xpp::http::Request` with accessors `method()`, `url()`, `headers()`, `body()` (borrow), `into_body()` (move), `has_body()`. The library SHALL provide `Request::builder()` returning a `RequestBuilder` with fluent methods `method`, `url` (3 overloads: `String`, `const char*`, `std::string_view` guarded), `header`, `bearer_auth`, `basic_auth`. Termination methods `body(...)` SHALL return `Result<Request>`.
 
 #### Scenario: Builder produces a Request with all fields set
 
@@ -198,21 +198,21 @@ The library SHALL provide `xpp::http::Response` with accessors `status()`, `stat
 
 ### Requirement: `xpp::http::Client` and `ClientBuilder`
 
-The library SHALL provide `xpp::http::Client` wrapping `libx/x/http/`'s `xHttpClient`. The library SHALL provide `Client::send(Request) → Promise<Result<Response>>` as the generic entry point. The library SHALL provide convenience methods `get(url)`, `post(url)`, `post(url, body)`, `put(url)`, `put(url, body)`, `delete_(url)`, `patch(url)`, `patch(url, body)`, `head(url)` with 3 URL overloads each — all internally constructing a `Request` and delegating to `send`. The library SHALL provide `Client::builder()` returning a `ClientBuilder` with configuration methods: `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect` (accepting `RedirectPolicy`), `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`. Termination method `build()` SHALL return `Result<Client>`.
+The library SHALL provide `xpp::http::Client` wrapping `libx/x/http/`'s `xHttpClient`. The library SHALL provide `Client::send(Request) → Promise<Result<Response>>` as the generic entry point. The library SHALL provide `Client::builder()` returning a `ClientBuilder` with configuration methods: `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect` (accepting `RedirectPolicy`), `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`. Termination method `build()` SHALL return `Result<Client>`.
 
 #### Scenario: `send` returns a Response from a local HTTP server
 
-- **WHEN** a local TCP listener speaks HTTP/1.1 and `Client::builder().build().unwrap().send(Request::builder().get("http://127.0.0.1:<port>/").unwrap())` is executed
+- **WHEN** a local TCP listener speaks HTTP/1.1 and `Client::builder().build().unwrap().send(Request::builder().method(Method::Get).url("http://127.0.0.1:<port>/").body().unwrap())` is executed
 - **THEN** the returned `Promise` resolves to `Ok(Response)` with `status() == StatusCode::Ok`
 
-#### Scenario: Convenience `get(url)` delegates to `send`
+#### Scenario: Top-level `http::get(url)` one-liner
 
-- **WHEN** `Client::builder().build().unwrap().get("http://127.0.0.1:<port>/")` is executed against a local listener
+- **WHEN** `xpp::http::get("http://127.0.0.1:<port>/")` is executed against a local listener
 - **THEN** the returned `Promise` resolves to `Ok(Response)` with `status() == StatusCode::Ok`
 
 #### Scenario: `ClientBuilder` configuration is honored
 
-- **WHEN** `Client::builder().timeout(1ms).build().unwrap().get("http://127.0.0.1:<port>/slow")` is executed against a local listener that delays 100ms before responding
+- **WHEN** `Client::builder().timeout(1ms).build().unwrap().send(Request::builder().method(Method::Get).url("http://127.0.0.1:<port>/slow").body().unwrap())` is executed against a local listener that delays 100ms before responding
 - **THEN** the returned `Promise` resolves to `Err` with `Error::kind() == Error::Kind::Timeout`
 
 ### Requirement: `xpp::http::Error`

@@ -108,44 +108,48 @@ TEST(HttpRequestTest, BodyMovePreservesBytes) {
 }
 
 /* ───────────────────────────────────────────────────────────────────
- *  Convenience terminators
+ *  Method + url + body composition (no convenience terminators)
  * ─────────────────────────────────────────────────────────────────── */
 
-TEST(HttpRequestTest, GetTerminator) {
-  auto r = Request::builder().get("https://example.com").unwrap();
+TEST(HttpRequestTest, GetRequest) {
+  auto r = Request::builder().method(Method::Get).url("https://example.com").body().unwrap();
   EXPECT_EQ(r.method(), Method::Get);
   EXPECT_EQ(r.url(), String::from_utf8("https://example.com").unwrap());
   EXPECT_FALSE(r.has_body());
 }
 
-TEST(HttpRequestTest, PostTerminatorEmptyBody) {
-  auto r = Request::builder().post("https://example.com").unwrap();
+TEST(HttpRequestTest, PostRequestEmptyBody) {
+  auto r = Request::builder().method(Method::Post).url("https://example.com").body().unwrap();
   EXPECT_EQ(r.method(), Method::Post);
 }
 
-TEST(HttpRequestTest, PostTerminatorWithBody) {
-  auto r = Request::builder().post("https://example.com", Body::from("hello")).unwrap();
+TEST(HttpRequestTest, PostRequestWithBody) {
+  auto r = Request::builder()
+             .method(Method::Post)
+             .url("https://example.com")
+             .body(Body::from("hello"))
+             .unwrap();
   EXPECT_EQ(r.method(), Method::Post);
   EXPECT_TRUE(r.has_body());
 }
 
-TEST(HttpRequestTest, PutTerminator) {
-  auto r = Request::builder().put("https://example.com").unwrap();
+TEST(HttpRequestTest, PutRequest) {
+  auto r = Request::builder().method(Method::Put).url("https://example.com").body().unwrap();
   EXPECT_EQ(r.method(), Method::Put);
 }
 
-TEST(HttpRequestTest, DeleteTerminator) {
-  auto r = Request::builder().delete_("https://example.com").unwrap();
+TEST(HttpRequestTest, DeleteRequest) {
+  auto r = Request::builder().method(Method::Delete).url("https://example.com").body().unwrap();
   EXPECT_EQ(r.method(), Method::Delete);
 }
 
-TEST(HttpRequestTest, PatchTerminator) {
-  auto r = Request::builder().patch("https://example.com").unwrap();
+TEST(HttpRequestTest, PatchRequest) {
+  auto r = Request::builder().method(Method::Patch).url("https://example.com").body().unwrap();
   EXPECT_EQ(r.method(), Method::Patch);
 }
 
-TEST(HttpRequestTest, HeadTerminator) {
-  auto r = Request::builder().head("https://example.com").unwrap();
+TEST(HttpRequestTest, HeadRequest) {
+  auto r = Request::builder().method(Method::Head).url("https://example.com").body().unwrap();
   EXPECT_EQ(r.method(), Method::Head);
 }
 

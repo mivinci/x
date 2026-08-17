@@ -380,9 +380,9 @@ See `specs/xpp-http/spec.md` for the formal requirements. The full C++ API is:
 - `xpp::http::StatusCode` — enum : uint16_t + helpers
 - `xpp::http::HeaderMap` — `insert`, `get`, `contains`, `get_all`, `erase`, iterators
 - `xpp::http::Body` — `empty`, `from`, `from_channel`, `read`, `bytes`, `text`, `is_empty`, `is_channel`
-- `xpp::http::Request` + `RequestBuilder` — `method`, `url`, `header`, `bearer_auth`, `basic_auth`, `body` (overloads), `get`/`post`/... convenience terminators
+- `xpp::http::Request` + `RequestBuilder` — `method`, `url`, `header`, `bearer_auth`, `basic_auth`, `body` (overloads)
 - `xpp::http::Response` + `ResponseBuilder` — `status`, `headers`, `body`, `into_body`, `bytes`, `text`, `url`; builder `status`, `header`, `body`; static `ok`/`created`/`no_content`/`bad_request`/`not_found`/`internal_server_error`
-- `xpp::http::Client` + `ClientBuilder` — `send`, `get`/`post`/...; builder `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect`, `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`, `build`
+- `xpp::http::Client` + `ClientBuilder` — `send`; builder `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect`, `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`, `build`
 - `xpp::http::Error` — `kind`, `message`, `status`, `is_connect`, `is_timeout`, `is_redirect`, `is_status_error`, `to_string`
 - `xpp::http::RedirectPolicy` — `FollowUpTo10`, `FollowAll`, `None`
 - Top-level `xpp::http::get/post/put/delete_/patch/head` with `String` / `const char*` / `std::string_view` overloads
