@@ -46,7 +46,7 @@ if(XPP_BUILD_TESTS)
          test_name STREQUAL "notify_test" OR
          test_name STREQUAL "broadcast_test" OR
          test_name STREQUAL "watch_test" OR
-         test_name STREQUAL "body_test")
+         test_name STREQUAL "http_body_test")
         continue()
       endif()
     endif()
@@ -82,7 +82,7 @@ if(XPP_BUILD_TESTS)
        test_name STREQUAL "notify_test" OR
        test_name STREQUAL "broadcast_test" OR
        test_name STREQUAL "watch_test" OR
-       test_name STREQUAL "body_test")
+       test_name STREQUAL "http_body_test")
       target_compile_features(${test_name} PRIVATE cxx_std_20)
       set_tests_properties(${test_name} PROPERTIES LABELS "xpp;needs-cxx20")
       if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
