@@ -37,6 +37,7 @@
 #include <xpp/http/error.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
+#include <xpp/shared.h>
 #include <xpp/string.h>
 #include <xpp/sync/mpsc.h>
 #include <xpp/vec.h>
@@ -157,8 +158,14 @@ public:
    * After this call, the Body is consumed (reads will return 0).
    */
   Promise<http::Result<Bytes>> bytes() {
-    return io::read_all(*this).then(
-      [](Vec<uint8_t> v) { return http::Result<Bytes>(xpp::ok, Bytes::from(std::move(v))); });
+    // Move *this into a Shared<Body> so the reader stays alive across the
+    // async read loop. `io::read_all(*this)` only stores a reference; if
+    // the Body is a temporary (e.g. `Response::bytes()` → `into_body().bytes()`)
+    // it would be destroyed before the promise resolves. Holding `self`
+    // in the .then() capture extends its lifetime to the full Promise chain.
+    Shared<Body> self = Shared<Body>::make(std::move(*this));
+    return io::read_all(*self).then(
+      [self](Vec<uint8_t> v) { return http::Result<Bytes>(xpp::ok, Bytes::from(std::move(v))); });
   }
 
   /**
@@ -167,6 +174,9 @@ public:
    * Returns Err(Error{Kind::Body, ...}) if the body is not valid UTF-8.
    */
   Promise<http::Result<String>> text() {
+    // bytes() moves *this into a shared_ptr internally; the returned
+    // Promise chain holds that shared_ptr, keeping the Body alive until
+    // the chain completes.
     return bytes().then([](http::Result<Bytes> r) -> http::Result<String> {
       return r.and_then([](Bytes b) {
         return b.to_string().map_err([](Utf8Error) {

@@ -127,22 +127,21 @@ TEST(ErrorStatus, IsStatusErrorFalseForTransportError) {
 }
 
 TEST(ErrorToString, FormatWithoutStatus) {
-  Error e(Error::Kind::Timeout, String::from_utf8("connect timed out").unwrap());
+  Error  e(Error::Kind::Timeout, String::from_utf8("connect timed out").unwrap());
   String s = e.to_string();
   // Format: "timeout: connect timed out"
   EXPECT_EQ(s, String::from_utf8("timeout: connect timed out").unwrap());
 }
 
 TEST(ErrorToString, FormatWithStatus) {
-  Error e(Error::Kind::Protocol, String::from_utf8("not found").unwrap(),
-          StatusCode::NotFound);
+  Error  e(Error::Kind::Protocol, String::from_utf8("not found").unwrap(), StatusCode::NotFound);
   String s = e.to_string();
   // Format: "protocol: not found (status 404)"
   EXPECT_EQ(s, String::from_utf8("protocol: not found (status 404)").unwrap());
 }
 
 TEST(ErrorToString, FormatDefaultError) {
-  Error e;
+  Error  e;
   String s = e.to_string();
   // Default kind = Io, empty message
   EXPECT_EQ(s, String::from_utf8("io: ").unwrap());
@@ -151,12 +150,12 @@ TEST(ErrorToString, FormatDefaultError) {
 TEST(ErrorToString, AllKindsHaveNames) {
   // Ensure kind_name() covers every enumerator — no "unknown" leak.
   Error::Kind kinds[] = {
-      Error::Kind::Connect,    Error::Kind::Dns,         Error::Kind::Timeout,
-      Error::Kind::TooManyRedirects, Error::Kind::InvalidUrl, Error::Kind::Io,
-      Error::Kind::Protocol,   Error::Kind::Tls,         Error::Kind::Body,
+    Error::Kind::Connect,          Error::Kind::Dns,        Error::Kind::Timeout,
+    Error::Kind::TooManyRedirects, Error::Kind::InvalidUrl, Error::Kind::Io,
+    Error::Kind::Protocol,         Error::Kind::Tls,        Error::Kind::Body,
   };
   for (auto k : kinds) {
-    Error e(k, String::from_utf8("msg").unwrap());
+    Error  e(k, String::from_utf8("msg").unwrap());
     String s = e.to_string();
     EXPECT_FALSE(s.empty());
     // Should contain ": msg", not start with "unknown: msg"

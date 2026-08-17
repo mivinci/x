@@ -21,8 +21,6 @@
 #include <string>
 #include <utility>
 
-#include <x/http/client.h>           // libx C API
-#include <x/base/error.h>           // xErrno
 #include <xpp/http/body.h>
 #include <xpp/http/error.h>
 #include <xpp/http/header.h>
@@ -35,6 +33,9 @@
 #include <xpp/string.h>
 #include <xpp/sync/mpsc.h>
 #include <xpp/vec.h>
+
+#include <x/base/error.h>  // xErrno
+#include <x/http/client.h> // libx C API
 
 namespace xpp {
 namespace http {
@@ -53,7 +54,7 @@ class ClientBuilder;
  */
 class Client {
 public:
-  Client()                              = default;
+  Client() = default;
   ~Client() {
     if (m_client) xHttpClientDestroy(m_client);
   }
@@ -107,10 +108,10 @@ private:
  */
 class ClientBuilder {
 public:
-  ClientBuilder()                              = default;
-  ClientBuilder(ClientBuilder &&) noexcept    = default;
-  ClientBuilder &operator=(ClientBuilder &&)  = default;
-  ClientBuilder(const ClientBuilder &)         = delete;
+  ClientBuilder()                                 = default;
+  ClientBuilder(ClientBuilder &&) noexcept        = default;
+  ClientBuilder &operator=(ClientBuilder &&)      = default;
+  ClientBuilder(const ClientBuilder &)            = delete;
   ClientBuilder &operator=(const ClientBuilder &) = delete;
 
   /* ── Timeouts (milliseconds) ──────────────────────────────────── */
@@ -211,7 +212,7 @@ public:
     String credentials = std::move(user);
     credentials.push_str(String::from_utf8(":").unwrap());
     credentials.push_str(password);
-    auto bytes = credentials.as_bytes();
+    auto      bytes   = credentials.as_bytes();
     size_t    enc_max = (bytes.size() + 2) / 3 * 4 + 1;
     Vec<char> enc;
     enc.reserve(enc_max);
@@ -267,9 +268,9 @@ public:
   http::Result<Client> build() {
     xHttpClientConf conf = {};
 
-    conf.follow_location = m_follow_location;
-    conf.max_redirects   = m_max_redirects;
-    conf.timeout_ms        = m_timeout_ms;
+    conf.follow_location    = m_follow_location;
+    conf.max_redirects      = m_max_redirects;
+    conf.timeout_ms         = m_timeout_ms;
     conf.connect_timeout_ms = m_connect_timeout_ms;
 
     // Convert xpp::String → std::string for C API (null-terminated).
@@ -279,8 +280,8 @@ public:
     };
     std::string ua_std, px_std, np_std;
     if (!m_user_agent.empty()) ua_std = to_std(m_user_agent);
-    if (!m_proxy.empty())      px_std = to_std(m_proxy);
-    if (!m_no_proxy.empty())   np_std = to_std(m_no_proxy);
+    if (!m_proxy.empty()) px_std = to_std(m_proxy);
+    if (!m_no_proxy.empty()) np_std = to_std(m_no_proxy);
     conf.user_agent = ua_std.empty() ? nullptr : ua_std.c_str();
     conf.proxy      = px_std.empty() ? nullptr : px_std.c_str();
     conf.no_proxy   = np_std.empty() ? nullptr : np_std.c_str();
@@ -288,13 +289,13 @@ public:
     conf.http_version = m_http_version;
 
     // TLS
-    xTlsConf       tls_conf = {};
-    xTlsConf      *tls_ptr  = nullptr;
-    std::string    ca_std;
+    xTlsConf    tls_conf = {};
+    xTlsConf   *tls_ptr  = nullptr;
+    std::string ca_std;
     if (m_tls_skip_verify || !m_tls_ca.empty()) {
       tls_conf.skip_verify = m_tls_skip_verify;
       if (!m_tls_ca.empty()) {
-        ca_std = to_std(m_tls_ca);
+        ca_std      = to_std(m_tls_ca);
         tls_conf.ca = ca_std.c_str();
       }
       tls_ptr = &tls_conf;
@@ -305,25 +306,24 @@ public:
     if (!c) {
       return http::Result<Client>(
         xpp::err,
-        Error(Error::Kind::Connect,
-              String::from_utf8("xHttpClientCreate failed").unwrap()));
+        Error(Error::Kind::Connect, String::from_utf8("xHttpClientCreate failed").unwrap()));
     }
     return http::Result<Client>(xpp::ok, Client(c));
   }
 
 private:
-  long          m_timeout_ms         = 0;
-  long          m_connect_timeout_ms = 0;
-  long          m_read_timeout_ms    = 0;
-  int           m_follow_location   = 1;
-  long          m_max_redirects     = 10;
-  String        m_user_agent;
-  String        m_proxy;
-  String        m_no_proxy;
-  String        m_tls_ca;
-  int           m_tls_skip_verify   = 0;
-  xHttpVersion  m_http_version      = xHttpVersion_Default;
-  HeaderMap     m_default_headers;
+  long         m_timeout_ms         = 0;
+  long         m_connect_timeout_ms = 0;
+  long         m_read_timeout_ms    = 0;
+  int          m_follow_location    = 1;
+  long         m_max_redirects      = 10;
+  String       m_user_agent;
+  String       m_proxy;
+  String       m_no_proxy;
+  String       m_tls_ca;
+  int          m_tls_skip_verify = 0;
+  xHttpVersion m_http_version    = xHttpVersion_Default;
+  HeaderMap    m_default_headers;
 };
 
 inline ClientBuilder Client::builder() {
@@ -350,14 +350,14 @@ namespace _ {
 struct SendAdapter {
   // Option<> wrappers allow default-construction; the actual values
   // are moved in by Client::send() before the request is submitted.
-  Option<sync::mpsc::Sender<Bytes>>                tx;
-  Option<PromiseResolver<http::Result<Response>>>  resolver;
-  Body                                             body;        // channel-backed
+  Option<sync::mpsc::Sender<Bytes>>               tx;
+  Option<PromiseResolver<http::Result<Response>>> resolver;
+  Body                                            body; // channel-backed
   // Populated by on_response:
-  StatusCode                                       status = StatusCode::Ok;
-  HeaderMap                                        headers;
-  Option<String>                                   final_url;
-  bool                                             headers_done = false;
+  StatusCode     status = StatusCode::Ok;
+  HeaderMap      headers;
+  Option<String> final_url;
+  bool           headers_done = false;
 };
 
 // Parse raw response headers (NUL-terminated, "\r\n"-separated) into a HeaderMap.
@@ -381,11 +381,12 @@ inline HeaderMap parse_raw_headers(const char *raw, size_t len) {
     const char *colon = static_cast<const char *>(memmem(p, line_end - p, ":", 1));
     if (colon) {
       const char *val_start = colon + 1;
-      while (val_start < line_end && (*val_start == ' ' || *val_start == '\t')) val_start++;
+      while (val_start < line_end && (*val_start == ' ' || *val_start == '\t'))
+        val_start++;
       size_t key_len = colon - p;
       size_t val_len = line_end - val_start;
-      String key   = String::from_utf8(p, key_len).unwrap();
-      String value = String::from_utf8(val_start, val_len).unwrap();
+      String key     = String::from_utf8(p, key_len).unwrap();
+      String value   = String::from_utf8(val_start, val_len).unwrap();
       map.insert(std::move(key), std::move(value));
     }
 
@@ -411,18 +412,26 @@ inline Error error_from_curl(int curl_code, long status_code, const char *curl_e
   }
 
   switch (curl_code) {
-    case 3:   return Error(Error::Kind::InvalidUrl,      std::move(msg));
-    case 6:   return Error(Error::Kind::Dns,             std::move(msg));
-    case 7:   return Error(Error::Kind::Connect,         std::move(msg));
-    case 28:  return Error(Error::Kind::Timeout,          std::move(msg));
-    case 47:  return Error(Error::Kind::TooManyRedirects, std::move(msg));
-    case 35:
-    case 51:
-    case 58:
-    case 60:
-    case 64:  return Error(Error::Kind::Tls,             std::move(msg));
-    case 5:   return Error(Error::Kind::Connect,         std::move(msg));
-    default:  return Error(Error::Kind::Io,              std::move(msg));
+  case 3:
+    return Error(Error::Kind::InvalidUrl, std::move(msg));
+  case 6:
+    return Error(Error::Kind::Dns, std::move(msg));
+  case 7:
+    return Error(Error::Kind::Connect, std::move(msg));
+  case 28:
+    return Error(Error::Kind::Timeout, std::move(msg));
+  case 47:
+    return Error(Error::Kind::TooManyRedirects, std::move(msg));
+  case 35:
+  case 51:
+  case 58:
+  case 60:
+  case 64:
+    return Error(Error::Kind::Tls, std::move(msg));
+  case 5:
+    return Error(Error::Kind::Connect, std::move(msg));
+  default:
+    return Error(Error::Kind::Io, std::move(msg));
   }
 }
 
@@ -430,8 +439,8 @@ inline int on_response_cb(xHttpCtx *ctx, void *arg) {
   auto *adapter = static_cast<SendAdapter *>(arg);
   if (!adapter->headers_done) {
     adapter->headers_done = true;
-    adapter->status  = static_cast<StatusCode>(static_cast<uint16_t>(ctx->status_code));
-    adapter->headers = parse_raw_headers(ctx->headers, ctx->headers_len);
+    adapter->status       = static_cast<StatusCode>(static_cast<uint16_t>(ctx->status_code));
+    adapter->headers      = parse_raw_headers(ctx->headers, ctx->headers_len);
     if (ctx->url) {
       adapter->final_url = xpp::some(String::from_utf8(ctx->url).unwrap());
     }
@@ -441,8 +450,8 @@ inline int on_response_cb(xHttpCtx *ctx, void *arg) {
 
 inline int on_data_cb(const char *data, size_t len, void *arg) {
   auto *adapter = static_cast<SendAdapter *>(arg);
-  Bytes chunk = Bytes::copy(data, len);
-  auto r = adapter->tx.unwrap().try_send(std::move(chunk));
+  Bytes chunk   = Bytes::copy(data, len);
+  auto  r       = adapter->tx.unwrap().try_send(std::move(chunk));
   if (r.is_err()) {
     return -1;
   }
@@ -474,8 +483,8 @@ inline void on_done_cb(xHttpCtx *ctx, void *arg) {
   } else {
     // Success — construct Response with status, headers, and the
     // channel-backed body.
-    Body body = std::move(adapter->body);
-    ResponseBuilder rb = Response::builder();
+    Body            body = std::move(adapter->body);
+    ResponseBuilder rb   = Response::builder();
     rb.status(adapter->status);
     for (auto it = adapter->headers.begin(); it != adapter->headers.end(); ++it) {
       auto kv = *it;
@@ -495,48 +504,66 @@ inline void on_done_cb(xHttpCtx *ctx, void *arg) {
 inline Promise<http::Result<Response>> Client::send(Request req) {
   // 1. Create mpsc channel for body streaming (bounded 64 for backpressure).
   auto channel_pair = sync::mpsc::channel<Bytes>(64);
-  auto tx = std::move(channel_pair.first);
-  auto rx = std::move(channel_pair.second);
+  auto tx           = std::move(channel_pair.first);
+  auto rx           = std::move(channel_pair.second);
 
   // 2. Create the async result holder (Promise + Resolver).
-  auto pr = xpp::async<http::Result<Response>>();
+  auto pr       = xpp::async<http::Result<Response>>();
   auto promise  = std::move(pr.first);
   auto resolver = std::move(pr.second);
 
   // 3. Allocate SendAdapter — on_done will `delete` it.
   _::SendAdapter *adapter = new _::SendAdapter();
-  adapter->tx      = xpp::some(std::move(tx));
-  adapter->resolver = xpp::some(std::move(resolver));
-  adapter->body     = Body::from_channel(std::move(rx));
+  adapter->tx             = xpp::some(std::move(tx));
+  adapter->resolver       = xpp::some(std::move(resolver));
+  adapter->body           = Body::from_channel(std::move(rx));
 
   // 4. Build xHttpRequestConf from the Request.
   //    Keep url_std + header_std_strings alive for the duration of
   //    xHttpClientDo. libx copies url + headers internally before
   //    returning, so the local stack variables are safe.
-  auto url_bytes = req.url().as_bytes();
+  auto        url_bytes = req.url().as_bytes();
   std::string url_std(reinterpret_cast<const char *>(url_bytes.data()), url_bytes.size());
 
   xHttpMethod method = xHttpMethod_GET;
   switch (req.method()) {
-    case Method::Get:     method = xHttpMethod_GET;     break;
-    case Method::Post:    method = xHttpMethod_POST;    break;
-    case Method::Put:     method = xHttpMethod_PUT;     break;
-    case Method::Delete:  method = xHttpMethod_DELETE;  break;
-    case Method::Patch:   method = xHttpMethod_PATCH;   break;
-    case Method::Head:    method = xHttpMethod_HEAD;    break;
-    case Method::Options: method = xHttpMethod_OPTIONS; break;
-    case Method::Trace:   method = xHttpMethod_TRACE;   break;
-    case Method::Connect: method = xHttpMethod_GET;     break; // not supported
+  case Method::Get:
+    method = xHttpMethod_GET;
+    break;
+  case Method::Post:
+    method = xHttpMethod_POST;
+    break;
+  case Method::Put:
+    method = xHttpMethod_PUT;
+    break;
+  case Method::Delete:
+    method = xHttpMethod_DELETE;
+    break;
+  case Method::Patch:
+    method = xHttpMethod_PATCH;
+    break;
+  case Method::Head:
+    method = xHttpMethod_HEAD;
+    break;
+  case Method::Options:
+    method = xHttpMethod_OPTIONS;
+    break;
+  case Method::Trace:
+    method = xHttpMethod_TRACE;
+    break;
+  case Method::Connect:
+    method = xHttpMethod_GET;
+    break; // not supported
   }
 
   // Build "Key: Value" array for headers.
-  Vec<std::string>   header_std_strings;
-  Vec<const char *>  header_ptrs;
-  const HeaderMap   &req_headers = req.headers();
+  Vec<std::string>  header_std_strings;
+  Vec<const char *> header_ptrs;
+  const HeaderMap  &req_headers = req.headers();
   for (auto it = req_headers.begin(); it != req_headers.end(); ++it) {
-    auto kv = *it;
-    auto k = kv.first.as_bytes();
-    auto v = kv.second.as_bytes();
+    auto        kv = *it;
+    auto        k  = kv.first.as_bytes();
+    auto        v  = kv.second.as_bytes();
     std::string h(reinterpret_cast<const char *>(k.data()), k.size());
     h += ": ";
     h += std::string(reinterpret_cast<const char *>(v.data()), v.size());
@@ -548,12 +575,12 @@ inline Promise<http::Result<Response>> Client::send(Request req) {
   header_ptrs.push(nullptr);
 
   xHttpRequestConf conf = {};
-  conf.method   = method;
-  conf.url      = url_std.c_str();
-  conf.headers  = header_ptrs.data();
-  conf.on_response = _::on_response_cb;
-  conf.on_data     = _::on_data_cb;
-  conf.on_done     = _::on_done_cb;
+  conf.method           = method;
+  conf.url              = url_std.c_str();
+  conf.headers          = header_ptrs.data();
+  conf.on_response      = _::on_response_cb;
+  conf.on_data          = _::on_data_cb;
+  conf.on_done          = _::on_done_cb;
 
   // 5. Submit the request.
   xErrno rc = xHttpClientDo(m_client, &conf, adapter);
@@ -562,9 +589,7 @@ inline Promise<http::Result<Response>> Client::send(Request req) {
     // Submission failed — clean up and resolve with error.
     delete adapter;
     return xpp::resolve(http::Result<Response>(
-      xpp::err,
-      Error(Error::Kind::Io,
-            String::from_utf8("xHttpClientDo failed").unwrap())));
+      xpp::err, Error(Error::Kind::Io, String::from_utf8("xHttpClientDo failed").unwrap())));
   }
 
   return promise;

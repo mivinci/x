@@ -19,12 +19,12 @@
 #ifndef XPP_HTTP_TEST_SERVER_H
 #define XPP_HTTP_TEST_SERVER_H
 
+#include <strings.h> // strncasecmp
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <memory>  // std::shared_ptr, std::make_shared
-#include <strings.h>  // strncasecmp
 #include <utility>
 
 #include <xpp/bytes.h>
@@ -42,11 +42,11 @@ namespace xpp {
 namespace http {
 namespace test {
 
-using xpp::net::TcpListener;
-using xpp::net::TcpStream;
+using xpp::net::Ipv4Addr;
 using xpp::net::SocketAddr;
 using xpp::net::SocketAddrV4;
-using xpp::net::Ipv4Addr;
+using xpp::net::TcpListener;
+using xpp::net::TcpStream;
 
 /**
  * @brief Preset HTTP response for `TestServer` to return.
@@ -55,11 +55,11 @@ using xpp::net::Ipv4Addr;
  * produces a `200 OK` with empty body and no delay.
  */
 struct TestResponseSpec {
-  StatusCode                             status   = StatusCode::Ok;
-  Vec<std::pair<String, String>>         headers;
-  Bytes                                 body;
+  StatusCode                     status = StatusCode::Ok;
+  Vec<std::pair<String, String>> headers;
+  Bytes                          body;
   /** Pre-response delay in milliseconds. 0 = respond immediately. */
-  uint64_t                              delay_ms = 0;
+  uint64_t delay_ms = 0;
 };
 
 /**
@@ -91,11 +91,11 @@ struct TestResponseSpec {
  */
 class TestServer {
 public:
-  TestServer()                              = default;
-  TestServer(TestServer &&) noexcept        = default;
+  TestServer()                                  = default;
+  TestServer(TestServer &&) noexcept            = default;
   TestServer &operator=(TestServer &&) noexcept = default;
-  TestServer(const TestServer &)            = delete;
-  TestServer &operator=(const TestServer &) = delete;
+  TestServer(const TestServer &)                = delete;
+  TestServer &operator=(const TestServer &)     = delete;
 
   ~TestServer() {
     stop();
@@ -110,13 +110,12 @@ public:
   static TestServer start(TestResponseSpec spec) {
     TestServer ts;
     ts.state_ = Shared<State>::make();
-    State *s = ts.state_.as_deref();
+    State *s  = ts.state_.as_deref();
     XPP_ASSERT(s != nullptr, "TestServer: state alloc failed");
     s->spec = std::move(spec);
 
     // Bind to loopback port 0 — kernel assigns a free port.
-    auto addr = SocketAddr::from(
-      SocketAddrV4::from(Ipv4Addr::localhost(), 0));
+    auto addr   = SocketAddr::from(SocketAddrV4::from(Ipv4Addr::localhost(), 0));
     auto bind_r = TcpListener::bind(addr).await();
     XPP_ASSERT(bind_r.is_ok(), "TestServer: bind failed");
     s->listener = std::move(bind_r).unwrap();
@@ -130,9 +129,8 @@ public:
     // actually fire. The fiber's outer Promise is held in `state->accept_fiber`
     // so it doesn't get detached and lose its resolver before the first
     // accept resolves.
-    s->accept_fiber = xpp::fiber(64 * 1024, [state_opt = ts.state_]() {
-      accept_loop(state_opt).await();
-    });
+    s->accept_fiber =
+      xpp::fiber(64 * 1024, [state_opt = ts.state_]() { accept_loop(state_opt).await(); });
 
     return ts;
   }
@@ -167,16 +165,16 @@ public:
 
 private:
   struct State {
-    TcpListener        listener;
-    TestResponseSpec    spec;
-    std::atomic<bool>   running{true};
+    TcpListener       listener;
+    TestResponseSpec  spec;
+    std::atomic<bool> running{true};
     // Holds the accept-loop fiber promise. Keeps the fiber's resolver
     // alive so its internal `.await()` calls can be woken.
-    Promise<void>       accept_fiber;
+    Promise<void> accept_fiber;
   };
 
-  Option<Shared<State>>   state_;
-  uint16_t                port_ = 0;
+  Option<Shared<State>> state_;
+  uint16_t              port_ = 0;
 
   /* ── Accept loop (then-chain, no fiber) ─────────────────────────── */
 
@@ -203,12 +201,12 @@ private:
 
       // Spawn a fiber for this connection. Fire-and-forget: the fiber
       // owns its TcpStream and runs to completion (or until EventLoop exit).
-      // We wrap move-only types in shared_ptr because C++11 lambdas
-      // can't init-capture by move.
-      auto stream_ptr = std::make_shared<TcpStream>(std::move(accepted.first));
-      auto spec_ptr   = std::make_shared<TestResponseSpec>(std::move(spec_copy));
+      // We wrap move-only types in Shared<> because C++11 lambdas can't
+      // init-capture by move.
+      Shared<TcpStream>        stream_ptr = Shared<TcpStream>::make(std::move(accepted.first));
+      Shared<TestResponseSpec> spec_ptr   = Shared<TestResponseSpec>::make(std::move(spec_copy));
       xpp::fiber(32 * 1024, [stream_ptr, spec_ptr]() -> Promise<void> {
-        TcpStream       stream = std::move(*stream_ptr);
+        TcpStream        stream = std::move(*stream_ptr);
         TestResponseSpec spec   = std::move(*spec_ptr);
         return handle_connection(std::move(stream), std::move(spec));
       });
@@ -222,10 +220,10 @@ private:
     //    Buffer is large enough for typical request headers; if the
     //    headers don't fit, we still respond (best-effort).
     static const size_t kBufSize = 8192;
-    char  buf[kBufSize];
-    size_t total = 0;
-    size_t header_end = 0; // index of the byte after the final \n
-    bool   headers_done = false;
+    char                buf[kBufSize];
+    size_t              total        = 0;
+    size_t              header_end   = 0; // index of the byte after the final \n
+    bool                headers_done = false;
 
     while (total < kBufSize && !headers_done) {
       ssize_t n = stream.read(buf + total, kBufSize - total).await();
@@ -240,9 +238,8 @@ private:
       // begin (overlap with previously-received bytes).
       size_t search_start = (total > n + 3) ? (total - n - 3) : 0;
       for (size_t i = search_start; i + 3 < total; i++) {
-        if (buf[i] == '\r' && buf[i + 1] == '\n'
-            && buf[i + 2] == '\r' && buf[i + 3] == '\n') {
-          header_end = i + 4;
+        if (buf[i] == '\r' && buf[i + 1] == '\n' && buf[i + 2] == '\r' && buf[i + 3] == '\n') {
+          header_end   = i + 4;
           headers_done = true;
           break;
         }
@@ -255,14 +252,15 @@ private:
     }
 
     // 2. Parse Content-Length (case-insensitive) and drain request body.
-    size_t content_length = 0;
+    size_t content_length     = 0;
     bool   has_content_length = false;
     for (size_t i = 0; i + 15 < header_end; i++) {
       if (strncasecmp(buf + i, "Content-Length:", 15) == 0) {
         // Skip whitespace after the colon.
         size_t j = i + 15;
-        while (j < header_end && (buf[j] == ' ' || buf[j] == '\t')) j++;
-        content_length = static_cast<size_t>(strtoul(buf + j, nullptr, 10));
+        while (j < header_end && (buf[j] == ' ' || buf[j] == '\t'))
+          j++;
+        content_length     = static_cast<size_t>(strtoul(buf + j, nullptr, 10));
         has_content_length = true;
         break;
       }
@@ -271,15 +269,13 @@ private:
     if (has_content_length) {
       // Body bytes already in buf: total - header_end
       size_t body_received = (total > header_end) ? (total - header_end) : 0;
-      size_t remaining = (content_length > body_received)
-                           ? (content_length - body_received)
-                           : 0;
+      size_t remaining = (content_length > body_received) ? (content_length - body_received) : 0;
 
       // Drain remaining body bytes from the socket.
       char drain[1024];
       while (remaining > 0) {
-        size_t to_read = (remaining < sizeof(drain)) ? remaining : sizeof(drain);
-        ssize_t n = stream.read(drain, to_read).await();
+        size_t  to_read = (remaining < sizeof(drain)) ? remaining : sizeof(drain);
+        ssize_t n       = stream.read(drain, to_read).await();
         if (n <= 0) break; // short read — give up draining
         remaining -= static_cast<size_t>(n);
       }
@@ -300,8 +296,8 @@ private:
     String resp;
     // Status line
     resp.push_str(String::from_utf8("HTTP/1.1 ").unwrap());
-    resp.push_str(String::from_utf8(
-      std::to_string(static_cast<uint16_t>(spec.status)).c_str()).unwrap());
+    resp.push_str(
+      String::from_utf8(std::to_string(static_cast<uint16_t>(spec.status)).c_str()).unwrap());
     resp.push_str(String::from_utf8(" ").unwrap());
     resp.push_str(to_reason_phrase(spec.status));
     resp.push_str(String::from_utf8("\r\n").unwrap());
@@ -317,8 +313,7 @@ private:
     // Always set Content-Length and Connection: close so the client
     // knows the response boundary.
     resp.push_str(String::from_utf8("Content-Length: ").unwrap());
-    resp.push_str(String::from_utf8(
-      std::to_string(spec.body.size()).c_str()).unwrap());
+    resp.push_str(String::from_utf8(std::to_string(spec.body.size()).c_str()).unwrap());
     resp.push_str(String::from_utf8("\r\n").unwrap());
     resp.push_str(String::from_utf8("Connection: close\r\n\r\n").unwrap());
 
@@ -354,24 +349,41 @@ private:
   /** @brief Minimal reason-phrase table for common status codes. */
   static String to_reason_phrase(StatusCode code) {
     switch (code) {
-      case StatusCode::Ok:                  return String::from_utf8("OK").unwrap();
-      case StatusCode::Created:              return String::from_utf8("Created").unwrap();
-      case StatusCode::NoContent:            return String::from_utf8("No Content").unwrap();
-      case StatusCode::MovedPermanently:     return String::from_utf8("Moved Permanently").unwrap();
-      case StatusCode::Found:                return String::from_utf8("Found").unwrap();
-      case StatusCode::NotModified:          return String::from_utf8("Not Modified").unwrap();
-      case StatusCode::BadRequest:           return String::from_utf8("Bad Request").unwrap();
-      case StatusCode::Unauthorized:        return String::from_utf8("Unauthorized").unwrap();
-      case StatusCode::Forbidden:           return String::from_utf8("Forbidden").unwrap();
-      case StatusCode::NotFound:             return String::from_utf8("Not Found").unwrap();
-      case StatusCode::MethodNotAllowed:     return String::from_utf8("Method Not Allowed").unwrap();
-      case StatusCode::InternalServerError:  return String::from_utf8("Internal Server Error").unwrap();
-      case StatusCode::NotImplemented:       return String::from_utf8("Not Implemented").unwrap();
-      case StatusCode::BadGateway:           return String::from_utf8("Bad Gateway").unwrap();
-      case StatusCode::ServiceUnavailable:  return String::from_utf8("Service Unavailable").unwrap();
-      case StatusCode::GatewayTimeout:       return String::from_utf8("Gateway Timeout").unwrap();
+    case StatusCode::Ok:
+      return String::from_utf8("OK").unwrap();
+    case StatusCode::Created:
+      return String::from_utf8("Created").unwrap();
+    case StatusCode::NoContent:
+      return String::from_utf8("No Content").unwrap();
+    case StatusCode::MovedPermanently:
+      return String::from_utf8("Moved Permanently").unwrap();
+    case StatusCode::Found:
+      return String::from_utf8("Found").unwrap();
+    case StatusCode::NotModified:
+      return String::from_utf8("Not Modified").unwrap();
+    case StatusCode::BadRequest:
+      return String::from_utf8("Bad Request").unwrap();
+    case StatusCode::Unauthorized:
+      return String::from_utf8("Unauthorized").unwrap();
+    case StatusCode::Forbidden:
+      return String::from_utf8("Forbidden").unwrap();
+    case StatusCode::NotFound:
+      return String::from_utf8("Not Found").unwrap();
+    case StatusCode::MethodNotAllowed:
+      return String::from_utf8("Method Not Allowed").unwrap();
+    case StatusCode::InternalServerError:
+      return String::from_utf8("Internal Server Error").unwrap();
+    case StatusCode::NotImplemented:
+      return String::from_utf8("Not Implemented").unwrap();
+    case StatusCode::BadGateway:
+      return String::from_utf8("Bad Gateway").unwrap();
+    case StatusCode::ServiceUnavailable:
+      return String::from_utf8("Service Unavailable").unwrap();
+    case StatusCode::GatewayTimeout:
+      return String::from_utf8("Gateway Timeout").unwrap();
+    default:
+      return String::from_utf8("OK").unwrap();
     }
-    return String::from_utf8("OK").unwrap();
   }
 };
 

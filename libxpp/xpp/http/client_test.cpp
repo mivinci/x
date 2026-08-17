@@ -10,10 +10,9 @@
  * body bridge, header parsing, error mapping, and timeout.
  */
 
-#include <gtest/gtest.h>
-
 #include <string>
 
+#include <gtest/gtest.h>
 #include <xpp/event.h>
 #include <xpp/fiber.h>
 #include <xpp/http/client.h>
@@ -33,8 +32,8 @@ static std::string url_for(uint16_t port, const char *path = "/") {
  * ─────────────────────────────────────────────────────────────────── */
 
 TEST(ClientTest, BuilderProducesWorkingClient) {
-  EventLoop  loop;
-  WaitScope  scope(loop);
+  EventLoop loop;
+  WaitScope scope(loop);
 
   auto client_r = Client::builder().build();
   ASSERT_TRUE(client_r.is_ok());
@@ -58,23 +57,20 @@ TEST(ClientTest, BuilderRejectsNoEventLoop) {
  * ─────────────────────────────────────────────────────────────────── */
 
 TEST(ClientSendTest, GetReturns200WithBody) {
-  EventLoop  loop;
-  WaitScope  scope(loop);
+  EventLoop loop;
+  WaitScope scope(loop);
 
   test::TestResponseSpec spec;
   spec.status = StatusCode::Ok;
-  spec.headers.push({String::from_utf8("Content-Type").unwrap(),
-                     String::from_utf8("text/plain").unwrap()});
+  spec.headers.push(
+    {String::from_utf8("Content-Type").unwrap(), String::from_utf8("text/plain").unwrap()});
   spec.body = Bytes::from("hello");
 
   auto server = test::TestServer::start(spec);
 
   // Run the client request in a fiber so .await() can yield.
-  auto req = Request::builder()
-               .method(Method::Get)
-               .url(url_for(server.port()).c_str())
-               .body()
-               .unwrap();
+  auto req =
+    Request::builder().method(Method::Get).url(url_for(server.port()).c_str()).body().unwrap();
 
   auto client_r = Client::builder().build();
   ASSERT_TRUE(client_r.is_ok());
@@ -91,21 +87,21 @@ TEST(ClientSendTest, GetReturns200WithBody) {
 
   auto body_r = resp.bytes().await();
   ASSERT_TRUE(body_r.is_ok());
-  Bytes body = std::move(body_r).unwrap();
-  auto body_str = body.to_string().unwrap();
+  Bytes body     = std::move(body_r).unwrap();
+  auto  body_str = body.to_string().unwrap();
   EXPECT_EQ(body_str, String::from_utf8("hello").unwrap());
 }
 
 TEST(ClientSendTest, PostWithBodyRoundTrips) {
-  EventLoop  loop;
-  WaitScope  scope(loop);
+  EventLoop loop;
+  WaitScope scope(loop);
 
   // TestServer echoes the request body as the response body? No —
   // TestServer returns a preset response. But it does drain the
   // request body (Content-Length), so POST with body is safe.
   test::TestResponseSpec spec;
   spec.status = StatusCode::Ok;
-  spec.body = Bytes::from("ack");
+  spec.body   = Bytes::from("ack");
 
   auto server = test::TestServer::start(spec);
 
@@ -129,20 +125,17 @@ TEST(ClientSendTest, PostWithBodyRoundTrips) {
 }
 
 TEST(ClientSendTest, NotFoundReturns400LevelStatus) {
-  EventLoop  loop;
-  WaitScope  scope(loop);
+  EventLoop loop;
+  WaitScope scope(loop);
 
   test::TestResponseSpec spec;
   spec.status = StatusCode::NotFound;
-  spec.body = Bytes::from("nope");
+  spec.body   = Bytes::from("nope");
 
   auto server = test::TestServer::start(spec);
 
-  auto req = Request::builder()
-               .method(Method::Get)
-               .url(url_for(server.port()).c_str())
-               .body()
-               .unwrap();
+  auto req =
+    Request::builder().method(Method::Get).url(url_for(server.port()).c_str()).body().unwrap();
 
   auto client_r = Client::builder().build();
   ASSERT_TRUE(client_r.is_ok());
@@ -159,8 +152,8 @@ TEST(ClientSendTest, NotFoundReturns400LevelStatus) {
 }
 
 TEST(ClientSendTest, TimeoutTriggersError) {
-  EventLoop  loop;
-  WaitScope  scope(loop);
+  EventLoop loop;
+  WaitScope scope(loop);
 
   // Server delays 200ms before responding; client times out at 50ms.
   test::TestResponseSpec spec;
@@ -170,11 +163,8 @@ TEST(ClientSendTest, TimeoutTriggersError) {
 
   auto server = test::TestServer::start(spec);
 
-  auto req = Request::builder()
-               .method(Method::Get)
-               .url(url_for(server.port()).c_str())
-               .body()
-               .unwrap();
+  auto req =
+    Request::builder().method(Method::Get).url(url_for(server.port()).c_str()).body().unwrap();
 
   // Per-request timeout — but our ClientBuilder currently only sets
   // client-level timeout. Use Client::builder().timeout(50).
@@ -187,8 +177,8 @@ TEST(ClientSendTest, TimeoutTriggersError) {
 }
 
 TEST(ClientSendTest, CustomHeaderSent) {
-  EventLoop  loop;
-  WaitScope  scope(loop);
+  EventLoop loop;
+  WaitScope scope(loop);
 
   // TestServer currently doesn't echo request headers back, but it
   // does drain them. We just verify the request with a custom header

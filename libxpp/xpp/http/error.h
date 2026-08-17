@@ -131,7 +131,8 @@ public:
     s.push_str(m_message);
     if (m_status.is_some()) {
       s.push_str(String::from_utf8(" (status ").unwrap());
-      s.push_str(String::from_utf8(std::to_string(static_cast<uint16_t>(m_status.unwrap())).c_str()).unwrap());
+      s.push_str(String::from_utf8(std::to_string(static_cast<uint16_t>(m_status.unwrap())).c_str())
+                   .unwrap());
       s.push_str(String::from_utf8(")").unwrap());
     }
     return s;
@@ -140,22 +141,31 @@ public:
 private:
   static const char *kind_name(Kind k) {
     switch (k) {
-      case Kind::Connect:           return "connect";
-      case Kind::Dns:               return "dns";
-      case Kind::Timeout:           return "timeout";
-      case Kind::TooManyRedirects:  return "too-many-redirects";
-      case Kind::InvalidUrl:        return "invalid-url";
-      case Kind::Io:                return "io";
-      case Kind::Protocol:          return "protocol";
-      case Kind::Tls:               return "tls";
-      case Kind::Body:              return "body";
+    case Kind::Connect:
+      return "connect";
+    case Kind::Dns:
+      return "dns";
+    case Kind::Timeout:
+      return "timeout";
+    case Kind::TooManyRedirects:
+      return "too-many-redirects";
+    case Kind::InvalidUrl:
+      return "invalid-url";
+    case Kind::Io:
+      return "io";
+    case Kind::Protocol:
+      return "protocol";
+    case Kind::Tls:
+      return "tls";
+    case Kind::Body:
+      return "body";
     }
     return "unknown";
   }
 
-  Kind                 m_kind = Kind::Io;
-  String               m_message;
-  Option<StatusCode>   m_status;
+  Kind               m_kind = Kind::Io;
+  String             m_message;
+  Option<StatusCode> m_status;
 };
 
 /**
