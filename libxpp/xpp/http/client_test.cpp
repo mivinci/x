@@ -8,6 +8,14 @@
  * Uses xpp::http::test::TestServer (loopback, no external network) to
  * exercise Client::send end-to-end: request submission, push→pull
  * body bridge, header parsing, error mapping, and timeout.
+ *
+ * Each send test wraps client.send(req).await() in xpp::fiber() so the
+ * await yields back to the EventLoop cleanly. TestServer internally
+ * uses a fiber for its accept loop; on Linux shared builds, calling
+ * xFiberSwitch from inside xEventLoopRun (which the non-fiber await
+ * path uses) can deadlock. Running the client in a fiber too avoids
+ * xEventLoopRun entirely — both fibers suspend via xFiberYield and
+ * wake each other through PromiseWaker.
  */
 
 #include <string>
@@ -38,15 +46,11 @@ TEST(ClientTest, BuilderProducesWorkingClient) {
   auto client_r = Client::builder().build();
   ASSERT_TRUE(client_r.is_ok());
   Client client = std::move(client_r).unwrap();
-  // client is movable, non-null
   (void)client;
 }
 
 TEST(ClientTest, BuilderRejectsNoEventLoop) {
   // Without an EventLoop entered, xHttpClientCreate returns NULL.
-  // Note: this test must run outside any WaitScope.
-  // (gtest runs tests sequentially; the previous test's WaitScope is
-  // already destroyed, so we're outside any loop here.)
   auto client_r = Client::builder().build();
   EXPECT_TRUE(client_r.is_err());
   EXPECT_TRUE(client_r.unwrap_err().is_connect());
@@ -68,7 +72,6 @@ TEST(ClientSendTest, GetReturns200WithBody) {
 
   auto server = test::TestServer::start(spec);
 
-  // Run the client request in a fiber so .await() can yield.
   auto req =
     Request::builder().method(Method::Get).url(url_for(server.port()).c_str()).body().unwrap();
 
@@ -76,29 +79,22 @@ TEST(ClientSendTest, GetReturns200WithBody) {
   ASSERT_TRUE(client_r.is_ok());
   Client client = std::move(client_r).unwrap();
 
-  auto resp_r = client.send(std::move(req)).await();
-  ASSERT_TRUE(resp_r.is_ok());
-  Response resp = std::move(resp_r).unwrap();
+  Response resp =
+    xpp::fiber([&]() { return client.send(std::move(req)).await(); }).await().unwrap();
 
   EXPECT_EQ(resp.status(), StatusCode::Ok);
   auto ct = resp.headers().get(String::from_utf8("content-type").unwrap());
   ASSERT_TRUE(ct.is_some());
   EXPECT_EQ(ct.unwrap(), String::from_utf8("text/plain").unwrap());
 
-  auto body_r = resp.bytes().await();
-  ASSERT_TRUE(body_r.is_ok());
-  Bytes body     = std::move(body_r).unwrap();
-  auto  body_str = body.to_string().unwrap();
-  EXPECT_EQ(body_str, String::from_utf8("hello").unwrap());
+  auto body = resp.bytes().await().unwrap();
+  EXPECT_EQ(body.to_string().unwrap(), String::from_utf8("hello").unwrap());
 }
 
 TEST(ClientSendTest, PostWithBodyRoundTrips) {
   EventLoop loop;
   WaitScope scope(loop);
 
-  // TestServer echoes the request body as the response body? No —
-  // TestServer returns a preset response. But it does drain the
-  // request body (Content-Length), so POST with body is safe.
   test::TestResponseSpec spec;
   spec.status = StatusCode::Ok;
   spec.body   = Bytes::from("ack");
@@ -114,10 +110,10 @@ TEST(ClientSendTest, PostWithBodyRoundTrips) {
 
   auto client_r = Client::builder().build();
   ASSERT_TRUE(client_r.is_ok());
+  Client client = std::move(client_r).unwrap();
 
-  auto resp_r = client_r.unwrap().send(std::move(req)).await();
-  ASSERT_TRUE(resp_r.is_ok());
-  auto resp = std::move(resp_r).unwrap();
+  Response resp =
+    xpp::fiber([&]() { return client.send(std::move(req)).await(); }).await().unwrap();
   EXPECT_EQ(resp.status(), StatusCode::Ok);
 
   auto body = resp.bytes().await().unwrap();
@@ -139,10 +135,9 @@ TEST(ClientSendTest, NotFoundReturns400LevelStatus) {
 
   auto client_r = Client::builder().build();
   ASSERT_TRUE(client_r.is_ok());
+  Client client = std::move(client_r).unwrap();
 
-  auto resp_r = client_r.unwrap().send(std::move(req)).await();
-  // 404 is a server response — curl succeeded, status is 404.
-  // Per spec: 4xx/5xx → Err(Protocol) with status set.
+  auto resp_r = xpp::fiber([&]() { return client.send(std::move(req)).await(); }).await();
   ASSERT_TRUE(resp_r.is_err());
   auto err = resp_r.unwrap_err();
   EXPECT_TRUE(err.is_protocol());
@@ -166,12 +161,11 @@ TEST(ClientSendTest, TimeoutTriggersError) {
   auto req =
     Request::builder().method(Method::Get).url(url_for(server.port()).c_str()).body().unwrap();
 
-  // Per-request timeout — but our ClientBuilder currently only sets
-  // client-level timeout. Use Client::builder().timeout(50).
   auto client_r = Client::builder().timeout(50).build();
   ASSERT_TRUE(client_r.is_ok());
+  Client client = std::move(client_r).unwrap();
 
-  auto resp_r = client_r.unwrap().send(std::move(req)).await();
+  auto resp_r = xpp::fiber([&]() { return client.send(std::move(req)).await(); }).await();
   ASSERT_TRUE(resp_r.is_err());
   EXPECT_TRUE(resp_r.unwrap_err().is_timeout());
 }
@@ -197,8 +191,9 @@ TEST(ClientSendTest, CustomHeaderSent) {
 
   auto client_r = Client::builder().build();
   ASSERT_TRUE(client_r.is_ok());
+  Client client = std::move(client_r).unwrap();
 
-  auto resp_r = client_r.unwrap().send(std::move(req)).await();
-  ASSERT_TRUE(resp_r.is_ok());
-  EXPECT_EQ(resp_r.unwrap().status(), StatusCode::Ok);
+  Response resp =
+    xpp::fiber([&]() { return client.send(std::move(req)).await(); }).await().unwrap();
+  EXPECT_EQ(resp.status(), StatusCode::Ok);
 }
