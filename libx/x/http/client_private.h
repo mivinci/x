@@ -72,6 +72,19 @@ XDEF_STRUCT(xHttpClient_) {
   xTimer       timer;    /* current curl timeout timer, or NULL */
   xHttpVersion http_ver; /* default HTTP version for requests   */
 
+  /* Redirect policy (client-level defaults) */
+  int  follow_location;  /* 0 = never follow; non-zero = follow  */
+  long max_redirects;    /* 0 = unlimited; >0 = cap              */
+
+  /* Timeouts (ms, 0 = no limit / use default) */
+  long timeout_ms;         /* total transfer timeout             */
+  long connect_timeout_ms; /* connect-phase-only timeout         */
+
+  /* Identity / proxy (owned copies, freed on destroy) */
+  char *user_agent;       /* default User-Agent, or NULL         */
+  char *proxy;            /* proxy URL, or NULL                  */
+  char *no_proxy;         /* no_proxy patterns, or NULL           */
+
   /* TLS configuration (owned copies, freed on destroy) */
   char *tls_ca;           /* CA cert file path, or NULL          */
   char *tls_cert;         /* client certificate path, or NULL    */

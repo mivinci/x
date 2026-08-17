@@ -1271,3 +1271,231 @@ TEST_F(HttpServerTest, FullLifecycleOrder) {
   EXPECT_EQ(ctx.total_bytes, 256u);
   EXPECT_EQ(ctx.body_acc, ctx.upload_data);
 }
+
+/* ───────────────────── Client-level config tests ─────────────────────
+ * Tests for the new xHttpClientConf fields: timeout_ms, user_agent,
+ * follow_location / max_redirects, and the new xHttpMethod_OPTIONS.
+ *
+ * Each test builds a fresh client with a specific xHttpClientConf (the
+ * fixture's default client is destroyed first) and verifies the curl-level
+ * behavior end-to-end via a local xHttpServer route. */
+
+/* Server handler: echo back the User-Agent the client sent. */
+static void echo_user_agent_handler(xHttpCtx *ctx, void *arg) {
+  /* The request headers are exposed via ctx->headers (raw NUL-terminated).
+   * Find the User-Agent line and echo it back as the body. */
+  std::string ua;
+  if (ctx->headers && ctx->headers_len > 0) {
+    std::string raw(ctx->headers, ctx->headers_len);
+    auto pos = raw.find("User-Agent:");
+    if (pos != std::string::npos) {
+      auto eol = raw.find("\r\n", pos);
+      if (eol != std::string::npos) {
+        ua = raw.substr(pos + 11, eol - (pos + 11));
+        /* trim leading whitespace */
+        size_t start = ua.find_first_not_of(" \t");
+        if (start != std::string::npos) ua = ua.substr(start);
+      }
+    }
+  }
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+  xHttpCtxSend(ctx, ua.data(), ua.size());
+}
+
+TEST_F(HttpServerTest, ClientConfUserAgent) {
+  HandlerCtx hc;
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern        = "GET /ua";
+    rc.on_done        = echo_user_agent_handler;
+    rc.arg            = &hc;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+  listen_and_pump();
+
+  /* Create client with a custom User-Agent. */
+  xHttpClientConf cconf = {};
+  cconf.user_agent       = "libx-tests/1.0";
+  xHttpClient client    = xHttpClientCreate(&cconf);
+  ASSERT_NE(client, nullptr);
+
+  ResponseCtx      ctx;
+  std::string      u    = "http://127.0.0.1:" + std::to_string(port) + "/ua";
+  xHttpRequestConf conf = {};
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_response;
+  ASSERT_EQ(xHttpClientGet(client, &conf, &ctx), xErrno_Ok);
+  run_until(loop, ctx.done, 5000);
+  xHttpClientDestroy(client);
+
+  ASSERT_TRUE(ctx.done.load());
+  EXPECT_EQ(ctx.status_code, 200);
+  /* Server should have echoed back the User-Agent we configured. */
+  EXPECT_EQ(ctx.body, "libx-tests/1.0");
+}
+
+/* Server handler: emit a 302 redirect to /get, which then returns 200. */
+static void redirect_handler(xHttpCtx *ctx, void *arg) {
+  xHttpCtxSetStatus(ctx, 302);
+  /* Send Location as a header via xHttpCtxSetHeader, then an empty body. */
+  xHttpCtxSetHeader(ctx, "Location", "/get");
+  xHttpCtxSend(ctx, "", 0);
+}
+
+static void minimal_ok_handler(xHttpCtx *ctx, void *arg) {
+  (void)arg;
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+  xHttpCtxSend(ctx, "ok", 2);
+}
+
+TEST_F(HttpServerTest, ClientConfFollowLocation) {
+  HandlerCtx hc;
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern        = "GET /redirect";
+    rc.on_done        = redirect_handler;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern        = "GET /get";
+    rc.on_done        = minimal_ok_handler;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+  listen_and_pump();
+
+  /* Client with follow_location=0 (no redirect). */
+  xHttpClientConf cconf = {};
+  cconf.follow_location  = 0;
+  xHttpClient client    = xHttpClientCreate(&cconf);
+  ASSERT_NE(client, nullptr);
+
+  ResponseCtx      ctx;
+  std::string      u    = "http://127.0.0.1:" + std::to_string(port) + "/redirect";
+  xHttpRequestConf conf = {};
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_response;
+  ASSERT_EQ(xHttpClientGet(client, &conf, &ctx), xErrno_Ok);
+  run_until(loop, ctx.done, 5000);
+  xHttpClientDestroy(client);
+
+  ASSERT_TRUE(ctx.done.load());
+  EXPECT_EQ(ctx.curl_code, 0);
+  /* Should see the 302 directly, not the redirected 200. */
+  EXPECT_EQ(ctx.status_code, 302);
+}
+
+TEST_F(HttpServerTest, ClientConfFollowLocationDefaultFollows) {
+  HandlerCtx hc;
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern        = "GET /redirect";
+    rc.on_done        = redirect_handler;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern        = "GET /get";
+    rc.on_done        = minimal_ok_handler;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+  listen_and_pump();
+
+  /* Client created with NULL conf → default follow_location=1, max_redirects=10. */
+  xHttpClient client = xHttpClientCreate(nullptr);
+  ASSERT_NE(client, nullptr);
+
+  ResponseCtx      ctx;
+  std::string      u    = "http://127.0.0.1:" + std::to_string(port) + "/redirect";
+  xHttpRequestConf conf = {};
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_response;
+  ASSERT_EQ(xHttpClientGet(client, &conf, &ctx), xErrno_Ok);
+  run_until(loop, ctx.done, 5000);
+  xHttpClientDestroy(client);
+
+  ASSERT_TRUE(ctx.done.load());
+  EXPECT_EQ(ctx.curl_code, 0);
+  /* Default behavior: client follows the 302 and lands on /get (200). */
+  EXPECT_EQ(ctx.status_code, 200);
+}
+
+TEST_F(HttpServerTest, ClientConfTimeoutTriggersError) {
+  /* /ping handler is registered in client_test's fixture, not here — so
+   * we register a handler that never sends a response, then verify the
+   * client times out at timeout_ms and surfaces a non-zero curl_code. */
+  HandlerCtx hc;
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern        = "GET /hang";
+    rc.on_done        = [](xHttpCtx *ctx, void *arg) { /* no response */ };
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+  listen_and_pump();
+
+  /* Client-level total timeout = 300ms. */
+  xHttpClientConf cconf = {};
+  cconf.timeout_ms       = 300;
+  xHttpClient client    = xHttpClientCreate(&cconf);
+  ASSERT_NE(client, nullptr);
+
+  ResponseCtx      ctx;
+  std::string      u    = "http://127.0.0.1:" + std::to_string(port) + "/hang";
+  xHttpRequestConf conf = {};
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_collect;
+  conf.on_done          = on_response;
+  ASSERT_EQ(xHttpClientGet(client, &conf, &ctx), xErrno_Ok);
+  run_until(loop, ctx.done, 5000);
+  xHttpClientDestroy(client);
+
+  ASSERT_TRUE(ctx.done.load());
+  EXPECT_NE(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 0);
+}
+
+/* Verify OPTIONS method is supported and arrives at the server. */
+static void options_handler(xHttpCtx *ctx, void *arg) {
+  auto *s = static_cast<EchoState *>(arg);
+  s->body = ctx->method ? ctx->method : "";
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Allow", "GET, POST, OPTIONS");
+  xHttpCtxSend(ctx, s->body.data(), s->body.size());
+}
+
+TEST_F(HttpServerTest, OptionsMethodEndToEnd) {
+  EchoState es;
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern        = "OPTIONS /opts";
+    rc.on_done        = options_handler;
+    rc.arg            = &es;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+  listen_and_pump();
+
+  xHttpClient client = xHttpClientCreate(nullptr);
+  ASSERT_NE(client, nullptr);
+
+  StreamCtx         ctx;
+  std::string       u    = "http://127.0.0.1:" + std::to_string(port) + "/opts";
+  xHttpRequestConf  conf = {};
+  conf.url               = u.c_str();
+  conf.method            = xHttpMethod_OPTIONS;
+  conf.on_data           = collect_data;
+  conf.on_done           = on_stream_done;
+  ASSERT_EQ(xHttpClientDo(client, &conf, &ctx), xErrno_Ok);
+  run_until(loop, ctx.done, 5000);
+  xHttpClientDestroy(client);
+
+  ASSERT_TRUE(ctx.done.load());
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  /* Server should have seen "OPTIONS". */
+  EXPECT_EQ(es.body, "OPTIONS");
+}
