@@ -33,6 +33,7 @@
 #include <utility>
 
 #include <xpp/bytes.h>
+#include <xpp/http/error.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
 #include <xpp/result.h>
@@ -184,26 +185,33 @@ public:
   /**
    * @brief Consume the entire body into a single Bytes.
    *
-   * Uses io::read_all internally. The current implementation cannot
-   * fail (read() never returns negative), so the result is a plain
-   * Bytes. If we later add I/O errors to read(), this will switch to
-   * Promise<Result<Bytes, http::Error>>.
+   * Uses io::read_all internally. The current implementation cannot fail
+   * (read() never returns negative), so the result is always Ok. The
+   * Result<Bytes> return type is reserved for future I/O error surfacing
+   * (e.g. connection reset mid-stream).
    *
    * After this call, the Body is consumed (reads will return 0).
    */
-  Promise<Bytes> bytes() {
-    // io::read_all is a template, duck-typed on read(). It accumulates
-    // into a Vec<uint8_t>; we wrap it into Bytes at the end.
-    return io::read_all(*this).then([](Vec<uint8_t> v) { return Bytes::from(std::move(v)); });
+  Promise<http::Result<Bytes>> bytes() {
+    return io::read_all(*this).then(
+      [](Vec<uint8_t> v) { return http::Result<Bytes>(xpp::ok, Bytes::from(std::move(v))); });
   }
 
   /**
    * @brief Consume the entire body and decode as UTF-8.
    *
-   * Returns Err if the body is not valid UTF-8.
+   * Returns Err(Error{Kind::Body, ...}) if the body is not valid UTF-8.
    */
-  Promise<Result<String, Utf8Error>> text() {
-    return bytes().then([](Bytes b) { return b.to_string(); });
+  Promise<http::Result<String>> text() {
+    return bytes().then([](http::Result<Bytes> r) -> http::Result<String> {
+      if (r.is_err()) return xpp::Result<String, Error>(xpp::err, r.unwrap_err());
+      auto s = r.unwrap().to_string();
+      if (s.is_err()) {
+        return xpp::Result<String, Error>(
+          xpp::err, Error(Error::Kind::Body, String::from_utf8("invalid UTF-8 in body").unwrap()));
+      }
+      return xpp::Result<String, Error>(xpp::ok, s.unwrap());
+    });
   }
 
   /* ── Observers ─────────────────────────────────────────────────── */

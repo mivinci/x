@@ -102,9 +102,12 @@ TEST(BodyOnceTest, SlicesWhenBufferSmaller) {
 }
 
 Promise<void> do_once_from_string() {
-  auto s   = String::from_utf8("hello").unwrap();
-  Body b   = Body::from(std::move(s));
-  auto out = co_await b.bytes();
+  auto s  = String::from_utf8("hello").unwrap();
+  Body b  = Body::from(std::move(s));
+  auto rb = co_await b.bytes();
+  EXPECT_TRUE(rb.is_ok());
+  if (rb.is_err()) co_return;
+  Bytes out = rb.unwrap();
   EXPECT_EQ(out.size(), 5u);
   auto r = out.to_string();
   EXPECT_TRUE(r.is_ok());
@@ -243,8 +246,11 @@ TEST(BodyChannelTest, CloseBeforeAnyRecv) {
  * ─────────────────────────────────────────────────────────────────── */
 
 Promise<void> do_bytes_aggregates_once() {
-  Body  b   = Body::from(Bytes::from("hello world"));
-  Bytes out = co_await b.bytes();
+  Body                b  = Body::from(Bytes::from("hello world"));
+  http::Result<Bytes> rb = co_await b.bytes();
+  EXPECT_TRUE(rb.is_ok());
+  if (rb.is_err()) co_return;
+  Bytes out = rb.unwrap();
   EXPECT_EQ(out.size(), 11u);
   auto r = out.to_string();
   EXPECT_TRUE(r.is_ok());
@@ -269,7 +275,10 @@ Promise<void> do_bytes_aggregates_channel() {
   co_await tx.send(Bytes::from("CC"));   // 2 bytes → total 9 bytes
   tx.close();
 
-  Bytes out = co_await b.bytes();
+  http::Result<Bytes> rb = co_await b.bytes();
+  EXPECT_TRUE(rb.is_ok());
+  if (rb.is_err()) co_return;
+  Bytes out = rb.unwrap();
   EXPECT_EQ(out.size(), 9u);
   auto r = out.to_string();
   EXPECT_TRUE(r.is_ok());
