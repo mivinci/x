@@ -18,7 +18,7 @@ The module is delivered as one coherent slice: `Bytes` (basic type) + 9 http hea
 
 - A `Body` type that satisfies the `AsyncReader` concept, so `io::read_all(resp.body())` and `io::copy(resp.body(), dest)` work out of the box.
 - Zero synchronous blocking in the async path — all body consumption goes through `Promise` chains.
-- Natural backpressure: channel full → C callback returns `-1` → libx pauses pushing.
+- Natural backpressure: channel full → C callback returns `1` (pause) → libx buffers the chunk and pauses curl via `curl_easy_pause`; `xHttpClientResume` re-delivers once the consumer drains a slot.
 - API naming aligned with `hyper` + `reqwest` (one less learning curve for Rust users).
 - Top-level `http::get(url)` / `post(url, body)` convenience functions matching `reqwest::get`.
 - A `Bytes` type with O(1) copy and O(1) slice, mirroring `bytes::Bytes` — essential for `ChannelReader` to split a chunk without copying.
@@ -37,24 +37,28 @@ The module is delivered as one coherent slice: `Bytes` (basic type) + 9 http hea
 
 ## Decisions
 
-### Decision 1: Bridge push→pull with `xpp::sync::mpsc::channel<Bytes>` (bounded 64)
+### Decision 1: Bridge push→pull with `xpp::sync::mpsc::channel<Bytes>` (bounded 256)
 
 ```cpp
-auto [tx, rx] = sync::mpsc::channel<Bytes>(64);
-Body body = Body::from_channel(std::move(rx));
+auto [tx, rx] = sync::mpsc::channel<Bytes>(256);
+Body body = Body::from_channel(std::move(rx), on_drain, xfer_error);
 // C callback:
 //   on_data(data, len) → tx.try_send(Bytes::copy(data, len))
-//                        full → return -1 (backpressure)
+//                        full → return 1 (pause)
+//   on_drain()          → xHttpClientResume(client, arg)  (consumer freed a slot)
 //   on_done()           → tx.close()  → next rx.recv() returns None → Body::read returns 0
+//   on_done (failure)   → *xfer_error = Some(err) → Body::read returns -1, bytes() errors
 ```
 
-**Why:** Same pattern hyper 0.12 adopted (`Body::channel()` returns `(Sender, Body)`). mpsc is already in xpp, integrated with the waker/EventLoop. The bounded buffer gives natural backpressure: when the consumer is slow, `try_send` returns `Full`, the C callback returns `-1`, libx pauses.
+**Why:** Same pattern hyper 0.12 adopted (`Body::channel()` returns `(Sender, Body)`). mpsc is already in xpp, integrated with the waker/EventLoop. The bounded buffer gives natural backpressure: when the consumer is slow, `try_send` returns `Full`, the C callback returns `1`, libx buffers the chunk and pauses the transfer (`curl_easy_pause(CURLPAUSE_RECV)` — real TCP backpressure, nothing is dropped). When the consumer frees a slot, the `Body`'s drain hook calls `xHttpClientResume`, which re-delivers the buffered chunk and unpauses.
+
+**C API contract (libx):** `xHttpDataFunc` returns `0` = continue, `>0` = pause (libx keeps the chunk and stops delivering until `xHttpClientResume`), `<0` = abort. The initial design returned `-1` to abort on a full channel — that made a slow consumer fail the whole request; pause/resume turns it into real backpressure.
 
 **Alternative considered:** unbounded queue (Go-style). Rejected because under pressure the queue grows without bound, OOM risk on small devices.
 
 **Alternative considered:** direct `Future<Bytes>` per chunk, no channel. Rejected because the consumer can't easily express "give me the next chunk whenever" without a stream-like type, and a stream type is just a channel with one slot.
 
-**Capacity 64:** at ~4KB per chunk, 256KB buffer — large enough to absorb a typical HTTP response without stalling, small enough not to OOM embedded targets. Tunable later via `ClientBuilder::body_buffer_chunks(n)`.
+**Capacity 256:** at ~16KB per chunk, ~4MB worst-case buffering — headroom for the producer (curl can deliver several chunks per socket event) while the consumer drains on the same event loop. Large responses (tested at 8MB) flow under pause/resume without loss. Tunable later via `ClientBuilder::body_buffer_chunks(n)`.
 
 ### Decision 2: `Body` is a tagged enum `{ Empty, Once, Channel }`, not a virtual class
 
@@ -236,6 +240,20 @@ uint16_t port = listener.local_addr().unwrap().port();   // real assigned port
 
 **Alternative considered:** keep `get_free_port()` for "find a port then bind explicitly". Rejected — race window is real, especially on busy CI machines.
 
+### Decision 15: `Client::send` resolves when response headers arrive (reqwest semantics)
+
+```cpp
+Promise<Result<Response>> send(Request req);   // resolves at on_response, not on_done
+```
+
+**Why:** Resolving the send promise only after the whole body transferred (the original design) serializes consumption behind completion — a slow consumer could never drain the channel, so a full channel would stall the transfer forever (deadlock for bodies larger than the channel capacity). Resolving at `on_response` (headers arrive) matches reqwest: the caller gets a `Response` with a live, streamed `Body` immediately and reads it while the transfer is still in flight. That makes backpressure real — the consumer drains the channel, freeing slots, and `on_drain` resumes the transfer.
+
+**Error semantics split:**
+- `send()` returns `Err` for transport failures **before headers** (connect/DNS/timeout) and for 4xx/5xx statuses (immediate, body discarded).
+- Failures **mid-body** (e.g. connection reset after headers) surface on the body read: a shared `Option<Error>` flag is written by `on_done`, `Body::read` returns -1 at channel EOF instead of 0, and `bytes()`/`text()` return `Err` — no silent truncated EOF.
+
+**C API prerequisite:** this required real pause/resume in libx (`xHttpDataFunc` return > 0 + `xHttpClientResume`); abort-on-full (return -1) would still fail large transfers.
+
 ## Open Questions
 
 ### Q1: libcurl global init cost
@@ -244,7 +262,7 @@ uint16_t port = listener.local_addr().unwrap().port();   // real assigned port
 
 ### Q2: Channel capacity tuning
 
-64 chunks × ~4KB ≈ 256KB. The right number depends on workload (small JSON responses vs. large file downloads). **Initial value 64, plan to add `ClientBuilder::body_buffer_chunks(n)` if profiling shows backpressure stalls.**
+256 chunks × ~16KB ≈ 4MB worst-case buffering. Chosen for headroom (curl delivers several chunks per socket event on the same event loop; pause/resume absorbs the rest). **Initial value 256, plan to add `ClientBuilder::body_buffer_chunks(n)` if profiling shows stalls.**
 
 ### Q3: Server side
 

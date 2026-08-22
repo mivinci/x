@@ -16,8 +16,8 @@
 ## 2. Phase 2 — HTTP basic enums and HeaderMap
 
 - [ ] 2.1 Create `libxpp/xpp/http/` directory and stub headers `method.h`, `status.h`, `header.h` with license headers and `#ifndef` guards
-- [ ] 2.2 Implement `enum class Method` in `method.h` (Get/Post/Put/Delete/Patch/Head/Options/Trace/Connect) plus `to_string(Method)` and `from_string(const String&)`
-- [ ] 2.3 Implement `enum class StatusCode : uint16_t` in `status.h` covering 1xx-5xx common codes, plus `is_informational` / `is_success` / `is_redirect` / `is_client_error` / `is_server_error` helpers, `to_string(StatusCode)`, `from_string(const String&)`
+- [ ] 2.2 Implement `Method` namespace in `method.h` (`Value` enum: Get/Post/Put/Delete/Patch/Head/Options/Trace/Connect, re-exported constexpr aliases) plus `to_string(Method::Value)` and `Method::from_string(const String&)`
+- [ ] 2.3 Implement `StatusCode` namespace in `status.h` (`Value` enum covering 1xx-5xx common codes, re-exported constexpr aliases), plus `is_informational` / `is_success` / `is_redirect` / `is_client_error` / `is_server_error` helpers, `to_string(StatusCode::Value)`, `StatusCode::from_string(const String&)`
 - [ ] 2.4 Implement `HeaderMap` in `header.h` with `Vec<String> m_keys` (lowercased) + `Vec<String> m_values` parallel arrays; methods `insert`, `get`, `contains`, `get_all` (returns `Values` range), `erase`, `empty`, `size`, `begin`, `end`, `from_vec`
 - [ ] 2.5 Write `method_test.cpp` covering to_string/from_string round-trip for all enum values, unknown string returns None
 - [ ] 2.6 Write `status_test.cpp` covering is_success/is_redirect/etc. for representative codes, to_string/from_string round-trip
@@ -52,7 +52,7 @@
 - [ ] 5.1 Create `libxpp/xpp/http/error.h` with license header and guards
 - [ ] 5.2 Implement `Error` class with `Kind` enum (Connect/Dns/Timeout/TooManyRedirects/InvalidUrl/Io/Protocol/Tls/Body), `m_kind`, `m_message`, `m_status` (Option<StatusCode>); accessors `kind()`, `message()`, `status()`, `is_connect()`, `is_timeout()`, `is_redirect()`, `is_status_error()`, `to_string()`
 - [ ] 5.3 Create `libxpp/xpp/http/client.h` with license header and guards
-- [ ] 5.4 Implement `Client` class wrapping `xHttpClient` from `libx/x/http/client.h`; `send(Request) → Promise<Result<Response>>` via SendAdapter (owns mpsc Sender + PromiseResolver); C callbacks `on_response` (construct Response with Body::from_channel), `on_data` (try_send, backpressure on Full), `on_done` (close channel + delete adapter)
+- [ ] 5.4 Implement `Client` class wrapping `xHttpClient` from `libx/x/http/client.h`; `send(Request) → Promise<Result<Response>>` via SendAdapter (owns mpsc Sender + PromiseResolver); C callbacks `on_response` (resolve the promise — reqwest semantics; construct Response with Body::from_channel), `on_data` (try_send, full → return 1 pause; resume via the Body's drain hook calling xHttpClientResume), `on_done` (close channel; write shared transfer-error flag on mid-body failure; delete adapter)
 - [ ] 5.5 Implement `Client` convenience methods `get(url)`, `post(url)`, `post(url, body)`, `put`, `delete_`, `patch`, `head` with 3 URL overloads each — all delegate to `send(Request::builder()...)`
 - [ ] 5.6 Implement `ClientBuilder` with `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect`, `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`, `build() → Result<Client>`
 - [ ] 5.7 Create `libxpp/xpp/http/test_server.h` with license header, guards, and `namespace xpp::http::test`
