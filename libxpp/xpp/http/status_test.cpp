@@ -57,13 +57,13 @@ TEST(StatusClassification, ServerError) {
 
 TEST(StatusClassification, UnknownCodesByRange) {
   // Codes outside the enum but within the range still classify by range.
-  EXPECT_TRUE(is_success(static_cast<StatusCode>(299)));
-  EXPECT_TRUE(is_redirect(static_cast<StatusCode>(399)));
-  EXPECT_TRUE(is_client_error(static_cast<StatusCode>(499)));
-  EXPECT_TRUE(is_server_error(static_cast<StatusCode>(599)));
+  EXPECT_TRUE(is_success(static_cast<StatusCode::Value>(299)));
+  EXPECT_TRUE(is_redirect(static_cast<StatusCode::Value>(399)));
+  EXPECT_TRUE(is_client_error(static_cast<StatusCode::Value>(499)));
+  EXPECT_TRUE(is_server_error(static_cast<StatusCode::Value>(599)));
   // Out-of-range codes are false for every predicate.
-  EXPECT_FALSE(is_informational(static_cast<StatusCode>(99)));
-  EXPECT_FALSE(is_informational(static_cast<StatusCode>(600)));
+  EXPECT_FALSE(is_informational(static_cast<StatusCode::Value>(99)));
+  EXPECT_FALSE(is_informational(static_cast<StatusCode::Value>(600)));
 }
 
 /* ───────────────────────────────────────────────────────────────────
@@ -82,8 +82,8 @@ TEST(StatusToString, CommonCodes) {
 }
 
 TEST(StatusToString, UnknownCodeReturnsEmpty) {
-  EXPECT_STREQ(to_string(static_cast<StatusCode>(299)), "");
-  EXPECT_STREQ(to_string(static_cast<StatusCode>(599)), "");
+  EXPECT_STREQ(to_string(static_cast<StatusCode::Value>(299)), "");
+  EXPECT_STREQ(to_string(static_cast<StatusCode::Value>(599)), "");
 }
 
 /* ───────────────────────────────────────────────────────────────────
@@ -91,38 +91,38 @@ TEST(StatusToString, UnknownCodeReturnsEmpty) {
  * ─────────────────────────────────────────────────────────────────── */
 
 TEST(StatusFromString, DigitsOnly) {
-  auto r = status_from_string(String::from_utf8("200").unwrap());
+  auto r = StatusCode::from_string(String::from_utf8("200").unwrap());
   ASSERT_TRUE(r.is_some());
   EXPECT_EQ(r.unwrap(), StatusCode::Ok);
 
-  r = status_from_string(String::from_utf8("404").unwrap());
+  r = StatusCode::from_string(String::from_utf8("404").unwrap());
   ASSERT_TRUE(r.is_some());
   EXPECT_EQ(r.unwrap(), StatusCode::NotFound);
 }
 
 TEST(StatusFromString, WithReasonPhrase) {
   // "404 Not Found" should parse as 404.
-  auto r = status_from_string(String::from_utf8("404 Not Found").unwrap());
+  auto r = StatusCode::from_string(String::from_utf8("404 Not Found").unwrap());
   ASSERT_TRUE(r.is_some());
   EXPECT_EQ(r.unwrap(), StatusCode::NotFound);
 }
 
 TEST(StatusFromString, WithLeadingWhitespace) {
-  auto r = status_from_string(String::from_utf8("  200  ").unwrap());
+  auto r = StatusCode::from_string(String::from_utf8("  200  ").unwrap());
   ASSERT_TRUE(r.is_some());
   EXPECT_EQ(r.unwrap(), StatusCode::Ok);
 }
 
 TEST(StatusFromString, UnknownCodeInRange) {
   // 299 is not in the enum but is within 100–599.
-  auto r = status_from_string(String::from_utf8("299").unwrap());
+  auto r = StatusCode::from_string(String::from_utf8("299").unwrap());
   ASSERT_TRUE(r.is_some());
   EXPECT_EQ(static_cast<uint16_t>(r.unwrap()), 299u);
 }
 
 TEST(StatusFromString, OutOfRange) {
-  EXPECT_TRUE(status_from_string(String::from_utf8("99").unwrap()).is_none());
-  EXPECT_TRUE(status_from_string(String::from_utf8("600").unwrap()).is_none());
-  EXPECT_TRUE(status_from_string(String::from_utf8("abc").unwrap()).is_none());
-  EXPECT_TRUE(status_from_string(String::from_utf8("").unwrap()).is_none());
+  EXPECT_TRUE(StatusCode::from_string(String::from_utf8("99").unwrap()).is_none());
+  EXPECT_TRUE(StatusCode::from_string(String::from_utf8("600").unwrap()).is_none());
+  EXPECT_TRUE(StatusCode::from_string(String::from_utf8("abc").unwrap()).is_none());
+  EXPECT_TRUE(StatusCode::from_string(String::from_utf8("").unwrap()).is_none());
 }

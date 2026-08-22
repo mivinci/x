@@ -28,8 +28,41 @@
 #include <xpp/string.h>
 #include <xpp/vec.h>
 
+#include <x/base/base64.h> // xBase64Encode (for _::basic_auth_value)
+
 namespace xpp {
 namespace http {
+
+namespace _ {
+
+/**
+ * @brief Build the `Authorization: Basic <base64(user:pass)>` header value.
+ *
+ * RFC 7617: credentials are `user:pass` base64-encoded. Shared by
+ * RequestBuilder::basic_auth and ClientBuilder::basic_auth.
+ */
+inline String basic_auth_value(String user, String password) {
+  // Build "user:pass" first, then base64-encode.
+  String credentials = std::move(user);
+  credentials.push_str(String::from_utf8(":").unwrap());
+  credentials.push_str(password);
+
+  auto bytes = credentials.as_bytes();
+  // base64 encodes 3 bytes → 4 chars, ceil(len/3)*4 + 1 for NUL.
+  size_t    enc_max = (bytes.size() + 2) / 3 * 4 + 1;
+  Vec<char> enc;
+  enc.reserve(enc_max);
+  size_t enc_len = enc_max;
+  int    rc      = xBase64Encode(bytes.data(), bytes.size(), enc.data(), &enc_len);
+  XPP_ASSERT(rc == 0, "base64 encode failed (buffer sized correctly)");
+
+  String value        = String::from_utf8(enc.data(), enc_len).unwrap();
+  String header_value = String::from_utf8("Basic ").unwrap();
+  header_value.push_str(value);
+  return header_value;
+}
+
+} // namespace _
 
 /**
  * @brief Case-insensitive HTTP header collection.
@@ -87,8 +120,9 @@ public:
 
   /// @copydoc insert(String, String)
   void insert(const char *key, const char *value) {
-    m_keys.push(lowercase_ascii(String::from_utf8(key).unwrap_or(String())));
-    m_values.push(String::from_utf8(value).unwrap_or(String()));
+    XPP_ASSERT(key != nullptr && value != nullptr, "HeaderMap::insert(nullptr)");
+    m_keys.push(lowercase_ascii(String::from_utf8(key).unwrap()));
+    m_values.push(String::from_utf8(value).unwrap());
   }
 
   /* ── Lookup ─────────────────────────────────────────────────────── */

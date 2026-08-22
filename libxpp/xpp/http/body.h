@@ -30,6 +30,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <utility>
 
 #include <xpp/bytes.h>
@@ -76,7 +77,7 @@ namespace http {
 class Body {
 public:
   /** @brief Construct an empty body (EOF on first read). */
-  Body()                        = default; // m_storage = None
+  Body() : m_xfer_error(Shared<Option<Error>>::make()) {} // m_storage = None
   Body(const Body &)            = delete;
   Body &operator=(const Body &) = delete;
 
@@ -115,10 +116,24 @@ public:
    *
    * The receiver returns Bytes chunks. When the channel closes
    * (recv() returns None), read() returns 0 (EOF).
+   *
+   * @param on_drain Optional callback invoked each time a chunk is
+   *        successfully pulled from the channel. Used for backpressure:
+   *        the producer (e.g. xHttpClient's on_data) can pause when the
+   *        channel is full and resume from this callback once the
+   *        consumer drains a slot.
+   * @param xfer_error Optional shared error flag written by the transfer
+   *        owner (e.g. xHttpClient's on_done) when the connection fails
+   *        mid-body; the Body reports it as a read error instead of a
+   *        clean EOF.
    */
-  static Body from_channel(sync::mpsc::Receiver<Bytes> rx) {
+  static Body from_channel(sync::mpsc::Receiver<Bytes> rx,
+                           std::function<void()>       on_drain   = std::function<void()>(),
+                           Shared<Option<Error>>       xfer_error = Shared<Option<Error>>::make()) {
     Body b;
-    b.m_storage = xpp::some(Enum<Bytes, sync::mpsc::Receiver<Bytes>>(std::move(rx)));
+    b.m_on_drain   = std::move(on_drain);
+    b.m_xfer_error = std::move(xfer_error);
+    b.m_storage    = xpp::some(Enum<Bytes, sync::mpsc::Receiver<Bytes>>(std::move(rx)));
     return b;
   }
 
@@ -142,6 +157,11 @@ public:
    * The promise may be Pending if the Channel has no buffered chunk yet;
    * the calling fiber/coroutine is suspended until a chunk arrives or
    * the sender closes the channel.
+   *
+   * @warning The Body must outlive the returned Promise. Reading from a
+   * temporary (`resp.into_body().read(buf, n).await()`) is undefined
+   * behavior — unlike bytes()/text(), read() does not extend the Body's
+   * lifetime. Keep the Body in a named variable while awaiting.
    */
   Promise<ssize_t> read(void *buf, size_t len);
 
@@ -164,8 +184,12 @@ public:
     // it would be destroyed before the promise resolves. Holding `self`
     // in the .then() capture extends its lifetime to the full Promise chain.
     Shared<Body> self = Shared<Body>::make(std::move(*this));
-    return io::read_all(*self).then(
-      [self](Vec<uint8_t> v) { return http::Result<Bytes>(xpp::ok, Bytes::from(std::move(v))); });
+    return io::read_all(*self).then([self](Vec<uint8_t> v) {
+      if (self->m_error.is_some()) {
+        return http::Result<Bytes>(xpp::err, self->m_error.unwrap());
+      }
+      return http::Result<Bytes>(xpp::ok, Bytes::from(std::move(v)));
+    });
   }
 
   /**
@@ -198,15 +222,92 @@ public:
     return m_storage.is_some() && m_storage.unwrap().template is<sync::mpsc::Receiver<Bytes>>();
   }
 
+  /**
+   * @brief Take the stored bytes of a Once body, leaving the Body empty.
+   *
+   * Returns an empty Bytes for an Empty body, and an empty Bytes for a
+   * Channel body (which must be drained asynchronously via read()/bytes()).
+   * Used by Client::send to feed libcurl's synchronous upload callback.
+   */
+  Bytes into_once_bytes() noexcept {
+    if (m_storage.is_none()) return Bytes();
+    Storage &s = m_storage.unwrap();
+    if (!s.is<Bytes>()) return Bytes();
+    Bytes b   = std::move(s.get<Bytes>());
+    m_storage = none;
+    return b;
+  }
+
 private:
   using Storage = Enum<Bytes, sync::mpsc::Receiver<Bytes>>;
 
   // None = Empty; Some(Once|Channel) holds the active source.
   Option<Storage> m_storage;
 
+  // Backpressure hook: fired after each successful recv (see from_channel).
+  std::function<void()> m_on_drain;
+
+  // Shared transfer-error flag (see from_channel). Written by the transfer
+  // owner; read at channel EOF. When set, read() returns -1 instead of 0.
+  Shared<Option<Error>> m_xfer_error;
+  Option<Error>         m_error; // surfaced to bytes()/text()
+
   // In Channel mode: leftover bytes from a chunk larger than the read
   // buffer. Drained first on the next read() before consulting m_rx.
   Bytes m_pending;
+
+  /**
+   * @brief Channel EOF handling: 0 for a clean close, -1 if the shared
+   * transfer-error flag was set (recording the error for bytes()/text()).
+   */
+  ssize_t channel_eof() noexcept {
+    if (m_xfer_error.get() && m_xfer_error->is_some()) {
+      m_error = xpp::some(m_xfer_error->unwrap());
+      return -1;
+    }
+    return 0;
+  }
+
+  /* ── Synchronous helpers shared by all three read() implementations.
+   *    The async-await mechanism (co_await / .await() / .then()) is the
+   *    only thing that differs between C++20, fiber, and C++11 builds. */
+
+  /// Copy up to @p len bytes from a Once body, advancing its cursor.
+  ssize_t read_once(Bytes &once, void *buf, size_t len) noexcept {
+    size_t n = once.size() < len ? once.size() : len;
+    if (n == 0) {
+      m_storage = none;
+      return 0;
+    }
+    std::memcpy(buf, once.data(), n);
+    once = once.slice_from(n);
+    if (once.size() == 0) m_storage = none;
+    return static_cast<ssize_t>(n);
+  }
+
+  /// Sentinel: drain_pending found no leftover bytes.
+  static constexpr ssize_t kNoPending = -2;
+
+  /// Drain leftover bytes from a chunk larger than the read buffer.
+  /// Returns bytes copied, or kNoPending if there was nothing pending.
+  ssize_t drain_pending(void *buf, size_t len) noexcept {
+    if (m_pending.size() == 0) return kNoPending;
+    size_t n = m_pending.size() < len ? m_pending.size() : len;
+    std::memcpy(buf, m_pending.data(), n);
+    m_pending = m_pending.slice_from(n);
+    return static_cast<ssize_t>(n);
+  }
+
+  /// Copy up to @p len bytes from a received chunk, stashing the rest.
+  /// Fires the backpressure resume hook (a channel slot was freed).
+  ssize_t take_chunk(const Bytes &chunk, void *buf, size_t len) noexcept {
+    if (chunk.size() == 0) return 0; // defensive: empty chunk = EOF
+    if (m_on_drain) m_on_drain();    // a slot freed — producer may resume
+    size_t n = chunk.size() < len ? chunk.size() : len;
+    std::memcpy(buf, chunk.data(), n);
+    if (n < chunk.size()) m_pending = chunk.slice_from(n);
+    return static_cast<ssize_t>(n);
+  }
 };
 
 /* ── Body::read() — three implementations ─────────────────────────── */
@@ -217,39 +318,21 @@ private:
 
 inline Promise<ssize_t> Body::read(void *buf, size_t len) {
   if (len == 0) co_return 0;
-
   if (m_storage.is_none()) co_return 0;
 
   Storage &s = m_storage.unwrap();
   if (s.is<Bytes>()) {
     Bytes &once = s.get<Bytes>();
-    size_t n    = once.size() < len ? once.size() : len;
-    if (n == 0) {
-      m_storage = none;
-      co_return 0;
-    }
-    std::memcpy(buf, once.data(), n);
-    once = once.slice_from(n);
-    if (once.size() == 0) m_storage = none;
-    co_return static_cast<ssize_t>(n);
+    co_return read_once(once, buf, len);
   }
 
   // Channel
-  auto &rx = s.get<sync::mpsc::Receiver<Bytes>>();
-  if (m_pending.size() > 0) {
-    size_t n = m_pending.size() < len ? m_pending.size() : len;
-    std::memcpy(buf, m_pending.data(), n);
-    m_pending = m_pending.slice_from(n);
-    co_return static_cast<ssize_t>(n);
-  }
+  auto   &rx = s.get<sync::mpsc::Receiver<Bytes>>();
+  ssize_t n  = drain_pending(buf, len);
+  if (n != kNoPending) co_return n;
   auto opt = co_await rx.recv();
-  if (opt.is_none()) co_return 0; // channel closed = EOF
-  Bytes chunk = opt.unwrap();
-  if (chunk.size() == 0) co_return 0; // defensive: empty chunk = EOF
-  size_t n = chunk.size() < len ? chunk.size() : len;
-  std::memcpy(buf, chunk.data(), n);
-  if (n < chunk.size()) m_pending = chunk.slice_from(n);
-  co_return static_cast<ssize_t>(n);
+  if (opt.is_none()) co_return channel_eof(); // closed = EOF or error
+  co_return take_chunk(opt.unwrap(), buf, len);
 }
 
 #else // !XPP_HAS_COROUTINES
@@ -260,39 +343,21 @@ inline Promise<ssize_t> Body::read(void *buf, size_t len) {
 
 inline Promise<ssize_t> Body::read(void *buf, size_t len) {
   if (len == 0) return xpp::resolve(static_cast<ssize_t>(0));
-
   if (m_storage.is_none()) return xpp::resolve(static_cast<ssize_t>(0));
 
   Storage &s = m_storage.unwrap();
   if (s.is<Bytes>()) {
     Bytes &once = s.get<Bytes>();
-    size_t n    = once.size() < len ? once.size() : len;
-    if (n == 0) {
-      m_storage = none;
-      return xpp::resolve(static_cast<ssize_t>(0));
-    }
-    std::memcpy(buf, once.data(), n);
-    once = once.slice_from(n);
-    if (once.size() == 0) m_storage = none;
-    return xpp::resolve(static_cast<ssize_t>(n));
+    return xpp::resolve(read_once(once, buf, len));
   }
 
   // Channel
-  auto &rx = s.get<sync::mpsc::Receiver<Bytes>>();
-  if (m_pending.size() > 0) {
-    size_t n = m_pending.size() < len ? m_pending.size() : len;
-    std::memcpy(buf, m_pending.data(), n);
-    m_pending = m_pending.slice_from(n);
-    return xpp::resolve(static_cast<ssize_t>(n));
-  }
+  auto   &rx = s.get<sync::mpsc::Receiver<Bytes>>();
+  ssize_t n  = drain_pending(buf, len);
+  if (n != kNoPending) return xpp::resolve(n);
   auto opt = rx.recv().await();
-  if (opt.is_none()) return xpp::resolve(static_cast<ssize_t>(0));
-  Bytes chunk = opt.unwrap();
-  if (chunk.size() == 0) return xpp::resolve(static_cast<ssize_t>(0));
-  size_t n = chunk.size() < len ? chunk.size() : len;
-  std::memcpy(buf, chunk.data(), n);
-  if (n < chunk.size()) m_pending = chunk.slice_from(n);
-  return xpp::resolve(static_cast<ssize_t>(n));
+  if (opt.is_none()) return xpp::resolve(channel_eof()); // closed = EOF or error
+  return xpp::resolve(take_chunk(opt.unwrap(), buf, len));
 }
 
 #else // !XPP_FIBER
@@ -310,44 +375,23 @@ inline Promise<ssize_t> Body::read(void *buf, size_t len) {
 
 inline Promise<ssize_t> Body::read(void *buf, size_t len) {
   if (len == 0) return xpp::resolve(static_cast<ssize_t>(0));
-
   if (m_storage.is_none()) return xpp::resolve(static_cast<ssize_t>(0));
 
   Storage &s = m_storage.unwrap();
   if (s.is<Bytes>()) {
     Bytes &once = s.get<Bytes>();
-    size_t n    = once.size() < len ? once.size() : len;
-    if (n == 0) {
-      m_storage = none;
-      return xpp::resolve(static_cast<ssize_t>(0));
-    }
-    std::memcpy(buf, once.data(), n);
-    once = once.slice_from(n);
-    if (once.size() == 0) m_storage = none;
-    return xpp::resolve(static_cast<ssize_t>(n));
+    return xpp::resolve(read_once(once, buf, len));
   }
 
-  // Channel
-  auto &rx = s.get<sync::mpsc::Receiver<Bytes>>();
-  // Drain pending first — synchronous.
-  if (m_pending.size() > 0) {
-    size_t n = m_pending.size() < len ? m_pending.size() : len;
-    std::memcpy(buf, m_pending.data(), n);
-    m_pending = m_pending.slice_from(n);
-    return xpp::resolve(static_cast<ssize_t>(n));
-  }
-  // Need a chunk from the channel. Capture buf + this by pointer —
-  // the caller's fiber/stack holds them alive while awaiting.
-  // Body itself is captured via `this` (the Promise returned is
-  // awaited by the same caller that owns the Body).
+  // Channel. Drain pending first — synchronous; only the "await receiver"
+  // path uses .then(). Capture buf + this by pointer — the caller's
+  // fiber/stack holds them alive while awaiting.
+  auto   &rx = s.get<sync::mpsc::Receiver<Bytes>>();
+  ssize_t n  = drain_pending(buf, len);
+  if (n != kNoPending) return xpp::resolve(n);
   return rx.recv().then([this, buf, len](Option<Bytes> opt) {
-    if (opt.is_none()) return xpp::resolve(static_cast<ssize_t>(0));
-    Bytes chunk = opt.unwrap();
-    if (chunk.size() == 0) return xpp::resolve(static_cast<ssize_t>(0));
-    size_t n = chunk.size() < len ? chunk.size() : len;
-    std::memcpy(buf, chunk.data(), n);
-    if (n < chunk.size()) m_pending = chunk.slice_from(n);
-    return xpp::resolve(static_cast<ssize_t>(n));
+    if (opt.is_none()) return xpp::resolve(channel_eof()); // closed = EOF or error
+    return xpp::resolve(take_chunk(opt.unwrap(), buf, len));
   });
 }
 

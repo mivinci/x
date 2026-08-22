@@ -29,30 +29,30 @@ TEST(MethodToString, AllVariants) {
  * ─────────────────────────────────────────────────────────────────── */
 
 TEST(MethodFromString, UppercaseRoundTrip) {
-  for (Method m : {Method::Get, Method::Post, Method::Put, Method::Delete, Method::Patch,
-                   Method::Head, Method::Options, Method::Trace, Method::Connect}) {
-    auto r = method_from_string(String::from_utf8(to_string(m)).unwrap());
+  for (Method::Value m : {Method::Get, Method::Post, Method::Put, Method::Delete, Method::Patch,
+                          Method::Head, Method::Options, Method::Trace, Method::Connect}) {
+    auto r = Method::from_string(String::from_utf8(to_string(m)).unwrap());
     ASSERT_TRUE(r.is_some()) << "to_string=" << to_string(m);
     EXPECT_EQ(r.unwrap(), m);
   }
 }
 
 TEST(MethodFromString, CaseInsensitive) {
-  EXPECT_EQ(method_from_string(String::from_utf8("get").unwrap()).unwrap(), Method::Get);
-  EXPECT_EQ(method_from_string(String::from_utf8("Get").unwrap()).unwrap(), Method::Get);
-  EXPECT_EQ(method_from_string(String::from_utf8("GeT").unwrap()).unwrap(), Method::Get);
-  EXPECT_EQ(method_from_string(String::from_utf8("PoSt").unwrap()).unwrap(), Method::Post);
+  EXPECT_EQ(Method::from_string(String::from_utf8("get").unwrap()).unwrap(), Method::Get);
+  EXPECT_EQ(Method::from_string(String::from_utf8("Get").unwrap()).unwrap(), Method::Get);
+  EXPECT_EQ(Method::from_string(String::from_utf8("GeT").unwrap()).unwrap(), Method::Get);
+  EXPECT_EQ(Method::from_string(String::from_utf8("PoSt").unwrap()).unwrap(), Method::Post);
 }
 
 TEST(MethodFromString, UnknownReturnsNone) {
-  EXPECT_TRUE(method_from_string(String::from_utf8("").unwrap()).is_none());
-  EXPECT_TRUE(method_from_string(String::from_utf8("foo").unwrap()).is_none());
-  EXPECT_TRUE(method_from_string(String::from_utf8("getpost").unwrap()).is_none());
+  EXPECT_TRUE(Method::from_string(String::from_utf8("").unwrap()).is_none());
+  EXPECT_TRUE(Method::from_string(String::from_utf8("foo").unwrap()).is_none());
+  EXPECT_TRUE(Method::from_string(String::from_utf8("getpost").unwrap()).is_none());
   // Prefix shouldn't match — "gets" is not Method::Get
-  EXPECT_TRUE(method_from_string(String::from_utf8("gets").unwrap()).is_none());
+  EXPECT_TRUE(Method::from_string(String::from_utf8("gets").unwrap()).is_none());
 }
 
 TEST(MethodFromString, NonAsciiReturnsNone) {
   // Non-ASCII byte sequences are rejected.
-  EXPECT_TRUE(method_from_string(String::from_utf8("gét").unwrap()).is_none());
+  EXPECT_TRUE(Method::from_string(String::from_utf8("gét").unwrap()).is_none());
 }

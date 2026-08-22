@@ -6,15 +6,16 @@
  * test_server.h — Minimal HTTP/1.1 test server for xpp::http client tests.
  *
  * A static-response test fixture: bind a loopback xTcpListener on port 0
- * (kernel-assigned), accept connections, optionally delay `delay_ms`
- * (to test client timeouts), then write back a preset HTTP/1.1 response
- * and close.
+ * (kernel-assigned), accept connections, read the request (headers + body
+ * framed by Content-Length), optionally delay `delay_ms` (to test client
+ * timeouts), then write back a preset HTTP/1.1 response and close.
  *
- * Implementation: pure libx C API (xTcpListener + xTcpConn + xTimer).
- * No xpp::fiber, no .then() chains. The accept callback runs on the
- * EventLoop thread and synchronously writes the response (or schedules
- * a timer for delayed responses). This avoids fiber/xEventLoopRun
- * interaction issues on Linux shared builds.
+ * Implementation: pure libx C API (xTcpListener + xTcpConn + xSocket +
+ * xTimer). No xpp::fiber, no .then() chains. The accept callback switches
+ * the conn's xSocket (level-triggered) to a read callback; it accumulates
+ * the request until the full header block + body have arrived, then
+ * responds (or schedules a timer for delayed responses). This avoids
+ * fiber/xEventLoopRun interaction issues on Linux shared builds.
  *
  * NOT the future `xpp::http::Server` module — test-only, no routing,
  * no concurrency, no streaming. Kept in `xpp::http::test` subnamespace
@@ -24,7 +25,8 @@
 #ifndef XPP_HTTP_TEST_SERVER_H
 #define XPP_HTTP_TEST_SERVER_H
 
-#include <arpa/inet.h>  // ntohs, sockaddr_in
+#include <arpa/inet.h> // ntohs, sockaddr_in
+#include <errno.h>
 #include <sys/socket.h> // getsockname, sockaddr_storage
 
 #include <atomic>
@@ -38,9 +40,10 @@
 #include <xpp/string.h>
 #include <xpp/vec.h>
 
-#include <x/base/base.h>  // XDEF_HANDLE
-#include <x/base/event.h> // xTimerStart, xEventLoopCurrent
-#include <x/net/tcp.h>    // xTcpListener, xTcpConn, xTcpConnSend, xTcpConnClose
+#include <x/base/base.h>   // XDEF_HANDLE
+#include <x/base/event.h>  // xTimerStart
+#include <x/base/socket.h> // xSocket, xSocketSetCallback, xSocketSetMask
+#include <x/net/tcp.h>     // xTcpListener, xTcpConn, xTcpConnSend, xTcpConnClose
 
 namespace xpp {
 namespace http {
@@ -50,19 +53,48 @@ namespace test {
  * @brief Preset HTTP response for `TestServer` to return.
  */
 struct TestResponseSpec {
-  StatusCode                     status = StatusCode::Ok;
+  StatusCode::Value              status = StatusCode::Ok;
   Vec<std::pair<String, String>> headers;
   Bytes                          body;
   /** Pre-response delay in milliseconds. 0 = respond immediately. */
   uint64_t delay_ms = 0;
+  /**
+   * @brief If true, the response body echoes the request body received.
+   *
+   * Used to verify request bodies are transmitted (e.g. POST payloads).
+   * The preset `body` is ignored when this is set.
+   */
+  bool echo_request_body = false;
+  /**
+   * @brief If non-empty, redirect requests whose path is not @p redirect_to
+   *        to it with a 302 Found + Location header.
+   *
+   * Used to test client redirect following. The final (target) request
+   * is served with the rest of this spec (status/headers/body).
+   */
+  String redirect_to;
+  /**
+   * @brief If > 0, send only the first N bytes of `body` but declare the
+   *        full Content-Length, then close the connection.
+   *
+   * Simulates a mid-body disconnect for error-path tests.
+   */
+  size_t truncate_body_after = 0;
+  /**
+   * @brief If > 0, stall for this many ms after sending half the response
+   *        body, then continue. Simulates a stalled peer for read-timeout
+   *        (low-speed) tests.
+   */
+  uint64_t mid_body_delay_ms = 0;
 };
 
 /**
  * @brief Static-response HTTP/1.1 test server.
  *
  * Bind to `127.0.0.1:0` (kernel-assigned port), accept connections on
- * the current `EventLoop`, and respond to every request with the same
- * preset `TestResponseSpec`. Closes the connection after each response.
+ * the current `EventLoop`, read each request (headers + Content-Length
+ * body), and respond with the preset `TestResponseSpec`. Closes the
+ * connection after each response.
  *
  * Usage:
  * @code
@@ -98,9 +130,6 @@ public:
   static TestServer start(TestResponseSpec spec) {
     TestServer ts;
     ts.spec_ = std::move(spec);
-
-    // Build the response bytes once — reused for every connection.
-    ts.response_buf_ = build_response(ts.spec_);
 
     // Create the listener. xTcpListenerCreate uses xEventLoopCurrent(),
     // so the caller must have entered an EventLoop.
@@ -141,14 +170,259 @@ public:
 
 private:
   TestResponseSpec spec_;
-  String           response_buf_;
   xTcpListener     listener_ = nullptr;
   uint16_t         port_     = 0;
 
-  /* ── Build the HTTP/1.1 response bytes ─────────────────────────── */
+  /* ── Per-connection state (heap-allocated; freed once responded) ── */
 
-  static String build_response(const TestResponseSpec &spec) {
-    String resp;
+  struct ConnState {
+    TestServer  *self;
+    xTcpConn     conn;
+    xSocket      sock;               ///< The conn's xSocket (level-triggered source).
+    xTimer       timer = nullptr;    ///< Pending delay timer, if any.
+    Vec<uint8_t> buf;                ///< Request bytes accumulated so far.
+    size_t       header_end     = 0; ///< Index past the "\r\n\r\n" of the header block.
+    size_t       content_length = 0; ///< Parsed Content-Length (0 = no body).
+    bool         headers_done   = false;
+    bool         closed         = false; ///< Guards against double cleanup.
+    String       request_path;           ///< Path from the request line (e.g. "/b").
+    String       resp;                   ///< Response being sent (send_off marks progress).
+    size_t       send_off          = 0;
+    uint64_t     mid_body_delay_ms = 0;     ///< From spec — stall after half the body.
+    bool         mid_body_paused   = false; ///< The stall already happened.
+  };
+
+  /* ── Accept callback (runs on EventLoop thread) ──────────────────── */
+
+  static void on_accept(xTcpListener /*listener*/, xTcpConn conn, const struct sockaddr * /*addr*/,
+                        socklen_t /*addrlen*/, void        *arg) {
+    auto *self = static_cast<TestServer *>(arg);
+
+    auto *st = new ConnState;
+    st->self = self;
+    st->conn = conn;
+
+    // Drive reads/writes through the xSocket's own event source (created
+    // level-triggered by tcp_listener.c). Never register a second source on
+    // the conn fd — re-adding the same (fd, filter) to kqueue keeps the
+    // first registration's EV_CLEAR and breaks level-triggered re-firing.
+    st->sock              = xTcpConnSocket(conn);
+    st->mid_body_delay_ms = self->spec_.mid_body_delay_ms;
+    XPP_ASSERT(st->sock != nullptr, "TestServer: xTcpConnSocket failed");
+    xSocketSetCallback(st->sock, on_xsocket_event, st);
+    xSocketSetMask(st->sock, xEvent_Read);
+  }
+
+  /* ── Conn event callback (runs on EventLoop thread) ─────────────── */
+
+  static void on_xsocket_event(xSocket sock, xEventMask mask, void *arg) {
+    auto *st = static_cast<ConnState *>(arg);
+    (void)sock;
+    if (mask & xEvent_Read) on_conn_readable(st);
+    if (mask & xEvent_Write) pump_send(st);
+  }
+
+  static void on_conn_readable(ConnState *st) {
+    char    tmp[4096];
+    ssize_t n = xTcpConnRecv(st->conn, tmp, sizeof(tmp));
+    if (n <= 0) {
+      close_conn(st); // EOF or error — client gone before we responded
+      return;
+    }
+    for (ssize_t i = 0; i < n; ++i)
+      st->buf.push(static_cast<uint8_t>(tmp[i]));
+
+    if (!st->headers_done) {
+      size_t hs = find_header_end(st->buf);
+      if (hs != SIZE_MAX) {
+        st->header_end     = hs;
+        st->content_length = parse_content_length(st->buf, hs);
+        st->request_path   = parse_request_path(st->buf, hs);
+        st->headers_done   = true;
+      }
+    }
+
+    // Respond once the header block and the full body have arrived.
+    if (st->headers_done && st->buf.len() >= st->header_end + st->content_length) {
+      if (st->self->spec_.delay_ms > 0) {
+        // Delayed response — schedule a one-shot timer. The timer owns the
+        // ConnState (arg) until it fires or the loop is destroyed.
+        st->timer = xTimerStart(on_delay_timer, st, on_delay_cancel, st->self->spec_.delay_ms, 0);
+        XPP_ASSERT(st->timer != nullptr, "TestServer: xTimerStart failed");
+      } else {
+        respond_and_close(st);
+      }
+    }
+  }
+
+  /* ── Response path ──────────────────────────────────────────────── */
+
+  static void on_delay_timer(void *arg) {
+    auto *st  = static_cast<ConnState *>(arg);
+    st->timer = nullptr; // handle consumed by the fire — don't xTimerStop it
+    respond_and_close(st);
+  }
+
+  static void on_delay_cancel(void *arg) {
+    auto *st  = static_cast<ConnState *>(arg);
+    st->timer = nullptr; // handle consumed by the cancel
+    close_conn(st);
+  }
+
+  static void respond_and_close(ConnState *st) {
+    // Build the response, then switch the source to write mode and pump
+    // the send. The socket is non-blocking — a single xTcpConnSend can
+    // write only part of a large response, so we drive the rest from
+    // level-triggered writable events.
+    st->resp     = build_response(*st);
+    st->send_off = 0;
+    xSocketSetMask(st->sock, xEvent_Write);
+    pump_send(st);
+  }
+
+  static void on_mid_body_timer(void *arg) {
+    auto *st  = static_cast<ConnState *>(arg);
+    st->timer = nullptr;                    // handle consumed by the fire
+    xSocketSetMask(st->sock, xEvent_Write); // re-arm writable, resume sending
+    pump_send(st);
+  }
+
+  static void on_mid_body_cancel(void *arg) {
+    auto *st  = static_cast<ConnState *>(arg);
+    st->timer = nullptr; // handle consumed by the cancel
+    close_conn(st);
+  }
+
+  static void pump_send(ConnState *st) {
+    // Mid-body stall (read-timeout testing): after half the response is
+    // out, pause once for mid_body_delay_ms before continuing.
+    if (st->mid_body_delay_ms > 0 && !st->mid_body_paused && st->send_off >= st->resp.len() / 2) {
+      st->mid_body_paused = true;
+      // Unregister the writable event so the stall actually blocks sending
+      // (a writable event would otherwise fire as soon as the client reads).
+      xSocketSetMask(st->sock, 0);
+      st->timer = xTimerStart(on_mid_body_timer, st, on_mid_body_cancel, st->mid_body_delay_ms, 0);
+      XPP_ASSERT(st->timer != nullptr, "TestServer: xTimerStart failed");
+      return;
+    }
+    auto bytes = st->resp.as_bytes();
+    // Limit per-send size: without this, a loopback socket buffer can
+    // swallow the whole response before the mid-body stall, making the
+    // pause invisible to the client.
+    size_t remaining = bytes.size() - st->send_off;
+    if (remaining > 64 * 1024) remaining = 64 * 1024;
+    ssize_t n = xTcpConnSend(st->conn, reinterpret_cast<const char *>(bytes.data()) + st->send_off,
+                             remaining);
+    if (n < 0) {
+      // Non-blocking socket: EAGAIN means "retry when writable" — the
+      // level-triggered source fires again. Anything else is fatal.
+      if (errno == EAGAIN || errno == EWOULDBLOCK) return;
+      close_conn(st);
+      return;
+    }
+    if (n == 0) { // defensive: no progress — give up rather than spin
+      close_conn(st);
+      return;
+    }
+    st->send_off += static_cast<size_t>(n);
+    if (st->send_off >= bytes.size()) close_conn(st);
+    // else: partial write — the level-triggered writable event re-fires.
+  }
+
+  static void close_conn(ConnState *st) {
+    if (st->closed) return;
+    st->closed = true;
+    // Cancel a still-pending delay timer (EOF arrived before it fired).
+    // Fired/cancelled timers already set st->timer = nullptr.
+    if (st->timer) {
+      xTimerStop(st->timer);
+      st->timer = nullptr;
+    }
+    // xTcpConnClose destroys the xSocket (and its event source).
+    xTcpConnClose(st->conn);
+    delete st;
+  }
+
+  /* ── Request parsing ────────────────────────────────────────────── */
+
+  /** @brief Index past the "\r\n\r\n" ending the header block, or SIZE_MAX. */
+  static size_t find_header_end(const Vec<uint8_t> &buf) {
+    size_t n = buf.len();
+    if (n < 4) return SIZE_MAX;
+    for (size_t i = 0; i + 4 <= n; ++i) {
+      if (buf[i] == '\r' && buf[i + 1] == '\n' && buf[i + 2] == '\r' && buf[i + 3] == '\n') {
+        return i + 4;
+      }
+    }
+    return SIZE_MAX;
+  }
+
+  /** @brief Request path from the request line, e.g. "/b" from "GET /b HTTP/1.1". */
+  static String parse_request_path(const Vec<uint8_t> &buf, size_t header_end) {
+    const uint8_t *p = buf.data();
+    size_t         i = 0;
+    while (i < header_end && p[i] != ' ' && p[i] != '\t')
+      ++i; // skip method token
+    while (i < header_end && (p[i] == ' ' || p[i] == '\t'))
+      ++i; // skip whitespace
+    size_t start = i;
+    while (i < header_end && p[i] != ' ' && p[i] != '\t' && p[i] != '\r')
+      ++i;
+    if (i == start) return String();
+    return String::from_utf8(reinterpret_cast<const char *>(p + start), i - start).unwrap();
+  }
+
+  /** @brief Parse Content-Length from the header block. 0 if absent. */
+  static size_t parse_content_length(const Vec<uint8_t> &buf, size_t header_end) {
+    static const char kName[] = "content-length";
+    const uint8_t    *p       = buf.data();
+    size_t            i       = 0;
+    while (i < header_end) {
+      size_t le = i;
+      while (le < header_end && p[le] != '\n')
+        ++le;
+      size_t len = le;
+      if (len > i && p[len - 1] == '\r') --len;
+
+      size_t j = 0;
+      for (; j < sizeof(kName) - 1 && i + j < len; ++j) {
+        uint8_t c = p[i + j];
+        if (c >= 'A' && c <= 'Z') c = static_cast<uint8_t>(c - 'A' + 'a');
+        if (c != static_cast<uint8_t>(kName[j])) break;
+      }
+      if (j == sizeof(kName) - 1 && i + j < len && p[i + j] == ':') {
+        size_t d = i + j + 1;
+        while (d < len && (p[d] == ' ' || p[d] == '\t'))
+          ++d;
+        size_t value = 0;
+        while (d < len && p[d] >= '0' && p[d] <= '9') {
+          value = value * 10 + static_cast<size_t>(p[d] - '0');
+          ++d;
+        }
+        return value;
+      }
+      if (le >= header_end) break;
+      i = le + 1;
+    }
+    return 0;
+  }
+
+  /* ── Response building ──────────────────────────────────────────── */
+
+  static String build_response(const ConnState &st) {
+    const TestResponseSpec &spec = st.self->spec_;
+    String                  resp;
+
+    // Redirect: 302 + Location for any request not already at the target.
+    // Lets the client exercise CURLOPT_FOLLOWLOCATION end to end.
+    if (!spec.redirect_to.empty() && st.request_path != spec.redirect_to) {
+      resp.push_str(String::from_utf8("HTTP/1.1 302 Found\r\nLocation: ").unwrap());
+      resp.push_str(spec.redirect_to);
+      resp.push_str(
+        String::from_utf8("\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap());
+      return resp;
+    }
+
     // Status line
     resp.push_str(String::from_utf8("HTTP/1.1 ").unwrap());
     resp.push_str(
@@ -165,18 +439,29 @@ private:
       resp.push_str(String::from_utf8("\r\n").unwrap());
     }
 
+    // Body: echoed request body or the preset spec body.
+    Bytes body = spec.body;
+    if (spec.echo_request_body) {
+      size_t blen = st.buf.len() - st.header_end;
+      body = Bytes::copy(reinterpret_cast<const char *>(st.buf.data() + st.header_end), blen);
+    }
+    // Truncation: declare the full length, send only the first N bytes.
+    size_t declared_len = body.size();
+    if (spec.truncate_body_after > 0 && body.size() > spec.truncate_body_after) {
+      body = Bytes::copy(reinterpret_cast<const char *>(body.data()), spec.truncate_body_after);
+    }
+
     // Content-Length + Connection: close
     resp.push_str(String::from_utf8("Content-Length: ").unwrap());
-    resp.push_str(String::from_utf8(std::to_string(spec.body.size()).c_str()).unwrap());
+    resp.push_str(String::from_utf8(std::to_string(declared_len).c_str()).unwrap());
     resp.push_str(String::from_utf8("\r\n").unwrap());
     resp.push_str(String::from_utf8("Connection: close\r\n\r\n").unwrap());
 
     // Body (appended to the same buffer for a single send)
-    if (spec.body.size() > 0) {
-      auto body_bytes = spec.body.as_span();
+    if (body.size() > 0) {
+      auto body_bytes = body.as_span();
       // String is UTF-8 — body may be binary, but for test purposes
       // appending raw bytes works because String stores Vec<uint8_t>.
-      // We use a const-char* cast since xTcpConnSend takes const char*.
       resp.push_str(
         String::from_utf8(reinterpret_cast<const char *>(body_bytes.data()), body_bytes.size())
           .unwrap_or(String()));
@@ -184,52 +469,8 @@ private:
     return resp;
   }
 
-  /* ── Accept callback (runs on EventLoop thread) ────────────────── */
-
-  static void on_accept(xTcpListener /*listener*/, xTcpConn conn, const struct sockaddr * /*addr*/,
-                        socklen_t /*addrlen*/, void        *arg) {
-    auto *self = static_cast<TestServer *>(arg);
-
-    if (self->spec_.delay_ms > 0) {
-      // Delayed response — schedule a timer.
-      // The timer callback writes the response and closes the connection.
-      // We allocate the args on the heap; the timer callback frees them.
-      auto  *delay_arg = new DelayArg{self, conn};
-      xTimer timer =
-        xTimerStart(on_delay_timer, delay_arg, on_delay_cancel, self->spec_.delay_ms, 0);
-      (void)timer; // timer handle is owned by the event loop; it fires once
-    } else {
-      // Immediate response — write synchronously and close.
-      send_response(self, conn);
-      xTcpConnClose(conn);
-    }
-  }
-
-  struct DelayArg {
-    TestServer *self;
-    xTcpConn    conn;
-  };
-
-  static void on_delay_timer(void *arg) {
-    auto *da = static_cast<DelayArg *>(arg);
-    send_response(da->self, da->conn);
-    xTcpConnClose(da->conn);
-    delete da;
-  }
-
-  static void on_delay_cancel(void *arg) {
-    auto *da = static_cast<DelayArg *>(arg);
-    xTcpConnClose(da->conn);
-    delete da;
-  }
-
-  static void send_response(const TestServer *self, xTcpConn conn) {
-    auto bytes = self->response_buf_.as_bytes();
-    xTcpConnSend(conn, reinterpret_cast<const char *>(bytes.data()), bytes.size());
-  }
-
   /** @brief Minimal reason-phrase table for common status codes. */
-  static String to_reason_phrase(StatusCode code) {
+  static String to_reason_phrase(StatusCode::Value code) {
     switch (code) {
     case StatusCode::Ok:
       return String::from_utf8("OK").unwrap();

@@ -15,6 +15,8 @@
 #ifndef XPP_HTTP_ERROR_H
 #define XPP_HTTP_ERROR_H
 
+#include <string>
+
 #include <xpp/http/status.h>
 #include <xpp/option.h>
 #include <xpp/result.h>
@@ -60,7 +62,7 @@ public:
    * carried alongside the error so callers can recover it via
    * `status()` without parsing the message.
    */
-  Error(Kind kind, String message, StatusCode status)
+  Error(Kind kind, String message, StatusCode::Value status)
       : m_kind(kind), m_message(std::move(message)), m_status(xpp::some(status)) {}
 
   Kind kind() const noexcept {
@@ -76,7 +78,7 @@ public:
    * Present only for `Kind::Protocol` errors that carry a server
    * response status. None for transport-level errors (Connect/Dns/etc).
    */
-  const Option<StatusCode> &status() const noexcept {
+  const Option<StatusCode::Value> &status() const noexcept {
     return m_status;
   }
 
@@ -163,9 +165,9 @@ private:
     return "unknown";
   }
 
-  Kind               m_kind = Kind::Io;
-  String             m_message;
-  Option<StatusCode> m_status;
+  Kind                      m_kind = Kind::Io;
+  String                    m_message;
+  Option<StatusCode::Value> m_status;
 };
 
 /**

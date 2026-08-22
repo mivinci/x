@@ -79,10 +79,13 @@ public:
   /**
    * @brief Send a fully-constructed `Request` asynchronously.
    *
-   * Returns a `Promise` that resolves to `Ok(Response)` on success or
-   * `Err(http::Error)` on failure (connect/DNS/timeout/protocol/etc).
-   * The response `Body` is backed by an mpsc channel — read it via
-   * `Response::bytes()` / `text()` / `body().read()`.
+   * Returns a `Promise` that resolves as soon as the response headers
+   * arrive (reqwest semantics): `Ok(Response)` with a live, streamed
+   * `Body`, or `Err(http::Error)` for transport failures before headers
+   * (connect/DNS/timeout) and 4xx/5xx statuses. The `Body` is backed by
+   * an mpsc channel with backpressure — read it via `Response::bytes()` /
+   * `text()` / `body().read()`. If the transfer fails mid-body, the body
+   * read reports the error (instead of a truncated EOF).
    */
   Promise<http::Result<Response>> send(Request req);
 
@@ -131,9 +134,9 @@ public:
   /**
    * @brief Read timeout (time between body chunks) in ms.
    *
-   * libx currently exposes only a single `timeout_ms` (total transfer
-   * timeout). `read_timeout` is recorded but applies the same as
-   * `timeout` until libx adds a separate low-speed-time option.
+   * The transfer aborts if no response body bytes arrive for this long
+   * (idle detection, implemented with an event-loop timer in libx — curl's
+   * CURLOPT_LOW_SPEED_TIME is unreliable for mid-transfer stalls). 0 = off.
    */
   ClientBuilder &read_timeout(uint64_t ms) {
     m_read_timeout_ms = static_cast<long>(ms);
@@ -209,19 +212,8 @@ public:
 
   /** @brief Set `Authorization: Basic <base64(user:pass)>` default header. */
   ClientBuilder &basic_auth(String user, String password) {
-    String credentials = std::move(user);
-    credentials.push_str(String::from_utf8(":").unwrap());
-    credentials.push_str(password);
-    auto      bytes   = credentials.as_bytes();
-    size_t    enc_max = (bytes.size() + 2) / 3 * 4 + 1;
-    Vec<char> enc;
-    enc.reserve(enc_max);
-    size_t enc_len = enc_max;
-    xBase64Encode(bytes.data(), bytes.size(), enc.data(), &enc_len);
-    String value        = String::from_utf8(enc.data(), enc_len).unwrap();
-    String header_value = String::from_utf8("Basic ").unwrap();
-    header_value.push_str(value);
-    m_default_headers.insert(String::from_utf8("Authorization").unwrap(), std::move(header_value));
+    m_default_headers.insert(String::from_utf8("Authorization").unwrap(),
+                             _::basic_auth_value(std::move(user), std::move(password)));
     return *this;
   }
 
@@ -272,6 +264,7 @@ public:
     conf.max_redirects      = m_max_redirects;
     conf.timeout_ms         = m_timeout_ms;
     conf.connect_timeout_ms = m_connect_timeout_ms;
+    conf.read_timeout_ms    = m_read_timeout_ms;
 
     // Convert xpp::String → std::string for C API (null-terminated).
     auto to_std = [](const String &s) -> std::string {
@@ -348,17 +341,45 @@ namespace _ {
  * Lifetime: `new`-allocated in `Client::send`, `delete`-ed in `on_done`.
  */
 struct SendAdapter {
+  SendAdapter() : xfer_error(Shared<Option<Error>>::make()) {}
+
   // Option<> wrappers allow default-construction; the actual values
   // are moved in by Client::send() before the request is submitted.
   Option<sync::mpsc::Sender<Bytes>>               tx;
   Option<PromiseResolver<http::Result<Response>>> resolver;
-  Body                                            body; // channel-backed
+  Body                                            body; // channel-backed response body
+  // Shared transfer-error flag: on_done writes it if the body transfer
+  // fails after the send promise already resolved (headers arrived). The
+  // Response's Body reads it and reports a read error instead of EOF.
+  Shared<Option<Error>> xfer_error;
+  bool                  discard_body = false; // error response — drop body data
+  // Request body pulled by libcurl's read callback (on_read).
+  Bytes  req_body;         // moved in by Client::send() when non-empty
+  size_t req_body_off = 0; // read cursor — on_read advances it
   // Populated by on_response:
-  StatusCode     status = StatusCode::Ok;
-  HeaderMap      headers;
-  Option<String> final_url;
-  bool           headers_done = false;
+  StatusCode::Value status = StatusCode::Ok;
+  HeaderMap         headers;
+  Option<String>    final_url;
+  bool              headers_done = false;
 };
+
+namespace _ {
+
+/// Portable memmem: find @p needle in [hay, hay+hlen). Returns a pointer
+/// into @p hay, or NULL. (memmem is not standard C — glibc needs
+/// _GNU_SOURCE and Windows lacks it entirely.)
+inline const char *find_bytes(const char *hay, size_t hlen, const char *needle, size_t nlen) {
+  if (!hay || nlen == 0 || nlen > hlen) return nullptr;
+  for (size_t i = 0; i + nlen <= hlen; ++i) {
+    size_t j = 0;
+    while (j < nlen && hay[i + j] == needle[j])
+      ++j;
+    if (j == nlen) return hay + i;
+  }
+  return nullptr;
+}
+
+} // namespace _
 
 // Parse raw response headers (NUL-terminated, "\r\n"-separated) into a HeaderMap.
 inline HeaderMap parse_raw_headers(const char *raw, size_t len) {
@@ -366,19 +387,40 @@ inline HeaderMap parse_raw_headers(const char *raw, size_t len) {
   if (!raw || len == 0) return map;
 
   const char *end = raw + len;
-  const char *p   = raw;
+
+  // With redirects followed (CURLOPT_FOLLOWLOCATION), libcurl invokes the
+  // header callback once per response in the chain, so the buffer contains
+  // one header block per hop:
+  //   "HTTP/1.1 301...\r\nLocation: ...\r\n\r\nHTTP/1.1 200 OK\r\n...\r\n\r\n"
+  // CURLINFO_RESPONSE_CODE reports the FINAL status, so parse the LAST
+  // complete block to keep status and headers consistent.
+  const char *p        = raw;
+  const char *prev_sep = nullptr;
+  const char *last_sep = nullptr;
+  while (true) {
+    const char *next = _::find_bytes(p, end - p, "\r\n\r\n", 4);
+    if (!next) break;
+    prev_sep = last_sep;
+    last_sep = next;
+    p        = next + 4;
+  }
+  const char *block_start = prev_sep ? prev_sep + 4 : raw;
+  const char *block_end   = last_sep ? last_sep : end;
 
   // Skip the status line (e.g. "HTTP/1.1 200 OK\r\n")
-  const char *eol = static_cast<const char *>(memmem(p, end - p, "\r\n", 2));
-  if (!eol) return map;
-  p = eol + 2;
+  const char *eol = _::find_bytes(block_start, block_end - block_start, "\r\n", 2);
+  if (eol) {
+    p = eol + 2;
+  } else {
+    p = block_start;
+  }
 
-  while (p < end) {
-    const char *line_end = static_cast<const char *>(memmem(p, end - p, "\r\n", 2));
-    if (!line_end) line_end = end;
+  while (p < block_end) {
+    const char *line_end = _::find_bytes(p, block_end - p, "\r\n", 2);
+    if (!line_end) line_end = block_end;
     if (line_end == p) break; // empty line — end of headers
 
-    const char *colon = static_cast<const char *>(memmem(p, line_end - p, ":", 1));
+    const char *colon = _::find_bytes(p, line_end - p, ":", 1);
     if (colon) {
       const char *val_start = colon + 1;
       while (val_start < line_end && (*val_start == ' ' || *val_start == '\t'))
@@ -390,7 +432,7 @@ inline HeaderMap parse_raw_headers(const char *raw, size_t len) {
       map.insert(std::move(key), std::move(value));
     }
 
-    if (line_end == end) break;
+    if (line_end == block_end) break;
     p = line_end + 2;
   }
   return map;
@@ -407,7 +449,7 @@ inline Error error_from_curl(int curl_code, long status_code, const char *curl_e
 
   // curl succeeded but status is 4xx/5xx → Protocol error with status.
   if (curl_code == 0 && (status_code >= 400 && status_code < 600)) {
-    StatusCode sc = static_cast<StatusCode>(static_cast<uint16_t>(status_code));
+    StatusCode::Value sc = static_cast<StatusCode::Value>(static_cast<uint16_t>(status_code));
     return Error(Error::Kind::Protocol, std::move(msg), sc);
   }
 
@@ -430,30 +472,76 @@ inline Error error_from_curl(int curl_code, long status_code, const char *curl_e
     return Error(Error::Kind::Tls, std::move(msg));
   case 5:
     return Error(Error::Kind::Connect, std::move(msg));
+  case 23: // CURLE_WRITE_ERROR — our on_data aborted (body buffer overflowed)
+    return Error(Error::Kind::Body,
+                 String::from_utf8("response body buffer overflowed (consumer too slow)").unwrap());
   default:
     return Error(Error::Kind::Io, std::move(msg));
   }
 }
 
+// Pull request body bytes for libcurl's upload. Serves from the adapter's
+// req_body buffer until exhausted, then returns 0 (EOF). libcurl may call
+// this multiple times — the cursor keeps track of what has been sent.
+inline size_t on_read_cb(char *buf, size_t bufsize, void *arg) {
+  auto  *adapter   = static_cast<SendAdapter *>(arg);
+  size_t remaining = adapter->req_body.size() - adapter->req_body_off;
+  size_t n         = remaining < bufsize ? remaining : bufsize;
+  if (n == 0) return 0; // EOF
+  std::memcpy(buf, adapter->req_body.data() + adapter->req_body_off, n);
+  adapter->req_body_off += n;
+  return n;
+}
+
 inline int on_response_cb(xHttpCtx *ctx, void *arg) {
   auto *adapter = static_cast<SendAdapter *>(arg);
-  if (!adapter->headers_done) {
-    adapter->headers_done = true;
-    adapter->status       = static_cast<StatusCode>(static_cast<uint16_t>(ctx->status_code));
-    adapter->headers      = parse_raw_headers(ctx->headers, ctx->headers_len);
-    if (ctx->url) {
-      adapter->final_url = xpp::some(String::from_utf8(ctx->url).unwrap());
-    }
+  if (adapter->headers_done) return 0;
+  adapter->headers_done = true;
+  adapter->status       = static_cast<StatusCode::Value>(static_cast<uint16_t>(ctx->status_code));
+  adapter->headers      = parse_raw_headers(ctx->headers, ctx->headers_len);
+  if (ctx->url) {
+    adapter->final_url = xpp::some(String::from_utf8(ctx->url).unwrap());
   }
+
+  // Transfer already failed (e.g. timeout before any header arrived) —
+  // libx invokes on_response as a courtesy on the completion path with
+  // status_code == 0. Leave resolution to on_done, which carries the error.
+  if (ctx->curl_code != 0) return 0;
+
+  // Resolve the send promise as soon as the response headers arrive
+  // (reqwest semantics): the Response carries a live, streamed body that
+  // the consumer reads while the transfer is still in flight.
+  if (ctx->status_code >= 400 && ctx->status_code < 600) {
+    // Error status — resolve Err immediately; the body is discarded.
+    adapter->discard_body = true;
+    auto err              = error_from_curl(0, ctx->status_code, ctx->curl_error);
+    adapter->resolver.unwrap().resolve(http::Result<Response>(xpp::err, std::move(err)));
+  } else {
+    Body            body = std::move(adapter->body);
+    ResponseBuilder rb   = Response::builder();
+    rb.status(adapter->status);
+    if (adapter->final_url.is_some()) rb.url(adapter->final_url.unwrap());
+    for (auto it = adapter->headers.begin(); it != adapter->headers.end(); ++it) {
+      auto kv = *it;
+      rb.header(kv.first, kv.second);
+    }
+    Response resp = rb.body(std::move(body));
+    adapter->resolver.unwrap().resolve(http::Result<Response>(xpp::ok, std::move(resp)));
+  }
+  adapter->resolver = none; // consumed — on_done must not resolve again
   return 0;
 }
 
 inline int on_data_cb(const char *data, size_t len, void *arg) {
   auto *adapter = static_cast<SendAdapter *>(arg);
-  Bytes chunk   = Bytes::copy(data, len);
-  auto  r       = adapter->tx.unwrap().try_send(std::move(chunk));
+  if (adapter->discard_body) return 0;
+  Bytes chunk = Bytes::copy(data, len);
+  auto  r     = adapter->tx.unwrap().try_send(std::move(chunk));
   if (r.is_err()) {
-    return -1;
+    // Channel full — pause the transfer (backpressure) instead of aborting.
+    // libx buffers this chunk; Body's on_drain hook resumes the transfer
+    // once the consumer frees a channel slot.
+    return 1;
   }
   return 0;
 }
@@ -461,37 +549,25 @@ inline int on_data_cb(const char *data, size_t len, void *arg) {
 inline void on_done_cb(xHttpCtx *ctx, void *arg) {
   auto *adapter = static_cast<SendAdapter *>(arg);
 
-  // Ensure on_response's data is populated (may not have been called
-  // if the request failed before headers arrived).
-  if (!adapter->headers_done) {
-    adapter->headers_done = true;
-    if (ctx->status_code > 0) {
-      adapter->status  = static_cast<StatusCode>(static_cast<uint16_t>(ctx->status_code));
-      adapter->headers = parse_raw_headers(ctx->headers, ctx->headers_len);
-    }
-    if (ctx->url) {
-      adapter->final_url = xpp::some(String::from_utf8(ctx->url).unwrap());
-    }
-  }
-
-  // Close the channel — signals EOF to Body::read on the consumer side.
+  // Close the channel — signals EOF to Body::read on the consumer side
+  // (or a transfer error via xfer_error below).
   adapter->tx.unwrap().close();
 
-  if (ctx->curl_code != 0 || (ctx->status_code >= 400 && ctx->status_code < 600)) {
+  bool already_resolved = !adapter->resolver.is_some();
+
+  if (!already_resolved) {
+    // on_response never ran — the request failed before headers arrived
+    // (connect/DNS/timeout). Resolve the promise with the error.
     auto err = error_from_curl(ctx->curl_code, ctx->status_code, ctx->curl_error);
     adapter->resolver.unwrap().resolve(http::Result<Response>(xpp::err, std::move(err)));
-  } else {
-    // Success — construct Response with status, headers, and the
-    // channel-backed body.
-    Body            body = std::move(adapter->body);
-    ResponseBuilder rb   = Response::builder();
-    rb.status(adapter->status);
-    for (auto it = adapter->headers.begin(); it != adapter->headers.end(); ++it) {
-      auto kv = *it;
-      rb.header(kv.first, kv.second);
+  } else if (ctx->curl_code != 0) {
+    // Headers arrived (promise resolved Ok) but the body transfer failed
+    // midway (e.g. connection reset). Surface the error to the body
+    // consumer instead of a silent truncated EOF.
+    if (adapter->xfer_error.get()) {
+      *adapter->xfer_error =
+        xpp::some(error_from_curl(ctx->curl_code, ctx->status_code, ctx->curl_error));
     }
-    Response resp = rb.body(std::move(body));
-    adapter->resolver.unwrap().resolve(http::Result<Response>(xpp::ok, std::move(resp)));
   }
 
   delete adapter;
@@ -502,8 +578,41 @@ inline void on_done_cb(xHttpCtx *ctx, void *arg) {
 /* ── Client::send implementation ────────────────────────────────── */
 
 inline Promise<http::Result<Response>> Client::send(Request req) {
-  // 1. Create mpsc channel for body streaming (bounded 64 for backpressure).
-  auto channel_pair = sync::mpsc::channel<Bytes>(64);
+  // 0. Extract the request body (if any).
+  //    libcurl's read callback is synchronous — a streaming (channel)
+  //    request body cannot be fed from within the event loop without
+  //    blocking it. Reject with a clear error instead of silently
+  //    dropping the body.
+  Body req_body = std::move(req).into_body();
+  if (req_body.is_channel()) {
+    return xpp::resolve(http::Result<Response>(
+      xpp::err,
+      Error(Error::Kind::Body, String::from_utf8("streaming (channel) request bodies are not "
+                                                 "supported yet")
+                                 .unwrap())));
+  }
+  Bytes req_body_bytes = req_body.into_once_bytes();
+
+  // 0b. Validate the URL and method before allocating anything.
+  if (req.url().empty()) {
+    return xpp::resolve(http::Result<Response>(
+      xpp::err, Error(Error::Kind::InvalidUrl, String::from_utf8("empty request URL").unwrap())));
+  }
+  if (req.method() == Method::Connect) {
+    // libx/curl has no CONNECT request path — fail loudly instead of
+    // silently sending a GET.
+    return xpp::resolve(http::Result<Response>(
+      xpp::err, Error(Error::Kind::InvalidUrl,
+                      String::from_utf8("CONNECT method is not supported").unwrap())));
+  }
+
+  // 1. Create mpsc channel for body streaming. The producer (libcurl's
+  //    on_data) and consumer run on the same event loop thread; curl can
+  //    deliver several chunks per socket event, so the channel needs
+  //    headroom beyond the per-iteration drain. 256 × ~16KB ≈ 4MB of
+  //    buffering worst case. If it still fills, on_data aborts and the
+  //    request fails with a Kind::Body error (see on_data_cb).
+  auto channel_pair = sync::mpsc::channel<Bytes>(256);
   auto tx           = std::move(channel_pair.first);
   auto rx           = std::move(channel_pair.second);
 
@@ -516,7 +625,19 @@ inline Promise<http::Result<Response>> Client::send(Request req) {
   _::SendAdapter *adapter = new _::SendAdapter();
   adapter->tx             = xpp::some(std::move(tx));
   adapter->resolver       = xpp::some(std::move(resolver));
-  adapter->body           = Body::from_channel(std::move(rx));
+
+  // The response body drains the channel via Body::read; each successful
+  // recv frees a slot, so resume the transfer (backpressure) there. Safe:
+  // the hook is only reachable while the transfer is in flight — on_done
+  // closes the channel and resolves the promise before deleting the
+  // adapter, and the consumer stops reading once it sees EOF/error.
+  xHttpClient     client_h    = m_client;
+  _::SendAdapter *adapter_ptr = adapter;
+  auto            xfer_error  = Shared<Option<Error>>::make();
+  adapter->xfer_error         = xfer_error;
+  adapter->body               = Body::from_channel(
+    std::move(rx), [client_h, adapter_ptr]() { xHttpClientResume(client_h, adapter_ptr); },
+    xfer_error);
 
   // 4. Build xHttpRequestConf from the Request.
   //    Keep url_std + header_std_strings alive for the duration of
@@ -552,8 +673,7 @@ inline Promise<http::Result<Response>> Client::send(Request req) {
     method = xHttpMethod_TRACE;
     break;
   case Method::Connect:
-    method = xHttpMethod_GET;
-    break; // not supported
+    break; // unreachable — rejected in step 0b
   }
 
   // Build "Key: Value" array for headers.
@@ -581,6 +701,14 @@ inline Promise<http::Result<Response>> Client::send(Request req) {
   conf.on_response      = _::on_response_cb;
   conf.on_data          = _::on_data_cb;
   conf.on_done          = _::on_done_cb;
+
+  // Request body (if any): served to libcurl via the synchronous on_read
+  // callback. content_length > 0 → fixed Content-Length header.
+  if (!req_body_bytes.empty()) {
+    adapter->req_body   = std::move(req_body_bytes);
+    conf.on_read        = _::on_read_cb;
+    conf.content_length = adapter->req_body.size();
+  }
 
   // 5. Submit the request.
   xErrno rc = xHttpClientDo(m_client, &conf, adapter);
