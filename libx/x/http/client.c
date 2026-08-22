@@ -14,6 +14,8 @@
 /* ── Forward declarations ──────────────────────────────────────────────── */
 
 static void check_multi_info(struct xHttpClient_ *c);
+static void destroy_req(struct xHttpClient_ *c, CURL *easy, struct xHttpReq_ *req, int notify);
+static void on_read_timeout(void *arg);
 static int  socket_callback(CURL *easy, curl_socket_t fd, int what, void *userp, void *socketp);
 static int  timer_callback(CURLM *multi, long timeout_ms, void *userp);
 static void fd_ready_callback(int fd, xEventMask mask, void *arg);
@@ -65,8 +67,13 @@ static void req_build_ctx(struct xHttpReq_ *req, CURLcode result) {
   while (header_len > 0 && header_data[header_len - 1] == '\0')
     header_len--;
 
-  ctx->method      = NULL;
-  ctx->url         = NULL;
+  ctx->method = NULL;
+  /* Effective URL after redirects (client side): curl reports the URL the
+   * request ultimately used. For non-redirected requests this equals the
+   * request URL. NULL before the URL is known. */
+  const char *effective = NULL;
+  curl_easy_getinfo(req->easy, CURLINFO_EFFECTIVE_URL, &effective);
+  ctx->url         = effective;
   ctx->headers     = header_data ? header_data : "";
   ctx->headers_len = header_len;
   ctx->internal_   = NULL;
@@ -109,9 +116,29 @@ static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdat
   XDEBUGL1("curl: write_cb len=%zu req=%p", total, (void *)req);
   /* Trigger on_response on first body chunk (if not yet called) */
   if (req_maybe_call_on_response(req) != 0) return 0; /* abort */
+
+  /* Read timeout: each body chunk proves the peer is alive — reset the
+   * idle timer. First chunk arms it (headers arrived, body pending). */
+  if (req->read_timeout_ms > 0) {
+    if (req->read_timer) {
+      xTimerStop(req->read_timer);
+      req->read_timer = NULL;
+    }
+    req->read_timer = xTimerStart(on_read_timeout, req, NULL, (uint64_t)req->read_timeout_ms, 0);
+  }
   /* Deliver body via on_data, or discard if NULL */
   if (req->on_data) {
-    if (req->on_data(ptr, total, req->arg) != 0) return 0; /* abort */
+    int r = req->on_data(ptr, total, req->arg);
+    if (r < 0) return 0; /* abort */
+    if (r > 0) {
+      /* Pause (backpressure): buffer this chunk and stop delivering.
+       * curl treats a write_cb return < total as abort, so we must return
+       * total after taking ownership of the data. The chunk is re-delivered
+       * to on_data by xHttpClientResume(). */
+      if (xBufferAppend(&req->paused_buf, ptr, total) != xErrno_Ok) return 0;
+      if (curl_easy_pause(req->easy, CURLPAUSE_RECV) != CURLE_OK) return 0;
+      req->paused = 1;
+    }
   }
   return total;
 }
@@ -195,7 +222,12 @@ static void oneshot_on_cleanup(struct xHttpReq_ *req) {
   /* Only clean up request-specific resources here.
    * curl_multi_remove + curl_easy_cleanup + free(req) are handled
    * by destroy_req() which calls this. */
+  if (req->read_timer) {
+    xTimerStop(req->read_timer);
+    req->read_timer = NULL;
+  }
   xBufferDestroy(req->header_buf);
+  xBufferDestroy(req->paused_buf);
   if (req->post_data) free(req->post_data);
   if (req->req_headers) curl_slist_free_all(req->req_headers);
 }
@@ -318,6 +350,16 @@ static void on_timeout(void *arg) {
   }
 }
 
+/* ── Read timeout (idle body detection) ───────────────────────────────── */
+
+static void on_read_timeout(void *arg) {
+  struct xHttpReq_ *req = (struct xHttpReq_ *)arg;
+  req->read_timer       = NULL; /* handle consumed by the fire */
+  if (req->cleaned || req->read_timed_out) return;
+  req->read_timed_out = 1;
+  destroy_req(req->client, req->easy, req, 1);
+}
+
 /* ── Lifecycle: Create / Destroy ───────────────────────────────────────── */
 
 /* ── Helper: duplicate a string or return NULL ─────────────────────────── */
@@ -377,6 +419,7 @@ static void apply_client_conf(struct xHttpClient_ *c, const xHttpClientConf *con
     c->max_redirects      = 10;
     c->timeout_ms         = 0;
     c->connect_timeout_ms = 0;
+
     return;
   }
 
@@ -402,6 +445,7 @@ static void apply_client_conf(struct xHttpClient_ *c, const xHttpClientConf *con
 
   c->timeout_ms         = conf->timeout_ms;
   c->connect_timeout_ms = conf->connect_timeout_ms;
+  c->read_timeout_ms    = conf->read_timeout_ms;
 
   c->user_agent = xstrdup_(conf->user_agent);
   c->proxy      = xstrdup_(conf->proxy);
@@ -451,8 +495,13 @@ xHttpClient xHttpClientCreate(const xHttpClientConf *conf) {
  */
 static void destroy_req(struct xHttpClient_ *c, CURL *easy, struct xHttpReq_ *req, int notify) {
   if (req && notify && req->on_done) {
-    req_build_ctx(req, CURLE_ABORTED_BY_CALLBACK);
-    req->ctx.curl_error = "Request aborted: client destroyed";
+    if (req->read_timed_out) {
+      req_build_ctx(req, CURLE_OPERATION_TIMEDOUT);
+      req->ctx.curl_error = "Read timeout: no body data";
+    } else {
+      req_build_ctx(req, CURLE_ABORTED_BY_CALLBACK);
+      req->ctx.curl_error = "Request aborted: client destroyed";
+    }
     req->on_done(&req->ctx, req->arg);
   }
 
@@ -557,17 +606,17 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
 
     /* Identity / proxy */
     if (cl->user_agent) curl_easy_setopt(req->easy, CURLOPT_USERAGENT, cl->user_agent);
-    if (cl->proxy)      curl_easy_setopt(req->easy, CURLOPT_PROXY,     cl->proxy);
-    if (cl->no_proxy)   curl_easy_setopt(req->easy, CURLOPT_NOPROXY,   cl->no_proxy);
+    if (cl->proxy) curl_easy_setopt(req->easy, CURLOPT_PROXY, cl->proxy);
+    if (cl->no_proxy) curl_easy_setopt(req->easy, CURLOPT_NOPROXY, cl->no_proxy);
 
     /* Apply TLS configuration */
     if (cl->tls_skip_verify) {
       curl_easy_setopt(req->easy, CURLOPT_SSL_VERIFYPEER, 0L);
       curl_easy_setopt(req->easy, CURLOPT_SSL_VERIFYHOST, 0L);
     }
-    if (cl->tls_ca)           curl_easy_setopt(req->easy, CURLOPT_CAINFO,    cl->tls_ca);
-    if (cl->tls_cert)         curl_easy_setopt(req->easy, CURLOPT_SSLCERT,   cl->tls_cert);
-    if (cl->tls_key)          curl_easy_setopt(req->easy, CURLOPT_SSLKEY,    cl->tls_key);
+    if (cl->tls_ca) curl_easy_setopt(req->easy, CURLOPT_CAINFO, cl->tls_ca);
+    if (cl->tls_cert) curl_easy_setopt(req->easy, CURLOPT_SSLCERT, cl->tls_cert);
+    if (cl->tls_key) curl_easy_setopt(req->easy, CURLOPT_SSLKEY, cl->tls_key);
     if (cl->tls_key_password) curl_easy_setopt(req->easy, CURLOPT_KEYPASSWD, cl->tls_key_password);
   }
 
@@ -599,14 +648,17 @@ static struct xHttpReq_ *http_req_new(struct xHttpClient_ *c, const xHttpRequest
     return NULL;
   }
 
-  req->vt           = &oneshot_vtable;
-  req->client       = c;
-  req->arg          = arg;
-  req->on_done      = conf->on_done;
-  req->on_response  = conf->on_response;
-  req->on_data      = conf->on_data;
-  req->on_read      = conf->on_read;
-  req->headers_done = 0;
+  req->vt             = &oneshot_vtable;
+  req->client         = c;
+  req->arg            = arg;
+  req->on_done        = conf->on_done;
+  req->on_response    = conf->on_response;
+  req->on_data        = conf->on_data;
+  req->on_read        = conf->on_read;
+  req->headers_done   = 0;
+  req->paused         = 0;
+  req->read_timer     = NULL;
+  req->read_timed_out = 0;
   memset(req->errbuf, 0, sizeof(req->errbuf));
   req->post_data   = NULL;
   req->req_headers = NULL;
@@ -615,6 +667,15 @@ static struct xHttpReq_ *http_req_new(struct xHttpClient_ *c, const xHttpRequest
   /* Header buffer: always needed for on_response / on_done */
   req->header_buf = xBufferCreate(512);
   if (!req->header_buf) {
+    curl_easy_cleanup(req->easy);
+    free(req);
+    return NULL;
+  }
+
+  /* Pause buffer: lazily filled when on_data returns > 0 (backpressure). */
+  req->paused_buf = xBufferCreate(0);
+  if (!req->paused_buf) {
+    xBufferDestroy(req->header_buf);
     curl_easy_cleanup(req->easy);
     free(req);
     return NULL;
@@ -736,10 +797,41 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg
     curl_easy_setopt(req->easy, CURLOPT_TIMEOUT_MS, c->timeout_ms);
   }
 
+  /* Read timeout (idle body detection): client-level option. */
+  req->read_timeout_ms = c->read_timeout_ms;
+
   /* Per-request HTTP version override */
   if (conf->http_version != xHttpVersion_Default) {
     apply_http_version(req->easy, conf->http_version);
   }
 
   return http_submit(c, req);
+}
+
+/* ── Public API: Resume (backpressure) ────────────────────────────────── */
+
+xErrno xHttpClientResume(xHttpClient client_, void *arg) {
+  struct xHttpClient_ *c = (struct xHttpClient_ *)client_;
+  if (!c) return xErrno_InvalidArg;
+
+  struct xHttpReq_ *req;
+  for (req = c->reqs; req; req = req->next) {
+    if (req->arg == arg) break;
+  }
+  if (!req || !req->paused) return xErrno_Unknown;
+
+  /* Re-deliver the buffered chunk(s) to on_data. If the callback pauses
+   * again (or aborts), the data stays buffered and the transfer stays
+   * paused — the caller resumes again later. */
+  if (req->on_data && xBufferLen(req->paused_buf) > 0) {
+    int r = req->on_data((const char *)xBufferData(req->paused_buf), xBufferLen(req->paused_buf),
+                         req->arg);
+    if (r != 0) return xErrno_Ok; /* still paused */
+  }
+  xBufferReset(req->paused_buf);
+  req->paused = 0;
+  if (curl_easy_pause(req->easy, CURLPAUSE_RECV_CONT) != CURLE_OK) {
+    return xErrno_Unknown;
+  }
+  return xErrno_Ok;
 }

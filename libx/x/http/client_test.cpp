@@ -16,11 +16,9 @@
 #include <unistd.h>
 
 #include <atomic>
-#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -486,6 +484,37 @@ static void send_body_handler(xHttpCtx *ctx, void *arg) {
   xHttpCtxSend(ctx, body->c_str(), body->size());
 }
 
+/* ───────────────────── Pause / resume (backpressure) ─────────────────────
+ * on_data returns 1 (pause) for every chunk; the test drives the transfer
+ * forward chunk-by-chunk via xHttpClientResume. Verifies no data is lost
+ * across pause/resume cycles and the transfer completes. */
+
+struct PauseCtx {
+  std::atomic<bool> done{false};
+  long              status_code{0};
+  int               curl_code{-1};
+  std::string       body;
+  int               pauses{0}; /* number of times on_data returned pause */
+};
+
+static int on_data_pause_collect(const char *data, size_t len, void *arg) {
+  auto *c = static_cast<PauseCtx *>(arg);
+  /* Alternate like a real consumer: the first delivery of each chunk
+   * pauses without consuming (libx buffers it); the resume re-delivery
+   * accepts (a slot was freed). Each chunk is appended exactly once. */
+  bool accept = (c->pauses % 2 == 1);
+  if (accept) c->body.append(data, len);
+  c->pauses++;
+  return accept ? 0 : 1;
+}
+
+static void pause_done(xHttpCtx *ctx, void *arg) {
+  auto *c        = static_cast<PauseCtx *>(arg);
+  c->status_code = ctx->status_code;
+  c->curl_code   = ctx->curl_code;
+  c->done.store(true, std::memory_order_release);
+}
+
 /* Server handler: echo the request body back. Records the method so tests
  * can verify which HTTP method curl actually sent.
  *
@@ -537,6 +566,46 @@ static void ok_handler(xHttpCtx *ctx, void *arg) {
 }
 
 } // namespace
+
+/* ───────────────────── Pause / resume (backpressure) ───────────────────── */
+
+TEST_F(HttpClientTest, PauseResumeBackpressure) {
+  /* 1MB body → ~64 chunks; every chunk pauses, resume drives it forward. */
+  const size_t kSize = 1024 * 1024;
+  std::string  big(kSize, 'x');
+  {
+    xHttpRouteConf rc = {};
+    rc.pattern        = "GET /big";
+    rc.on_done        = send_body_handler;
+    rc.arg            = &big;
+    ASSERT_EQ(xHttpMuxHandle(mux, &rc), xErrno_Ok);
+  }
+
+  PauseCtx         ctx;
+  std::string      u    = url("/big");
+  xHttpRequestConf conf = {};
+  conf.url              = u.c_str();
+  conf.on_data          = on_data_pause_collect;
+  conf.on_done          = pause_done;
+  xErrno err            = xHttpClientGet(client, &conf, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  /* Resume one paused chunk per loop iteration. Resume on a not-paused
+   * request is a no-op (xErrno_Unknown) and must be harmless. */
+  for (int i = 0; i < 10000 && !ctx.done.load(); i++) {
+    xHttpClientResume(client, &ctx);
+    xEventLoopRun(loop, X_RUN_ONCE);
+  }
+  xHttpClientDestroy(client);
+  client = nullptr;
+
+  EXPECT_TRUE(ctx.done.load()) << "transfer did not complete under backpressure";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  EXPECT_GT(ctx.pauses, 1) << "pause path never exercised";
+  EXPECT_EQ(ctx.body.size(), kSize) << "data lost across pause/resume cycles";
+  EXPECT_EQ(ctx.body, big) << "content corrupted across pause/resume cycles";
+}
 
 /* 1. Streaming response: on_data collects a large body; on_done sees body=NULL. */
 TEST_F(HttpServerTest, StreamingResponseClient) {
@@ -1287,7 +1356,7 @@ static void echo_user_agent_handler(xHttpCtx *ctx, void *arg) {
   std::string ua;
   if (ctx->headers && ctx->headers_len > 0) {
     std::string raw(ctx->headers, ctx->headers_len);
-    auto pos = raw.find("User-Agent:");
+    auto        pos = raw.find("User-Agent:");
     if (pos != std::string::npos) {
       auto eol = raw.find("\r\n", pos);
       if (eol != std::string::npos) {
@@ -1316,7 +1385,7 @@ TEST_F(HttpServerTest, ClientConfUserAgent) {
 
   /* Create client with a custom User-Agent. */
   xHttpClientConf cconf = {};
-  cconf.user_agent       = "libx-tests/1.0";
+  cconf.user_agent      = "libx-tests/1.0";
   xHttpClient client    = xHttpClientCreate(&cconf);
   ASSERT_NE(client, nullptr);
 
@@ -1369,7 +1438,7 @@ TEST_F(HttpServerTest, ClientConfFollowLocation) {
 
   /* Client with follow_location=0 (no redirect). */
   xHttpClientConf cconf = {};
-  cconf.follow_location  = 0;
+  cconf.follow_location = 0;
   xHttpClient client    = xHttpClientCreate(&cconf);
   ASSERT_NE(client, nullptr);
 
@@ -1440,7 +1509,7 @@ TEST_F(HttpServerTest, ClientConfTimeoutTriggersError) {
 
   /* Client-level total timeout = 300ms. */
   xHttpClientConf cconf = {};
-  cconf.timeout_ms       = 300;
+  cconf.timeout_ms      = 300;
   xHttpClient client    = xHttpClientCreate(&cconf);
   ASSERT_NE(client, nullptr);
 
@@ -1482,13 +1551,13 @@ TEST_F(HttpServerTest, OptionsMethodEndToEnd) {
   xHttpClient client = xHttpClientCreate(nullptr);
   ASSERT_NE(client, nullptr);
 
-  StreamCtx         ctx;
-  std::string       u    = "http://127.0.0.1:" + std::to_string(port) + "/opts";
-  xHttpRequestConf  conf = {};
-  conf.url               = u.c_str();
-  conf.method            = xHttpMethod_OPTIONS;
-  conf.on_data           = collect_data;
-  conf.on_done           = on_stream_done;
+  StreamCtx        ctx;
+  std::string      u    = "http://127.0.0.1:" + std::to_string(port) + "/opts";
+  xHttpRequestConf conf = {};
+  conf.url              = u.c_str();
+  conf.method           = xHttpMethod_OPTIONS;
+  conf.on_data          = collect_data;
+  conf.on_done          = on_stream_done;
   ASSERT_EQ(xHttpClientDo(client, &conf, &ctx), xErrno_Ok);
   run_until(loop, ctx.done, 5000);
   xHttpClientDestroy(client);
