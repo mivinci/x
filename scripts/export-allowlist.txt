@@ -214,6 +214,7 @@ xHttpClientDoSse
 xHttpClientGet
 xHttpClientGetSse
 xHttpClientPost
+xHttpClientResume
 xHttpCtxEndStream
 xHttpCtxParam
 xHttpCtxSend
