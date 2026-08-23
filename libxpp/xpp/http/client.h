@@ -341,18 +341,18 @@ namespace _ {
  * Lifetime: `new`-allocated in `Client::send`, `delete`-ed in `on_done`.
  */
 struct SendAdapter {
-  SendAdapter() : xfer_error(Shared<Option<Error>>::make()) {}
+  SendAdapter() : xfer_error(Arc<Option<Error>>::make()) {}
 
   // Option<> wrappers allow default-construction; the actual values
   // are moved in by Client::send() before the request is submitted.
   Option<sync::mpsc::Sender<Bytes>>               tx;
   Option<PromiseResolver<http::Result<Response>>> resolver;
   Body                                            body; // channel-backed response body
-  // Shared transfer-error flag: on_done writes it if the body transfer
+  // Transfer-error flag (shared via Arc): on_done writes it if the body transfer
   // fails after the send promise already resolved (headers arrived). The
   // Response's Body reads it and reports a read error instead of EOF.
-  Shared<Option<Error>> xfer_error;
-  bool                  discard_body = false; // error response — drop body data
+  Arc<Option<Error>> xfer_error;
+  bool               discard_body = false; // error response — drop body data
   // Request body pulled by libcurl's read callback (on_read).
   Bytes  req_body;         // moved in by Client::send() when non-empty
   size_t req_body_off = 0; // read cursor — on_read advances it
@@ -633,7 +633,7 @@ inline Promise<http::Result<Response>> Client::send(Request req) {
   // adapter, and the consumer stops reading once it sees EOF/error.
   xHttpClient     client_h    = m_client;
   _::SendAdapter *adapter_ptr = adapter;
-  auto            xfer_error  = Shared<Option<Error>>::make();
+  auto            xfer_error  = Arc<Option<Error>>::make();
   adapter->xfer_error         = xfer_error;
   adapter->body               = Body::from_channel(
     std::move(rx), [client_h, adapter_ptr]() { xHttpClientResume(client_h, adapter_ptr); },

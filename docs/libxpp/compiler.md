@@ -41,7 +41,6 @@
 | `XPP_DEBUG` | `1` in debug (`NDEBUG` off), `0` in release. Override with `-DXPP_DEBUG=`. |
 | `XPP_HAS_COROUTINES` | `1` if C++20 coroutines are available. Checks `__cplusplus >= 202002L` AND `__cpp_coroutines >= 201902L`. Override with `-DXPP_HAS_COROUTINES=0/1`. |
 | `XPP_FIBER` | `1` when fiber support is enabled (`libxpp` CMake option). Enables `xpp::fiber()` and fiber-aware `.await()`. |
-| `XPP_MT` | `1` when multi-threading support is enabled (`libxpp` CMake option). Switches `Shared<T>` from `Rc` to `Arc`.
 
 ### Usage
 

@@ -112,7 +112,7 @@ xpp::Promise<int> compute() {
 - **[Promise 模型](libxpp/promise/)** — poll-waker 状态机，`.await()` 语义（fiber 挂起 + 直接驱动事件循环），C++20 协程帧如何映射到 `Promise<T>`，串联、取消和错误传播的内部机制
 - **[异步 I/O](libxpp/io/)** — 从原始 `AsyncFd` 往上经过 `BufReader`/`BufWriter` 到类型安全的 `TcpStream` 和 `File` 的分层架构，以及 `io::copy`、`Duplex`/`Simplex` 等工具
 - **[Channel](libxpp/channels/)** — 完整的 Tokio 对齐套件：`oneshot`、`mpsc`（有界用无锁环形缓冲区，无界用无锁链表）、带滞后恢复的 `broadcast`、版本追踪"已读"语义的 `watch`，以及可复用的唤醒原语 `Notify`
-- **[线程模型](libxpp/promise/#thread-safety)** — `XPP_MT` 编译开关将 `Shared<T>` 从 `Rc` 切换为 `Arc`，`loom` 模块提供可替换的并发原语用于未来的并发测试，以及所有 channel 的 RAII close 语义
+- **[线程模型](libxpp/promise/#thread-safety)** — 所有共享库状态统一使用 `Arc<T>`（原子引用计数）——旧的 `XPP_MT` 开关和 `Shared<T>` 别名已移除，`Rc<T>` 保留给显式单线程使用；`loom` 模块提供可替换的并发原语用于未来的并发测试，以及所有 channel 的 RAII close 语义
 - **[Network](libxpp/net/)** — 异步 TCP、UDP、DNS、TLS，全部建立在同一个 `Promise<T>` 基础上
 - **[Filesystem](libxpp/fs.md)** — 异步文件 I/O，带游标追踪，支持 stat、目录操作等
 - **[Time](libxpp/time.md)(TODO)** — Tokio 风格的时间原语 — `Instant`、`Duration`、`sleep`、`interval`、`timeout` — 全部基于 `Promise<T>`
