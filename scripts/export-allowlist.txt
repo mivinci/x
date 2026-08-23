@@ -216,6 +216,8 @@ xHttpClientGetSse
 xHttpClientPost
 xHttpClientResume
 xHttpCtxEndStream
+xHttpCtxSetUser
+xHttpCtxUser
 xHttpCtxParam
 xHttpCtxSend
 xHttpCtxSetHeader
@@ -230,6 +232,7 @@ xHttpProtoH2Init
 xHttpServerCreate
 xHttpServerDestroy
 xHttpServerListen
+xHttpServerPort
 xHttpServerListenTls
 xHttpServerSetMaxHeaderSize
 xIOBlockAcquire

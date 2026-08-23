@@ -107,6 +107,12 @@ XCAPI(xHttpServer) xHttpServerCreate(const xHttpServerConf *conf);
 XCAPI(xErrno) xHttpServerListen(xHttpServer server, const char *host, uint16_t port);
 
 /**
+ * @brief The actual bound port (useful after xHttpServerListen with port 0).
+ * @return The port in host byte order, or 0 if not listening.
+ */
+XCAPI(uint16_t) xHttpServerPort(xHttpServer server);
+
+/**
  * @brief Destroy an HTTP server and release all resources. Safe to call NULL.
  */
 XCAPI(void) xHttpServerDestroy(xHttpServer server);
@@ -196,6 +202,19 @@ XCAPI(xErrno) xHttpCtxEndStream(xHttpCtx *ctx);
  * @return Pointer to the value, or NULL if not found.
  */
 XCAPI(const char *) xHttpCtxParam(xHttpCtx *ctx, const char *name, size_t *len);
+
+/**
+ * @brief Attach per-request user data to a request context.
+ *
+ * Set from on_request (or the resolver). When set, the value is
+ * delivered as the @p arg to the route's on_data and on_done callbacks
+ * (instead of the route-level @p arg), letting handlers distinguish
+ * concurrent requests on the same route.
+ */
+XCAPI(xErrno) xHttpCtxSetUser(xHttpCtx *ctx, void *user);
+
+/** @brief The per-request user data set by xHttpCtxSetUser, or NULL. */
+XCAPI(void *) xHttpCtxUser(xHttpCtx *ctx);
 
 /* ── TLS ───────────────────────────────────────────────────────────────── */
 

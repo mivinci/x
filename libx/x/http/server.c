@@ -411,6 +411,15 @@ xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port) {
   return xErrno_Ok;
 }
 
+uint16_t xHttpServerPort(xHttpServer server) {
+  struct xHttpServer_ *s = (struct xHttpServer_ *)server;
+  if (!s || s->listen_fd < 0) return 0;
+  struct sockaddr_in addr;
+  socklen_t          len = sizeof(addr);
+  if (getsockname(s->listen_fd, (struct sockaddr *)&addr, &len) != 0) return 0;
+  return ntohs(addr.sin_port);
+}
+
 void xHttpServerDestroy(xHttpServer server) {
   if (!server) return;
   struct xHttpServer_ *s = (struct xHttpServer_ *)server;
@@ -901,8 +910,9 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
    * flag BEFORE calling on_done so we can safely clean up a hijacked
    * connection without touching freed memory. */
   if (stream->route_info && stream->route_info->on_done) {
-    int hijacked = conn->hijacked;
-    stream->route_info->on_done(&stream->ctx, stream->route_info->arg);
+    int   hijacked = conn->hijacked;
+    void *arg      = stream->user ? stream->user : stream->route_info->arg;
+    stream->route_info->on_done(&stream->ctx, arg);
 
     /* If the handler hijacked the connection (e.g. WebSocket upgrade
      * in on_request), clean up and return.  conn is still valid here
@@ -1016,6 +1026,19 @@ xErrno xHttpCtxEndStream(xHttpCtx *ctx) {
   }
   conn_after_response(conn);
   return xErrno_Ok;
+}
+
+xErrno xHttpCtxSetUser(xHttpCtx *ctx, void *user) {
+  if (!ctx || !ctx->internal_) return xErrno_InvalidArg;
+  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
+  stream->user                = user;
+  return xErrno_Ok;
+}
+
+void *xHttpCtxUser(xHttpCtx *ctx) {
+  if (!ctx || !ctx->internal_) return NULL;
+  struct xHttpStream_ *stream = (struct xHttpStream_ *)ctx->internal_;
+  return stream->user;
 }
 
 const char *xHttpCtxParam(xHttpCtx *ctx, const char *name, size_t *len) {
