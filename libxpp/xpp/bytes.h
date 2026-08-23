@@ -11,13 +11,11 @@
  * Design:
  *   - Copies are O(1) — reference count increment only.
  *   - Slices are O(1) — adjust offset + length, share the underlying buffer.
- *   - The default-constructed (empty) state holds a null Shared<Impl>.
- *   - sizeof(Bytes) == sizeof(Shared<Impl>) + 2*sizeof(size_t) == 24 on
- *     64-bit (Shared<Impl> is one pointer — see xpp/rc.h / xpp/arc.h).
+ *   - The default-constructed (empty) state holds a null Arc<Impl>.
+ *   - sizeof(Bytes) == sizeof(Arc<Impl>) + 2*sizeof(size_t) == 24 on
+ *     64-bit (Arc<Impl> is one pointer — see xpp/rc.h / xpp/arc.h).
  *
- * Shared<Impl> resolves to Rc<Impl> by default (single-threaded) and
- * Arc<Impl> when -DXPP_MT is defined (multi-threaded). Bytes is therefore
- * safe to move across threads only when built with -DXPP_MT.
+ * Arc<Impl> (atomic refcount) — Bytes is safe to move across threads.
  *
  * C++11-compatible. Header-only.
  */
@@ -30,10 +28,10 @@
 #include <cstring>
 #include <utility>
 
+#include <xpp/arc.h>
 #include <xpp/option.h>
 #include <xpp/panic.h>
 #include <xpp/result.h>
-#include <xpp/shared.h>
 #include <xpp/span.h>
 #include <xpp/string.h>
 #include <xpp/vec.h>
@@ -87,13 +85,12 @@ inline size_t safe_utf8_step(const uint8_t *p, size_t len) {
  * @brief Immutable, reference-counted byte block.
  *
  * Copies and slices are O(1) — they share the underlying buffer via
- * @ref Shared<Impl>. Use `Bytes` for HTTP body chunks, file I/O buffers,
+ * @ref Arc<Impl>. Use `Bytes` for HTTP body chunks, file I/O buffers,
  * and any byte data that needs cheap slicing or shared ownership.
  *
  * For a growable, uniquely-owned byte buffer, use `Vec<uint8_t>` instead.
  * For a UTF-8 validated byte buffer, use `String` instead.
  *
- * @see Shared  Rc/Arc selection at compile time
  * @see Vec     Growable buffer (unique ownership)
  * @see String  UTF-8 validated bytes
  */
@@ -102,9 +99,9 @@ public:
   /* ── Nested types ───────────────────────────────────────────────── */
 
   /**
-   * @brief Internal storage: the byte buffer + (under -DXPP_MT) refcount.
+   * @brief Internal storage: the byte buffer + atomic refcount.
    *
-   * `Bytes` holds a `Shared<Impl>` and an offset/length pair into the
+   * `Bytes` holds a `Arc<Impl>` and an offset/length pair into the
    * Impl's buffer. Slicing just adjusts offset/length — no copy.
    */
   struct Impl {
@@ -130,8 +127,8 @@ public:
   static Bytes from(Vec<uint8_t> vec) {
     size_t n = vec.len();
     if (n == 0) return Bytes();
-    Shared<Impl> impl = Shared<Impl>::make(std::move(vec));
-    Bytes        b;
+    Arc<Impl> impl = Arc<Impl>::make(std::move(vec));
+    Bytes     b;
     b.m_impl   = some(std::move(impl));
     b.m_offset = 0;
     b.m_len    = n;
@@ -219,7 +216,7 @@ public:
     XPP_DEBUG_ASSERT(len <= m_len - offset, "Bytes::slice: offset %zu + len %zu exceeds size %zu",
                      offset, len, m_len);
     Bytes b;
-    b.m_impl   = m_impl; // Option copy → Shared clone → refcount++
+    b.m_impl   = m_impl; // Option copy → Arc clone → refcount++
     b.m_offset = m_offset + offset;
     b.m_len    = len;
     return b;
@@ -321,15 +318,15 @@ public:
   }
 
 private:
-  Option<Shared<Impl>> m_impl;
-  size_t               m_offset;
-  size_t               m_len;
+  Option<Arc<Impl>> m_impl;
+  size_t            m_offset;
+  size_t            m_len;
 };
 
 /* ── Static size guarantee ────────────────────────────────────────── */
 
-static_assert(sizeof(Bytes) == sizeof(Shared<Bytes::Impl>) + 2 * sizeof(size_t),
-              "Bytes must be Shared<Impl> + offset + len");
+static_assert(sizeof(Bytes) == sizeof(Arc<Bytes::Impl>) + 2 * sizeof(size_t),
+              "Bytes must be Arc<Impl> + offset + len");
 
 } // namespace xpp
 

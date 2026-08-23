@@ -5,11 +5,11 @@
  *
  * broadcast_test.cpp — Tests for xpp::sync::broadcast.
  */
+#include <thread>
+
 #include <gtest/gtest.h>
 #include <xpp/promise.h>
 #include <xpp/sync/broadcast.h>
-
-#include <thread>
 
 using namespace xpp::sync::broadcast;
 
@@ -108,9 +108,7 @@ TEST(BroadcastTest, MultiProducer) {
   EXPECT_EQ(rx.try_recv().unwrap(), 20);
 }
 
-// ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
-
-#if XPP_MT
+// ── Multi-threaded tests ──────────────────────────────────────────
 
 TEST(BroadcastMtTest, WorkerSendLoopRecv) {
   auto [tx, rx] = channel<int>(16);
@@ -161,5 +159,3 @@ TEST(BroadcastMtTest, MultipleWorkerSenders) {
   t1.join();
   t2.join();
 }
-
-#endif // XPP_MT

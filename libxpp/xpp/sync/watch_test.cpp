@@ -5,12 +5,12 @@
  *
  * watch_test.cpp — Tests for xpp::sync::watch.
  */
+#include <chrono>
+#include <thread>
+
 #include <gtest/gtest.h>
 #include <xpp/promise.h>
 #include <xpp/sync/watch.h>
-
-#include <thread>
-#include <chrono>
 
 using namespace xpp::sync::watch;
 
@@ -122,9 +122,7 @@ TEST(WatchTest, Subscribe) {
   do_subscribe().await();
 }
 
-// ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
-
-#if XPP_MT
+// ── Multi-threaded tests ──────────────────────────────────────────
 
 TEST(WatchMtTest, WorkerSendLoopChanged) {
   auto [tx, rx] = channel(0);
@@ -150,5 +148,3 @@ TEST(WatchMtTest, WorkerSendLoopChanged) {
   recver().await();
   worker.join();
 }
-
-#endif // XPP_MT

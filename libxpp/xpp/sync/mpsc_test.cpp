@@ -5,11 +5,11 @@
  *
  * mpsc_test.cpp — Tests for xpp::sync::mpsc.
  */
+#include <thread>
+
 #include <gtest/gtest.h>
 #include <xpp/promise.h>
 #include <xpp/sync/mpsc.h>
-
-#include <thread>
 
 xpp::Promise<void> do_send_recv() {
   auto [tx, rx] = xpp::sync::mpsc::channel<int>(4);
@@ -77,12 +77,12 @@ xpp::Promise<void> do_buffer_full_retry_value_correct() {
   // the original value is preserved — not lost to a moved-from state.
   auto [tx, rx] = xpp::sync::mpsc::channel<int>(1);
 
-  co_await tx.send(100);   // fills the single slot
-  auto send_p = tx.send(200);  // blocks, value must survive retry
+  co_await tx.send(100);      // fills the single slot
+  auto send_p = tx.send(200); // blocks, value must survive retry
 
-  EXPECT_EQ((co_await rx.recv()).unwrap(), 100);  // drain
-  co_await std::move(send_p);                      // should now succeed
-  EXPECT_EQ((co_await rx.recv()).unwrap(), 200);   // value must be 200
+  EXPECT_EQ((co_await rx.recv()).unwrap(), 100); // drain
+  co_await std::move(send_p);                    // should now succeed
+  EXPECT_EQ((co_await rx.recv()).unwrap(), 200); // value must be 200
 
   tx.close();
   co_return;
@@ -207,9 +207,7 @@ TEST(MpscTest, RaiiCloseRecv) {
   do_raii_close_recv().await();
 }
 
-// ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
-
-#if XPP_MT
+// ── Multi-threaded tests ──────────────────────────────────────────
 
 TEST(MpscMtTest, CrossThreadSendRecv) {
   auto [tx, rx] = xpp::sync::mpsc::channel<int>(4);
@@ -366,5 +364,3 @@ TEST(MpscMtTest, UnboundedCrossThread) {
   recver().await();
   worker.join();
 }
-
-#endif // XPP_MT

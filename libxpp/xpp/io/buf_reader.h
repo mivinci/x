@@ -23,7 +23,7 @@
  * C++11: struct + std::move(*this) recursive .then() chain.
  *
  * sizeof(BufReader) = 8 (Shared ptr). The 8KB buffer + inner reader
- * live in a heap-allocated Shared<Inner> to avoid moving bulk state
+ * live in a heap-allocated Arc<Inner> to avoid moving bulk state
  * through .then() chain nodes in the C++11 path. In the C++20 path
  * the indirection is a tiny cost for unified member layout.
  */
@@ -36,6 +36,7 @@
 #include <cstring>
 #include <utility>
 
+#include <xpp/arc.h>
 #include <xpp/io/utils.h>
 
 namespace xpp {
@@ -107,7 +108,7 @@ private:
     size_t  pos    = 0;
     size_t  filled = 0;
   };
-  Shared<Inner> m_inner = Shared<Inner>::make();
+  Arc<Inner> m_inner = Arc<Inner>::make();
 };
 
 /* ── read() — two implementations ─────────────────────────────────── */
@@ -171,7 +172,7 @@ template <class R> inline Promise<ssize_t> BufReader<R>::read(void *buf, size_t 
 
   ssize_t n = i->reader.read(i->buf, _::kBufSize).await();
   if (n <= 0) return xpp::resolve(n);
-  i->filled = static_cast<size_t>(n);
+  i->filled   = static_cast<size_t>(n);
   size_t copy = len < i->filled ? len : i->filled;
   std::memcpy(buf, i->buf, copy);
   i->pos = copy;
@@ -183,7 +184,7 @@ template <class R> inline Promise<ssize_t> BufReader<R>::read(void *buf, size_t 
 /* ═══ C++11: struct + std::move(*this) recursive .then() chain ════════
  *
  * Only path 3 (refill) needs the Refill struct — the other two paths
- * resolve immediately. Refill holds Shared<Inner> (8 bytes) + two
+ * resolve immediately. Refill holds Arc<Inner> (8 bytes) + two
  * scalar params, moved through .then() nodes.
  * ─────────────────────────────────────────────────────────────────── */
 
@@ -205,9 +206,9 @@ template <class R> inline Promise<ssize_t> BufReader<R>::read(void *buf, size_t 
   }
 
   struct Refill {
-    Shared<Inner> inner;
-    void         *buf;
-    size_t        len;
+    Arc<Inner> inner;
+    void      *buf;
+    size_t     len;
 
     Promise<ssize_t> operator()() {
       auto *i = inner.get();
