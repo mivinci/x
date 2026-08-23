@@ -66,6 +66,11 @@ struct TestResponseSpec {
    */
   bool echo_request_body = false;
   /**
+   * @brief If true, the response includes `X-Echo-Method: <request method>`
+   *        so tests can verify the client sent the intended HTTP verb.
+   */
+  bool echo_request_method = false;
+  /**
    * @brief If non-empty, redirect requests whose path is not @p redirect_to
    *        to it with a 302 Found + Location header.
    *
@@ -186,6 +191,7 @@ private:
     bool         headers_done   = false;
     bool         closed         = false; ///< Guards against double cleanup.
     String       request_path;           ///< Path from the request line (e.g. "/b").
+    String       request_method;         ///< Method token (e.g. "GET").
     String       resp;                   ///< Response being sent (send_off marks progress).
     size_t       send_off          = 0;
     uint64_t     mid_body_delay_ms = 0;     ///< From spec — stall after half the body.
@@ -238,6 +244,7 @@ private:
         st->header_end     = hs;
         st->content_length = parse_content_length(st->buf, hs);
         st->request_path   = parse_request_path(st->buf, hs);
+        st->request_method = parse_request_method(st->buf);
         st->headers_done   = true;
       }
     }
@@ -372,6 +379,15 @@ private:
     return String::from_utf8(reinterpret_cast<const char *>(p + start), i - start).unwrap();
   }
 
+  /** @brief Method token from the request line, e.g. "GET" from "GET /b HTTP/1.1". */
+  static String parse_request_method(const Vec<uint8_t> &buf) {
+    const uint8_t *p = buf.data();
+    size_t         i = 0;
+    while (i < buf.len() && p[i] != ' ' && p[i] != '\t' && p[i] != '\r')
+      ++i;
+    return String::from_utf8(reinterpret_cast<const char *>(p), i).unwrap();
+  }
+
   /** @brief Parse Content-Length from the header block. 0 if absent. */
   static size_t parse_content_length(const Vec<uint8_t> &buf, size_t header_end) {
     static const char kName[] = "content-length";
@@ -436,6 +452,12 @@ private:
       resp.push_str(h.first);
       resp.push_str(String::from_utf8(": ").unwrap());
       resp.push_str(h.second);
+      resp.push_str(String::from_utf8("\r\n").unwrap());
+    }
+
+    if (spec.echo_request_method) {
+      resp.push_str(String::from_utf8("X-Echo-Method: ").unwrap());
+      resp.push_str(st.request_method);
       resp.push_str(String::from_utf8("\r\n").unwrap());
     }
 

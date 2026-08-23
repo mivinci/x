@@ -155,7 +155,7 @@ The library SHALL provide `Body::empty()`, `Body::from(Bytes)`, `Body::from(Vec<
 
 ### Requirement: `xpp::http::Request` and `RequestBuilder`
 
-The library SHALL provide `xpp::http::Request` with accessors `method()`, `url()`, `headers()`, `body()` (borrow), `into_body()` (move), `has_body()`. The library SHALL provide `Request::builder()` returning a `RequestBuilder` with fluent configurators `method`, `url` (3 overloads: `String`, `const char*`, `std::string_view` guarded), `header` (2 overloads), `bearer_auth`, `basic_auth`. Termination methods `body(...)` (overloads: `Body`, `Bytes`, `Vec<uint8_t>`, `String`, `const char*`, empty) SHALL return `Result<Request>`. The library SHALL NOT provide method+url convenience terminators (like `get(url)` or `post(url, body)`) on `RequestBuilder` — callers set `method()` + `url()` + `body()` explicitly. The method+url convenience functions live at the top-level `http::get` / `http::post` (see the convenience-functions requirement).
+The library SHALL provide `xpp::http::Request` with accessors `method()`, `url()`, `headers()`, `body()` (borrow), `into_body()` (move), `has_body()`. The library SHALL provide `Request::builder()` returning a `RequestBuilder` with fluent configurators `method`, `url` (3 overloads: `String`, `const char*`, `std::string_view` guarded), `header` (2 overloads), `bearer_auth`, `basic_auth`. Termination methods `body(...)` (overloads: `Body`, `Bytes`, `Vec<uint8_t>`, `String`, `const char*`, empty) SHALL return `Result<Request>`. The library SHALL NOT provide method+url convenience terminators (like `get(url)` or `post(url, body)`) on `RequestBuilder` — callers set `method()` + `url()` + `body()` explicitly. Method+url convenience functions live on `Client` (`Client::get(url)` etc. — see the Client requirement).
 
 #### Scenario: Builder produces a Request with all fields set
 
@@ -193,7 +193,7 @@ The library SHALL provide `xpp::http::Response` with accessors `status()`, `stat
 
 ### Requirement: `xpp::http::Client` and `ClientBuilder`
 
-The library SHALL provide `xpp::http::Client` wrapping `libx/x/http/`'s `xHttpClient`. The library SHALL provide `Client::send(Request) → Promise<Result<Response>>` as the generic entry point, resolving as soon as the response headers arrive (reqwest semantics): `Ok(Response)` with a live streamed `Body`, or `Err` for transport failures before headers and for 4xx/5xx statuses. A body transfer that fails mid-body SHALL surface the error on the body read (`bytes()` returns `Err`), not a silent truncated EOF. The library SHALL provide convenience methods `get(url)`, `post(url)`, `post(url, body)`, `put(url)`, `put(url, body)`, `delete_(url)`, `patch(url)`, `patch(url, body)`, `head(url)` with 3 URL overloads each — all internally constructing a `Request` and delegating to `send`. The library SHALL provide `Client::builder()` returning a `ClientBuilder` with configuration methods: `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect` (accepting `RedirectPolicy`), `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`. Termination method `build()` SHALL return `Result<Client>`.
+The library SHALL provide `xpp::http::Client` wrapping `libx/x/http/`'s `xHttpClient`. The library SHALL provide `Client::send(Request) → Promise<Result<Response>>` as the generic entry point, resolving as soon as the response headers arrive (reqwest semantics): `Ok(Response)` with a live streamed `Body`, or `Err` for transport failures before headers and for 4xx/5xx statuses. A body transfer that fails mid-body SHALL surface the error on the body read (`bytes()` returns `Err`), not a silent truncated EOF. The library SHALL provide convenience methods `get(url)`, `post(url)`, `post(url, body)`, `put(url)`, `put(url, body)`, `del(url)`, `patch(url)`, `patch(url, body)`, `head(url)` with 3 URL overloads each — all internally constructing a `Request` and delegating to `send`. The library SHALL provide `Client::builder()` returning a `ClientBuilder` with configuration methods: `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect` (accepting `RedirectPolicy`), `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`. Termination method `build()` SHALL return `Result<Client>`.
 
 #### Scenario: `send` returns a Response from a local HTTP server
 
@@ -224,10 +224,16 @@ The library SHALL provide `xpp::http::Error` with a `Kind` enum (enumerators `Co
 - **WHEN** an `Error` is constructed with `Kind::Protocol` and an associated `StatusCode::BadRequest`
 - **THEN** `status()` returns `Some(StatusCode::BadRequest)`
 
-### Requirement: Top-level convenience functions `http::get/post/...`
+### Requirement: Top-level convenience functions `http::get/post/...` (DEFERRED)
 
-The library SHALL provide top-level functions in `namespace xpp::http`: `get(url)`, `post(url)`, `post(url, body)`, `put(url)`, `put(url, body)`, `delete_(url)`, `patch(url)`, `patch(url, body)`, `head(url)`. Each SHALL accept URL overloads for `String`, `const char*`, and (when `__cpp_lib_string_view` is defined) `std::string_view`. Each SHALL internally construct a default `Client` and delegate to the corresponding `Client` method.
-
+**Deferred.** Top-level free functions (`xpp::http::get(url)` etc.) were
+prototyped in Phase 6 but not shipped: a default Client has no
+configuration, and in C++ its lifetime must span the whole transfer
+(unlike Rust, where the Future owns the Client) — a per-call temporary
+Client would be destroyed right after submit and cancel the request. The
+`Client::get/post/...` convenience methods provide the same one-liner
+ergonomics without global state. Revisit if a global default Client (with
+connection pooling) is wanted.
 #### Scenario: `http::get` one-liner against local server
 
 - **WHEN** `co_await xpp::http::get("http://127.0.0.1:<port>/")` is executed against a local listener
@@ -259,7 +265,7 @@ The `Client::send` implementation SHALL bridge `libx/x/http/`'s push-based C cal
 
 ### Requirement: No synchronous blocking in async path
 
-The `Body::read`, `Body::bytes`, `Body::text`, `Response::bytes`, `Response::text`, `Client::send`, and all top-level `http::get/post/...` functions SHALL return `Promise` and SHALL NOT perform any blocking syscall or blocking spin-wait on the calling thread. Internal suspension SHALL go through `xpp::sync::mpsc::Receiver::recv()` which integrates with the EventLoop waker.
+The `Body::read`, `Body::bytes`, `Body::text`, `Response::bytes`, `Response::text`, `Client::send`, and the `Client` convenience methods (`get/post/...`) SHALL return `Promise` and SHALL NOT perform any blocking syscall or blocking spin-wait on the calling thread. Internal suspension SHALL go through `xpp::sync::mpsc::Receiver::recv()` which integrates with the EventLoop waker.
 
 #### Scenario: `Body::read` suspends when channel is empty
 
@@ -282,8 +288,8 @@ The library SHALL provide a test-only `xpp::http::test::TestServer` class in `li
 
 #### Scenario: `TestServer` is not part of the public API
 
-- **WHEN** a user includes `xpp/http.h` (the public umbrella header) but not `xpp/http/test_server.h`
-- **THEN** the names `xpp::http::test::TestServer` and `xpp::http::test::TestResponseSpec` are not visible, and the build does not pull in `xpp::net::TcpListener` transitively
+- **WHEN** a user includes `xpp/http/client.h` (and friends) but not `xpp/http/test_server.h`
+- **THEN** the names `xpp::http::test::TestServer` and `xpp::http::test::TestResponseSpec` are not visible, and the build does not pull in the libx C server/network headers transitively
 
 #### Scenario: `TestServer` destructor cleans up the listener
 
