@@ -13,7 +13,8 @@ target_include_directories(xpp INTERFACE
 target_compile_features(xpp INTERFACE cxx_std_11)
 # event.h / timer.h / promise.h / fs/file.h / net/tcp.h include libx headers; link for their users.
 # serde/json.h includes x/json/json.h, so xjson is needed by any TU that pulls in the JSON backend.
-target_link_libraries(xpp INTERFACE xbase xlog xfs xnet xjson)
+# http/client.h includes x/http/client.h, so xhttp is needed when the HTTP client is used.
+target_link_libraries(xpp INTERFACE xbase xlog xfs xnet xjson xhttp)
 if(XPP_MT)
   target_compile_definitions(xpp INTERFACE XPP_MT)
 endif()

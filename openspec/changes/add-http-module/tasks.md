@@ -16,8 +16,8 @@
 ## 2. Phase 2 — HTTP basic enums and HeaderMap
 
 - [ ] 2.1 Create `libxpp/xpp/http/` directory and stub headers `method.h`, `status.h`, `header.h` with license headers and `#ifndef` guards
-- [ ] 2.2 Implement `enum class Method` in `method.h` (Get/Post/Put/Delete/Patch/Head/Options/Trace/Connect) plus `to_string(Method)` and `from_string(const String&)`
-- [ ] 2.3 Implement `enum class StatusCode : uint16_t` in `status.h` covering 1xx-5xx common codes, plus `is_informational` / `is_success` / `is_redirect` / `is_client_error` / `is_server_error` helpers, `to_string(StatusCode)`, `from_string(const String&)`
+- [ ] 2.2 Implement `Method` namespace in `method.h` (`Value` enum: Get/Post/Put/Delete/Patch/Head/Options/Trace/Connect, re-exported constexpr aliases) plus `to_string(Method::Value)` and `Method::from_string(const String&)`
+- [ ] 2.3 Implement `StatusCode` namespace in `status.h` (`Value` enum covering 1xx-5xx common codes, re-exported constexpr aliases), plus `is_informational` / `is_success` / `is_redirect` / `is_client_error` / `is_server_error` helpers, `to_string(StatusCode::Value)`, `StatusCode::from_string(const String&)`
 - [ ] 2.4 Implement `HeaderMap` in `header.h` with `Vec<String> m_keys` (lowercased) + `Vec<String> m_values` parallel arrays; methods `insert`, `get`, `contains`, `get_all` (returns `Values` range), `erase`, `empty`, `size`, `begin`, `end`, `from_vec`
 - [ ] 2.5 Write `method_test.cpp` covering to_string/from_string round-trip for all enum values, unknown string returns None
 - [ ] 2.6 Write `status_test.cpp` covering is_success/is_redirect/etc. for representative codes, to_string/from_string round-trip
@@ -40,7 +40,7 @@
 
 - [ ] 4.1 Create `libxpp/xpp/http/request.h` and `response.h` with license headers and guards
 - [ ] 4.2 Implement `Request` class with `m_method`, `m_url`, `m_headers`, `m_body`; accessors `method()`, `url()`, `headers()`, `body()` (borrow), `into_body()` (move), `has_body()`
-- [ ] 4.3 Implement `RequestBuilder` with fluent `method`, `url` (3 overloads), `header` (2 overloads), `bearer_auth`, `basic_auth`; terminators `body(Body)`, `body(Bytes)`, `body(Vec<uint8_t>)`, `body(String)`, `body(const char*)`, `body()` (empty) — all return `Result<Request>`
+- [ ] 4.3 Implement `RequestBuilder` with fluent `method`, `url` (3 overloads), `header` (2 overloads), `bearer_auth`, `basic_auth`; terminators `body(Body)`, `body(Bytes)`, `body(Vec<uint8_t>)`, `body(String)`, `body(const char*)`, `body()` (empty) — all return `Result<Request>`; convenience terminators `get(url)`, `post(url)`, `post(url, body)`, etc.
 - [ ] 4.4 Implement `Response` class with `m_status`, `m_headers`, `m_body`, `m_final_url`; accessors `status()`, `status_code()`, `headers()`, `header(name)`, `body()`, `into_body()`, `has_body()`, `url()`; convenience `bytes()`, `text()`
 - [ ] 4.5 Implement `ResponseBuilder` with `status` (2 overloads), `header`; terminators `body(...)` overloads returning `Response`; static convenience `ok(...)`, `created(...)`, `no_content()`, `bad_request(...)`, `not_found()`, `internal_server_error(...)`
 - [ ] 4.6 Write `request_test.cpp` covering: builder produces correct method/url/headers/body; body overloads store correctly; `into_body()` empties the request; URL overloads compile; bearer_auth/basic_auth set correct header
@@ -52,12 +52,12 @@
 - [ ] 5.1 Create `libxpp/xpp/http/error.h` with license header and guards
 - [ ] 5.2 Implement `Error` class with `Kind` enum (Connect/Dns/Timeout/TooManyRedirects/InvalidUrl/Io/Protocol/Tls/Body), `m_kind`, `m_message`, `m_status` (Option<StatusCode>); accessors `kind()`, `message()`, `status()`, `is_connect()`, `is_timeout()`, `is_redirect()`, `is_status_error()`, `to_string()`
 - [ ] 5.3 Create `libxpp/xpp/http/client.h` with license header and guards
-- [ ] 5.4 Implement `Client` class wrapping `xHttpClient` from `libx/x/http/client.h`; `send(Request) → Promise<Result<Response>>` via SendAdapter (owns mpsc Sender + PromiseResolver); C callbacks `on_response` (construct Response with Body::from_channel), `on_data` (try_send, backpressure on Full), `on_done` (close channel + delete adapter)
-- [ ] 5.5 (removed — Client convenience methods dropped per design; users use `Request::builder()` + `Client::send`)
+- [ ] 5.4 Implement `Client` class wrapping `xHttpClient` from `libx/x/http/client.h`; `send(Request) → Promise<Result<Response>>` via SendAdapter (owns mpsc Sender + PromiseResolver); C callbacks `on_response` (resolve the promise — reqwest semantics; construct Response with Body::from_channel), `on_data` (try_send, full → return 1 pause; resume via the Body's drain hook calling xHttpClientResume), `on_done` (close channel; write shared transfer-error flag on mid-body failure; delete adapter)
+- [ ] 5.5 Implement `Client` convenience methods `get(url)`, `post(url)`, `post(url, body)`, `put`, `delete_`, `patch`, `head` with 3 URL overloads each — all delegate to `send(Request::builder()...)`
 - [ ] 5.6 Implement `ClientBuilder` with `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect`, `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`, `build() → Result<Client>`
 - [ ] 5.7 Create `libxpp/xpp/http/test_server.h` with license header, guards, and `namespace xpp::http::test`
-- [ ] 5.8 Implement `TestResponseSpec` struct (status, headers, body, delay)
-- [ ] 5.9 Implement `TestServer` class: `start(TestResponseSpec)` binds a loopback `TcpListener` (via `get_free_port()` from `net/test_helpers.h`), spawns an accept fiber that reads the request up to `\r\n\r\n`, optionally sleeps `delay`, then writes a preset HTTP/1.1 response (status line + headers + body + close). `port()` returns the bound port. `stop()` closes the listener and joins the fiber. Destructor calls `stop()`.
+- [ ] 5.8 Implement `TestResponseSpec` struct (`status`, `headers`, `body`, `delay_ms` as `uint64_t`)
+- [ ] 5.9 Implement `TestServer` class: `start(TestResponseSpec)` binds a loopback `TcpListener` to `127.0.0.1:0` (kernel-assigned port, NOT `get_free_port()` — race-free), reads the real port from `TcpListener::local_addr()`, spawns an accept `xpp::fiber` that reads each request up to `\r\n\r\n` and drains any `Content-Length` body bytes, optionally `co_await xpp::after(delay_ms)`, then writes a preset HTTP/1.1 response (status line + headers + body + `Connection: close`). `port()` returns the bound port. `stop()` closes the listener. Destructor calls `stop()`.
 - [ ] 5.10 Write `error_test.cpp` (Layer 1) covering each Kind, is_* predicates, to_string format
 - [ ] 5.11 Write `client_test.cpp` (Layer 3) using `TestServer`: `Client::builder().build()` succeeds; `send` returns `Ok(Response)` with correct status/headers/body against a preset `TestServer`; convenience methods (`get`/`post`/...) construct correct Request (verified end-to-end via TestServer response); URL overloads (`String`/`const char*`/`std::string_view`) all compile and round-trip; `timeout` configuration triggers `Error::is_timeout()` against a delayed TestServer response
 - [ ] 5.12 Add `client_test` and `error_test` targets to CMakeLists, build with ASan, run, fix failures

@@ -248,6 +248,12 @@ void xEventLoopStop(xEventLoop loop_) {
 xErrno xEventLoopWake(xEventLoop loop_) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)loop_;
   if (!loop) return xErrno_InvalidArg;
+  /* Coalesce: only the first caller with a not-yet-consumed wake actually
+   * triggers the backend syscall. Without this, any pattern that wakes the
+   * loop frequently (e.g. xTimerStart restarting a timer every iteration)
+   * forces the poll to return immediately each time — busy-wake churn. The
+   * pending flag is cleared when the loop drains the wake event. */
+  if (!loop_coalesced_wake(loop)) return xErrno_Ok;
   loop->backend->wake(loop);
   return xErrno_Ok;
 }
