@@ -135,10 +135,11 @@ TEST(SpawnTest, RawPromiseOverload) {
   auto [tx, rx] = sync::mpsc::channel<int>(8);
   std::atomic<bool> done{false};
 
-  spawn(rx.recv().then([&done](Option<int> v) {
+  auto p_ = rx.recv().then([&done](Option<int> v) {
     EXPECT_EQ(v.unwrap(), 7);
     done.store(true, std::memory_order_release);
-  }));
+  });
+  spawn(std::move(p_));
 
   tx.try_send(7);
   tx.close();

@@ -33,6 +33,7 @@
 #include <xpp/event.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
+#include <xpp/promise_combinators.h>
 #include <xpp/promise_context.h>
 #include <xpp/promise_waker.h>
 
@@ -50,15 +51,14 @@ void resolve_spawn_result(PromiseResolver<T> &r, Option<typename PromiseNode<T>:
   r.resolve(std::move(v.unwrap()));
 }
 
-template <>
-inline void resolve_spawn_result<void>(PromiseResolver<void> &r, Option<Void> &v) {
+template <> inline void resolve_spawn_result<void>(PromiseResolver<void> &r, Option<Void> &v) {
   (void)v;
   r.resolve();
 }
 
 template <class T> void spawn_step(void *arg) {
-  auto *st = static_cast<SpawnState<T> *>(arg);
-  PromiseContext cx(st->waker);
+  auto                                      *st = static_cast<SpawnState<T> *>(arg);
+  PromiseContext                             cx(st->waker);
   Option<typename PromiseNode<T>::ValueType> r = st->node->poll(cx);
   if (r.is_some()) {
     resolve_spawn_result(st->resolver, r); // fulfill the JoinHandle
@@ -74,16 +74,16 @@ template <class T> struct SpawnState {
   PromiseResolver<T> resolver;
 
   SpawnState(OwnPromiseNode<T> n, PromiseWaker w, PromiseResolver<T> r)
-    : node(std::move(n)), waker(std::move(w)), resolver(std::move(r)) {}
+      : node(std::move(n)), waker(std::move(w)), resolver(std::move(r)) {}
 };
 
 template <class T> Promise<T> spawn_impl(Promise<T> &&p) {
-  auto out      = async<T>();
-  auto promise  = std::move(out.first);
-  auto resolver = std::move(out.second);
-  auto *st = new SpawnState<T>(_extract_node(std::move(p)),
-                               PromiseWaker::create_with_wake_cb(&spawn_step<T>, nullptr),
-                               std::move(resolver));
+  auto  out      = async<T>();
+  auto  promise  = std::move(out.first);
+  auto  resolver = std::move(out.second);
+  auto *st       = new SpawnState<T>(_extract_node(std::move(p)),
+                                     PromiseWaker::create_with_wake_cb(&spawn_step<T>, nullptr),
+                                     std::move(resolver));
   st->waker.set_wake_arg(st); // point the wake callback at the state
   xEventLoopPost(xEventLoopCurrent(), &spawn_step<T>, st);
   return promise;
