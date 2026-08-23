@@ -57,7 +57,7 @@ Status legend: `[x]` done, `[ ]` pending.
 - [x] 5.2 Implement `Error` class with `Kind` enum (Connect/Dns/Timeout/TooManyRedirects/InvalidUrl/Io/Protocol/Tls/Body), `m_kind`, `m_message`, `m_status` (Option<StatusCode>); accessors `kind()`, `message()`, `status()`, `is_connect()`, `is_timeout()`, `is_redirect()`, `is_status_error()`, `to_string()`
 - [x] 5.3 Create `libxpp/xpp/http/client.h` with license header and guards
 - [x] 5.4 Implement `Client` class wrapping `xHttpClient` from `libx/x/http/client.h`; `send(Request) → Promise<Result<Response>>` via SendAdapter (owns mpsc Sender + PromiseResolver); C callbacks `on_response` (resolve the promise — reqwest semantics; construct Response with Body::from_channel), `on_data` (try_send, full → return 1 pause; resume via the Body's drain hook calling xHttpClientResume), `on_done` (close channel; write shared transfer-error flag on mid-body failure; delete adapter)
-- [ ] 5.5 Implement `Client` convenience methods `get(url)`, `post(url)`, `post(url, body)`, `put`, `delete_`, `patch`, `head` with 3 URL overloads each — all delegate to `send(Request::builder()...)`. **Deferred to Phase 6** (do together with the top-level `xpp::http::get` etc.; same delegation pattern).
+- [x] 5.5 Implement `Client` convenience methods `get(url)`, `post(url)`, `post(url, body)`, `put`, `del`, `patch`, `head` — done in Phase 6 (template methods resolving URL overloads via RequestBuilder::url).
 - [x] 5.6 Implement `ClientBuilder` with `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect`, `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`, `build() → Result<Client>` — `read_timeout` now functional (idle-body timer, #75)
 - [x] 5.7 Create `libxpp/xpp/http/test_server.h` with license header, guards, and `namespace xpp::http::test`
 - [x] 5.8 Implement `TestResponseSpec` struct (`status`, `headers`, `body`, `delay_ms`; plus `echo_request_body`, `redirect_to`, `truncate_body_after`, `mid_body_delay_ms` added in #75)
@@ -68,11 +68,11 @@ Status legend: `[x]` done, `[ ]` pending.
 
 ## 6. Phase 6 — Client convenience methods + top-level functions + docs
 
-- [ ] 6.1 Client convenience methods (`Client::get/post/put/delete_/patch/head`) — see 5.5
-- [ ] 6.2 Create `libxpp/xpp/http/http.h` (umbrella) with license header and guards
-- [ ] 6.3 Implement top-level `xpp::http::get(url)`, `post(url)`, `post(url, body)`, `put(url)`, `put(url, body)`, `delete_(url)`, `patch(url)`, `patch(url, body)`, `head(url)` with `String`, `const char*`, `std::string_view` (guarded) overloads — each creates a default `Client` and delegates
-- [ ] 6.4 Write `http_convenience_test.cpp` (Layer 3) using `TestServer`: each verb round-trips; each URL overload compiles and round-trips; `co_await xpp::http::get("http://127.0.0.1:<port>/")` works end-to-end
-- [ ] 6.5 Profile `http::get` cold-start cost; if `curl_global_init` overhead is measurable, add a thread-local default `Client` reused by `http::get` (document in `design.md` open question Q1)
+- [x] 6.1 Client convenience methods (`Client::get/post/put/del/patch/head`) — template methods, URL overloads via RequestBuilder::url
+- [x] 6.2 Create `libxpp/xpp/http.h` (umbrella) with license header and guards
+- [x] 6.3 Implement top-level `xpp::http::get(url)`, `post(url)`, `post(url, body)`, `put(url)`, `put(url, body)`, `del(url)`, `patch(url)`, `patch(url, body)`, `head(url)` — template URL overloads; thread-local default Client (see 6.5)
+- [x] 6.4 Write `http_convenience_test.cpp` (Layer 3) using `TestServer`: each verb round-trips; each URL overload compiles and round-trips; one-liner works end-to-end
+- [x] 6.5 Default Client is thread-local (reused per thread — also fixes the temporary-Client-destroys-in-flight-request problem); a temporary Client would be destroyed right after submit and xHttpClientDestroy cancels in-flight requests. Cold-start cost per thread, not per call. Documented in `design.md` Q1.
 - [ ] 6.6 Add mdBook page `docs/libxpp/bytes.md` documenting the `Bytes` type, copy/slice semantics, when to use `Bytes` vs `Vec<uint8_t>`
 - [ ] 6.7 Add mdBook page `docs/libxpp/http.md` documenting the client API, push→pull bridge, body streaming, composition with `io::read_all` / `io::copy`, and examples from `design.md`
 - [ ] 6.8 Update `docs/SUMMARY.md` to include the new pages

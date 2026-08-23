@@ -40,6 +40,18 @@
 namespace xpp {
 namespace http {
 
+namespace _ {
+
+/// Accept a Body directly, or wrap convertible types via Body::from.
+inline Body to_body(Body b) {
+  return b;
+}
+template <class B> inline Body to_body(B &&b) {
+  return Body::from(std::forward<B>(b));
+}
+
+} // namespace _
+
 class ClientBuilder;
 
 /**
@@ -89,7 +101,64 @@ public:
    */
   Promise<http::Result<Response>> send(Request req);
 
+  /* ── Convenience methods (delegate to send) ───────────────────────
+   * Each accepts a URL as String, const char*, or std::string_view
+   * (when available) — resolved via RequestBuilder::url overloads. */
+
+  /** @brief GET @p url (no body). */
+  template <class Url> Promise<http::Result<Response>> get(Url &&url) {
+    return simple(Method::Get, std::forward<Url>(url), Body::empty());
+  }
+
+  /** @brief POST @p url, empty body. */
+  template <class Url> Promise<http::Result<Response>> post(Url &&url) {
+    return simple(Method::Post, std::forward<Url>(url), Body::empty());
+  }
+  /** @brief POST @p url with @p body (Bytes/String/Vec<uint8_t>/const char* / Body). */
+  template <class Url, class B> Promise<http::Result<Response>> post(Url &&url, B &&body) {
+    return simple(Method::Post, std::forward<Url>(url), _::to_body(std::forward<B>(body)));
+  }
+
+  /** @brief PUT @p url, empty body. */
+  template <class Url> Promise<http::Result<Response>> put(Url &&url) {
+    return simple(Method::Put, std::forward<Url>(url), Body::empty());
+  }
+  /** @brief PUT @p url with @p body. */
+  template <class Url, class B> Promise<http::Result<Response>> put(Url &&url, B &&body) {
+    return simple(Method::Put, std::forward<Url>(url), _::to_body(std::forward<B>(body)));
+  }
+
+  /**
+   * @brief DELETE @p url (no body).
+   *
+   * Named `del` — `delete` is a C++ keyword.
+   */
+  template <class Url> Promise<http::Result<Response>> del(Url &&url) {
+    return simple(Method::Delete, std::forward<Url>(url), Body::empty());
+  }
+
+  /** @brief PATCH @p url, empty body. */
+  template <class Url> Promise<http::Result<Response>> patch(Url &&url) {
+    return simple(Method::Patch, std::forward<Url>(url), Body::empty());
+  }
+  /** @brief PATCH @p url with @p body. */
+  template <class Url, class B> Promise<http::Result<Response>> patch(Url &&url, B &&body) {
+    return simple(Method::Patch, std::forward<Url>(url), _::to_body(std::forward<B>(body)));
+  }
+
+  /** @brief HEAD @p url (no body). */
+  template <class Url> Promise<http::Result<Response>> head(Url &&url) {
+    return simple(Method::Head, std::forward<Url>(url), Body::empty());
+  }
+
 private:
+  template <class Url>
+  Promise<http::Result<Response>> simple(Method::Value m, Url &&url, Body body) {
+    auto req =
+      Request::builder().method(m).url(std::forward<Url>(url)).body(std::move(body)).unwrap();
+    return send(std::move(req));
+  }
+
   friend class ClientBuilder;
   explicit Client(xHttpClient c) : m_client(c) {}
 

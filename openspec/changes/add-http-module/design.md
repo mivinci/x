@@ -258,7 +258,7 @@ Promise<Result<Response>> send(Request req);   // resolves at on_response, not o
 
 ### Q1: libcurl global init cost
 
-`http::get(url)` creates a default `Client` each call. If `xHttpClientCreate` triggers `curl_global_init` (process-wide, not thread-safe before init), this cost is paid per call. **To verify by profiling.** If measurable, add a thread-local default `Client` reused by `http::get`.
+Resolved in Phase 6: `xpp::http::get(url)` etc. use a **thread-local default `Client`** (`http.h::_::default_client`), so `curl_global_init` / `xHttpClientCreate` cost is paid once per thread, not per call. A per-call temporary `Client` would also be wrong for another reason: `xHttpClientDestroy` cancels in-flight requests, so the Client must outlive the whole transfer — the thread-local keeps it alive. **Constraint:** the Client is bound to the EventLoop current at first use; that loop must stay alive for the thread's top-level calls (the usual case — a resident loop on the calling thread). `_::reset_default_client()` releases it (used by tests that tear down their loop).
 
 ### Q2: Channel capacity tuning
 
