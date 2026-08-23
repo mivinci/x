@@ -494,18 +494,23 @@ struct PauseCtx {
   long              status_code{0};
   int               curl_code{-1};
   std::string       body;
-  int               pauses{0}; /* number of times on_data returned pause */
+  int               pauses{0};                /* times on_data returned pause */
+  bool              expect_redelivery{false}; /* next call is a resume/flush redelivery */
 };
 
 static int on_data_pause_collect(const char *data, size_t len, void *arg) {
   auto *c = static_cast<PauseCtx *>(arg);
-  /* Alternate like a real consumer: the first delivery of each chunk
-   * pauses without consuming (libx buffers it); the resume re-delivery
-   * accepts (a slot was freed). Each chunk is appended exactly once. */
-  bool accept = (c->pauses % 2 == 1);
-  if (accept) c->body.append(data, len);
+  if (c->expect_redelivery) {
+    /* Re-delivery from xHttpClientResume (or the on_done flush): the
+     * consumer has space now — accept and record the data. */
+    c->body.append(data, len);
+    c->expect_redelivery = false;
+    return 0;
+  }
+  /* First delivery: pause (libx buffers the chunk; it will be re-delivered). */
+  c->expect_redelivery = true;
   c->pauses++;
-  return accept ? 0 : 1;
+  return 1;
 }
 
 static void pause_done(xHttpCtx *ctx, void *arg) {
@@ -590,8 +595,9 @@ TEST_F(HttpClientTest, PauseResumeBackpressure) {
   xErrno err            = xHttpClientGet(client, &conf, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  /* Resume one paused chunk per loop iteration. Resume on a not-paused
-   * request is a no-op (xErrno_Unknown) and must be harmless. */
+  /* Drive: every chunk's first delivery pauses; xHttpClientResume (or the
+   * on_done flush) re-delivers it, which the callback accepts. Resume on a
+   * not-paused request is a no-op (xErrno_Unknown) and must be harmless. */
   for (int i = 0; i < 10000 && !ctx.done.load(); i++) {
     xHttpClientResume(client, &ctx);
     xEventLoopRun(loop, X_RUN_ONCE);

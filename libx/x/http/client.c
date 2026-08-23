@@ -210,6 +210,17 @@ static void oneshot_on_done(struct xHttpReq_ *req, CURLcode result) {
     }
   }
 
+  /* Flush any buffered (paused) body data before completing. curl may
+   * deliver the final chunk, have on_data pause (return > 0), and then
+   * immediately complete the transfer — without this, the last paused
+   * chunk would never be re-delivered and data would be lost. The on_data
+   * callback is expected to accept on this final delivery. */
+  if (req->paused && req->on_data && xBufferLen(req->paused_buf) > 0) {
+    req->on_data((const char *)xBufferData(req->paused_buf), xBufferLen(req->paused_buf), req->arg);
+    xBufferReset(req->paused_buf);
+    req->paused = 0;
+  }
+
   /* Build/refresh ctx for on_done */
   req_build_ctx(req, result);
 
