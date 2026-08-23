@@ -33,12 +33,12 @@
 #include <functional>
 #include <utility>
 
+#include <xpp/arc.h>
 #include <xpp/bytes.h>
 #include <xpp/enum.h>
 #include <xpp/http/error.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
-#include <xpp/shared.h>
 #include <xpp/string.h>
 #include <xpp/sync/mpsc.h>
 #include <xpp/vec.h>
@@ -77,7 +77,7 @@ namespace http {
 class Body {
 public:
   /** @brief Construct an empty body (EOF on first read). */
-  Body() : m_xfer_error(Shared<Option<Error>>::make()) {} // m_storage = None
+  Body() : m_xfer_error(Arc<Option<Error>>::make()) {} // m_storage = None
   Body(const Body &)            = delete;
   Body &operator=(const Body &) = delete;
 
@@ -129,7 +129,7 @@ public:
    */
   static Body from_channel(sync::mpsc::Receiver<Bytes> rx,
                            std::function<void()>       on_drain   = std::function<void()>(),
-                           Shared<Option<Error>>       xfer_error = Shared<Option<Error>>::make()) {
+                           Arc<Option<Error>>          xfer_error = Arc<Option<Error>>::make()) {
     Body b;
     b.m_on_drain   = std::move(on_drain);
     b.m_xfer_error = std::move(xfer_error);
@@ -178,12 +178,12 @@ public:
    * After this call, the Body is consumed (reads will return 0).
    */
   Promise<http::Result<Bytes>> bytes() {
-    // Move *this into a Shared<Body> so the reader stays alive across the
+    // Move *this into an Arc<Body> so the reader stays alive across the
     // async read loop. `io::read_all(*this)` only stores a reference; if
     // the Body is a temporary (e.g. `Response::bytes()` → `into_body().bytes()`)
     // it would be destroyed before the promise resolves. Holding `self`
     // in the .then() capture extends its lifetime to the full Promise chain.
-    Shared<Body> self = Shared<Body>::make(std::move(*this));
+    Arc<Body> self = Arc<Body>::make(std::move(*this));
     return io::read_all(*self).then([self](Vec<uint8_t> v) {
       if (self->m_error.is_some()) {
         return http::Result<Bytes>(xpp::err, self->m_error.unwrap());
@@ -247,10 +247,10 @@ private:
   // Backpressure hook: fired after each successful recv (see from_channel).
   std::function<void()> m_on_drain;
 
-  // Shared transfer-error flag (see from_channel). Written by the transfer
+  // Transfer-error flag (shared via Arc, see from_channel). Written by the transfer
   // owner; read at channel EOF. When set, read() returns -1 instead of 0.
-  Shared<Option<Error>> m_xfer_error;
-  Option<Error>         m_error; // surfaced to bytes()/text()
+  Arc<Option<Error>> m_xfer_error;
+  Option<Error>      m_error; // surfaced to bytes()/text()
 
   // In Channel mode: leftover bytes from a chunk larger than the read
   // buffer. Drained first on the next read() before consulting m_rx.

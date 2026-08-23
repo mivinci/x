@@ -18,10 +18,10 @@
 
 #include <utility>
 
+#include <xpp/arc.h>
 #include <xpp/loom/mutex.h>
 #include <xpp/promise.h>
 #include <xpp/result.h>
-#include <xpp/shared.h>
 #include <xpp/sync/notify.h>
 
 namespace xpp {
@@ -183,9 +183,9 @@ private:
     Notify                         m_notify;
     explicit State(const T &init) : m_value(init) {}
   };
-  Shared<State> m_state;
+  Arc<State> m_state;
 
-  explicit Sender(Shared<State> s) : m_state(std::move(s)) {}
+  explicit Sender(Arc<State> s) : m_state(std::move(s)) {}
 
   void drop();
 };
@@ -230,9 +230,9 @@ private:
   template <class U> friend class Sender;
   template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(const U &);
   using State = typename Sender<T>::State;
-  Shared<State> m_state;
-  uint64_t      m_seen_version = 0;
-  explicit Receiver(Shared<State> s) : m_state(std::move(s)) {}
+  Arc<State> m_state;
+  uint64_t   m_seen_version = 0;
+  explicit Receiver(Arc<State> s) : m_state(std::move(s)) {}
 };
 
 // ── Deferred ─────────────────────────────────────────────────────────
@@ -274,7 +274,7 @@ template <class T> xpp::Promise<xpp::Result<void, RecvError>> Receiver<T>::chang
 
   // Fast path: already have an unseen value
   {
-    auto g   = m_state->m_value.lock();
+    auto     g       = m_state->m_value.lock();
     uint64_t current = g->m_version.load(std::memory_order_acquire);
     if (current != m_seen_version) {
       m_seen_version = current;
@@ -286,8 +286,7 @@ template <class T> xpp::Promise<xpp::Result<void, RecvError>> Receiver<T>::chang
     uint64_t current;
     {
       auto g = m_state->m_value.lock();
-      if (g->m_closed.load(std::memory_order_acquire))
-        co_return xpp::err(RecvError{});
+      if (g->m_closed.load(std::memory_order_acquire)) co_return xpp::err(RecvError{});
       current = g->m_version.load(std::memory_order_acquire);
     }
     if (current != m_seen_version) {
@@ -365,7 +364,7 @@ template <class T> xpp::Promise<void> Sender<T>::closed() {
   } // mutex released
 
   struct ClosedLoop {
-    Shared<State> state;
+    Arc<State> state;
 
     Promise<void> operator()() {
       {
@@ -384,11 +383,11 @@ template <class T> xpp::Promise<void> Sender<T>::closed() {
 /**
  * C++11 changed(): wait for a version bump via recursive .then().
  *
- * The seen version is stored in Shared<uint64_t> so it can survive
+ * The seen version is stored in Arc<uint64_t> so it can survive
  * across .then() callback boundaries. After the chain resolves,
  * the final .then() writes the version back to m_seen_version.
  *
- * Extra allocation: 1 Shared<uint64_t> (8 bytes heap refcount).
+ * Extra allocation: 1 Arc<uint64_t> (8 bytes heap refcount).
  */
 template <class T> xpp::Promise<xpp::Result<void, RecvError>> Receiver<T>::changed() {
   if (!m_state) return xpp::resolve(xpp::err(RecvError{}));
@@ -401,11 +400,11 @@ template <class T> xpp::Promise<xpp::Result<void, RecvError>> Receiver<T>::chang
   }
 
   // Slow path: wait loop. Version is shared so the struct can update it.
-  auto pver = Shared<uint64_t>::make(m_seen_version);
+  auto pver = Arc<uint64_t>::make(m_seen_version);
 
   struct ChangedLoop {
-    Shared<State>    state;
-    Shared<uint64_t> pver;
+    Arc<State>    state;
+    Arc<uint64_t> pver;
 
     xpp::Promise<xpp::Result<void, RecvError>> operator()() {
       uint64_t current;
@@ -489,7 +488,7 @@ template <class T> Ref<T> Receiver<T>::borrow_and_update() {
  * @return A pair of Sender<T> (cloneable) and Receiver<T> (move-only).
  */
 template <class T> std::pair<Sender<T>, Receiver<T>> channel(const T &init) {
-  auto s = Shared<typename Sender<T>::State>::make(init);
+  auto s = Arc<typename Sender<T>::State>::make(init);
   return {Sender<T>(s), Receiver<T>(std::move(s))};
 }
 

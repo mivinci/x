@@ -5,11 +5,11 @@
  *
  * oneshot_test.cpp — Tests for xpp::sync::oneshot.
  */
+#include <thread>
+
 #include <gtest/gtest.h>
 #include <xpp/promise.h>
 #include <xpp/sync/oneshot.h>
-
-#include <thread>
 
 xpp::Promise<void> do_send_recv() {
   auto [tx, rx] = xpp::sync::oneshot::channel<int>();
@@ -39,9 +39,7 @@ TEST(OneshotTest, String) {
   do_string().await();
 }
 
-// ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
-
-#if XPP_MT
+// ── Multi-threaded tests ──────────────────────────────────────────
 
 TEST(OneshotMtTest, SendFromWorkerRecvOnLoop) {
   auto [tx, rx] = xpp::sync::oneshot::channel<int>();
@@ -116,5 +114,3 @@ TEST(OneshotMtTest, MoveOnlyType) {
   recver().await();
   worker.join();
 }
-
-#endif // XPP_MT

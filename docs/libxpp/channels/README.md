@@ -34,10 +34,8 @@ All channels work with `.await()` (C++11 + fiber), `co_await` (C++20), and `.the
 
 ## Thread safety
 
-All channels support both single-threaded and multi-threaded usage:
-
-- By default (`XPP_MT` off): `Shared` = `Rc<T>` (zero-overhead cooperative scheduling)
-- With `-DXPP_MT`: `Shared` = `Arc<T>` (atomic refcount for multi-threaded safety)
+All channels support both single-threaded and multi-threaded usage — shared
+state always uses `Arc<T>` (atomic refcount); the old `XPP_MT` switch was removed.
 
 Multi-threaded tests exist for all channels (`*_mt_test.cpp`).
 

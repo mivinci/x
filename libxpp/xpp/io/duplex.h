@@ -25,10 +25,8 @@
 #include <utility>
 
 #include <xpp/arc.h>
-#include <xpp/promise.h>
-#include <xpp/shared.h>
-
 #include <xpp/io/ring_buf.h>
+#include <xpp/promise.h>
 
 namespace xpp {
 namespace io {
@@ -81,15 +79,19 @@ public:
 private:
   friend std::pair<DuplexStream, DuplexStream> duplex(size_t size);
 
-  Shared<_::DuplexBuf> m_dup;
-  int                  m_idx = 0;
+  Arc<_::DuplexBuf> m_dup;
+  int               m_idx = 0;
 
-  DuplexStream(Shared<_::DuplexBuf> dup, int idx) : m_dup(std::move(dup)), m_idx(idx) {}
+  DuplexStream(Arc<_::DuplexBuf> dup, int idx) : m_dup(std::move(dup)), m_idx(idx) {}
 
   /** My inbound buffer (read side). */
-  _::RingBuf &my_buf() { return m_dup->buf[m_idx]; }
+  _::RingBuf &my_buf() {
+    return m_dup->buf[m_idx];
+  }
   /** The other side's inbound buffer (my write target). */
-  _::RingBuf &other_buf() { return m_dup->buf[1 - m_idx]; }
+  _::RingBuf &other_buf() {
+    return m_dup->buf[1 - m_idx];
+  }
 };
 
 /* ── Shared method (no coroutine dep) ───────────────────────────────── */
@@ -198,10 +200,10 @@ inline Promise<ssize_t> DuplexStream::write(const void *buf, size_t len) {
 
 inline Promise<ssize_t> DuplexStream::read(void *buf, size_t len) {
   struct ReadLoop {
-    Shared<_::DuplexBuf> dup;
-    int                  idx;
-    void                *buf;
-    size_t               len;
+    Arc<_::DuplexBuf> dup;
+    int               idx;
+    void             *buf;
+    size_t            len;
 
     Promise<ssize_t> operator()() {
       auto *d = dup.get();
@@ -227,10 +229,10 @@ inline Promise<ssize_t> DuplexStream::read(void *buf, size_t len) {
 
 inline Promise<ssize_t> DuplexStream::write(const void *buf, size_t len) {
   struct WriteLoop {
-    Shared<_::DuplexBuf> dup;
-    int                  idx;
-    const void          *buf;
-    size_t               len;
+    Arc<_::DuplexBuf> dup;
+    int               idx;
+    const void       *buf;
+    size_t            len;
 
     Promise<ssize_t> operator()() {
       auto *d = dup.get();
@@ -263,7 +265,7 @@ inline Promise<ssize_t> DuplexStream::write(const void *buf, size_t len) {
 /* ── Factory (shared — both branches use Shared) ───────────────────── */
 
 inline std::pair<DuplexStream, DuplexStream> duplex(size_t size) {
-  auto dup = Shared<_::DuplexBuf>::make(size);
+  auto dup = Arc<_::DuplexBuf>::make(size);
   return {DuplexStream(dup, 0), DuplexStream(std::move(dup), 1)};
 }
 

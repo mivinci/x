@@ -26,7 +26,7 @@
  * C++11: struct + std::move(*this) .then() chains.
  *
  * sizeof(BufWriter) = 8 (Shared ptr). 8KB buffer + inner writer live
- * in heap-allocated Shared<Inner>.
+ * in heap-allocated Arc<Inner>.
  */
 
 #ifndef XPP_IO_BUF_WRITER_H
@@ -37,6 +37,7 @@
 #include <cstring>
 #include <utility>
 
+#include <xpp/arc.h>
 #include <xpp/io/utils.h>
 
 namespace xpp {
@@ -103,7 +104,7 @@ private:
     uint8_t buf[_::kBufSize];
     size_t  pos = 0;
   };
-  Shared<Inner> m_inner = Shared<Inner>::make();
+  Arc<Inner> m_inner = Arc<Inner>::make();
 };
 
 /* ── write() / flush() — two implementations ──────────────────────── */

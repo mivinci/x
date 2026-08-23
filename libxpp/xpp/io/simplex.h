@@ -23,10 +23,8 @@
 #include <utility>
 
 #include <xpp/arc.h>
-#include <xpp/promise.h>
-#include <xpp/shared.h>
-
 #include <xpp/io/ring_buf.h>
+#include <xpp/promise.h>
 
 namespace xpp {
 namespace io {
@@ -39,8 +37,7 @@ class SimplexWriter;
  * @brief Read half of a simplex pipe. Reads data written by SimplexWriter.
  *
  * Single class definition shared by both C++20 and C++11 builds.
- * m_dup uses xpp::Shared (Rc by default, Arc with XPP_MT) — a simplex
- * pipe is single-threaded, so atomic overhead in Arc is wasted.
+ * m_dup uses xpp::Arc (atomic refcount).
  */
 class SimplexReader {
 public:
@@ -50,8 +47,8 @@ public:
 private:
   friend class SimplexWriter;
   friend std::pair<SimplexReader, SimplexWriter> simplex(size_t size);
-  Shared<_::RingBuf>                             m_dup;
-  explicit SimplexReader(Shared<_::RingBuf> dup) : m_dup(std::move(dup)) {}
+  Arc<_::RingBuf>                                m_dup;
+  explicit SimplexReader(Arc<_::RingBuf> dup) : m_dup(std::move(dup)) {}
 };
 
 /**
@@ -63,7 +60,9 @@ public:
   Promise<ssize_t> write(const void *buf, size_t len);
 
   /** @brief No-op — simplex data is always "flushed" on write. */
-  Promise<void> flush() { return xpp::resolve(); }
+  Promise<void> flush() {
+    return xpp::resolve();
+  }
 
   /** @brief Close the write end, waking blocked readers/writers. */
   void close();
@@ -71,8 +70,8 @@ public:
 private:
   friend class SimplexReader;
   friend std::pair<SimplexReader, SimplexWriter> simplex(size_t size);
-  Shared<_::RingBuf>                             m_dup;
-  explicit SimplexWriter(Shared<_::RingBuf> dup) : m_dup(std::move(dup)) {}
+  Arc<_::RingBuf>                                m_dup;
+  explicit SimplexWriter(Arc<_::RingBuf> dup) : m_dup(std::move(dup)) {}
 };
 
 /* ── Shared methods (no coroutine dep) ──────────────────────────────── */
@@ -169,16 +168,16 @@ inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
  * Replaces `while (condition) { co_await ... }` with a local recursive
  * struct whose operator() chains .then() on fresh Promise<void> instances.
  *
- * ReadLoop/WriteLoop hold Shared<T> (8B–16B) + 2 scalars, moved through
+ * ReadLoop/WriteLoop hold Arc<T> (8B–16B) + 2 scalars, moved through
  * .then() nodes via std::move(*this). Zero heap allocation per retry —
  * only the PromiseNode arena bump alloc.
  * ─────────────────────────────────────────────────────────────────── */
 
 inline Promise<ssize_t> SimplexReader::read(void *buf, size_t len) {
   struct ReadLoop {
-    Shared<_::RingBuf> dup;
-    void              *buf;
-    size_t             len;
+    Arc<_::RingBuf> dup;
+    void           *buf;
+    size_t          len;
 
     Promise<ssize_t> operator()() {
       auto *d = dup.get();
@@ -194,9 +193,7 @@ inline Promise<ssize_t> SimplexReader::read(void *buf, size_t len) {
 
       auto pr        = xpp::async<void>();
       d->read_waiter = std::move(pr.second);
-      return std::move(pr.first).then([self = std::move(*this)](Void) mutable {
-        return self();
-      });
+      return std::move(pr.first).then([self = std::move(*this)](Void) mutable { return self(); });
     }
   };
 
@@ -205,9 +202,9 @@ inline Promise<ssize_t> SimplexReader::read(void *buf, size_t len) {
 
 inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
   struct WriteLoop {
-    Shared<_::RingBuf> dup;
-    const void        *buf;
-    size_t             len;
+    Arc<_::RingBuf> dup;
+    const void     *buf;
+    size_t          len;
 
     Promise<ssize_t> operator()() {
       auto *d = dup.get();
@@ -224,9 +221,7 @@ inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
 
       auto pr         = xpp::async<void>();
       d->write_waiter = std::move(pr.second);
-      return std::move(pr.first).then([self = std::move(*this)](Void) mutable {
-        return self();
-      });
+      return std::move(pr.first).then([self = std::move(*this)](Void) mutable { return self(); });
     }
   };
 
@@ -237,10 +232,10 @@ inline Promise<ssize_t> SimplexWriter::write(const void *buf, size_t len) {
 
 #endif // XPP_HAS_COROUTINES
 
-/* ── Factory (shared — both branches use Shared) ───────────────────── */
+/* ── Factory (shared — both branches use Arc) ────────────────────── */
 
 inline std::pair<SimplexReader, SimplexWriter> simplex(size_t size) {
-  auto dup = Shared<_::RingBuf>::make(size);
+  auto dup = Arc<_::RingBuf>::make(size);
   return {SimplexReader(dup), SimplexWriter(std::move(dup))};
 }
 

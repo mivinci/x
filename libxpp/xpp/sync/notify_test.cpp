@@ -5,17 +5,17 @@
  *
  * notify_test.cpp — Tests for xpp::sync::Notify.
  */
+#include <thread>
+
 #include <gtest/gtest.h>
 #include <xpp/promise.h>
 #include <xpp/sync/notify.h>
 
-#include <thread>
-
 // ── N-1: basic notify_one → notified resolves ──────────────────────
 
 TEST(NotifyTest, NotifyOneBasic) {
-  xpp::EventLoop loop;
-  xpp::WaitScope scope(loop);
+  xpp::EventLoop    loop;
+  xpp::WaitScope    scope(loop);
   xpp::sync::Notify n;
 
   auto p = n.notified();
@@ -26,8 +26,8 @@ TEST(NotifyTest, NotifyOneBasic) {
 // ── N-2: notify_waiters wakes all ───────────────────────────────────
 
 TEST(NotifyTest, NotifyWaiters) {
-  xpp::EventLoop loop;
-  xpp::WaitScope scope(loop);
+  xpp::EventLoop    loop;
+  xpp::WaitScope    scope(loop);
   xpp::sync::Notify n;
 
   auto p1 = n.notified();
@@ -40,8 +40,8 @@ TEST(NotifyTest, NotifyWaiters) {
 // ── N-3: reusable ───────────────────────────────────────────────────
 
 TEST(NotifyTest, Reusable) {
-  xpp::EventLoop loop;
-  xpp::WaitScope scope(loop);
+  xpp::EventLoop    loop;
+  xpp::WaitScope    scope(loop);
   xpp::sync::Notify n;
 
   auto p1 = n.notified();
@@ -56,8 +56,8 @@ TEST(NotifyTest, Reusable) {
 // ── N-4: notify before notified is no-op ────────────────────────────
 
 TEST(NotifyTest, NotifyBeforeNotified) {
-  xpp::EventLoop loop;
-  xpp::WaitScope scope(loop);
+  xpp::EventLoop    loop;
+  xpp::WaitScope    scope(loop);
   xpp::sync::Notify n;
 
   n.notify_one(); // no waiters — no-op
@@ -67,14 +67,12 @@ TEST(NotifyTest, NotifyBeforeNotified) {
   p.await();
 }
 
-// ── Multi-threaded tests (require -DXPP_MT) ─────────────────────────
-
-#if XPP_MT
+// ── Multi-threaded tests ──────────────────────────────────────────
 
 TEST(NotifyMtTest, WorkerNotifiesLoop) {
   xpp::sync::Notify n;
-  xpp::EventLoop loop;
-  xpp::WaitScope scope(loop);
+  xpp::EventLoop    loop;
+  xpp::WaitScope    scope(loop);
 
   std::thread worker([&n] {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -95,8 +93,8 @@ TEST(NotifyMtTest, WorkerNotifiesLoop) {
 
 TEST(NotifyMtTest, MultipleWorkersNotifyWaiters) {
   xpp::sync::Notify n;
-  xpp::EventLoop loop;
-  xpp::WaitScope scope(loop);
+  xpp::EventLoop    loop;
+  xpp::WaitScope    scope(loop);
 
   std::thread t1([&n] {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -127,5 +125,3 @@ TEST(NotifyMtTest, MultipleWorkersNotifyWaiters) {
   t1.join();
   t2.join();
 }
-
-#endif // XPP_MT

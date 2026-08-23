@@ -23,10 +23,10 @@
 #include <cstddef>
 #include <utility>
 
+#include <xpp/arc.h>
 #include <xpp/loom/internal.h>
 #include <xpp/promise.h>
 #include <xpp/result.h>
-#include <xpp/shared.h>
 #include <xpp/sync/list.h>
 
 namespace xpp {
@@ -130,9 +130,9 @@ private:
 
     Chan(list::Tx<T> tx, list::Rx<T> rx) : m_tx(std::move(tx)), m_rx(std::move(rx)) {}
   };
-  Shared<Chan> m_chan;
+  Arc<Chan> m_chan;
 
-  explicit Sender(Shared<Chan> c) : m_chan(std::move(c)) {}
+  explicit Sender(Arc<Chan> c) : m_chan(std::move(c)) {}
 
   bool closed() const {
     return m_chan->m_closed.load(std::memory_order_acquire);
@@ -178,8 +178,8 @@ public:
 private:
   template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
   using Chan = typename Sender<T>::Chan;
-  Shared<Chan> m_chan;
-  explicit Receiver(Shared<Chan> c) : m_chan(std::move(c)) {}
+  Arc<Chan> m_chan;
+  explicit Receiver(Arc<Chan> c) : m_chan(std::move(c)) {}
 
   bool closed() const {
     return m_chan->m_closed.load(std::memory_order_acquire);
@@ -236,7 +236,7 @@ template <class T> Promise<Option<T>> Receiver<T>::recv() {
 /* ═══ C++11 + fiber: linear while + .await() ═════════════════════════
  *
  * With fiber, .await() suspends the fiber inside the while loop.
- * Values live on the fiber stack — no Shared<T> heap allocation needed
+ * Values live on the fiber stack — no Arc<T> heap allocation needed
  * for send(). The struct+move pattern is replaced by plain linear code.
  * ─────────────────────────────────────────────────────────────────── */
 
@@ -285,21 +285,21 @@ template <class T> Promise<Option<T>> Receiver<T>::recv() {
 /**
  * C++11 send(): recursively retry via .then() chain.
  *
- * The value is held on the heap (Shared<T>) so it survives callback
+ * The value is held on the heap (Arc<T>) so it survives callback
  * boundaries. Mirrors the co_await version: try_push, if full store
  * a write_waiter and recurse when woken.
  *
- * Trade-off: 1 extra heap allocation for Shared<T> vs C++20's
+ * Trade-off: 1 extra heap allocation for Arc<T> vs C++20's
  * coroutine frame. Promise nodes use arena bump alloc internally.
  */
 template <class T> Promise<void> Sender<T>::send(T value) {
   if (!m_chan) return xpp::resolve();
 
-  auto val = Shared<T>::make(std::move(value));
+  auto val = Arc<T>::make(std::move(value));
 
   struct SendLoop {
-    Shared<Chan> chan;
-    Shared<T>    val;
+    Arc<Chan> chan;
+    Arc<T>    val;
 
     Promise<void> operator()() {
       auto *c = chan.get();
@@ -328,13 +328,13 @@ template <class T> Promise<void> Sender<T>::send(T value) {
  * read_waiter and recurses when the sender wakes us.
  *
  * No extra heap allocation beyond Promise chain nodes (arena alloc).
- * m_chan is Shared<Chan>, stored by value in the struct (8 bytes).
+ * m_chan is Arc<Chan>, stored by value in the struct (8 bytes).
  */
 template <class T> Promise<Option<T>> Receiver<T>::recv() {
   if (!m_chan) return xpp::resolve(none);
 
   struct RecvLoop {
-    Shared<Chan> chan;
+    Arc<Chan> chan;
 
     Promise<Option<T>> operator()() {
       auto *c = chan.get();
@@ -422,7 +422,7 @@ template <class T> Result<T, TryRecvError> Receiver<T>::try_recv() {
  */
 template <class T> std::pair<Sender<T>, Receiver<T>> channel(size_t cap) {
   auto [tx, rx] = list::channel<T>(cap);
-  auto chan     = Shared<typename Sender<T>::Chan>::make(std::move(tx), std::move(rx));
+  auto chan     = Arc<typename Sender<T>::Chan>::make(std::move(tx), std::move(rx));
   return {Sender<T>(chan), Receiver<T>(std::move(chan))};
 }
 
@@ -482,8 +482,8 @@ private:
     Chan(list::UnboundedTx<T> tx, list::UnboundedRx<T> rx)
         : m_tx(std::move(tx)), m_rx(std::move(rx)) {}
   };
-  Shared<Chan> m_chan;
-  explicit UnboundedSender(Shared<Chan> c) : m_chan(std::move(c)) {}
+  Arc<Chan> m_chan;
+  explicit UnboundedSender(Arc<Chan> c) : m_chan(std::move(c)) {}
   void drop() {
     if (!m_chan) return;
     if (m_chan->m_sender_count.fetch_sub(1) == 1) close();
@@ -517,8 +517,8 @@ public:
 private:
   template <class U> friend std::pair<UnboundedSender<U>, UnboundedReceiver<U>> channel();
   using Chan = typename UnboundedSender<T>::Chan;
-  Shared<Chan> m_chan;
-  explicit UnboundedReceiver(Shared<Chan> c) : m_chan(std::move(c)) {}
+  Arc<Chan> m_chan;
+  explicit UnboundedReceiver(Arc<Chan> c) : m_chan(std::move(c)) {}
   bool closed() const {
     return m_chan->m_closed.load(std::memory_order_acquire);
   }
@@ -582,7 +582,7 @@ template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
   if (!m_chan) return xpp::resolve(none);
 
   struct RecvLoop {
-    Shared<Chan> chan;
+    Arc<Chan> chan;
 
     Promise<Option<T>> operator()() {
       auto *c = chan.get();
@@ -648,7 +648,7 @@ template <class T> void UnboundedSender<T>::close() {
  */
 template <class T> std::pair<UnboundedSender<T>, UnboundedReceiver<T>> channel() {
   auto [tx, rx] = list::unbounded_channel<T>();
-  auto chan     = Shared<typename UnboundedSender<T>::Chan>::make(std::move(tx), std::move(rx));
+  auto chan     = Arc<typename UnboundedSender<T>::Chan>::make(std::move(tx), std::move(rx));
   return {UnboundedSender<T>(chan), UnboundedReceiver<T>(std::move(chan))};
 }
 

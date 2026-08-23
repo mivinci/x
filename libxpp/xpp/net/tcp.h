@@ -28,6 +28,7 @@
 #include <string>
 #include <utility>
 
+#include <xpp/arc.h>
 #include <xpp/handle.h>
 #include <xpp/io/async_fd.h>
 #include <xpp/io/error.h>
@@ -39,7 +40,6 @@
 #include <xpp/promise_utils.h>
 #include <xpp/rc.h>
 #include <xpp/result.h>
-#include <xpp/shared.h>
 
 #include <x/base/error.h>
 #include <x/base/event.h>
@@ -283,10 +283,10 @@ class TcpAcceptAdapter;
  * Wraps xTcpListener. accept() returns Promise<TcpStream> via adapt().
  *
  * The underlying state (listener handle + pending resolver) lives in an
- * Shared<Impl> rather than directly in TcpListener because libx's
+ * Arc<Impl> rather than directly in TcpListener because libx's
  * xTcpListenerCreate stores a raw `void* arg` pointer for the accept
  * callback. That pointer must remain stable for the listener's lifetime,
- * but TcpListener itself is movable (returned from bind()). Shared<Impl>
+ * but TcpListener itself is movable (returned from bind()). Arc<Impl>
  * heap-allocates the state at a fixed address; moving TcpListener only
  * moves the Rc handle (a pointer), not the Impl. Single-threaded, so
  * Rc (not Arc) is correct — no atomic overhead.
@@ -300,7 +300,7 @@ public:
    * Returns Err(io::Error) on failure.
    */
   static Promise<io::Result<TcpListener>> bind(SocketAddr addr) {
-    auto        impl = Shared<Impl>::make();
+    auto        impl = Arc<Impl>::make();
     std::string ip   = addr.ip().to_string();
     impl->listener   = OwnedHandle<Impl::Destroy>(
       xTcpListenerCreate(ip.c_str(), addr.port(), nullptr, on_accept, impl.get()));
@@ -391,9 +391,9 @@ private:
     OwnedHandle<Destroy>                              listener;
     PromiseResolver<std::pair<TcpStream, SocketAddr>> pending;
   };
-  Option<Shared<Impl>> m_impl;
+  Option<Arc<Impl>> m_impl;
 
-  explicit TcpListener(Shared<Impl> impl) : m_impl(some(std::move(impl))) {}
+  explicit TcpListener(Arc<Impl> impl) : m_impl(some(std::move(impl))) {}
 
   static void on_accept(xTcpListener, xTcpConn conn, const struct sockaddr *sa, socklen_t slen,
                         void *arg) {
@@ -519,7 +519,7 @@ inline Promise<io::Result<TcpStream>> TcpStream::connect(const char             
     }
 
     // Build conf once (TlsContext* inside survives as long as TlsContext does).
-    auto conf = Shared<xTcpConnectConf>::make();
+    auto conf = Arc<xTcpConnectConf>::make();
     if (tls.is_some() && tls.unwrap().is_valid()) {
       conf->tls_ctx = tls.unwrap().raw();
     }

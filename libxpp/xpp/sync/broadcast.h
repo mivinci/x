@@ -17,11 +17,11 @@
 
 #include <utility>
 
+#include <xpp/arc.h>
 #include <xpp/loom/internal.h>
 #include <xpp/option.h>
 #include <xpp/promise.h>
 #include <xpp/result.h>
-#include <xpp/shared.h>
 #include <xpp/sync/notify.h>
 
 namespace xpp {
@@ -193,9 +193,9 @@ public:
 private:
   template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
   template <class U> friend class Receiver;
-  Shared<_::Channel<T>> m_chan;
+  Arc<_::Channel<T>> m_chan;
 
-  explicit Sender(Shared<_::Channel<T>> c) : m_chan(std::move(c)) {}
+  explicit Sender(Arc<_::Channel<T>> c) : m_chan(std::move(c)) {}
 
   void drop() {
     if (!m_chan) return;
@@ -248,10 +248,10 @@ public:
 private:
   template <class U> friend class Sender;
   template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
-  Shared<_::Channel<T>>                                       m_chan;
+  Arc<_::Channel<T>>                                          m_chan;
   size_t                                                      m_pos;
 
-  Receiver(Shared<_::Channel<T>> c, size_t pos) : m_chan(std::move(c)), m_pos(pos) {}
+  Receiver(Arc<_::Channel<T>> c, size_t pos) : m_chan(std::move(c)), m_pos(pos) {}
 
   /**
    * @brief Try to read the next value at m_pos.
@@ -296,7 +296,7 @@ private:
  * @return A pair of Sender<T> (cloneable) and Receiver<T> (move-only).
  */
 template <class T> std::pair<Sender<T>, Receiver<T>> channel(size_t cap) {
-  auto ch = Shared<_::Channel<T>>::make(cap);
+  auto ch = Arc<_::Channel<T>>::make(cap);
   auto tx = Sender<T>(ch);
   auto rx = Receiver<T>(std::move(ch), 0);
   return {std::move(tx), std::move(rx)};

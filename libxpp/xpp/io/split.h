@@ -6,7 +6,7 @@
  * split.h - xpp::io::split(): split a ReadWriter into read/write halves.
  *
  * Wraps any type satisfying both AsyncReader and AsyncWriter in a
- * Shared<T>, then returns ReadHalf<T> and WriteHalf<T> that
+ * Arc<T>, then returns ReadHalf<T> and WriteHalf<T> that
  * share the underlying stream. Like tokio's io::split().
  */
 #ifndef XPP_IO_SPLIT_H
@@ -14,9 +14,9 @@
 
 #include <utility>
 
+#include <xpp/arc.h>
 #include <xpp/io/utils.h>
 #include <xpp/panic.h>
-#include <xpp/shared.h>
 
 namespace xpp {
 namespace io {
@@ -41,8 +41,8 @@ public:
   }
 
 private:
-  Shared<T> m_inner;
-  explicit ReadHalf(Shared<T> inner) : m_inner(std::move(inner)) {}
+  Arc<T> m_inner;
+  explicit ReadHalf(Arc<T> inner) : m_inner(std::move(inner)) {}
   template <AsyncReadWriter U> friend std::pair<ReadHalf<U>, WriteHalf<U>> split(U stream);
 };
 
@@ -70,18 +70,18 @@ public:
   }
 
 private:
-  Shared<T> m_inner;
-  explicit WriteHalf(Shared<T> inner) : m_inner(std::move(inner)) {}
+  Arc<T> m_inner;
+  explicit WriteHalf(Arc<T> inner) : m_inner(std::move(inner)) {}
   template <AsyncReadWriter U> friend std::pair<ReadHalf<U>, WriteHalf<U>> split(U stream);
 };
 
 /** @brief Split a ReadWriter into separate ReadHalf and WriteHalf.
  *  @tparam T Inner type satisfying AsyncReadWriter.
- *  @param stream The stream to split (ownership is shared via Shared<T>).
+ *  @param stream The stream to split (ownership is shared via Arc<T>).
  *  @return A pair of (read_half, write_half) sharing the same underlying stream. */
 template <AsyncReadWriter T> std::pair<ReadHalf<T>, WriteHalf<T>> split(T stream) {
-  auto s = Shared<T>::make(std::move(stream));
-  auto rh = ReadHalf<T>(s);  // copy first (refcount +1)
+  auto s  = Arc<T>::make(std::move(stream));
+  auto rh = ReadHalf<T>(s); // copy first (refcount +1)
   auto wh = WriteHalf<T>(std::move(s));
   return std::make_pair(std::move(rh), std::move(wh));
 }

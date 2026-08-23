@@ -23,9 +23,9 @@
 #include <cstddef>
 #include <utility>
 
+#include <xpp/arc.h>
 #include <xpp/loom/internal.h>
 #include <xpp/option.h>
-#include <xpp/shared.h>
 
 namespace xpp {
 namespace sync {
@@ -74,7 +74,7 @@ template <class T> struct Core {
 /**
  * @brief Lock-free sender for the bounded MPSC ring buffer.
  *
- * Cloneable via Shared<Core>. Multiple instances can call try_push()
+ * Cloneable via Arc<Core>. Multiple instances can call try_push()
  * concurrently — the underlying fetch_add on m_wpos is lock-free.
  *
  * @tparam T The value type.
@@ -139,8 +139,8 @@ public:
 
 private:
   template <class U> friend std::pair<Tx<U>, Rx<U>> channel(size_t cap);
-  Shared<_::Core<T>>                                m_core;
-  explicit Tx(Shared<_::Core<T>> c) : m_core(std::move(c)) {}
+  Arc<_::Core<T>>                                   m_core;
+  explicit Tx(Arc<_::Core<T>> c) : m_core(std::move(c)) {}
 };
 
 // ── Bounded Rx (single-consumer receiver) ───────────────────────────
@@ -210,9 +210,9 @@ public:
 
 private:
   template <class U> friend std::pair<Tx<U>, Rx<U>> channel(size_t cap);
-  Shared<_::Core<T>>                                m_core;
+  Arc<_::Core<T>>                                   m_core;
   size_t                                            m_rpos = 0;
-  explicit Rx(Shared<_::Core<T>> c) : m_core(std::move(c)) {}
+  explicit Rx(Arc<_::Core<T>> c) : m_core(std::move(c)) {}
 };
 
 /**
@@ -225,7 +225,7 @@ private:
  * @return A pair of Tx<T> (cloneable) and Rx<T> (move-only).
  */
 template <class T> std::pair<Tx<T>, Rx<T>> channel(size_t cap) {
-  auto core = Shared<_::Core<T>>::make(cap);
+  auto core = Arc<_::Core<T>>::make(cap);
   return {Tx<T>(core), Rx<T>(std::move(core))};
 }
 
@@ -266,7 +266,7 @@ template <class T> struct UnboundedCore {
 /**
  * @brief Lock-free sender for the unbounded MPSC linked list.
  *
- * Cloneable via Shared<Core>. push() always succeeds (heap-allocates
+ * Cloneable via Arc<Core>. push() always succeeds (heap-allocates
  * a Node per value). There is no capacity limit — push never blocks.
  *
  * @tparam T The value type.
@@ -302,8 +302,8 @@ public:
 
 private:
   template <class U> friend std::pair<UnboundedTx<U>, UnboundedRx<U>> unbounded_channel();
-  Shared<UnboundedCore<T>>                                            m_core;
-  explicit UnboundedTx(Shared<UnboundedCore<T>> c) : m_core(std::move(c)) {}
+  Arc<UnboundedCore<T>>                                               m_core;
+  explicit UnboundedTx(Arc<UnboundedCore<T>> c) : m_core(std::move(c)) {}
 };
 
 // ── Unbounded Rx (single-consumer receiver) ─────────────────────────
@@ -360,8 +360,8 @@ public:
 
 private:
   template <class U> friend std::pair<UnboundedTx<U>, UnboundedRx<U>> unbounded_channel();
-  Shared<UnboundedCore<T>>                                            m_core;
-  explicit UnboundedRx(Shared<UnboundedCore<T>> c) : m_core(std::move(c)) {}
+  Arc<UnboundedCore<T>>                                               m_core;
+  explicit UnboundedRx(Arc<UnboundedCore<T>> c) : m_core(std::move(c)) {}
 };
 
 /**
@@ -373,7 +373,7 @@ private:
  * @return A pair of UnboundedTx<T> (cloneable) and UnboundedRx<T> (move-only).
  */
 template <class T> std::pair<UnboundedTx<T>, UnboundedRx<T>> unbounded_channel() {
-  auto core = Shared<UnboundedCore<T>>::make();
+  auto core = Arc<UnboundedCore<T>>::make();
   return {UnboundedTx<T>(core), UnboundedRx<T>(std::move(core))};
 }
 

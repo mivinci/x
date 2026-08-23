@@ -113,7 +113,7 @@ If you want to dive into the details behind each piece:
 - **[Promise Model](libxpp/promise/)** — the poll-and-waker state machine, `.await()` semantics (fiber suspend + direct event loop drive), C++20 coroutine frame mapping, and the internals of chaining, cancellation, and error propagation.
 - **[Async I/O](libxpp/io/)** — the layering from raw `AsyncFd` up through `BufReader`/`BufWriter` to type-safe `TcpStream` and `File`, plus utilities like `io::copy` and in-process `Duplex`/`Simplex` pipes.
 - **[Channels](libxpp/channels/)** — the full Tokio-aligned suite: `oneshot`, `mpsc` (bounded via lock-free ring buffer, unbounded via lock-free linked list), `broadcast` with lag recovery, `watch` with version-tracked "seen" semantics, and `Notify` as a reusable wake primitive.
-- **[Threading Model](libxpp/promise/#thread-safety)** — the `XPP_MT` compile flag that switches `Shared<T>` from `Rc` to `Arc`, the `loom` module of swappable primitives for future concurrency testing, and RAII close semantics across all channels.
+- **[Threading Model](libxpp/promise/#thread-safety)** — `Arc<T>` (atomic refcount) for all shared library state — the old `XPP_MT` switch and `Shared<T>` alias were removed, `Rc<T>` remains for explicit single-threaded use — the `loom` module of swappable primitives for future concurrency testing, and RAII close semantics across all channels.
 - **[Network](libxpp/net/)** — async TCP, UDP, DNS, and TLS, all built on the same `Promise<T>` foundation.
 - **[Filesystem](libxpp/fs.md)** — async file I/O with cursor tracking, `stat`, and directory operations.
 - **[Time](libxpp/time.md)(TODO)** — tokio-style time primitives — `Instant`, `Duration`, `sleep`, `interval`, `timeout` — built on `Promise<T>`.

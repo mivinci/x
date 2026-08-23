@@ -20,10 +20,9 @@
 #include <sys/types.h>
 
 #include <cstddef>
-#include <cstddef>
 
+#include <xpp/arc.h>
 #include <xpp/promise.h>
-#include <xpp/shared.h>
 #include <xpp/vec.h>
 
 namespace xpp {
@@ -75,7 +74,8 @@ template <AsyncReader R> Promise<Vec<uint8_t>> read_all(R &reader) {
   while (true) {
     ssize_t n = co_await reader.read(buf, sizeof(buf));
     if (n <= 0) break;
-    for (ssize_t i = 0; i < n; i++) result.push(buf[i]);
+    for (ssize_t i = 0; i < n; i++)
+      result.push(buf[i]);
   }
   co_return result;
 }
@@ -115,7 +115,8 @@ template <class R> Promise<Vec<uint8_t>> read_all(R &reader) {
   while (true) {
     ssize_t n = reader.read(buf, sizeof(buf)).await();
     if (n <= 0) break;
-    for (ssize_t i = 0; i < n; i++) result.push(buf[i]);
+    for (ssize_t i = 0; i < n; i++)
+      result.push(buf[i]);
   }
   return xpp::resolve(std::move(result));
 }
@@ -142,20 +143,20 @@ template <class R, class W> Promise<void> copy(R &reader, W &writer) {
  * → recurse (read again).
  *
  * Trade-offs:
- *   - xpp::Shared for the 8KB buffer and vector (read_all). One heap
+ *   - xpp::Arc for the 8KB buffer and vector (read_all). One heap
  *     alloc per call — same as the coroutine version's implicit
  *     allocation for the coroutine frame's local variables.
  *   - Reader/Writer captured by reference (&). Must outlive the promise
  *     chain — guaranteed because the caller holds them on stack while
  *     awaiting the result.
  *   - All .then() nodes are arena bump-allocated (promise_allocator.h),
- *     so the only heap costs are the Shared<State/Buf> allocations.
+ *     so the only heap costs are the Arc<State/Buf> allocations.
  * ═══════════════════════════════════════════════════════════════════ */
 
 /**
  * @brief Read the entire byte stream into a vector (C++11 fallback).
  *
- * ReadAllLoop holds a Shared<State> (8KB buf + result vector on heap)
+ * ReadAllLoop holds a Arc<State> (8KB buf + result vector on heap)
  * and a reference to the reader. Each .then() iteration reads a chunk,
  * appends to the vector, and tail-recurses until n <= 0.
  *
@@ -167,17 +168,18 @@ template <class R> Promise<Vec<uint8_t>> read_all(R &reader) {
     Vec<uint8_t> data;
     uint8_t      buf[_::kBufSize];
   };
-  auto state = xpp::Shared<State>::make();
+  auto state = xpp::Arc<State>::make();
 
   struct ReadAllLoop {
-    R                 &reader;
-    xpp::Shared<State> state;
+    R              &reader;
+    xpp::Arc<State> state;
 
     Promise<Vec<uint8_t>> operator()() {
       return reader.read(state->buf, sizeof(state->buf))
         .then([self = std::move(*this)](ssize_t n) mutable {
           if (n <= 0) return xpp::resolve(std::move(self.state->data));
-          for (ssize_t i = 0; i < n; i++) self.state->data.push(self.state->buf[i]);
+          for (ssize_t i = 0; i < n; i++)
+            self.state->data.push(self.state->buf[i]);
           return self(); // tail-recursive via Promise chain
         });
     }
@@ -190,7 +192,7 @@ template <class R> Promise<Vec<uint8_t>> read_all(R &reader) {
  * @brief Copy all bytes from reader to writer (C++11 fallback).
  *
  * CopyLoop chains two .then() levels per iteration: read a chunk →
- * write it → recurse. Uses a Shared<Buf> for the transfer buffer to
+ * write it → recurse. Uses a Arc<Buf> for the transfer buffer to
  * avoid moving 8KB through each .then() node. Terminates when read
  * returns n <= 0, returning a resolved Promise<void>.
  *
@@ -201,12 +203,12 @@ template <class R, class W> Promise<void> copy(R &reader, W &writer) {
   struct Buf {
     uint8_t data[_::kBufSize];
   };
-  auto buf = xpp::Shared<Buf>::make();
+  auto buf = xpp::Arc<Buf>::make();
 
   struct CopyLoop {
-    R               &reader;
-    W               &writer;
-    xpp::Shared<Buf> buf;
+    R            &reader;
+    W            &writer;
+    xpp::Arc<Buf> buf;
 
     Promise<void> operator()() {
       return reader.read(buf->data, sizeof(buf->data))

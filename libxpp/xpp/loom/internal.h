@@ -5,8 +5,9 @@
  *
  * internal.h - xpp::loom::_: compile-time threading primitives.
  *
- * When XPP_MT is defined: aliases std::mutex + std::atomic.
- * Otherwise: no-ops that compile away to zero overhead.
+ * Aliases std::mutex + std::atomic. Threading is always on — the old
+ * single-threaded no-op build (XPP_MT=OFF) was removed, so all shared
+ * state uses atomic refcounting (Arc) and real locks.
  *
  * Shared by xpp::loom::Mutex<T>, xpp::sync::mpsc/notify/broadcast,
  * and future threading primitives.
@@ -21,63 +22,16 @@
 #ifndef XPP_LOOM_INTERNAL_H
 #define XPP_LOOM_INTERNAL_H
 
-#if XPP_MT
 #include <atomic>
 #include <mutex>
-#endif
 
 namespace xpp {
 namespace loom {
 namespace _ {
 
-#ifdef XPP_MT
-using Mutex = std::mutex;
-template <typename T>
-using Atomic = std::atomic<T>;
-using Lock   = std::unique_lock<std::mutex>;
-#else
-
-/// No-op mutex — compiles away in single-threaded builds.
-struct Mutex {
-  void lock() {}
-  void unlock() {}
-  bool try_lock() { return true; }
-};
-
-/// No-op atomic wrapper — same interface as std::atomic, zero overhead.
-template <typename T> struct Atomic {
-  T value{};
-  T load(std::memory_order = std::memory_order_seq_cst) const noexcept {
-    return value;
-  }
-  void store(T v, std::memory_order = std::memory_order_seq_cst) noexcept {
-    value = v;
-  }
-  T fetch_add(T v, std::memory_order = std::memory_order_seq_cst) noexcept {
-    T old = value;
-    value += v;
-    return old;
-  }
-  T fetch_sub(T v, std::memory_order = std::memory_order_seq_cst) noexcept {
-    T old = value;
-    value -= v;
-    return old;
-  }
-  T  operator++(int) noexcept { return value++; }
-  T  operator--(int) noexcept { return value--; }
-  T &operator++() noexcept { return ++value; }
-  T &operator--() noexcept { return --value; }
-  operator T() const noexcept { return value; }
-  void operator=(T v) noexcept { value = v; }
-};
-
-/// No-op lock guard — compiles away in single-threaded builds.
-struct Lock {
-  template <typename M> Lock(M &) {}
-  void unlock() {}
-};
-
-#endif
+using Mutex                        = std::mutex;
+template <typename T> using Atomic = std::atomic<T>;
+using Lock                         = std::unique_lock<std::mutex>;
 
 } // namespace _
 } // namespace loom
