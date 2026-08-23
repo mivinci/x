@@ -241,7 +241,12 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
         break;
       }
     } else {
-      /* Plain TCP mode: create xTcpConn immediately */
+      /* Plain TCP mode: create xTcpConn immediately.
+       * Level-triggered: xTcpConn is driven by user callbacks that read
+       * partial chunks per event (streaming); edge-triggered (EV_CLEAR)
+       * would only fire once per readability transition and stall after a
+       * partial read. The listener's own accept source stays edge-triggered
+       * (accept loop drains via EAGAIN). */
       xTransport transport;
       memset(&transport, 0, sizeof(transport));
       xTransportPlainInit(&transport, client_fd);
@@ -250,7 +255,8 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
         continue;
       }
 
-      xSocket client_sock = xSocketCreateFromFd(client_fd, xEvent_Read, noop_sock_cb, NULL);
+      xSocket client_sock =
+        xSocketCreateFromFd(client_fd, xEvent_Read | xEvent_LevelTriggered, noop_sock_cb, NULL);
       if (!client_sock) {
         if (transport.destroy) transport.destroy(transport.ctx);
         close(client_fd);

@@ -36,21 +36,21 @@ The library SHALL provide a type `xpp::Bytes` representing an immutable, referen
 
 ### Requirement: `xpp::http::Method` enum
 
-The library SHALL provide `enum class xpp::http::Method` with enumerators `Get`, `Post`, `Put`, `Delete`, `Patch`, `Head`, `Options`, `Trace`, `Connect`. The library SHALL provide `to_string(Method)` returning the canonical HTTP method string and `from_string(const String&)` returning `Option<Method>` (None for unknown strings).
+The library SHALL provide `xpp::http::Method` (a namespace; the underlying enum is `Method::Value`) with enumerators `Get`, `Post`, `Put`, `Delete`, `Patch`, `Head`, `Options`, `Trace`, `Connect` re-exported as constexpr values (`Method::Get`, ...). The library SHALL provide `to_string(Method::Value)` returning the canonical HTTP method string and `Method::from_string(const String&)` returning `Option<Method::Value>` (None for unknown strings).
 
 #### Scenario: Round-trip all methods
 
-- **WHEN** each enumerator of `Method` is passed to `to_string` and the result back to `from_string`
+- **WHEN** each enumerator of `Method` is passed to `to_string` and the result back to `Method::from_string`
 - **THEN** the resulting `Option<Method>` is `Some` and equals the original enumerator
 
 #### Scenario: Unknown string returns None
 
-- **WHEN** `from_string("FOO")` is called
+- **WHEN** `Method::from_string("FOO")` is called
 - **THEN** the result is `None`
 
 ### Requirement: `xpp::http::StatusCode` enum
 
-The library SHALL provide `enum class xpp::http::StatusCode : uint16_t` with enumerators for common HTTP status codes (1xx through 5xx, including at minimum `Ok=200`, `Created=201`, `NoContent=204`, `MovedPermanently=301`, `Found=302`, `NotModified=304`, `BadRequest=400`, `Unauthorized=401`, `Forbidden=403`, `NotFound=404`, `MethodNotAllowed=405`, `Conflict=409`, `TooManyRequests=429`, `InternalServerError=500`, `BadGateway=502`, `ServiceUnavailable=503`, `GatewayTimeout=504`). The library SHALL provide `is_informational`, `is_success`, `is_redirect`, `is_client_error`, `is_server_error` predicates, plus `to_string` and `from_string`.
+The library SHALL provide `xpp::http::StatusCode` (a namespace; the underlying enum is `StatusCode::Value`) with enumerators for common HTTP status codes (1xx through 5xx, including at minimum `Ok=200`, `Created=201`, `NoContent=204`, `MovedPermanently=301`, `Found=302`, `NotModified=304`, `BadRequest=400`, `Unauthorized=401`, `Forbidden=403`, `NotFound=404`, `MethodNotAllowed=405`, `Conflict=409`, `TooManyRequests=429`, `InternalServerError=500`, `BadGateway=502`, `ServiceUnavailable=503`, `GatewayTimeout=504`) re-exported as constexpr values (`StatusCode::Ok`, ...). The library SHALL provide `is_informational`, `is_success`, `is_redirect`, `is_client_error`, `is_server_error` predicates, plus `to_string(StatusCode::Value)` and `StatusCode::from_string(const String&)`.
 
 #### Scenario: `is_success` for 2xx codes
 
@@ -112,7 +112,7 @@ The library SHALL provide `xpp::http::Body` with three internal states: `Empty`,
 
 #### Scenario: Channel body receives chunks then EOF on close
 
-- **WHEN** a `mpsc::channel<Bytes>(64)` is created, `Body::from_channel(rx)` is constructed, the sender pushes `Bytes::from("abc")` then `Bytes::from("def")` then closes, and `read(buf, 1024)` is called three times
+- **WHEN** a `mpsc::channel<Bytes>(256)` is created, `Body::from_channel(rx)` is constructed, the sender pushes `Bytes::from("abc")` then `Bytes::from("def")` then closes, and `read(buf, 1024)` is called three times
 - **THEN** the first call returns `3` and writes `"abc"`; the second returns `3` and writes `"def"`; the third returns `0`
 
 #### Scenario: Channel body slices leftover without copy
@@ -155,7 +155,7 @@ The library SHALL provide `Body::empty()`, `Body::from(Bytes)`, `Body::from(Vec<
 
 ### Requirement: `xpp::http::Request` and `RequestBuilder`
 
-The library SHALL provide `xpp::http::Request` with accessors `method()`, `url()`, `headers()`, `body()` (borrow), `into_body()` (move), `has_body()`. The library SHALL provide `Request::builder()` returning a `RequestBuilder` with fluent methods `method`, `url` (3 overloads: `String`, `const char*`, `std::string_view` guarded), `header`, `bearer_auth`, `basic_auth`. Termination methods `body(...)` SHALL return `Result<Request>`.
+The library SHALL provide `xpp::http::Request` with accessors `method()`, `url()`, `headers()`, `body()` (borrow), `into_body()` (move), `has_body()`. The library SHALL provide `Request::builder()` returning a `RequestBuilder` with fluent configurators `method`, `url` (3 overloads: `String`, `const char*`, `std::string_view` guarded), `header` (2 overloads), `bearer_auth`, `basic_auth`. Termination methods `body(...)` (overloads: `Body`, `Bytes`, `Vec<uint8_t>`, `String`, `const char*`, empty) SHALL return `Result<Request>`. The library SHALL NOT provide method+url convenience terminators (like `get(url)` or `post(url, body)`) on `RequestBuilder` — callers set `method()` + `url()` + `body()` explicitly. The method+url convenience functions live at the top-level `http::get` / `http::post` (see the convenience-functions requirement).
 
 #### Scenario: Builder produces a Request with all fields set
 
@@ -166,11 +166,6 @@ The library SHALL provide `xpp::http::Request` with accessors `method()`, `url()
 
 - **WHEN** a `Request` with a non-empty body has `into_body()` called
 - **THEN** the returned `Body` contains the original bytes, and subsequent `has_body()` on the `Request` returns `false`
-
-#### Scenario: Convenience `post(url, body)` terminator
-
-- **WHEN** `Request::builder().post("https://x.com", Body::from("payload")).unwrap()` is executed
-- **THEN** the resulting `Request` has `method() == Method::Post`, `url() == "https://x.com"`, and body contains `"payload"`
 
 #### Scenario: URL overloads compile
 
@@ -198,21 +193,21 @@ The library SHALL provide `xpp::http::Response` with accessors `status()`, `stat
 
 ### Requirement: `xpp::http::Client` and `ClientBuilder`
 
-The library SHALL provide `xpp::http::Client` wrapping `libx/x/http/`'s `xHttpClient`. The library SHALL provide `Client::send(Request) → Promise<Result<Response>>` as the generic entry point. The library SHALL provide `Client::builder()` returning a `ClientBuilder` with configuration methods: `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect` (accepting `RedirectPolicy`), `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`. Termination method `build()` SHALL return `Result<Client>`.
+The library SHALL provide `xpp::http::Client` wrapping `libx/x/http/`'s `xHttpClient`. The library SHALL provide `Client::send(Request) → Promise<Result<Response>>` as the generic entry point, resolving as soon as the response headers arrive (reqwest semantics): `Ok(Response)` with a live streamed `Body`, or `Err` for transport failures before headers and for 4xx/5xx statuses. A body transfer that fails mid-body SHALL surface the error on the body read (`bytes()` returns `Err`), not a silent truncated EOF. The library SHALL provide convenience methods `get(url)`, `post(url)`, `post(url, body)`, `put(url)`, `put(url, body)`, `delete_(url)`, `patch(url)`, `patch(url, body)`, `head(url)` with 3 URL overloads each — all internally constructing a `Request` and delegating to `send`. The library SHALL provide `Client::builder()` returning a `ClientBuilder` with configuration methods: `timeout`, `connect_timeout`, `read_timeout`, `header`, `user_agent`, `redirect` (accepting `RedirectPolicy`), `max_redirects`, `proxy`, `no_proxy`, `tls`, `danger_accept_invalid_certs`, `http1_only`, `http2_prior_knowledge`, `bearer_auth`, `basic_auth`. Termination method `build()` SHALL return `Result<Client>`.
 
 #### Scenario: `send` returns a Response from a local HTTP server
 
-- **WHEN** a local TCP listener speaks HTTP/1.1 and `Client::builder().build().unwrap().send(Request::builder().method(Method::Get).url("http://127.0.0.1:<port>/").body().unwrap())` is executed
+- **WHEN** a local TCP listener speaks HTTP/1.1 and `Client::builder().build().unwrap().send(Request::builder().get("http://127.0.0.1:<port>/").unwrap())` is executed
 - **THEN** the returned `Promise` resolves to `Ok(Response)` with `status() == StatusCode::Ok`
 
-#### Scenario: Top-level `http::get(url)` one-liner
+#### Scenario: Convenience `get(url)` delegates to `send`
 
-- **WHEN** `xpp::http::get("http://127.0.0.1:<port>/")` is executed against a local listener
+- **WHEN** `Client::builder().build().unwrap().get("http://127.0.0.1:<port>/")` is executed against a local listener
 - **THEN** the returned `Promise` resolves to `Ok(Response)` with `status() == StatusCode::Ok`
 
 #### Scenario: `ClientBuilder` configuration is honored
 
-- **WHEN** `Client::builder().timeout(1ms).build().unwrap().send(Request::builder().method(Method::Get).url("http://127.0.0.1:<port>/slow").body().unwrap())` is executed against a local listener that delays 100ms before responding
+- **WHEN** `Client::builder().timeout(1ms).build().unwrap().get("http://127.0.0.1:<port>/slow")` is executed against a local listener that delays 100ms before responding
 - **THEN** the returned `Promise` resolves to `Err` with `Error::kind() == Error::Kind::Timeout`
 
 ### Requirement: `xpp::http::Error`
@@ -245,12 +240,17 @@ The library SHALL provide top-level functions in `namespace xpp::http`: `get(url
 
 ### Requirement: Push→Pull bridge via mpsc channel
 
-The `Client::send` implementation SHALL bridge `libx/x/http/`'s push-based C callbacks (`on_response`, `on_data`, `on_done`) to the pull-based `Body` via an `xpp::sync::mpsc::channel<Bytes>` with bounded capacity 64. When the channel is full, the `on_data` callback SHALL return `-1` to signal backpressure to `libx`. When `on_done` is invoked, the channel SHALL be closed, causing subsequent `Body::read()` calls to return `0` (EOF).
+The `Client::send` implementation SHALL bridge `libx/x/http/`'s push-based C callbacks (`on_response`, `on_data`, `on_done`) to the pull-based `Body` via an `xpp::sync::mpsc::channel<Bytes>` with bounded capacity 256. When the channel is full, the `on_data` callback SHALL return `1` (pause) — libx buffers the chunk and pauses the transfer via `curl_easy_pause`; the `Body`'s drain hook SHALL call `xHttpClientResume` when the consumer frees a slot. When `on_done` is invoked, the channel SHALL be closed, causing subsequent `Body::read()` calls to return `0` (EOF) — or `-1` followed by an `Err` from `bytes()` if the shared transfer-error flag was set (mid-body failure).
 
 #### Scenario: Backpressure pauses the sender
 
-- **WHEN** a `Client::send` is in-flight, the consumer is not calling `Body::read`, and `libx` has pushed 64 chunks
-- **THEN** the next `on_data` callback returns `-1`, and `libx` pauses pushing until the consumer drains the channel
+- **WHEN** a `Client::send` is in-flight, the consumer is not calling `Body::read`, and `libx` has pushed 256 chunks
+- **THEN** the next `on_data` callback returns `1`, `libx` pauses the transfer (buffering the chunk without loss), and `xHttpClientResume` unpauses once the consumer drains the channel
+
+#### Scenario: Mid-body failure surfaces on the body read
+
+- **WHEN** response headers arrived (`send()` resolved `Ok`) but the connection is reset before the full body is received
+- **THEN** `bytes()` returns `Err` (not a truncated `Ok`)
 
 #### Scenario: Channel close triggers EOF
 
@@ -268,16 +268,16 @@ The `Body::read`, `Body::bytes`, `Body::text`, `Response::bytes`, `Response::tex
 
 ### Requirement: `xpp::http::test::TestServer` for client integration tests
 
-The library SHALL provide a test-only `xpp::http::test::TestServer` class in `libxpp/xpp/http/test_server.h` (under `namespace xpp::http::test`, NOT part of the public API). `TestServer::start(TestResponseSpec)` SHALL bind a `xpp::net::TcpListener` on loopback port 0 (using `get_free_port()` from `net/test_helpers.h`), spawn an accept fiber on the current `EventLoop` that reads each incoming HTTP request up to the blank-line terminator (`\r\n\r\n`), optionally sleeps for `TestResponseSpec::delay`, and writes back a preset HTTP/1.1 response constructed from `TestResponseSpec::status`, `headers`, and `body`, then closes the connection. `TestServer::port()` SHALL return the bound port. `TestServer::stop()` SHALL close the listener and join the accept fiber; the destructor SHALL call `stop()`. `TestServer` SHALL NOT support concurrent connections, dynamic routing, or body streaming — it is a static-response test fixture, not a general HTTP server.
+The library SHALL provide a test-only `xpp::http::test::TestServer` class in `libxpp/xpp/http/test_server.h` (under `namespace xpp::http::test`, NOT part of the public API). `TestServer::start(TestResponseSpec)` SHALL bind a `xpp::net::TcpListener` on loopback port 0 (kernel-assigned, race-free — NOT using `get_free_port()`), spawn an accept fiber on the current `EventLoop` that reads each incoming HTTP request up to the blank-line terminator (`\r\n\r\n`) and drains any `Content-Length` body bytes, optionally sleeps for `TestResponseSpec::delay_ms` milliseconds via `co_await xpp::after(delay_ms)`, then writes back a preset HTTP/1.1 response constructed from `TestResponseSpec::status`, `headers`, and `body`, then closes the connection. `TestServer::port()` SHALL return the actual bound port (read from `TcpListener::local_addr()` after bind). `TestServer::stop()` SHALL close the listener and join the accept fiber; the destructor SHALL call `stop()`. `TestServer` SHALL NOT support concurrent connections, dynamic routing, or body streaming — it is a static-response test fixture, not a general HTTP server.
 
 #### Scenario: `TestServer` responds to a `Client::send` request
 
-- **WHEN** a `TestServer` is started with `TestResponseSpec{.status=StatusCode::Ok, .headers={{"Content-Type","text/plain"}}, .body=Bytes::from("hello")}` and `Client::builder().build().unwrap().get(("http://127.0.0.1:" + port + "/").c_str()).await()` is executed
+- **WHEN** a `TestServer` is started with `TestResponseSpec{StatusCode::Ok, {{"Content-Type","text/plain"}}, Bytes::from("hello"), 0}` and `Client::builder().build().unwrap().get(("http://127.0.0.1:" + port + "/").c_str()).await()` is executed
 - **THEN** the returned `Promise` resolves to `Ok(Response)` with `status() == StatusCode::Ok`, `headers().get("content-type")` returning `Some("text/plain")`, and `bytes()` resolving to `Ok(Bytes)` equal to `"hello"`
 
-#### Scenario: `TestServer::delay` triggers client timeout
+#### Scenario: `TestServer::delay_ms` triggers client timeout
 
-- **WHEN** a `TestServer` is started with `TestResponseSpec{.delay = 100ms}` and a `Client` configured with `timeout(1ms)` calls `get` against it
+- **WHEN** a `TestServer` is started with `TestResponseSpec{StatusCode::Ok, {}, Bytes::empty(), 100}` (100ms pre-response delay) and a `Client` configured with `timeout(1)` (1ms) calls `get` against it
 - **THEN** the returned `Promise` resolves to `Err` with `Error::is_timeout()` returning `true`
 
 #### Scenario: `TestServer` is not part of the public API
@@ -289,3 +289,8 @@ The library SHALL provide a test-only `xpp::http::test::TestServer` class in `li
 
 - **WHEN** a `TestServer` instance goes out of scope without an explicit `stop()` call
 - **THEN** the bound listening socket is closed and the accept fiber has terminated before the destructor returns
+
+#### Scenario: `TestServer` binds to port 0 (no `get_free_port()`)
+
+- **WHEN** `TestServer::start(spec)` is called
+- **THEN** the underlying `TcpListener` is bound to `127.0.0.1:0` (kernel-assigned port) and `port()` returns the actual port assigned by the kernel (read from `TcpListener::local_addr()`), with no race window between port selection and bind

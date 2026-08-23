@@ -55,7 +55,7 @@ public:
 
   /* ── Accessors ─────────────────────────────────────────────────── */
 
-  Method method() const noexcept {
+  Method::Value method() const noexcept {
     return m_method;
   }
   const String &url() const noexcept {
@@ -78,10 +78,10 @@ public:
 private:
   friend class RequestBuilder;
 
-  Method    m_method = Method::Get;
-  String    m_url;
-  HeaderMap m_headers;
-  Body      m_body;
+  Method::Value m_method = Method::Get;
+  String        m_url;
+  HeaderMap     m_headers;
+  Body          m_body;
 };
 
 /**
@@ -103,7 +103,7 @@ public:
 
   /* ── Configurators ────────────────────────────────────────────── */
 
-  RequestBuilder &method(Method m) noexcept {
+  RequestBuilder &method(Method::Value m) noexcept {
     m_method = m;
     return *this;
   }
@@ -156,24 +156,9 @@ public:
    * Encodes the credentials with RFC 7617 base64. The caller does not
    * need to pre-encode.
    */
-  inline RequestBuilder &basic_auth(String user, String password) {
-    // Build "user:pass" first, then base64-encode.
-    String credentials = std::move(user);
-    credentials.push_str(String::from_utf8(":").unwrap());
-    credentials.push_str(password);
-
-    auto bytes = credentials.as_bytes();
-    // base64 encodes 3 bytes → 4 chars, ceil(len/3)*4 + 1 for NUL.
-    size_t    enc_max = (bytes.size() + 2) / 3 * 4 + 1;
-    Vec<char> enc;
-    enc.reserve(enc_max);
-    size_t enc_len = enc_max;
-    int    rc      = xBase64Encode(bytes.data(), bytes.size(), enc.data(), &enc_len);
-    XPP_ASSERT(rc == 0, "base64 encode failed (buffer sized correctly)");
-    String value        = String::from_utf8(enc.data(), enc_len).unwrap();
-    String header_value = String::from_utf8("Basic ").unwrap();
-    header_value.push_str(value);
-    m_headers.insert(String::from_utf8("Authorization").unwrap(), std::move(header_value));
+  RequestBuilder &basic_auth(String user, String password) {
+    m_headers.insert(String::from_utf8("Authorization").unwrap(),
+                     _::basic_auth_value(std::move(user), std::move(password)));
     return *this;
   }
 
@@ -208,9 +193,9 @@ public:
   }
 
 private:
-  Method    m_method = Method::Get;
-  String    m_url;
-  HeaderMap m_headers;
+  Method::Value m_method = Method::Get;
+  String        m_url;
+  HeaderMap     m_headers;
 };
 
 inline RequestBuilder Request::builder() {

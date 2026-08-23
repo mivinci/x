@@ -62,7 +62,16 @@ XDEF_STRUCT(xHttpReq_) {
   xBuffer            header_buf;   /* response headers                    */
   char              *post_data;    /* copy of POST body (owned)           */
   struct curl_slist *req_headers;  /* custom request headers              */
-  struct xHttpReq_  *next;         /* intrusive list link (client) */
+  /* Backpressure pause (on_data returned > 0) */
+  xBuffer paused_buf; /* chunk(s) buffered while paused       */
+  int     paused;     /* non-zero while the transfer is paused */
+
+  /* Read timeout (idle body detection) */
+  long   read_timeout_ms; /* idle threshold (0 = disabled)          */
+  xTimer read_timer;      /* reset on each body chunk; fires on stall */
+  int    read_timed_out;  /* set when the read timer fired            */
+
+  struct xHttpReq_ *next; /* intrusive list link (client) */
 };
 /* ───────────────────── Client internal structure ───────────────────── */
 
@@ -73,17 +82,18 @@ XDEF_STRUCT(xHttpClient_) {
   xHttpVersion http_ver; /* default HTTP version for requests   */
 
   /* Redirect policy (client-level defaults) */
-  int  follow_location;  /* 0 = never follow; non-zero = follow  */
-  long max_redirects;    /* 0 = unlimited; >0 = cap              */
+  int  follow_location; /* 0 = never follow; non-zero = follow  */
+  long max_redirects;   /* 0 = unlimited; >0 = cap              */
 
   /* Timeouts (ms, 0 = no limit / use default) */
   long timeout_ms;         /* total transfer timeout             */
   long connect_timeout_ms; /* connect-phase-only timeout         */
+  long read_timeout_ms;    /* idle body timeout, 0=off           */
 
   /* Identity / proxy (owned copies, freed on destroy) */
-  char *user_agent;       /* default User-Agent, or NULL         */
-  char *proxy;            /* proxy URL, or NULL                  */
-  char *no_proxy;         /* no_proxy patterns, or NULL           */
+  char *user_agent; /* default User-Agent, or NULL         */
+  char *proxy;      /* proxy URL, or NULL                  */
+  char *no_proxy;   /* no_proxy patterns, or NULL           */
 
   /* TLS configuration (owned copies, freed on destroy) */
   char *tls_ca;           /* CA cert file path, or NULL          */

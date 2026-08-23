@@ -5,11 +5,15 @@
  *
  * status.h — HTTP status codes (RFC 9110 §15).
  *
- * Mirrors hyper::StatusCode. Stores the numeric code as uint16_t and
- * exposes the standard classification predicates (is_informational /
- * is_success / is_redirect / is_client_error / is_server_error) plus
- * to_string (canonical reason phrase) and from_string (parse a token
- * like "404" or "404 Not Found" — accepts leading digits only).
+ * Mirrors hyper::StatusCode. `StatusCode` is a namespace:
+ * `StatusCode::Value` is the underlying enum type and the well-known
+ * codes are re-exported as constexpr values (`StatusCode::Ok`, ...) so
+ * callers write `StatusCode::Ok` exactly as with an enum class. The
+ * standard classification predicates (is_informational / is_success /
+ * is_redirect / is_client_error / is_server_error) and to_string
+ * (canonical reason phrase) are free functions in xpp::http;
+ * StatusCode::from_string parses a token like "404" or "404 Not Found"
+ * (accepts leading digits only).
  *
  * C++11-compatible. Header-only.
  */
@@ -25,14 +29,39 @@
 namespace xpp {
 namespace http {
 
+namespace _ {
+
+/// Parse leading ASCII digits from @p s up to 3 digits (100–599 range).
+/// Returns the integer, or 0 if no digits found.
+inline uint16_t parse_leading_digits(const char *p, size_t n) noexcept {
+  uint32_t v = 0;
+  size_t   i = 0;
+  while (i < n && i < 3 && p[i] >= '0' && p[i] <= '9') {
+    v = v * 10 + static_cast<uint32_t>(p[i] - '0');
+    ++i;
+  }
+  return (i == 0) ? 0 : static_cast<uint16_t>(v);
+}
+
+} // namespace _
+
 /**
  * @brief HTTP response status code.
  *
  * Underlying type is uint16_t so it fits in the response object without
  * padding. Codes outside the well-known list can still be constructed
- * via `static_cast<StatusCode>(code)` — predicates classify by range.
+ * via `static_cast<Value>(code)` — predicates classify by range.
  */
-enum class StatusCode : uint16_t {
+namespace StatusCode {
+
+/**
+ * @brief Underlying enum for the HTTP status code.
+ *
+ * Underlying type is uint16_t so it fits in the response object without
+ * padding. Codes outside the well-known list can still be constructed
+ * via `static_cast<Value>(code)` — predicates classify by range.
+ */
+enum class Value : uint16_t {
   // 1xx — Informational
   Continue           = 100,
   SwitchingProtocols = 101,
@@ -105,30 +134,118 @@ enum class StatusCode : uint16_t {
   NetworkAuthenticationRequired = 511,
 };
 
+/** @brief Canonical enumerator values, re-exported so callers can write
+ *         `StatusCode::Ok` instead of `StatusCode::Value::Ok`. */
+constexpr Value Continue                      = Value::Continue;
+constexpr Value SwitchingProtocols            = Value::SwitchingProtocols;
+constexpr Value Processing                    = Value::Processing;
+constexpr Value EarlyHints                    = Value::EarlyHints;
+constexpr Value Ok                            = Value::Ok;
+constexpr Value Created                       = Value::Created;
+constexpr Value Accepted                      = Value::Accepted;
+constexpr Value NonAuthoritativeInformation   = Value::NonAuthoritativeInformation;
+constexpr Value NoContent                     = Value::NoContent;
+constexpr Value ResetContent                  = Value::ResetContent;
+constexpr Value PartialContent                = Value::PartialContent;
+constexpr Value MultiStatus                   = Value::MultiStatus;
+constexpr Value AlreadyReported               = Value::AlreadyReported;
+constexpr Value ImUsed                        = Value::ImUsed;
+constexpr Value MultipleChoices               = Value::MultipleChoices;
+constexpr Value MovedPermanently              = Value::MovedPermanently;
+constexpr Value Found                         = Value::Found;
+constexpr Value SeeOther                      = Value::SeeOther;
+constexpr Value NotModified                   = Value::NotModified;
+constexpr Value UseProxy                      = Value::UseProxy;
+constexpr Value TemporaryRedirect             = Value::TemporaryRedirect;
+constexpr Value PermanentRedirect             = Value::PermanentRedirect;
+constexpr Value BadRequest                    = Value::BadRequest;
+constexpr Value Unauthorized                  = Value::Unauthorized;
+constexpr Value PaymentRequired               = Value::PaymentRequired;
+constexpr Value Forbidden                     = Value::Forbidden;
+constexpr Value NotFound                      = Value::NotFound;
+constexpr Value MethodNotAllowed              = Value::MethodNotAllowed;
+constexpr Value NotAcceptable                 = Value::NotAcceptable;
+constexpr Value ProxyAuthenticationRequired   = Value::ProxyAuthenticationRequired;
+constexpr Value RequestTimeout                = Value::RequestTimeout;
+constexpr Value Conflict                      = Value::Conflict;
+constexpr Value Gone                          = Value::Gone;
+constexpr Value LengthRequired                = Value::LengthRequired;
+constexpr Value PreconditionFailed            = Value::PreconditionFailed;
+constexpr Value PayloadTooLarge               = Value::PayloadTooLarge;
+constexpr Value UriTooLong                    = Value::UriTooLong;
+constexpr Value UnsupportedMediaType          = Value::UnsupportedMediaType;
+constexpr Value RangeNotSatisfiable           = Value::RangeNotSatisfiable;
+constexpr Value ExpectationFailed             = Value::ExpectationFailed;
+constexpr Value MisdirectedRequest            = Value::MisdirectedRequest;
+constexpr Value UnprocessableEntity           = Value::UnprocessableEntity;
+constexpr Value Locked                        = Value::Locked;
+constexpr Value FailedDependency              = Value::FailedDependency;
+constexpr Value TooEarly                      = Value::TooEarly;
+constexpr Value UpgradeRequired               = Value::UpgradeRequired;
+constexpr Value PreconditionRequired          = Value::PreconditionRequired;
+constexpr Value TooManyRequests               = Value::TooManyRequests;
+constexpr Value RequestHeaderFieldsTooLarge   = Value::RequestHeaderFieldsTooLarge;
+constexpr Value UnavailableForLegalReasons    = Value::UnavailableForLegalReasons;
+constexpr Value InternalServerError           = Value::InternalServerError;
+constexpr Value NotImplemented                = Value::NotImplemented;
+constexpr Value BadGateway                    = Value::BadGateway;
+constexpr Value ServiceUnavailable            = Value::ServiceUnavailable;
+constexpr Value GatewayTimeout                = Value::GatewayTimeout;
+constexpr Value HttpVersionNotSupported       = Value::HttpVersionNotSupported;
+constexpr Value VariantAlsoNegotiates         = Value::VariantAlsoNegotiates;
+constexpr Value InsufficientStorage           = Value::InsufficientStorage;
+constexpr Value LoopDetected                  = Value::LoopDetected;
+constexpr Value NotExtended                   = Value::NotExtended;
+constexpr Value NetworkAuthenticationRequired = Value::NetworkAuthenticationRequired;
+
+/**
+ * @brief Parse a status code from a string.
+ *
+ * Accepts "404", "404 Not Found", "  200  ". Leading digits are parsed,
+ * trailing text is ignored. Returns None if no digits found or the code
+ * is outside 100–599.
+ */
+inline Option<Value> from_string(const String &s) noexcept {
+  const char *p = reinterpret_cast<const char *>(s.as_bytes().data());
+  size_t      n = s.len();
+
+  // Skip leading whitespace.
+  size_t i = 0;
+  while (i < n && (p[i] == ' ' || p[i] == '\t'))
+    ++i;
+  if (i == n) return none;
+
+  uint16_t code = _::parse_leading_digits(p + i, n - i);
+  if (code < 100 || code > 599) return none;
+  return static_cast<Value>(code);
+}
+
+} // namespace StatusCode
+
 /* ── Classification predicates ────────────────────────────────────── */
 
 /// @brief 1xx — informational (rarely seen in practice).
-inline bool is_informational(StatusCode s) noexcept {
+inline bool is_informational(StatusCode::Value s) noexcept {
   return static_cast<uint16_t>(s) / 100 == 1;
 }
 
 /// @brief 2xx — success.
-inline bool is_success(StatusCode s) noexcept {
+inline bool is_success(StatusCode::Value s) noexcept {
   return static_cast<uint16_t>(s) / 100 == 2;
 }
 
 /// @brief 3xx — redirection.
-inline bool is_redirect(StatusCode s) noexcept {
+inline bool is_redirect(StatusCode::Value s) noexcept {
   return static_cast<uint16_t>(s) / 100 == 3;
 }
 
 /// @brief 4xx — client error.
-inline bool is_client_error(StatusCode s) noexcept {
+inline bool is_client_error(StatusCode::Value s) noexcept {
   return static_cast<uint16_t>(s) / 100 == 4;
 }
 
 /// @brief 5xx — server error.
-inline bool is_server_error(StatusCode s) noexcept {
+inline bool is_server_error(StatusCode::Value s) noexcept {
   return static_cast<uint16_t>(s) / 100 == 5;
 }
 
@@ -137,7 +254,7 @@ inline bool is_server_error(StatusCode s) noexcept {
  *
  * Returns a borrowed C string literal. Unknown codes return "".
  */
-inline const char *to_string(StatusCode s) noexcept {
+inline const char *to_string(StatusCode::Value s) noexcept {
   switch (s) {
   // 1xx
   case StatusCode::Continue:
@@ -268,44 +385,6 @@ inline const char *to_string(StatusCode s) noexcept {
     return "Network Authentication Required";
   }
   return "";
-}
-
-namespace _ {
-
-/// Parse leading ASCII digits from @p s up to 3 digits (100–599 range).
-/// Returns the integer, or 0 if no digits found.
-inline uint16_t parse_leading_digits(const char *p, size_t n) noexcept {
-  uint32_t v = 0;
-  size_t   i = 0;
-  while (i < n && i < 3 && p[i] >= '0' && p[i] <= '9') {
-    v = v * 10 + static_cast<uint32_t>(p[i] - '0');
-    ++i;
-  }
-  return (i == 0) ? 0 : static_cast<uint16_t>(v);
-}
-
-} // namespace _
-
-/**
- * @brief Parse a status code from a string.
- *
- * Accepts "404", "404 Not Found", "  200  ". Leading digits are parsed,
- * trailing text is ignored. Returns None if no digits found or the code
- * is outside 100–599.
- */
-inline Option<StatusCode> from_string(const String &s) noexcept {
-  const char *p = reinterpret_cast<const char *>(s.as_bytes().data());
-  size_t      n = s.len();
-
-  // Skip leading whitespace.
-  size_t i = 0;
-  while (i < n && (p[i] == ' ' || p[i] == '\t'))
-    ++i;
-  if (i == n) return none;
-
-  uint16_t code = _::parse_leading_digits(p + i, n - i);
-  if (code < 100 || code > 599) return none;
-  return static_cast<StatusCode>(code);
 }
 
 } // namespace http

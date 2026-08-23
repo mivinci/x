@@ -54,7 +54,7 @@ public:
 
   /* ── Status line ──────────────────────────────────────────────── */
 
-  StatusCode status() const noexcept {
+  StatusCode::Value status() const noexcept {
     return m_status;
   }
   uint16_t status_code() const noexcept {
@@ -112,10 +112,10 @@ public:
 private:
   friend class ResponseBuilder;
 
-  StatusCode     m_status = StatusCode::Ok;
-  HeaderMap      m_headers;
-  Body           m_body;
-  Option<String> m_final_url;
+  StatusCode::Value m_status = StatusCode::Ok;
+  HeaderMap         m_headers;
+  Body              m_body;
+  Option<String>    m_final_url;
 };
 
 /**
@@ -135,13 +135,13 @@ public:
 
   /* ── Configurators ────────────────────────────────────────────── */
 
-  ResponseBuilder &status(StatusCode code) noexcept {
+  ResponseBuilder &status(StatusCode::Value code) noexcept {
     m_status = code;
     return *this;
   }
 
   ResponseBuilder &status(uint16_t code) noexcept {
-    m_status = static_cast<StatusCode>(code);
+    m_status = static_cast<StatusCode::Value>(code);
     return *this;
   }
 
@@ -156,13 +156,25 @@ public:
     return *this;
   }
 
+  /**
+   * @brief Set the final URL after redirects (None for direct responses).
+   *
+   * Filled by `Client::send` from curl's effective URL; server-side
+   * responses typically leave it unset.
+   */
+  ResponseBuilder &url(String u) {
+    m_final_url = xpp::some(std::move(u));
+    return *this;
+  }
+
   /* ── Terminators ──────────────────────────────────────────────── */
 
   Response body(Body b) {
     Response r;
-    r.m_status  = m_status;
-    r.m_headers = std::move(m_headers);
-    r.m_body    = std::move(b);
+    r.m_status    = m_status;
+    r.m_headers   = std::move(m_headers);
+    r.m_body      = std::move(b);
+    r.m_final_url = std::move(m_final_url);
     return r;
   }
 
@@ -245,12 +257,23 @@ public:
   }
 
 private:
-  StatusCode m_status = StatusCode::Ok;
-  HeaderMap  m_headers;
+  StatusCode::Value m_status = StatusCode::Ok;
+  HeaderMap         m_headers;
+  Option<String>    m_final_url;
 };
 
 inline ResponseBuilder Response::builder() {
   return ResponseBuilder();
+}
+
+/* ── Response::bytes() / text() — move body out and aggregate ──── */
+
+inline Promise<http::Result<Bytes>> Response::bytes() {
+  return into_body().bytes();
+}
+
+inline Promise<http::Result<String>> Response::text() {
+  return into_body().text();
 }
 
 } // namespace http

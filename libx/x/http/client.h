@@ -38,7 +38,8 @@ XDEF_HANDLE(xHttpClient);
  */
 XDEF_STRUCT(xHttpCtx) {
   const char *method;      /**< Request method (client: NULL)                */
-  const char *url;         /**< Request URL (client: NULL)                   */
+  const char *url;         /**< Effective URL after redirects (client side);
+                                NULL if not yet known. server: matched route */
   long        status_code; /**< HTTP status code (e.g. 200), 0 on failure    */
   int         curl_code;   /**< CURLcode (0 = CURLE_OK on success)           */
   const char *curl_error;  /**< Human-readable curl error, or NULL           */
@@ -73,7 +74,12 @@ typedef void (*xHttpDoneFunc)(xHttpCtx *ctx, void *arg);
  * @param data  Body chunk (not NUL-terminated).
  * @param len   Length of @p data in bytes.
  * @param arg   User-provided argument.
- * @return      0 to continue, non-zero to abort the transfer.
+ * @return      0 to continue the transfer;
+ *              < 0 to abort the transfer;
+ *              > 0 to pause the transfer (backpressure): libx buffers this
+ *              chunk internally and stops delivering body data until
+ *              xHttpClientResume() is called. No data is lost — the
+ *              buffered chunk is re-delivered on resume.
  */
 typedef int (*xHttpDataFunc)(const char *data, size_t len, void *arg);
 
@@ -95,14 +101,8 @@ typedef size_t (*xHttpReadFunc)(char *buf, size_t bufsize, void *arg);
  * @brief HTTP method constants.
  */
 XDEF_ENUM(xHttpMethod){
-  xHttpMethod_GET     = 0,
-  xHttpMethod_POST    = 1,
-  xHttpMethod_PUT     = 2,
-  xHttpMethod_DELETE   = 3,
-  xHttpMethod_PATCH    = 4,
-  xHttpMethod_HEAD    = 5,
-  xHttpMethod_OPTIONS = 6,
-  xHttpMethod_TRACE   = 7,
+  xHttpMethod_GET = 0,   xHttpMethod_POST = 1, xHttpMethod_PUT = 2,     xHttpMethod_DELETE = 3,
+  xHttpMethod_PATCH = 4, xHttpMethod_HEAD = 5, xHttpMethod_OPTIONS = 6, xHttpMethod_TRACE = 7,
 };
 
 /**
@@ -170,36 +170,45 @@ typedef xTlsConf xHttpTlsClientConf;
  * initialized struct.
  */
 XDEF_STRUCT(xHttpClientConf) {
-  const xTlsConf *tls;             /**< TLS config, or NULL                        */
-  xHttpVersion    http_version;    /**< Default HTTP version (0=H1)                */
+  const xTlsConf *tls;          /**< TLS config, or NULL                        */
+  xHttpVersion    http_version; /**< Default HTTP version (0=H1)                */
 
   /* ── Redirect policy ── */
-  int             follow_location; /**< 0 = never follow (default 1, see below);
-                                     *    any non-zero = follow.  When 0, the
-                                     *    client does not follow 3xx responses. */
-  long            max_redirects;   /**< Max redirects to follow (0 = follow
-                                     *    infinitely; default 10 when
-                                     *    follow_location != 0).                */
+  int follow_location; /**< 0 = never follow (default 1, see below);
+                        *    any non-zero = follow.  When 0, the
+                        *    client does not follow 3xx responses. */
+  long max_redirects;  /**< Max redirects to follow (0 = follow
+                        *    infinitely; default 10 when
+                        *    follow_location != 0).                */
 
   /* ── Timeouts ── */
-  long            timeout_ms;       /**< Total transfer timeout per request in ms
-                                     *    (0 = no limit).  Applies to the whole
-                                     *    transfer including connect + headers +
-                                     *    body.  Equivalent to CURLOPT_TIMEOUT_MS. */
-  long            connect_timeout_ms;/**< Connect-phase-only timeout in ms
-                                     *    (0 = use default, ~300s on most
-                                     *    systems).  Equivalent to
-                                     *    CURLOPT_CONNECTTIMEOUT_MS.             */
+  long timeout_ms;         /**< Total transfer timeout per request in ms
+                            *    (0 = no limit).  Applies to the whole
+                            *    transfer including connect + headers +
+                            *    body.  Equivalent to CURLOPT_TIMEOUT_MS. */
+  long connect_timeout_ms; /**< Connect-phase-only timeout in ms
+                            *    (0 = use default, ~300s on most
+                            *    systems).  Equivalent to
+                            *    CURLOPT_CONNECTTIMEOUT_MS.             */
+
+  /* ── Read timeout ── */
+  long read_timeout_ms; /**< Abort if no response body bytes arrive for
+                         *    this long (idle detection, ms precision).
+                         *    Implemented with an event-loop timer reset
+                         *    on each body chunk — curl's
+                         *    CURLOPT_LOW_SPEED_TIME is unreliable for
+                         *    mid-transfer stalls on some platforms.
+                         *    0 = disabled.                         */
 
   /* ── Identity / proxy ── */
-  const char     *user_agent;       /**< Default User-Agent header, or NULL (libcurl
-                                     *    default applies).  Overridden by an
-                                     *    explicit User-Agent in xHttpRequestConf. */
-  const char     *proxy;            /**< Proxy URL (e.g. "http://host:port",
-                                     *    "socks5://host:port"), or NULL.         */
-  const char     *no_proxy;         /**< Comma-separated host patterns that bypass
-                                     *    @ref proxy (e.g. "localhost,127.0.0.1"),
-                                     *    or NULL.                                */
+  const char *user_agent; /**< Default User-Agent header, or NULL (libcurl
+                           *    default applies).  Overridden by an
+                           *    explicit User-Agent in xHttpRequestConf. */
+  const char *proxy;      /**< Proxy URL (e.g. "http://host:port",
+                           *    "socks5://host:port"), or NULL.         */
+  const char *no_proxy;   /**< Comma-separated host patterns that bypass
+                           *    @ref proxy (e.g. "localhost,127.0.0.1"),
+                           *    or NULL.                                */
 };
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
@@ -274,6 +283,26 @@ XCAPI(xErrno) xHttpClientPost(xHttpClient client, const xHttpRequestConf *conf, 
  * @return        xErrno_Ok on success, or an error code.
  */
 XCAPI(xErrno) xHttpClientDo(xHttpClient client, const xHttpRequestConf *conf, void *arg);
+
+/* ── Flow control ──────────────────────────────────────────────────────── */
+
+/**
+ * @brief Resume a transfer paused by an on_data return value > 0.
+ *
+ * Re-delivers the internally buffered chunk to the request's on_data
+ * callback; if the callback accepts it (returns 0), the transfer resumes
+ * (curl_easy_pause(CURLPAUSE_RECV_CONT)). If the callback pauses again,
+ * the remaining data stays buffered and the transfer stays paused.
+ *
+ * Must be called with the request's original @p arg, from the event loop
+ * thread (the same thread the callbacks run on).
+ *
+ * @param client  The HTTP client the request was submitted to.
+ * @param arg     The request's user argument (as passed to xHttpClientDo).
+ * @return        xErrno_Ok if resumed, xErrno_Unknown if no paused request
+ *                matches @p arg.
+ */
+XCAPI(xErrno) xHttpClientResume(xHttpClient client, void *arg);
 
 /* ── SSE (Server-Sent Events) ──────────────────────────────────────────── */
 
