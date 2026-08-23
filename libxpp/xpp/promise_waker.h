@@ -55,9 +55,16 @@ namespace _ {
 struct WakeState {
   xEventLoop loop;
   bool       woken = false;
+  /* Optional wake callback (used by xpp::spawn): invoked (via
+   * xEventLoopPost) whenever wake() fires, so a poll-driven promise
+   * chain can be re-polled without a blocking await loop. NULL for
+   * regular await() users — behaviour unchanged. */
+  void (*wake_cb)(void *) = nullptr;
+  void *wake_arg          = nullptr;
 
   WakeState() = default;
   explicit WakeState(xEventLoop l) : loop(l) {}
+  WakeState(xEventLoop l, void (*cb)(void *), void *arg) : loop(l), wake_cb(cb), wake_arg(arg) {}
 
 #if XPP_FIBER
   xFiber fiber = nullptr;
@@ -126,6 +133,19 @@ public:
    */
   static PromiseWaker create();
 
+  /**
+   * @brief Create a waker that re-posts @p cb to the event loop on every
+   *        wake (in addition to setting the woken flag). Used by xpp::spawn
+   *        to drive a promise chain without a blocking await loop.
+   */
+  static PromiseWaker create_with_wake_cb(void (*cb)(void *), void *arg);
+
+  /** @brief Update the wake-callback argument (used by spawn to point the
+   *         callback at its driver state). */
+  void set_wake_arg(void *arg) {
+    m_state->wake_arg = arg;
+  }
+
 private:
   explicit PromiseWaker(Arc<_::WakeState> state) : m_state(std::move(state)) {}
   Arc<_::WakeState> m_state;
@@ -140,6 +160,10 @@ private:
  *  PromiseWaker — implementation
  * ═══════════════════════════════════════════════════════════════════════ */
 
+inline PromiseWaker PromiseWaker::create_with_wake_cb(void (*cb)(void *), void *arg) {
+  return PromiseWaker(Arc<_::WakeState>::make(xEventLoopCurrent(), cb, arg));
+}
+
 inline PromiseWaker PromiseWaker::create() {
 #if XPP_FIBER
   auto f = xFiberCurrent();
@@ -153,6 +177,15 @@ inline PromiseWaker PromiseWaker::create() {
   return PromiseWaker(Arc<_::WakeState>::make(xEventLoopCurrent()));
 }
 
+/// Unified wake action: set the woken flag (for await's park loop) and,
+/// if a wake callback is registered (for spawn), re-post it to the loop.
+static inline void do_wake(_::WakeState *s) {
+  s->woken = true;
+  if (s->wake_cb) {
+    xEventLoopPost(s->loop, s->wake_cb, s->wake_arg);
+  }
+}
+
 inline void PromiseWaker::wake() const {
   if (m_state->loop == xEventLoopCurrent()) {
 #if XPP_FIBER
@@ -161,7 +194,7 @@ inline void PromiseWaker::wake() const {
       return;
     }
 #endif
-    m_state->woken = true;
+    do_wake(m_state.get());
   } else {
     xEventLoopPost(m_state->loop, &on_wake,
                    const_cast<void *>(static_cast<const void *>(&(*m_state))));
@@ -176,7 +209,7 @@ inline void PromiseWaker::on_wake(void *arg) {
     return;
   }
 #endif
-  c->woken = true;
+  do_wake(c);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
