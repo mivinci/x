@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 #include <xpp/promise.h>
+#include <xpp/spawn.h>
 #include <xpp/sync/mpsc.h>
 
 xpp::Promise<void> do_send_recv() {
@@ -302,6 +303,68 @@ TEST(MpscMtTest, TrySendRecvWorkerThread) {
   };
   recv_all().await();
   worker.join();
+}
+
+/* ───────────────────────────────────────────────────────────────────
+ *  Lost-wakeup stress regression (issues/mpsc-single-slot-waiter-race.md).
+ *
+ *  Each round races a worker thread's try_send against the loop
+ *  thread's recv-park. The old single-slot PromiseResolver waiter lost
+ *  the wakeup in the check-then-act window (recv: pop-empty →
+ *  register vs send: push → check-waiter) and hung within ~500-1000
+ *  rounds of this exact shape.
+ * ─────────────────────────────────────────────────────────────────── */
+TEST(MpscMtTest, StressLostWakeupRegression) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  for (int r = 0; r < 2000; ++r) {
+    auto [tx, rx] = xpp::sync::mpsc::channel<int>(4);
+
+    std::thread worker([&tx] {
+      for (int i = 0; i < 4; ++i) {
+        auto res = tx.try_send(i);
+        EXPECT_TRUE(res.is_ok());
+      }
+    });
+
+    for (int i = 0; i < 4; ++i) {
+      auto v = rx.recv().await();
+      ASSERT_TRUE(v.is_some());
+    }
+    worker.join();
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────
+ *  Multiple producers suspended on a full buffer (cap=1): the writer
+ *  FIFO must park them all in order (the old single write-waiter slot
+ *  overwrote earlier waiters — a parked sender would hang forever) and
+ *  drain them FIFO, one wake per pop.
+ * ─────────────────────────────────────────────────────────────────── */
+static xpp::Promise<void> co_send_one(xpp::sync::mpsc::Sender<int> tx, int v) {
+  co_await tx.send(v);
+  co_return;
+}
+
+TEST(MpscMtTest, MultipleSuspendedSenders) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  auto [tx, rx] = xpp::sync::mpsc::channel<int>(1);
+  ASSERT_TRUE(tx.try_send(0).is_ok()); // fill the single slot
+
+  // Three senders park on the full buffer, in FIFO order.
+  xpp::spawn(co_send_one(tx, 1));
+  xpp::spawn(co_send_one(tx, 2));
+  xpp::spawn(co_send_one(tx, 3));
+
+  // Drain: values arrive 0,1,2,3 — one parked sender per pop.
+  for (int expect = 0; expect < 4; ++expect) {
+    auto v = rx.recv().await();
+    ASSERT_TRUE(v.is_some());
+    EXPECT_EQ(v.unwrap(), expect);
+  }
 }
 
 TEST(MpscMtTest, MultiProducerThreads) {

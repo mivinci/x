@@ -58,13 +58,25 @@ struct WakeState {
   /* Optional wake callback (used by xpp::spawn): invoked (via
    * xEventLoopPost) whenever wake() fires, so a poll-driven promise
    * chain can be re-polled without a blocking await loop. NULL for
-   * regular await() users — behaviour unchanged. */
+   * regular await() users — behaviour unchanged.
+   *
+   * Ownership protocol (makes late/duplicate wakes safe):
+   * - wake_retain/wake_release, when set, manage the lifetime of
+   *   wake_arg: do_wake() retains before posting, the posted callback
+   *   releases when done, and ~WakeState releases the reference the
+   *   waker itself holds. A wake aimed at an already-completed chain
+   *   is then a harmless no-op instead of a use-after-free. */
   void (*wake_cb)(void *)      = nullptr;
+  void (*wake_retain)(void *)  = nullptr;
+  void (*wake_release)(void *) = nullptr;
   std::atomic<void *> wake_arg{nullptr};
 
   WakeState() = default;
   explicit WakeState(xEventLoop l) : loop(l) {}
   WakeState(xEventLoop l, void (*cb)(void *), void *arg) : loop(l), wake_cb(cb), wake_arg(arg) {}
+  ~WakeState() {
+    if (wake_release) wake_release(wake_arg.load(std::memory_order_acquire));
+  }
 
 #if XPP_FIBER
   xFiber fiber = nullptr;
@@ -140,10 +152,27 @@ public:
    */
   static PromiseWaker create_with_wake_cb(void (*cb)(void *), void *arg);
 
-  /** @brief Update the wake-callback argument (used by spawn to point the
-   *         callback at its driver state). */
-  void set_wake_arg(void *arg) {
+  /**
+   * @brief Attach an owned wake-callback argument (used by spawn to point
+   *        the callback at its driver state).
+   *
+   * Takes over @p arg: this waker holds one reference (released when the
+   * last copy of the shared WakeState dies, via @p release), and every
+   * posted callback invocation holds one (@p retain is taken before each
+   * post; the callback releases when done). Makes late/duplicate wakes
+   * safe: a callback posted for an already-completed chain is a no-op.
+   */
+  void attach_wake_arg(void *arg, void (*retain)(void *), void (*release)(void *)) {
+    m_state->wake_retain  = retain;
+    m_state->wake_release = release;
     m_state->wake_arg.store(arg, std::memory_order_release);
+    retain(arg); // the waker's own ownership reference
+  }
+
+  /** @brief Drop this handle's share of the shared state (keeps copies). */
+  void reset() {
+    Arc<_::WakeState> released(
+      std::move(m_state)); // m_state is now null; `released` frees on scope exit
   }
 
 private:
@@ -151,6 +180,7 @@ private:
   Arc<_::WakeState> m_state;
 
   static void on_wake(void *arg);
+  static void on_wake_owned(void *arg);
 
   friend class PromiseContext;
   friend class AtomicPromiseWaker;
@@ -159,6 +189,15 @@ private:
 /* ═══════════════════════════════════════════════════════════════════════
  *  PromiseWaker — implementation
  * ═══════════════════════════════════════════════════════════════════════ */
+
+namespace _ {
+/// Heap token for a cross-thread wake post: owns one PromiseWaker (an
+/// Arc copy) so the shared WakeState outlives the queued callback even
+/// if every other copy is dropped in the meantime.
+struct WakeToken {
+  PromiseWaker waker;
+};
+} // namespace _
 
 inline PromiseWaker PromiseWaker::create_with_wake_cb(void (*cb)(void *), void *arg) {
   return PromiseWaker(Arc<_::WakeState>::make(xEventLoopCurrent(), cb, arg));
@@ -179,10 +218,16 @@ inline PromiseWaker PromiseWaker::create() {
 
 /// Unified wake action: set the woken flag (for await's park loop) and,
 /// if a wake callback is registered (for spawn), re-post it to the loop.
+/// The post owns a reference to the callback argument (retain/release
+/// protocol), so a callback arriving after its chain completed is safe.
 static inline void do_wake(_::WakeState *s) {
   s->woken = true;
   if (s->wake_cb) {
-    xEventLoopPost(s->loop, s->wake_cb, s->wake_arg.load(std::memory_order_acquire));
+    void *arg = s->wake_arg.load(std::memory_order_acquire);
+    if (s->wake_retain) s->wake_retain(arg);
+    if (xEventLoopPost(s->loop, s->wake_cb, arg) != xErrno_Ok) {
+      if (s->wake_release) s->wake_release(arg);
+    }
   }
 }
 
@@ -196,8 +241,12 @@ inline void PromiseWaker::wake() const {
 #endif
     do_wake(m_state.get());
   } else {
-    xEventLoopPost(m_state->loop, &on_wake,
-                   const_cast<void *>(static_cast<const void *>(&(*m_state))));
+    // Cross-thread wake: the post must own a reference to the shared
+    // state — the awaiting side may drop all its copies before the
+    // target loop runs the callback. Pack this handle (an Arc copy)
+    // into a small token that the callback deletes after firing.
+    auto *tok = new _::WakeToken{*this};
+    if (xEventLoopPost(m_state->loop, &PromiseWaker::on_wake_owned, tok) != xErrno_Ok) delete tok;
   }
 }
 
@@ -210,6 +259,12 @@ inline void PromiseWaker::on_wake(void *arg) {
   }
 #endif
   do_wake(c);
+}
+
+inline void PromiseWaker::on_wake_owned(void *arg) {
+  auto *tok = static_cast<_::WakeToken *>(arg);
+  on_wake(static_cast<void *>(&*tok->waker.m_state));
+  delete tok;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -264,6 +319,29 @@ public:
       }
       m_state.store(WAITING, std::memory_order_release);
     }
+  }
+
+  /**
+   * @brief Remove and return the registered waker (tokio's take_waker).
+   *
+   * Used by poll nodes whose post-registration re-check succeeded: they
+   * no longer depend on wake delivery, so the stale registration is
+   * cleared instead of being fired later — a late fire would target a
+   * possibly-completed chain (harmless no-op) and, worse, may post to
+   * an event loop that no longer exists. If a wake() is concurrently
+   * in flight, the waker is left in place (the wake is then delivered
+   * as usual — a spurious re-poll of a node that already succeeded).
+   */
+  Option<PromiseWaker> take_waker() {
+    uint8_t expected = WAITING;
+    if (!m_state.compare_exchange_strong(expected, REGISTERING, std::memory_order_acquire,
+                                         std::memory_order_relaxed)) {
+      return none; // WAKING in flight (REGISTERING impossible: single poller)
+    }
+    Option<PromiseWaker> w = m_waker;
+    m_waker                = none;
+    m_state.store(WAITING, std::memory_order_release);
+    return w;
   }
 
 private:

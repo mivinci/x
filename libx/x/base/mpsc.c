@@ -18,7 +18,11 @@ void xMpscPush(xMpsc **head, xMpsc **tail, xMpsc *node) {
   _tail      = xAtomicXchgPtr(tail, node, xAtomicAcqRel);
 
   if (_tail) {
-    _tail->next = node;
+    /* Release-store: this write publishes the node (and everything its
+     * producer wrote before pushing) to the consumer, which acquire-
+     * loads ->next in xMpscPop. A plain store here breaks the
+     * happens-before chain and is a data race (TSan-visible). */
+    xAtomicStore(&_tail->next, node, xAtomicRelease);
   } else {
     /* update head if it is the first node */
     xAtomicStore(head, node, xAtomicRelease);

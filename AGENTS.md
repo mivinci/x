@@ -30,6 +30,7 @@ bash scripts/test-linux.sh -t openssl -j $(nproc) --asan
 The repo ships a `.clang-format` config at the root. It enforces Google-style include ordering plus layout rules (2-space indent, 100-char column limit, alignment, etc.).
 
 **Include ordering** (Google style, strict):
+
 1. Corresponding header (`"foo.h"` in `foo.c`)
 2. C system headers (`<stdio.h>`)
 3. C++ system headers (`<vector>`)
@@ -63,7 +64,7 @@ The hook runs `clang-format -i` on each staged `.c`/`.h`/`.cpp` file under `libx
 ## CMake Options
 
 | Option | Default | Description |
-|--------|---------|-------------|
+| -------- | --------- | ------------- |
 | `X_BUILD_STATIC` | `OFF` | Build static libraries |
 | `X_BUILD_SHARED` | `OFF` | Enable symbol-visibility control (POSIX `-fvisibility=hidden` + Windows `dllexport`/`dllimport`). When OFF (default), all symbols are exported. When ON, only `XCAPI`-marked symbols are public. |
 | `X_BUILD_TESTS` | `ON` | Build tests |
@@ -84,7 +85,9 @@ cmake -B build -G Ninja -DX_BUILD_BENCHMARKS=ON && cmake --build build -j
 
 ASan is available via the test scripts (`--asan` flag). LSAN suppressions for known false positives (OpenSSL TLS state, libcurl) are in `scripts/lsan_suppressions.txt`.
 
-TSan and UBSan are not currently configured in scripts or CI.
+TSan is available via the test scripts (`--tsan` flag) and runs as a separate CI lane scoped to the xpp concurrency core (`-L xpp`). ASan and TSan have incompatible runtimes — never combine them in one build; use separate build directories (`--asan` and `--tsan` are mutually exclusive in the scripts). TSan is the tool for order/protocol data races in the sync primitives (mpsc/notify/waker) that ASan cannot see. Pre-existing races in libx's timer/xnet/p2p are tracked in `issues/tsan-preexisting-races.md`; expand the lane scope as they are fixed.
+
+UBSan is not currently configured.
 
 ## Symbol Visibility
 
@@ -99,13 +102,21 @@ nm build/libx/x/http/libxhttp.dylib | grep " T " | wc -l
 ```
 
 **Key rules:**
+
 - All public API functions/variables: declare with `XCAPI(T)`
 - Internal helpers in `*_private.h` called only within the same module: declare with `XCAPI_LOCAL(T)`
 - Internal helpers called from tests or other modules: declare with `XCAPI(T)` (privacy by convention, not visibility)
 - Inline functions: declare with `XCAPI_INLINE(T)` (no export marker)
 - `X_BUILDING_LIB` is defined automatically when building the library; consumers never define it
 
-See `openspec/changes/establish-abi-export-conventions/` for the full design.
+## Issues & TODOs
+
+Investigation records and future work live in two flat directories (one Markdown file per topic, kebab-case names, no subdirectories):
+
+- **`issues/`** — problem investigation records: bugs, races, crashes. A typical file covers symptoms, root-cause analysis, fix (or current workaround), verification, and repro steps for whoever picks it up next. Update the status line when resolved; keep the record for archaeology.
+- **`todos/`** — future work items: enhancements and refactors that are deliberately deferred. A typical file covers motivation, scope (including non-goals), and trigger conditions (when to actually do it), so entries don't rot into permanent debt.
+
+When a fix reveals follow-up work, file it as a `todos/` entry and reference it from the `issues/` record.
 
 ## Linting (clang-tidy)
 
@@ -136,7 +147,7 @@ brew install googletest llhttp nghttp2 mbedtls libusrsctp
 
 ### Module Layering (bottom-up)
 
-```
+```text
 xbase   — Core primitives: event loop, memory (VTable/slab/MPSC), strings, containers, OS abstraction
  xlog   — Async logger (depends on xbase)
  xbuf   — Buffer primitives: linear, ring, block-chain IO buffers (depends on xbase)

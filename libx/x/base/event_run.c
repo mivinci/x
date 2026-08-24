@@ -37,10 +37,30 @@ static __declspec(thread) xEventLoop tl_loop;
 static __thread xEventLoop tl_loop;
 #endif
 
+/* Nesting chain ("which loop to restore on Leave") is per-THREAD state,
+ * kept entirely in TLS. It must not live in the loop struct: Enter/Leave
+ * may be called from any thread (e.g. workers binding the loop before
+ * posting), and multiple threads entering the same loop would clobber
+ * each other's chain — restoring a wrong (or NULL) previous loop, plus
+ * an unsynchronized shared write (TSan-visible data race). */
+#define X_LOOP_NEST_MAX 32
+#ifdef _WIN32
+static __declspec(thread) xEventLoop tl_loop_stack[X_LOOP_NEST_MAX];
+static __declspec(thread) int        tl_loop_depth;
+#else
+static __thread xEventLoop tl_loop_stack[X_LOOP_NEST_MAX];
+static __thread int        tl_loop_depth;
+#endif
+
 void xEventLoopEnter(xEventLoop loop) {
   struct xEventLoop_ *l = (struct xEventLoop_ *)loop;
-  if (l) l->prev = (struct xEventLoop_ *)tl_loop;
-  tl_loop = loop;
+  if (l) {
+    /* Save the PRE-Enter binding (the restore target, like the old
+     * per-loop `prev` field) — not the entered loop itself, or Leave
+     * would re-bind to the loop it just left. */
+    if (tl_loop_depth < X_LOOP_NEST_MAX) tl_loop_stack[tl_loop_depth++] = tl_loop;
+    tl_loop = loop;
+  }
 
   /* Set OS thread name if the loop has one configured */
   if (l && l->name[0]) {
@@ -56,9 +76,13 @@ void xEventLoopLeave(void) {
   struct xEventLoop_ *cur = (struct xEventLoop_ *)tl_loop;
   if (!cur) return;
 
-  struct xEventLoop_ *prev = cur->prev;
-  cur->prev                = NULL;
-  tl_loop                  = (xEventLoop)prev;
+  struct xEventLoop_ *prev = NULL;
+  if (tl_loop_depth > 0) {
+    prev    = (struct xEventLoop_ *)tl_loop_stack[--tl_loop_depth];
+    tl_loop = (xEventLoop)prev;
+  } else {
+    tl_loop = NULL;
+  }
 
   /* Restore thread name from the previous loop in the chain */
 #if defined(__linux__) || defined(__APPLE__)
@@ -215,7 +239,9 @@ int xEventLoopRun(xEventLoop loop_, int mode) {
   }
 
   while (alive && !loop->stopped) {
-    int can_sleep = (loop->done_head == NULL);
+    /* Atomic load: producers on other threads push to done_head via
+     * xEventLoopPost concurrently with this read. */
+    int can_sleep = xMpscEmpty(&loop->done_head);
 
     loop_run_done(loop, EVENT_DONE_BATCH_MAX);
     loop_poll_and_dispatch(loop, loop_next_timeout(loop, mode, can_sleep));

@@ -35,20 +35,38 @@ namespace _ {
 
 /* ── ResolveState<T> ─────────────────────────────────────────────── */
 
+/**
+ * @brief Shared state behind every xpp::async() / adapt() promise.
+ *
+ * Tri-state publication protocol: resolve() claims Waiting→Resolving
+ * (exactly-once via CAS), writes the payload, then release-stores
+ * Ready. A poller only reads the payload after an acquire-load of
+ * Ready — that load/release-store pair is the happens-before edge that
+ * makes the payload safe to read. (A two-state bool resolved *before*
+ * the payload write left the write unordered with concurrent pollers:
+ * a poller could acquire the flag and race on `value` — TSan-visible,
+ * a torn read for non-word-sized types.)
+ */
 template <class T> struct ResolveState {
+  enum State : uint8_t {
+    Waiting   = 0, ///< No resolve() in progress.
+    Resolving = 1, ///< resolve() claimed the state; payload write in flight.
+    Ready     = 2, ///< Payload published (release); safe to read.
+  };
+
   Option<T>          value;
   AtomicPromiseWaker waker;
-  std::atomic<bool>  resolved{false};
+  std::atomic<State> state{Waiting};
 };
 
 /* ── poll_state helper (shared by all node types) ────────────────── */
 
 template <class T> inline Option<T> poll_state(ResolveState<T> &s, const PromiseContext &cx) {
-  if (s.resolved.load(std::memory_order_acquire)) {
+  if (s.state.load(std::memory_order_acquire) == ResolveState<T>::Ready) {
     return std::move(s.value);
   }
   s.waker.register_by_ref(cx.waker());
-  if (s.resolved.load(std::memory_order_acquire)) {
+  if (s.state.load(std::memory_order_acquire) == ResolveState<T>::Ready) {
     s.waker.wake();
     return std::move(s.value);
   }
@@ -56,11 +74,11 @@ template <class T> inline Option<T> poll_state(ResolveState<T> &s, const Promise
 }
 
 inline Option<Void> poll_state(ResolveState<Void> &s, const PromiseContext &cx) {
-  if (s.resolved.load(std::memory_order_acquire)) {
+  if (s.state.load(std::memory_order_acquire) == ResolveState<Void>::Ready) {
     return Option<Void>(Void{});
   }
   s.waker.register_by_ref(cx.waker());
-  if (s.resolved.load(std::memory_order_acquire)) {
+  if (s.state.load(std::memory_order_acquire) == ResolveState<Void>::Ready) {
     s.waker.wake();
     return Option<Void>(Void{});
   }
@@ -121,9 +139,15 @@ public:
     if (s.is_some()) {
       auto  arc      = std::move(s).unwrap();
       auto &state    = *arc;
-      bool  expected = false;
-      if (state.resolved.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+      auto  expected = _::ResolveState<ValueType>::Waiting;
+      /* Claim first (exactly-once)... */
+      if (state.state.compare_exchange_strong(expected, _::ResolveState<ValueType>::Resolving,
+                                              std::memory_order_acq_rel)) {
         state.value = Option<ValueType>(std::move(value));
+        /* ...publish last: this release-store is the happens-before edge
+         * that makes the payload visible to poll_state's acquire-load
+         * of Ready. */
+        state.state.store(_::ResolveState<ValueType>::Ready, std::memory_order_release);
         state.waker.wake();
       }
     }
@@ -137,7 +161,7 @@ public:
     auto s = m_weak.upgrade();
     if (s.is_none()) return false;
     auto arc = std::move(s).unwrap();
-    return !arc->resolved.load(std::memory_order_acquire);
+    return arc->state.load(std::memory_order_acquire) != _::ResolveState<ValueType>::Ready;
   }
 
 private:
@@ -163,8 +187,10 @@ public:
     if (s.is_some()) {
       auto  arc      = std::move(s).unwrap();
       auto &state    = *arc;
-      bool  expected = false;
-      if (state.resolved.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+      auto  expected = _::ResolveState<Void>::Waiting;
+      if (state.state.compare_exchange_strong(expected, _::ResolveState<Void>::Resolving,
+                                              std::memory_order_acq_rel)) {
+        state.state.store(_::ResolveState<Void>::Ready, std::memory_order_release);
         state.waker.wake();
       }
     }
@@ -174,7 +200,7 @@ public:
     auto s = m_weak.upgrade();
     if (s.is_none()) return false;
     auto arc = std::move(s).unwrap();
-    return !arc->resolved.load(std::memory_order_acquire);
+    return arc->state.load(std::memory_order_acquire) != _::ResolveState<Void>::Ready;
   }
 
 private:

@@ -14,7 +14,23 @@
  *   never blocks. Aligned with tokio::sync::mpsc.
  *
  * Both variants use RAII close: when the last Sender drops, the channel
- *   marks itself closed and wakes any blocked coroutines.
+ * marks itself closed and wakes any blocked coroutines.
+ *
+ * ── Waiter protocol (tokio-aligned) ─────────────────────────────────
+ *
+ * Receivers park via a level-triggered poll node (RecvPromiseNode):
+ * try_pop → empty → register the waker in the channel's
+ * AtomicPromiseWaker slot → try_pop again → Pending. Every successful
+ * push wakes the slot. The AtomicWaker state machine plus the
+ * post-registration re-check make the register/push race
+ * lost-wakeup-free (same structure as tokio's chan.rs). Late/duplicate
+ * wakes are harmless: the spawn driver tolerates them.
+ *
+ * Senders (bounded, buffer full) park in a mutex-guarded FIFO of poll
+ * nodes; the push attempt and the FIFO registration happen in one
+ * critical section, so a concurrent pop cannot free capacity without
+ * waking exactly one sender. The mutex only appears on the cold path
+ * (buffer full); the data path stays lock-free.
  */
 
 #ifndef XPP_SYNC_MPSC_H
@@ -58,13 +74,248 @@ enum class TryRecvError {
 
 // ── Bounded channel ──────────────────────────────────────────────────
 
+namespace _ {
+
+template <class T> class SendPromiseNode; // fwd — parks in Chan's writer FIFO
+
+/**
+ * @brief Shared state of a bounded channel.
+ *
+ * Waiter protocol — see the file header. m_rx_waker is the receiver
+ * wake slot (lock-free, register→re-check→wake). m_tx_head/m_tx_tail
+ * form the intrusive FIFO of suspended senders, entirely guarded by
+ * m_tx_mtx; the fast paths (successful try_push / try_pop) never take
+ * the mutex — it only appears on the backpressure path (buffer full),
+ * where the sender is about to suspend anyway.
+ */
+template <class T> struct Chan {
+  typedef T ValueType;
+
+  list::Tx<T> m_tx;
+  list::Rx<T> m_rx;
+
+  /// Parked-receiver wake slot (see AtomicPromiseWaker).
+  AtomicPromiseWaker m_rx_waker;
+
+  /// Suspended senders (buffer full): intrusive doubly-linked FIFO.
+  /// All guarded by m_tx_mtx.
+  loom::_::Mutex               m_tx_mtx;
+  SendPromiseNode<T>          *m_tx_head = nullptr;
+  SendPromiseNode<T>          *m_tx_tail = nullptr;
+  xpp::loom::_::Atomic<size_t> m_tx_waiter_count{0};
+
+  xpp::loom::_::Atomic<size_t> m_sender_count{1};
+  xpp::loom::_::Atomic<bool>   m_closed{false};
+
+  Chan(list::Tx<T> tx, list::Rx<T> rx) : m_tx(std::move(tx)), m_rx(std::move(rx)) {}
+
+  bool closed() const {
+    return m_closed.load(std::memory_order_acquire);
+  }
+
+  /// Caller holds m_tx_mtx. Appends to the FIFO tail.
+  void enqueue_writer_locked(SendPromiseNode<T> *w) {
+    w->m_prev = m_tx_tail;
+    w->m_next = nullptr;
+    if (m_tx_tail)
+      m_tx_tail->m_next = w;
+    else
+      m_tx_head = w;
+    m_tx_tail = w;
+    m_tx_waiter_count.fetch_add(1, std::memory_order_release);
+  }
+
+  /// Caller holds m_tx_mtx. Detaches the front waiter (FIFO — no starvation).
+  SendPromiseNode<T> *take_writer_locked() {
+    SendPromiseNode<T> *w = m_tx_head;
+    if (!w) return nullptr;
+    m_tx_head = w->m_next;
+    if (m_tx_head)
+      m_tx_head->m_prev = nullptr;
+    else
+      m_tx_tail = nullptr;
+    w->m_next = w->m_prev = nullptr;
+    w->m_registered       = false;
+    m_tx_waiter_count.fetch_sub(1, std::memory_order_release);
+    return w;
+  }
+
+  /// A slot freed up (a value was popped): wake one suspended sender.
+  /// Lock-free when nobody is parked.
+  void wake_one_writer() {
+    if (m_tx_waiter_count.load(std::memory_order_acquire) == 0) return;
+    SendPromiseNode<T> *w = nullptr;
+    {
+      loom::_::Lock g(m_tx_mtx);
+      w = take_writer_locked();
+    }
+    if (w) w->m_waker.unwrap().wake();
+  }
+
+  /// Channel closed: wake every suspended sender.
+  void wake_all_writers() {
+    SendPromiseNode<T> *head = nullptr;
+    {
+      loom::_::Lock g(m_tx_mtx);
+      head      = m_tx_head;
+      m_tx_head = m_tx_tail = nullptr;
+      SendPromiseNode<T> *w = head;
+      while (w) {
+        w->m_registered = false;
+        m_tx_waiter_count.fetch_sub(1, std::memory_order_release);
+        w = w->m_next;
+      }
+    }
+    /* The detached chain is still linked via m_next; fire outside the
+     * lock. Cancellation (node destruction) can no longer race — every
+     * node was marked unregistered under the lock. */
+    while (head) {
+      SendPromiseNode<T> *next = head->m_next;
+      head->m_prev = head->m_next = nullptr;
+      head->m_waker.unwrap().wake();
+      head = next;
+    }
+  }
+};
+
+/**
+ * @brief recv() node — level-triggered poll over the shared queue.
+ *
+ * try_pop; empty → register the waker; try_pop again (closes the
+ * lost-wakeup window against a concurrent push); Pending. The stale
+ * registration left behind when the re-check succeeds is harmless —
+ * the next register overwrites it and late wakes are no-ops.
+ */
+template <class ChanT>
+class RecvPromiseNode final : public xpp::_::PromiseNode<Option<typename ChanT::ValueType>> {
+public:
+  typedef Option<typename ChanT::ValueType> ValueType;
+  typedef typename ChanT::ValueType         T;
+
+  explicit RecvPromiseNode(Arc<ChanT> chan) : m_chan(std::move(chan)) {}
+
+  Option<ValueType> poll(const PromiseContext &cx) override {
+    auto v = m_chan->m_rx.try_pop();
+    if (v.is_none() && m_chan->closed() && m_chan->m_rx.empty()) {
+      m_chan->m_rx_waker.take_waker();           // may hold our waker from the previous poll
+      return Option<ValueType>(Option<T>(none)); // closed and drained
+    }
+    if (v.is_some()) {
+      m_chan->m_rx_waker.take_waker(); // ditto (woken between polls)
+      m_chan->wake_one_writer();       // a slot freed up
+      return v;
+    }
+
+    /* Empty and open. Register, then re-check — the AtomicWaker
+     * protocol plus this re-check make the race with a concurrent
+     * push lost-wakeup-free. */
+    m_chan->m_rx_waker.register_by_ref(cx.waker());
+    v = m_chan->m_rx.try_pop();
+    if (v.is_some()) {
+      m_chan->m_rx_waker.take_waker(); // clear the stale registration
+      m_chan->wake_one_writer();
+      return v;
+    }
+    if (m_chan->closed() && m_chan->m_rx.empty()) {
+      m_chan->m_rx_waker.take_waker();
+      return Option<ValueType>(Option<T>(none));
+    }
+    return none;
+  }
+
+private:
+  Arc<ChanT> m_chan;
+};
+
+/**
+ * @brief send() node — push, or park in the writer FIFO when full.
+ *
+ * Fast path (space available): a lock-free try_push, no mutex. Slow
+ * path (full): under the channel mutex, re-attempt the push and, if
+ * still full, register in the FIFO — one critical section, so a
+ * concurrent pop that frees capacity necessarily dequeues and wakes
+ * this node.
+ */
+template <class T> class SendPromiseNode final : public xpp::_::PromiseNode<void> {
+public:
+  SendPromiseNode(Arc<Chan<T>> chan, T value)
+      : m_chan(std::move(chan)), m_value(std::move(value)) {}
+
+  ~SendPromiseNode() {
+    if (m_registered) {
+      loom::_::Lock g(m_chan->m_tx_mtx);
+      unregister_locked();
+    }
+  }
+
+  Option<Void> poll(const PromiseContext &cx) override {
+    if (m_done) return Option<Void>(Void{});
+
+    /* Fast path — space available: lock-free push, no mutex. */
+    if (!m_chan->closed() && m_chan->m_tx.try_push(m_value)) {
+      m_done = true;
+      m_chan->m_rx_waker.wake(); // data available — wake a parked receiver
+      return Option<Void>(Void{});
+    }
+
+    bool pushed = false;
+    {
+      loom::_::Lock g(m_chan->m_tx_mtx);
+      if (m_chan->closed()) {
+        m_done = true; // closed: value silently dropped (send() semantics)
+      } else if (m_chan->m_tx.try_push(m_value)) {
+        m_done = true;
+        pushed = true;
+      } else if (!m_registered) {
+        m_chan->enqueue_writer_locked(this);
+        m_registered = true;
+        m_waker      = cx.waker();
+      }
+      /* else: already registered — still full, keep waiting. */
+    }
+    if (m_done) {
+      if (pushed) m_chan->m_rx_waker.wake();
+      return Option<Void>(Void{});
+    }
+    return none;
+  }
+
+private:
+  friend struct Chan<T>;
+
+  /// Caller holds m_chan->m_tx_mtx. O(1) unlink.
+  void unregister_locked() {
+    if (m_prev)
+      m_prev->m_next = m_next;
+    else
+      m_chan->m_tx_head = m_next;
+    if (m_next)
+      m_next->m_prev = m_prev;
+    else
+      m_chan->m_tx_tail = m_prev;
+    m_prev = m_next = nullptr;
+    m_registered    = false;
+    m_chan->m_tx_waiter_count.fetch_sub(1, std::memory_order_release);
+  }
+
+  Arc<Chan<T>>         m_chan;
+  T                    m_value;
+  Option<PromiseWaker> m_waker;                // guarded by m_chan->m_tx_mtx
+  SendPromiseNode<T>  *m_prev       = nullptr; // FIFO links, guarded by m_chan->m_tx_mtx
+  SendPromiseNode<T>  *m_next       = nullptr;
+  bool                 m_registered = false; // in the FIFO (guarded)
+  bool                 m_done       = false;
+};
+
+} // namespace _
+
 template <class T> class Receiver;
 
 /**
  * @brief Sender for the bounded MPSC channel.
  *
  * Cloneable. Multiple senders can call send() / try_send() concurrently.
- * The data path is lock-free (list::Tx). Coroutine suspension via
+ * The data path is lock-free (list::Tx); coroutine suspension via
  * PromiseResolver when the buffer is full.
  *
  * RAII close: when the last Sender drops, the channel auto-closes.
@@ -120,29 +371,12 @@ private:
   template <class U> friend class Receiver;
   template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
 
-  struct Chan {
-    list::Tx<T>                  m_tx;
-    list::Rx<T>                  m_rx;
-    PromiseResolver<void>        m_read_waiter;
-    PromiseResolver<void>        m_write_waiter;
-    xpp::loom::_::Atomic<size_t> m_sender_count{1};
-    xpp::loom::_::Atomic<bool>   m_closed{false};
-
-    Chan(list::Tx<T> tx, list::Rx<T> rx) : m_tx(std::move(tx)), m_rx(std::move(rx)) {}
-  };
-  Arc<Chan> m_chan;
-
-  explicit Sender(Arc<Chan> c) : m_chan(std::move(c)) {}
-
-  bool closed() const {
-    return m_chan->m_closed.load(std::memory_order_acquire);
-  }
+  Arc<_::Chan<T>> m_chan;
+  explicit Sender(Arc<_::Chan<T>> c) : m_chan(std::move(c)) {}
 
   void drop() {
     if (!m_chan) return;
-    if (m_chan->m_sender_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-      close();
-    }
+    if (m_chan->m_sender_count.fetch_sub(1, std::memory_order_acq_rel) == 1) close();
   }
 };
 
@@ -150,6 +384,7 @@ private:
  * @brief Receiver for the bounded MPSC channel. Move-only.
  *
  * Single-consumer: only one thread may call recv() / try_recv().
+ * This matches the MPSC contract: multi-producer, *single*-consumer.
  *
  * @tparam T Value type.
  *
@@ -177,152 +412,33 @@ public:
 
 private:
   template <class U> friend std::pair<Sender<U>, Receiver<U>> channel(size_t cap);
-  using Chan = typename Sender<T>::Chan;
-  Arc<Chan> m_chan;
-  explicit Receiver(Arc<Chan> c) : m_chan(std::move(c)) {}
-
-  bool closed() const {
-    return m_chan->m_closed.load(std::memory_order_acquire);
-  }
+  Arc<_::Chan<T>>                                             m_chan;
+  explicit Receiver(Arc<_::Chan<T>> c) : m_chan(std::move(c)) {}
 };
 
-/* ── send() / recv() method bodies ─────────────────────────────────── */
+/* ── send() / recv() — one implementation for C++11 and C++20 ────── */
 
-#if XPP_HAS_COROUTINES
-
-template <class T> Promise<void> Sender<T>::send(T value) {
-  if (!m_chan) co_return;
-
-  while (true) {
-    if (closed()) co_return;
-    if (m_chan->m_tx.try_push(value)) break;
-
-    auto w                 = xpp::async<void>();
-    m_chan->m_write_waiter = std::move(w.second);
-    co_await std::move(w.first);
-  }
-
-  if (m_chan->m_read_waiter.is_pending()) {
-    auto w = std::move(m_chan->m_read_waiter);
-    w.resolve();
-  }
-}
-
-template <class T> Promise<Option<T>> Receiver<T>::recv() {
-  if (!m_chan) co_return none;
-
-  while (true) {
-    auto v = m_chan->m_rx.try_pop();
-    if (v.is_some()) {
-      if (m_chan->m_write_waiter.is_pending()) {
-        auto w = std::move(m_chan->m_write_waiter);
-        w.resolve();
-      }
-      co_return xpp::some(std::move(v).unwrap());
-    }
-
-    if (closed() && m_chan->m_rx.empty()) co_return none;
-
-    auto pr               = xpp::async<void>();
-    m_chan->m_read_waiter = std::move(pr.second);
-    co_await std::move(pr.first);
-  }
-}
-
-#else // !XPP_HAS_COROUTINES
-
-/**
- * C++11 send(): recursively retry via .then() chain.
- *
- * The value is held on the heap (Arc<T>) so it survives callback
- * boundaries. Mirrors the co_await version: try_push, if full store
- * a write_waiter and recurse when woken.
- *
- * Trade-off: 1 extra heap allocation for Arc<T> vs C++20's
- * coroutine frame. Promise nodes use arena bump alloc internally.
- */
 template <class T> Promise<void> Sender<T>::send(T value) {
   if (!m_chan) return xpp::resolve();
-
-  auto val = Arc<T>::make(std::move(value));
-
-  struct SendLoop {
-    Arc<Chan> chan;
-    Arc<T>    val;
-
-    Promise<void> operator()() {
-      auto *c = chan.get();
-      if (c->m_closed.load(std::memory_order_acquire)) return xpp::resolve();
-      if (c->m_tx.try_push(*val)) {
-        if (c->m_read_waiter.is_pending()) {
-          auto w = std::move(c->m_read_waiter);
-          w.resolve();
-        }
-        return xpp::resolve();
-      }
-      // Full — store waiter and recurse when woken
-      auto pr           = xpp::async<void>();
-      c->m_write_waiter = std::move(pr.second);
-      return std::move(pr.first).then([self = std::move(*this)]() mutable { return self(); });
-    }
-  };
-
-  return SendLoop{m_chan, val}();
+  return Promise<void>(xpp::_::OwnPromiseNode<void>(
+    xpp::_::promise::allocate<_::SendPromiseNode<T>>(nullptr, m_chan, std::move(value))));
 }
 
-/**
- * C++11 recv(): recursively retry via .then() chain.
- *
- * Tries try_pop() eagerly. If empty and not closed, stores a
- * read_waiter and recurses when the sender wakes us.
- *
- * No extra heap allocation beyond Promise chain nodes (arena alloc).
- * m_chan is Arc<Chan>, stored by value in the struct (8 bytes).
- */
 template <class T> Promise<Option<T>> Receiver<T>::recv() {
   if (!m_chan) return xpp::resolve(Option<T>(none));
-
-  struct RecvLoop {
-    Arc<Chan> chan;
-
-    Promise<Option<T>> operator()() {
-      auto *c = chan.get();
-
-      auto v = c->m_rx.try_pop();
-      if (v.is_some()) {
-        if (c->m_write_waiter.is_pending()) {
-          auto w = std::move(c->m_write_waiter);
-          w.resolve();
-        }
-        return xpp::resolve(xpp::some(std::move(v).unwrap()));
-      }
-
-      if (c->m_closed.load(std::memory_order_acquire) && c->m_rx.empty())
-        return xpp::resolve(Option<T>(none));
-
-      auto pr          = xpp::async<void>();
-      c->m_read_waiter = std::move(pr.second);
-      return std::move(pr.first).then([self = std::move(*this)]() mutable { return self(); });
-    }
-  };
-
-  return RecvLoop{m_chan}();
+  return Promise<Option<T>>(xpp::_::OwnPromiseNode<Option<T>>(
+    xpp::_::promise::allocate<_::RecvPromiseNode<_::Chan<T>>>(nullptr, m_chan)));
 }
 
-#endif // XPP_HAS_COROUTINES
-
-/* ── Synchronous methods (C++11, no coroutine dependency) ──────────── */
+/* ── Synchronous methods ───────────────────────────────────────────── */
 
 template <class T> Result<Void, TrySendError<T>> Sender<T>::try_send(T value) {
   if (!m_chan) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
-  if (closed()) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
+  if (m_chan->closed()) return err(TrySendError<T>{TrySendError<T>::Closed, std::move(value)});
   if (!m_chan->m_tx.try_push(value))
     return err(TrySendError<T>{TrySendError<T>::Full, std::move(value)});
 
-  if (m_chan->m_read_waiter.is_pending()) {
-    auto w = std::move(m_chan->m_read_waiter);
-    w.resolve();
-  }
+  m_chan->m_rx_waker.wake(); // a parked receiver may now make progress
   return ok(Void{});
 }
 
@@ -330,14 +446,8 @@ template <class T> void Sender<T>::close() {
   if (!m_chan) return;
   m_chan->m_closed.store(true, std::memory_order_release);
 
-  if (m_chan->m_write_waiter.is_pending()) {
-    auto w = std::move(m_chan->m_write_waiter);
-    w.resolve();
-  }
-  if (m_chan->m_read_waiter.is_pending()) {
-    auto w = std::move(m_chan->m_read_waiter);
-    w.resolve();
-  }
+  m_chan->wake_all_writers(); // suspended senders: fail fast
+  m_chan->m_rx_waker.wake();  // parked receiver: observe close
 }
 
 template <class T> Result<T, TryRecvError> Receiver<T>::try_recv() {
@@ -345,13 +455,10 @@ template <class T> Result<T, TryRecvError> Receiver<T>::try_recv() {
 
   auto v = m_chan->m_rx.try_pop();
   if (v.is_some()) {
-    if (m_chan->m_write_waiter.is_pending()) {
-      auto w = std::move(m_chan->m_write_waiter);
-      w.resolve();
-    }
+    m_chan->wake_one_writer(); // a slot freed up (no-op when nobody parks)
     return ok(std::move(v).unwrap());
   }
-  return err(closed() ? TryRecvError::Closed : TryRecvError::Empty);
+  return err(m_chan->closed() && m_chan->m_rx.empty() ? TryRecvError::Closed : TryRecvError::Empty);
 }
 
 /**
@@ -370,11 +477,44 @@ template <class T> Result<T, TryRecvError> Receiver<T>::try_recv() {
  */
 template <class T> std::pair<Sender<T>, Receiver<T>> channel(size_t cap) {
   auto [tx, rx] = list::channel<T>(cap);
-  auto chan     = Arc<typename Sender<T>::Chan>::make(std::move(tx), std::move(rx));
+  auto chan     = Arc<_::Chan<T>>::make(std::move(tx), std::move(rx));
   return {Sender<T>(chan), Receiver<T>(std::move(chan))};
 }
 
 // ── Unbounded channel ────────────────────────────────────────────────
+
+namespace _ {
+
+/**
+ * @brief Shared state of an unbounded channel.
+ *
+ * send() never blocks (no capacity limit), so there are no suspended
+ * senders — only the receiver wake slot. wake_*_writer() are no-op
+ * stubs so RecvPromiseNode works unchanged for both channel kinds.
+ */
+template <class T> struct UnboundedChan {
+  typedef T ValueType;
+
+  list::UnboundedTx<T> m_tx;
+  list::UnboundedRx<T> m_rx;
+
+  AtomicPromiseWaker m_rx_waker;
+
+  xpp::loom::_::Atomic<size_t> m_sender_count{1};
+  xpp::loom::_::Atomic<bool>   m_closed{false};
+
+  UnboundedChan(list::UnboundedTx<T> tx, list::UnboundedRx<T> rx)
+      : m_tx(std::move(tx)), m_rx(std::move(rx)) {}
+
+  bool closed() const {
+    return m_closed.load(std::memory_order_acquire);
+  }
+
+  void wake_one_writer() {} // senders never park (unbounded)
+  void wake_all_writers() {}
+};
+
+} // namespace _
 
 template <class T> class UnboundedReceiver;
 
@@ -420,21 +560,12 @@ public:
 private:
   template <class U> friend class UnboundedReceiver;
   template <class U> friend std::pair<UnboundedSender<U>, UnboundedReceiver<U>> channel();
-  struct Chan {
-    list::UnboundedTx<T>         m_tx;
-    list::UnboundedRx<T>         m_rx;
-    PromiseResolver<void>        m_read_waiter;
-    PromiseResolver<void>        m_write_waiter;
-    xpp::loom::_::Atomic<size_t> m_sender_count{1};
-    xpp::loom::_::Atomic<bool>   m_closed{false};
-    Chan(list::UnboundedTx<T> tx, list::UnboundedRx<T> rx)
-        : m_tx(std::move(tx)), m_rx(std::move(rx)) {}
-  };
-  Arc<Chan> m_chan;
-  explicit UnboundedSender(Arc<Chan> c) : m_chan(std::move(c)) {}
+
+  Arc<_::UnboundedChan<T>> m_chan;
+  explicit UnboundedSender(Arc<_::UnboundedChan<T>> c) : m_chan(std::move(c)) {}
   void drop() {
     if (!m_chan) return;
-    if (m_chan->m_sender_count.fetch_sub(1) == 1) close();
+    if (m_chan->m_sender_count.fetch_sub(1, std::memory_order_acq_rel) == 1) close();
   }
 };
 
@@ -464,97 +595,37 @@ public:
 
 private:
   template <class U> friend std::pair<UnboundedSender<U>, UnboundedReceiver<U>> channel();
-  using Chan = typename UnboundedSender<T>::Chan;
-  Arc<Chan> m_chan;
-  explicit UnboundedReceiver(Arc<Chan> c) : m_chan(std::move(c)) {}
-  bool closed() const {
-    return m_chan->m_closed.load(std::memory_order_acquire);
-  }
+  Arc<_::UnboundedChan<T>>                                                      m_chan;
+  explicit UnboundedReceiver(Arc<_::UnboundedChan<T>> c) : m_chan(std::move(c)) {}
 };
 
 /* ── UnboundedReceiver::recv() body ────────────────────────────────── */
 
-#if XPP_HAS_COROUTINES
-
-template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
-  if (!m_chan) co_return none;
-
-  while (true) {
-    auto v = m_chan->m_rx.try_pop();
-    if (v.is_some()) {
-      if (m_chan->m_write_waiter.is_pending()) {
-        auto w = std::move(m_chan->m_write_waiter);
-        w.resolve();
-      }
-      co_return xpp::some(std::move(v).unwrap());
-    }
-
-    if (closed() && m_chan->m_rx.empty()) co_return none;
-
-    auto pr               = xpp::async<void>();
-    m_chan->m_read_waiter = std::move(pr.second);
-    co_await std::move(pr.first);
-  }
-}
-
-#else // !XPP_HAS_COROUTINES
-
 template <class T> Promise<Option<T>> UnboundedReceiver<T>::recv() {
   if (!m_chan) return xpp::resolve(Option<T>(none));
-
-  struct RecvLoop {
-    Arc<Chan> chan;
-
-    Promise<Option<T>> operator()() {
-      auto *c = chan.get();
-
-      auto v = c->m_rx.try_pop();
-      if (v.is_some()) {
-        if (c->m_write_waiter.is_pending()) {
-          auto w = std::move(c->m_write_waiter);
-          w.resolve();
-        }
-        return xpp::resolve(xpp::some(std::move(v).unwrap()));
-      }
-
-      if (c->m_closed.load(std::memory_order_acquire) && c->m_rx.empty())
-        return xpp::resolve(Option<T>(none));
-
-      auto pr          = xpp::async<void>();
-      c->m_read_waiter = std::move(pr.second);
-      return std::move(pr.first).then([self = std::move(*this)]() mutable { return self(); });
-    }
-  };
-
-  return RecvLoop{m_chan}();
+  return Promise<Option<T>>(xpp::_::OwnPromiseNode<Option<T>>(
+    xpp::_::promise::allocate<_::RecvPromiseNode<_::UnboundedChan<T>>>(nullptr, m_chan)));
 }
-
-#endif // XPP_HAS_COROUTINES
 
 /* ── UnboundedSender synchronous methods ──────────────────────────── */
 
 template <class T> void UnboundedSender<T>::send(T value) {
   if (!m_chan) return;
   m_chan->m_tx.push(std::move(value));
-  if (m_chan->m_read_waiter.is_pending()) {
-    auto w = std::move(m_chan->m_read_waiter);
-    w.resolve();
-  }
+  m_chan->m_rx_waker.wake(); // a parked receiver may now make progress
 }
 
 template <class T> bool UnboundedSender<T>::try_send(T value) {
   if (!m_chan) return false;
   m_chan->m_tx.push(std::move(value));
+  m_chan->m_rx_waker.wake();
   return true;
 }
 
 template <class T> void UnboundedSender<T>::close() {
   if (!m_chan) return;
   m_chan->m_closed.store(true, std::memory_order_release);
-  if (m_chan->m_read_waiter.is_pending()) {
-    auto w = std::move(m_chan->m_read_waiter);
-    w.resolve();
-  }
+  m_chan->m_rx_waker.wake(); // parked receiver: observe close
 }
 
 /**
@@ -568,7 +639,7 @@ template <class T> void UnboundedSender<T>::close() {
  */
 template <class T> std::pair<UnboundedSender<T>, UnboundedReceiver<T>> channel() {
   auto [tx, rx] = list::unbounded_channel<T>();
-  auto chan     = Arc<typename UnboundedSender<T>::Chan>::make(std::move(tx), std::move(rx));
+  auto chan     = Arc<_::UnboundedChan<T>>::make(std::move(tx), std::move(rx));
   return {UnboundedSender<T>(chan), UnboundedReceiver<T>(std::move(chan))};
 }
 

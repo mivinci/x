@@ -242,8 +242,11 @@ template <class T> std::pair<Tx<T>, Rx<T>> channel(size_t cap) {
  */
 template <class T> struct UnboundedCore {
   struct Node {
-    Node *volatile next = nullptr; ///< Next node in the list.
-    T data;                        ///< Stored value.
+    /* Atomic: producers release-store `next` to publish a node (the
+     * consumer acquire-loads it in try_pop) — a plain pointer here is
+     * a data race under cross-thread use. */
+    loom::_::Atomic<Node *> next{nullptr}; ///< Next node in the list.
+    T                       data;          ///< Stored value.
 
     explicit Node(T v) : data(std::move(v)) {}
   };
@@ -254,7 +257,7 @@ template <class T> struct UnboundedCore {
   ~UnboundedCore() {
     Node *n = m_head.load(std::memory_order_relaxed);
     while (n) {
-      Node *next = n->next;
+      Node *next = n->next.load(std::memory_order_acquire);
       delete n;
       n = next;
     }
@@ -290,11 +293,11 @@ public:
    */
   void push(T value) {
     auto *node = new typename UnboundedCore<T>::Node(std::move(value));
-    node->next = nullptr;
+    node->next.store(nullptr, std::memory_order_relaxed);
 
     auto *old_tail = m_core->m_tail.exchange(node, std::memory_order_acq_rel);
     if (old_tail) {
-      old_tail->next = node;
+      old_tail->next.store(node, std::memory_order_release);
     } else {
       m_core->m_head.store(node, std::memory_order_release);
     }
@@ -337,11 +340,11 @@ public:
     auto *head = m_core->m_head.load(std::memory_order_acquire);
     if (!head) return xpp::none;
 
-    auto *next = head->next;
+    auto *next = head->next.load(std::memory_order_acquire);
     if (!next) {
       auto *expected = head;
       if (!m_core->m_tail.compare_exchange_strong(expected, nullptr, std::memory_order_release)) {
-        while (!(next = head->next)) {}
+        while (!(next = head->next.load(std::memory_order_acquire))) {}
       }
       m_core->m_head.store(next, std::memory_order_release);
     } else {
