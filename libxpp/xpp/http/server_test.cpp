@@ -396,13 +396,18 @@ TEST(ServerTest, StreamingResponseBodyLarge) {
 
 /* ───────────────────────────────────────────────────────────────────
  *  C++20 coroutine style: the producer pushes chunks with co_await;
- *  the handler is a coroutine that returns a channel-body Response
- *  which the server streams out.
+ *  the handler returns a channel-body Response which the server
+ *  streams out.
  *
- *  Note: producers must be named coroutine functions (or capture-free
- *  lambdas). A capturing lambda coroutine spawned from inside another
- *  spawn chain crashes (xpp coroutine-frame + nested-spawn bug); named
- *  functions are unaffected.
+ *  Two safe ways to spawn a coroutine producer from a handler:
+ *  - pass a lambda directly to spawn(): the defer node copies the
+ *    closure to the heap for the chain's lifetime (first test);
+ *  - use a named coroutine function: its arguments are copied into
+ *    the coroutine frame (second test).
+ *  Unsafe: `auto make = [&tx]{...}; spawn(make());` — the lambda
+ *  coroutine frame stores the closure *pointer*, and a closure on the
+ *  handler's dying stack frame dangles when the chain is polled later
+ *  (see issues/coro-nested-spawn-capture-lambda-crash.md).
  * ─────────────────────────────────────────────────────────────────── */
 
 static Promise<void> co_stream_producer(sync::mpsc::Sender<Bytes> tx, const char *a,
@@ -421,8 +426,16 @@ TEST(ServerTest, CoroutineStreamingProducer) {
                   .route("GET /stream",
                          [](Request req) -> http::Result<Response> {
                            auto [tx, rx] = sync::mpsc::channel<Bytes>(4);
-                           // Coroutine producer — co_await each send, then close.
-                           xpp::spawn(co_stream_producer(tx, "alpha", "-beta"));
+                           // Coroutine producer lambda passed directly to
+                           // spawn(): closure (tx by value) is copied into
+                           // the defer node on the heap — safe even though
+                           // this handler's stack frame dies right after.
+                           xpp::spawn([tx = std::move(tx)]() mutable -> Promise<void> {
+                             co_await tx.send(Bytes::copy("alpha", strlen("alpha")));
+                             co_await tx.send(Bytes::copy("-beta", strlen("-beta")));
+                             tx.close();
+                             co_return;
+                           });
                            Body b = Body::from_channel(std::move(rx));
                            return http::Result<Response>(
                              xpp::ok, ResponseBuilder().status(StatusCode::Ok).body(std::move(b)));

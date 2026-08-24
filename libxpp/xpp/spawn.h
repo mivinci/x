@@ -118,6 +118,22 @@ template <class T> Promise<T> spawn(Promise<T> p) {
  * it returns a Promise). The callable runs on the event loop; to await
  * inside it, return a Promise chain (`.then(...)`) rather than calling
  * `.await()` (which would block unless already inside a fiber).
+ *
+ * @par Coroutine lambdas and closure lifetime
+ * A lambda coroutine's frame stores the closure *pointer* (`this`),
+ * not a copy of the closure object. Passing a coroutine lambda directly
+ * to spawn() is safe — the defer node keeps a heap copy of the closure
+ * for the chain's lifetime. But the pattern
+ * @code
+ *   auto make = [&]() -> Promise<void> { ... };
+ *   xpp::spawn(make());
+ * @endcode
+ * requires `make` to outlive the spawned chain: if the closure lives on
+ * a stack frame that dies before the chain is polled (e.g. an outer
+ * plain lambda running inside a poll callback), the deferred poll
+ * resumes the coroutine through a dangling closure pointer and crashes.
+ * Prefer passing the lambda itself, or use a named coroutine function
+ * (whose arguments are copied into the frame).
  */
 template <class Func> auto spawn(Func &&fn) {
   return spawn(xpp::defer(std::forward<Func>(fn)));
