@@ -66,6 +66,13 @@ public:
   /** @brief Construct a PromiseContext bound to the current event loop / fiber. */
   PromiseContext();
 
+  /**
+   * @brief Construct a PromiseContext with an externally-provided waker.
+   * Used by executors (e.g. xpp::spawn) that drive the chain and need
+   * the waker's wake callback to re-post a poll step.
+   */
+  explicit PromiseContext(const PromiseWaker &w) : m_waker(w) {}
+
 private:
   PromiseWaker m_waker;
 };
