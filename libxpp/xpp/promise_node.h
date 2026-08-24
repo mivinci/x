@@ -288,7 +288,12 @@ public:
     auto outer = m_outer->poll(cx);
     if (outer.is_none()) return none;
     m_inner = std::move(std::move(outer).unwrap().m_node);
-    m_outer = nullptr;
+    // Keep m_outer alive (not re-polled — m_inner guards above): the
+    // flattened inner promise may still reference state owned by the
+    // outer node, e.g. a lambda coroutine whose frame stores the
+    // closure pointer (`this`) of the Func held in a
+    // TransformPromiseNode. Destroying m_outer here would destruct the
+    // closure (dropping RAII captures) while the inner chain runs.
     return m_inner->poll(cx);
   }
 

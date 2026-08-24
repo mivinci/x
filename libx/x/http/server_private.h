@@ -144,6 +144,9 @@ XDEF_STRUCT(xHttpStream_) {
   int         pending_error;        /**< Error status to send          */
   const char *pending_error_reason; /**< Error reason string        */
   int         closed_by_peer;       /**< H2: stream closed by nghttp2  */
+
+  void *user; /**< Per-request user data (set via xHttpCtxSetUser).    */
+              /**< Delivered as the arg to on_data / on_done when set. */
 };
 
 /* ───────────────────── Connection ───────────────────── */

@@ -197,3 +197,70 @@ TEST(SpawnTest, JoinHandleVoid) {
   handle.await();
   EXPECT_TRUE(ran.load(std::memory_order_acquire));
 }
+
+#if XPP_HAS_COROUTINES
+
+/* ───────────────────────────────────────────────────────────────────
+ *  Nested spawn of a capturing-lambda coroutine (regression).
+ *
+ *  A lambda coroutine's frame stores the *closure pointer* (`this`),
+ *  not a copy of the closure — the closure object must therefore
+ *  outlive the spawned chain (issues/coro-nested-spawn-capture-lambda-crash.md).
+ *
+ *  Safe: passing the lambda directly to spawn() — the defer node keeps
+ *  a heap copy of the closure for the chain's lifetime — or keeping the
+ *  closure alive where it is declared (as below).
+ *  Unsafe: `auto make = [&]{...}; spawn(make());` where `make` lives on
+ *  a stack frame that dies before the chain is polled (e.g. a plain
+ *  outer lambda running inside a poll callback): the deferred
+ *  spawn_step resumes the coroutine after that frame is gone and reads
+ *  the capture through a dangling closure pointer.
+ * ─────────────────────────────────────────────────────────────────── */
+
+TEST(SpawnTest, NestedSpawnCaptureLambdaCoroutine) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  bool ran       = false;
+  bool inner_ran = false;
+
+  // The closure lives in this frame, which outlives the loop run below.
+  auto make = [&inner_ran]() -> Promise<void> {
+    inner_ran = true;
+    co_return;
+  };
+
+  // Outer chain: a plain lambda running inside a poll callback spawns
+  // the capturing-lambda coroutine — nested spawn via xEventLoopPost.
+  spawn([&ran, &make]() -> Promise<void> {
+    spawn(make());
+    ran = true;
+    return xpp::resolve();
+  });
+
+  for (int i = 0; i < 100 && !(ran && inner_ran); ++i) {
+    xEventLoopRun(loop.handle(), X_RUN_ONCE);
+  }
+  EXPECT_TRUE(ran);
+  EXPECT_TRUE(inner_ran);
+}
+
+TEST(SpawnTest, SpawnedLambdaCoroutineClosureSafe) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  // Passing the coroutine lambda directly to spawn(): the closure is
+  // copied into the defer node (heap) and stays alive for the chain.
+  bool ran = false;
+  spawn([&ran]() -> Promise<void> {
+    ran = true;
+    co_return;
+  });
+
+  for (int i = 0; i < 100 && !ran; ++i) {
+    xEventLoopRun(loop.handle(), X_RUN_ONCE);
+  }
+  EXPECT_TRUE(ran);
+}
+
+#endif // XPP_HAS_COROUTINES

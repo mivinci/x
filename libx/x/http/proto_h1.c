@@ -110,7 +110,8 @@ static int on_body(llhttp_t *parser, const char *at, size_t len) {
   if (!stream->route_info || !stream->route_info->on_data) return HPE_OK;
 
   /* Deliver body chunk to on_data */
-  int rc = stream->route_info->on_data(at, len, stream->route_info->arg);
+  void *arg = stream->user ? stream->user : stream->route_info->arg;
+  int   rc  = stream->route_info->on_data(at, len, arg);
   if (rc != 0) {
     stream->pending_error        = 413;
     stream->pending_error_reason = "Content Too Large";

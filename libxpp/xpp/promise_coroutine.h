@@ -116,7 +116,10 @@ public:
   }
 
   ~CoroutinePromiseNode() {
-    if (m_handle && !m_done) m_handle.destroy();
+    // Always destroy: a completed coroutine (m_done) is suspended at its
+    // final suspend point — destroy() is the only thing that frees its
+    // frame. Skipping it when m_done leaked every finished coroutine.
+    if (m_handle) m_handle.destroy();
   }
 };
 
