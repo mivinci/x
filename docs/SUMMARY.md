@@ -65,6 +65,10 @@
     - [DNS](libxpp/net/dns.md)
     - [URL](libxpp/net/url.md)
     - [TLS](libxpp/net/tls.md)
+  - [HTTP](libxpp/http/README.md)
+    - [Client](libxpp/http/client.md)
+    - [Server](libxpp/http/server.md)
+    - [Body](libxpp/http/body.md)
 
 - [libx](libx/README.md)
   - [base — Core Primitives](libx/base/README.md)
