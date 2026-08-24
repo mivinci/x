@@ -277,17 +277,18 @@ TEST(ServerTest, DestroyWithInflightHandlerDoesNotCrash) {
   {
     // Handler waits 50ms (after the request starts) — the server is
     // destroyed in that window, then the handler completes.
-    auto server = Server::builder()
-                    .route("GET /slow",
-                           [&handler_done](Request req) -> Promise<http::Result<Response>> {
-                             return xpp::after(50).then([&handler_done]() -> http::Result<Response> {
-                               handler_done = true;
-                               return http::Result<Response>(xpp::ok, ResponseBuilder::ok("late"));
-                             });
-                           })
-                    .bind("127.0.0.1", 0)
-                    .build()
-                    .unwrap();
+    auto server =
+      Server::builder()
+        .route("GET /slow",
+               [&handler_done](Request req) -> Promise<http::Result<Response>> {
+                 return xpp::after(50).then([&handler_done]() -> http::Result<Response> {
+                   handler_done = true;
+                   return http::Result<Response>(xpp::ok, ResponseBuilder::ok("late"));
+                 });
+               })
+        .bind("127.0.0.1", 0)
+        .build()
+        .unwrap();
     auto running = server.serve();
 
     auto client = Client::builder().build().unwrap();
@@ -302,4 +303,39 @@ TEST(ServerTest, DestroyWithInflightHandlerDoesNotCrash) {
   for (int i = 0; i < 200 && !handler_done; ++i)
     xEventLoopRun(loop.handle(), X_RUN_ONCE);
   EXPECT_TRUE(handler_done) << "handler did not complete";
+}
+
+/* ───────────────────────────────────────────────────────────────────
+ *  Streaming (channel) response body — not yet supported; write_response
+ *  must answer 500 instead of corrupting the connection.
+ * ─────────────────────────────────────────────────────────────────── */
+
+TEST(ServerTest, ChannelResponseBodyIs500) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  auto server = Server::builder()
+                  .route("GET /stream",
+                         [](Request req) -> http::Result<Response> {
+                           // Channel body: the server cannot stream it yet, so the
+                           // response must be downgraded to 500 by write_response.
+                           auto [tx, rx] = sync::mpsc::channel<Bytes>(8);
+                           Body b        = Body::from_channel(std::move(rx));
+                           return http::Result<Response>(
+                             xpp::ok, ResponseBuilder().status(StatusCode::Ok).body(std::move(b)));
+                         })
+                  .bind("127.0.0.1", 0)
+                  .build()
+                  .unwrap();
+  auto running = server.serve();
+
+  auto client = Client::builder().build().unwrap();
+  auto r      = client.get(url_for(server.port(), "/stream").c_str()).await();
+  // 5xx responses surface as a Protocol error (like HandlerErrorIs500).
+  ASSERT_TRUE(r.is_err()) << "GET /stream should surface 500 as a protocol error";
+  EXPECT_TRUE(r.unwrap_err().is_status_error());
+  EXPECT_EQ(r.unwrap_err().status().unwrap(), static_cast<StatusCode::Value>(500));
+
+  server.stop();
+  running.await();
 }
