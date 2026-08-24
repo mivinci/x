@@ -391,3 +391,95 @@ TEST(ServerTest, StreamingResponseBodyLarge) {
   server.stop();
   running.await();
 }
+
+#if XPP_HAS_COROUTINES
+
+/* ───────────────────────────────────────────────────────────────────
+ *  C++20 coroutine style: the producer pushes chunks with co_await;
+ *  the handler is a coroutine that returns a channel-body Response
+ *  which the server streams out.
+ *
+ *  Note: producers must be named coroutine functions (or capture-free
+ *  lambdas). A capturing lambda coroutine spawned from inside another
+ *  spawn chain crashes (xpp coroutine-frame + nested-spawn bug); named
+ *  functions are unaffected.
+ * ─────────────────────────────────────────────────────────────────── */
+
+static Promise<void> co_stream_producer(sync::mpsc::Sender<Bytes> tx, const char *a,
+                                        const char *b) {
+  co_await tx.send(Bytes::copy(a, strlen(a)));
+  co_await tx.send(Bytes::copy(b, strlen(b)));
+  tx.close();
+  co_return;
+}
+
+TEST(ServerTest, CoroutineStreamingProducer) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  auto server = Server::builder()
+                  .route("GET /stream",
+                         [](Request req) -> http::Result<Response> {
+                           auto [tx, rx] = sync::mpsc::channel<Bytes>(4);
+                           // Coroutine producer — co_await each send, then close.
+                           xpp::spawn(co_stream_producer(tx, "alpha", "-beta"));
+                           Body b = Body::from_channel(std::move(rx));
+                           return http::Result<Response>(
+                             xpp::ok, ResponseBuilder().status(StatusCode::Ok).body(std::move(b)));
+                         })
+                  .bind("127.0.0.1", 0)
+                  .build()
+                  .unwrap();
+  auto running = server.serve();
+
+  auto client = Client::builder().build().unwrap();
+  auto r      = client.get(url_for(server.port(), "/stream").c_str()).await();
+  ASSERT_TRUE(r.is_ok()) << "GET /stream failed";
+  auto resp = std::move(r).unwrap();
+  EXPECT_EQ(200, resp.status_code());
+  auto body = resp.bytes().await().unwrap();
+  EXPECT_EQ(body.to_string().unwrap(), String::from_utf8("alpha-beta").unwrap());
+
+  server.stop();
+  running.await();
+}
+
+/* ───────────────────────────────────────────────────────────────────
+ *  Coroutine handler: co_await some async work, then return a
+ *  channel-body response — the server streams it while a coroutine
+ *  producer feeds the channel.
+ * ─────────────────────────────────────────────────────────────────── */
+
+TEST(ServerTest, CoroutineHandlerStreamingResponse) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  auto server = Server::builder()
+                  .route("GET /async-stream",
+                         [](Request req) -> Promise<http::Result<Response>> {
+                           // Simulate async processing before responding.
+                           co_await xpp::after(10);
+                           auto [tx, rx] = sync::mpsc::channel<Bytes>(4);
+                           xpp::spawn(co_stream_producer(tx, "one", "-two"));
+                           Body b = Body::from_channel(std::move(rx));
+                           co_return http::Result<Response>(
+                             xpp::ok, ResponseBuilder().status(StatusCode::Ok).body(std::move(b)));
+                         })
+                  .bind("127.0.0.1", 0)
+                  .build()
+                  .unwrap();
+  auto running = server.serve();
+
+  auto client = Client::builder().build().unwrap();
+  auto r      = client.get(url_for(server.port(), "/async-stream").c_str()).await();
+  ASSERT_TRUE(r.is_ok()) << "GET /async-stream failed";
+  auto resp = std::move(r).unwrap();
+  EXPECT_EQ(200, resp.status_code());
+  auto body = resp.bytes().await().unwrap();
+  EXPECT_EQ(body.to_string().unwrap(), String::from_utf8("one-two").unwrap());
+
+  server.stop();
+  running.await();
+}
+
+#endif // XPP_HAS_COROUTINES
