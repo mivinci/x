@@ -37,13 +37,14 @@
 #include <utility>
 
 #include <xpp/arc.h>
-#include <xpp/fiber.h>
 #include <xpp/http/client.h>
 #include <xpp/http/request.h>
 #include <xpp/http/response.h>
 #include <xpp/option.h>
+#include <xpp/own.h>
 #include <xpp/promise.h>
 #include <xpp/result.h>
+#include <xpp/spawn.h>
 #include <xpp/string.h>
 #include <xpp/sync/mpsc.h>
 #include <xpp/vec.h>
@@ -59,13 +60,23 @@ class Server;
 
 namespace _ {
 
+class ServerImpl;
+
+/// Shared server lifetime flag. The Server sets destroyed=true before
+/// tearing down; in-flight handler chains hold an Arc and check it
+/// instead of touching the freed ctx.
+class ServerLifetime {
+public:
+  bool destroyed = false;
+};
+
 /// Per-route state: the (type-erased) handler invoker + path-parameter
 /// names in pattern order. One per .route() registration.
 struct RouteState {
   std::function<Promise<Result<Response>>(Request, Vec<String>)> invoke;
   Vec<String>                                                    param_names;
-  String            pattern;          ///< raw "METHOD /path" pattern for libx mux
-  class ServerImpl *server = nullptr; ///< back-pointer (stable heap address)
+  String      pattern;          ///< raw "METHOD /path" pattern for libx mux
+  ServerImpl *server = nullptr; ///< back-pointer (valid while the server lives)
 };
 
 /// Per-request state: the request-body channel sender (fed by on_data).
@@ -118,14 +129,15 @@ Promise<Result<Response>> invoke_with_params(H &h, Request req, const Vec<String
 
 class ServerImpl {
 public:
-  xHttpServer                      m_server = nullptr;
-  xHttpMux                         m_mux    = nullptr;
-  String                           m_host;
-  uint16_t                         m_port            = 0;
-  uint64_t                         m_idle_timeout_ms = 60000;
-  Vec<std::unique_ptr<RouteState>> m_routes; ///< owns RouteStates (mux arg)
-  std::unordered_map<const xHttpCtx *, std::unique_ptr<ReqState>> m_reqs;
-  Option<PromiseResolver<Result<void>>>                           m_stop_resolver;
+  xHttpServer                                         m_server = nullptr;
+  xHttpMux                                            m_mux    = nullptr;
+  String                                              m_host;
+  uint16_t                                            m_port            = 0;
+  uint64_t                                            m_idle_timeout_ms = 60000;
+  Vec<Own<RouteState>>                                m_routes; ///< owns RouteStates (mux arg)
+  std::unordered_map<const xHttpCtx *, Own<ReqState>> m_reqs;
+  Option<PromiseResolver<Result<void>>>               m_stop_resolver;
+  Arc<ServerLifetime>                                 lifetime = Arc<ServerLifetime>::make();
 };
 
 /* ── Raw header parsing ("Name: Value\r\n", no request line) ───────── */
@@ -230,28 +242,36 @@ inline int srv_on_request_cb(xHttpCtx *ctx, void *arg) {
   //    on_done as the arg via xHttpCtxSetUser (distinguishes concurrent
   //    requests on the same route). Owned by impl->m_reqs; erased in
   //    on_done (after the body channel is closed).
-  auto req_state          = std::unique_ptr<ReqState>(new ReqState());
+  auto req_state          = Own<ReqState>(new ReqState());
   req_state->tx           = xpp::some(std::move(tx));
   req_state->impl         = impl;
   const xHttpCtx *ctx_key = ctx;
   impl->m_reqs[ctx_key]   = std::move(req_state);
   xHttpCtxSetUser(ctx, impl->m_reqs[ctx_key].get());
 
-  // 5. Run the handler on a fiber — xpp promises are poll-driven, so the
-  //    handler's promise chain needs an awaiter. The fiber awaits the
-  //    handler (suspending while the request body streams in via on_data
-  //    / on_done), then writes the response. ctx stays valid until the
+  // 5. Run the handler via xpp::spawn — the handler's promise chain is
+  //    waker-driven on the event loop (no per-request fiber stack).
+  //    Suspension sources (e.g. the request body channel) wake the chain;
+  //    on completion the response is written. ctx stays valid until the
   //    response is sent (libx keeps the connection open when no response
   //    was written in on_done).
   // C++11 has no init-capture — move req/params into a heap holder that
   // the lambda can capture by copy.
-  auto holder =
-    std::make_shared<std::pair<Request, Vec<String>>>(std::move(req), std::move(params));
-  auto run = [impl, ctx_key, route, holder]() {
-    Result<Response> r = route->invoke(std::move(holder->first), std::move(holder->second)).await();
-    write_response(const_cast<xHttpCtx *>(ctx_key), std::move(r));
-  };
-  xpp::fiber(0, std::move(run));
+  auto holder = Arc<std::pair<Request, Vec<String>>>::make(std::move(req), std::move(params));
+  // Capture the invoker (std::function copy) and the server Arc — the
+  // handler may complete after the Server was destroyed (RouteState and
+  // ctx are then freed), so the chain must not hold raw pointers to them.
+  auto invoke   = route->invoke;
+  auto lifetime = route->server->lifetime; // Arc — outlives the server
+  xpp::spawn([invoke, lifetime, ctx_key, holder]() -> Promise<void> {
+    return invoke(std::move(holder->first), std::move(holder->second))
+      .then([lifetime, ctx_key](Result<Response> r) {
+        // Server destroyed while the handler was running (ctx freed) —
+        // drop the response instead of touching it.
+        if (lifetime->destroyed) return;
+        write_response(const_cast<xHttpCtx *>(ctx_key), std::move(r));
+      });
+  });
   return 0;
 }
 
@@ -300,6 +320,7 @@ public:
   Server() = default;
   ~Server() {
     if (m_impl) {
+      m_impl->lifetime->destroyed = true; // in-flight spawn chains must not touch ctx
       if (m_impl->m_server) xHttpServerDestroy(m_impl->m_server);
       if (m_impl->m_mux) xHttpMuxDestroy(m_impl->m_mux);
     }
@@ -389,7 +410,7 @@ public:
       return _::invoke_with_params(stored, std::move(req), params,
                                    std::make_index_sequence<Traits::arity - 1>());
     };
-    auto state         = std::unique_ptr<_::RouteState>(new _::RouteState());
+    auto state         = Own<_::RouteState>(new _::RouteState());
     state->invoke      = std::move(invoker);
     state->param_names = std::move(names);
     state->pattern     = String::from_utf8(pattern).unwrap();
@@ -478,10 +499,10 @@ private:
     return names;
   }
 
-  String                              m_host            = String::from_utf8("127.0.0.1").unwrap();
-  uint16_t                            m_port            = 8080;
-  uint64_t                            m_idle_timeout_ms = 60000;
-  Vec<std::unique_ptr<_::RouteState>> m_routes;
+  String                  m_host            = String::from_utf8("127.0.0.1").unwrap();
+  uint16_t                m_port            = 8080;
+  uint64_t                m_idle_timeout_ms = 60000;
+  Vec<Own<_::RouteState>> m_routes;
 };
 
 inline ServerBuilder Server::builder() {

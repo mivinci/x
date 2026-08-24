@@ -262,3 +262,44 @@ TEST(ServerTest, ConcurrentBodiesStaySeparate) {
   server.stop();
   running.await();
 }
+
+/* ───────────────────────────────────────────────────────────────────
+ *  Server destroyed while a handler is still running — the handler
+ *  completes on the loop afterwards; write_response must be dropped
+ *  (ctx freed) instead of crashing.
+ * ─────────────────────────────────────────────────────────────────── */
+
+TEST(ServerTest, DestroyWithInflightHandlerDoesNotCrash) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  bool handler_done = false;
+  {
+    // Handler waits 50ms (after the request starts) — the server is
+    // destroyed in that window, then the handler completes.
+    auto server = Server::builder()
+                    .route("GET /slow",
+                           [&handler_done](Request req) -> Promise<http::Result<Response>> {
+                             return xpp::after(50).then([&handler_done]() -> http::Result<Response> {
+                               handler_done = true;
+                               return http::Result<Response>(xpp::ok, ResponseBuilder::ok("late"));
+                             });
+                           })
+                    .bind("127.0.0.1", 0)
+                    .build()
+                    .unwrap();
+    auto running = server.serve();
+
+    auto client = Client::builder().build().unwrap();
+    auto p      = client.get(url_for(server.port(), "/slow").c_str());
+    // Let the request arrive and the handler start (and suspend on after()).
+    for (int i = 0; i < 10; ++i)
+      xEventLoopRun(loop.handle(), X_RUN_ONCE);
+    // Server destroyed here while the handler is in flight.
+  }
+  // Drive the loop past the handler's 50ms — it completes, but the response
+  // write must be dropped (destroyed flag), not touch freed ctx.
+  for (int i = 0; i < 200 && !handler_done; ++i)
+    xEventLoopRun(loop.handle(), X_RUN_ONCE);
+  EXPECT_TRUE(handler_done) << "handler did not complete";
+}
