@@ -21,6 +21,10 @@
  * Spawned chains run on the event loop that was current at spawn()
  * time (the caller must be inside a WaitScope).
  *
+ * The spawned chain must eventually resolve (or its suspension source
+ * must be closed) — a chain that never completes leaks its driver state,
+ * as with any fire-and-forget task runtime.
+ *
  * C++11-compatible. Header-only.
  */
 

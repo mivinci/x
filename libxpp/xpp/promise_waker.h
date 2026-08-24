@@ -59,8 +59,8 @@ struct WakeState {
    * xEventLoopPost) whenever wake() fires, so a poll-driven promise
    * chain can be re-polled without a blocking await loop. NULL for
    * regular await() users — behaviour unchanged. */
-  void (*wake_cb)(void *) = nullptr;
-  void *wake_arg          = nullptr;
+  void (*wake_cb)(void *)      = nullptr;
+  std::atomic<void *> wake_arg{nullptr};
 
   WakeState() = default;
   explicit WakeState(xEventLoop l) : loop(l) {}
@@ -143,7 +143,7 @@ public:
   /** @brief Update the wake-callback argument (used by spawn to point the
    *         callback at its driver state). */
   void set_wake_arg(void *arg) {
-    m_state->wake_arg = arg;
+    m_state->wake_arg.store(arg, std::memory_order_release);
   }
 
 private:
@@ -182,7 +182,7 @@ inline PromiseWaker PromiseWaker::create() {
 static inline void do_wake(_::WakeState *s) {
   s->woken = true;
   if (s->wake_cb) {
-    xEventLoopPost(s->loop, s->wake_cb, s->wake_arg);
+    xEventLoopPost(s->loop, s->wake_cb, s->wake_arg.load(std::memory_order_acquire));
   }
 }
 
