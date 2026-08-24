@@ -16,12 +16,20 @@
 static void *offload_worker(void *arg) {
   struct xWork_ *w = (struct xWork_ *)arg;
 
+  /*
+   * Cache the loop pointer before anything else: once w is pushed to
+   * the done queue its ownership transfers to the consumer side (the
+   * event loop thread, which may free it in loop_wait_inflight /
+   * loop_run_done), so w must not be touched after the push.
+   */
+  xEventLoop loop = w->loop;
+
   /* Execute the user's work function on the worker thread. */
   w->result = w->work_fn(w->arg);
 
   /* Enqueue the work item into the done queue (lock-free). */
-  xMpscPush(&((struct xEventLoop_ *)w->loop)->done_head,
-            &((struct xEventLoop_ *)w->loop)->done_tail, &w->mpsc);
+  xMpscPush(&((struct xEventLoop_ *)loop)->done_head,
+            &((struct xEventLoop_ *)loop)->done_tail, &w->mpsc);
 
   /*
    * Wake the event loop so it drains the done queue promptly.
@@ -31,7 +39,7 @@ static void *offload_worker(void *arg) {
    * is a bug in the caller.  Either way the done-queue item is not
    * lost — it will be picked up on the next loop iteration.
    */
-  xEventLoopWake(w->loop);
+  xEventLoopWake(loop);
 
   return NULL;
 }
@@ -86,13 +94,14 @@ xErrno xWorkCancel(xWork work) {
 
   /* Attempt to cancel the underlying task. If successful, the
    * offload_worker will never execute and we must push the work item
-   * to the done queue ourselves for cleanup. */
+   * to the done queue ourselves for cleanup.  Use the local l after
+   * the push — w's ownership has transferred to the consumer. */
   xErrno err = xTaskCancel(w->task);
   if (err == xErrno_Ok) {
-    w->result             = NULL;
     struct xEventLoop_ *l = (struct xEventLoop_ *)xEventLoopCurrent();
+    w->result = NULL;
     xMpscPush(&l->done_head, &l->done_tail, &w->mpsc);
-    xEventLoopWake(w->loop);
+    xEventLoopWake((xEventLoop)l);
   }
 
   return xErrno_Ok;
