@@ -310,17 +310,21 @@ TEST(ServerTest, DestroyWithInflightHandlerDoesNotCrash) {
  *  must answer 500 instead of corrupting the connection.
  * ─────────────────────────────────────────────────────────────────── */
 
-TEST(ServerTest, ChannelResponseBodyIs500) {
+TEST(ServerTest, StreamingResponseBody) {
   EventLoop loop;
   WaitScope scope(loop);
 
   auto server = Server::builder()
                   .route("GET /stream",
                          [](Request req) -> http::Result<Response> {
-                           // Channel body: the server cannot stream it yet, so the
-                           // response must be downgraded to 500 by write_response.
-                           auto [tx, rx] = sync::mpsc::channel<Bytes>(8);
-                           Body b        = Body::from_channel(std::move(rx));
+                           auto [tx, rx] = sync::mpsc::channel<Bytes>(4);
+                           // Producer: push chunks (waker-driven), then close.
+                           xpp::spawn([tx]() mutable -> Promise<void> {
+                             return tx.send(Bytes::copy("chunk1", 6))
+                               .then([tx]() mutable { return tx.send(Bytes::copy("-chunk2", 7)); })
+                               .then([tx]() mutable { tx.close(); });
+                           });
+                           Body b = Body::from_channel(std::move(rx));
                            return http::Result<Response>(
                              xpp::ok, ResponseBuilder().status(StatusCode::Ok).body(std::move(b)));
                          })
@@ -331,10 +335,58 @@ TEST(ServerTest, ChannelResponseBodyIs500) {
 
   auto client = Client::builder().build().unwrap();
   auto r      = client.get(url_for(server.port(), "/stream").c_str()).await();
-  // 5xx responses surface as a Protocol error (like HandlerErrorIs500).
-  ASSERT_TRUE(r.is_err()) << "GET /stream should surface 500 as a protocol error";
-  EXPECT_TRUE(r.unwrap_err().is_status_error());
-  EXPECT_EQ(r.unwrap_err().status().unwrap(), static_cast<StatusCode::Value>(500));
+  ASSERT_TRUE(r.is_ok()) << "GET /stream failed";
+  auto resp = std::move(r).unwrap();
+  EXPECT_EQ(200, resp.status_code());
+  auto body = resp.bytes().await().unwrap();
+  EXPECT_EQ(body.to_string().unwrap(), String::from_utf8("chunk1-chunk2").unwrap());
+
+  server.stop();
+  running.await();
+}
+
+/* ───────────────────────────────────────────────────────────────────
+ *  Streaming response: multiple chunks crossing the 4096 read buffer
+ *  boundary — the recursive read/write chain must reassemble them.
+ * ─────────────────────────────────────────────────────────────────── */
+
+TEST(ServerTest, StreamingResponseBodyLarge) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  std::string big(3000, 'A'); // two chunks = 6000 > 4096 (2 read() hops)
+  auto        server = Server::builder()
+                  .route("GET /big",
+                         [big](Request req) -> http::Result<Response> {
+                           auto [tx, rx] = sync::mpsc::channel<Bytes>(4);
+                           xpp::spawn([tx, big]() mutable -> Promise<void> {
+                             return tx.send(Bytes::copy(big.data(), big.size()))
+                               .then([tx, big]() mutable {
+                                 return tx.send(Bytes::copy(big.data(), big.size()));
+                               })
+                               .then([tx]() mutable { tx.close(); });
+                           });
+                           Body b = Body::from_channel(std::move(rx));
+                           return http::Result<Response>(
+                             xpp::ok, ResponseBuilder().status(StatusCode::Ok).body(std::move(b)));
+                         })
+                  .bind("127.0.0.1", 0)
+                  .build()
+                  .unwrap();
+  auto running = server.serve();
+
+  auto client = Client::builder().build().unwrap();
+  auto r      = client.get(url_for(server.port(), "/big").c_str()).await();
+  ASSERT_TRUE(r.is_ok()) << "GET /big failed";
+  auto resp = std::move(r).unwrap();
+  EXPECT_EQ(200, resp.status_code());
+  auto body = resp.bytes().await().unwrap();
+  EXPECT_EQ(body.size(), static_cast<size_t>(6000));
+  std::string s(reinterpret_cast<const char *>(body.data()), body.size());
+  EXPECT_EQ(s.size(), 6000);
+  EXPECT_EQ(s[0], 'A');
+  EXPECT_EQ(s[5999], 'A');
+  EXPECT_EQ(s.find("AAAA"), 0);
 
   server.stop();
   running.await();

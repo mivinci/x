@@ -170,11 +170,42 @@ inline HeaderMap parse_server_headers(const char *raw, size_t len) {
 
 /* ── Response writing (handler completed) ──────────────────────────── */
 
-inline void write_response(xHttpCtx *ctx, Result<Response> r) {
+namespace {
+constexpr size_t kStreamChunk = 4096;
+}
+
+/**
+ * @brief Stream a channel body via xHttpCtxWrite/xHttpCtxEndStream.
+ *
+ * Recursively reads chunks from the channel (waker-driven — the promise
+ * chain suspends when the channel is empty) and writes each to the wire.
+ * Each hop allocates a fresh heap buffer so the read() buffer outlives
+ * the pending recv. Stops (drops the rest) if the server was destroyed
+ * or the connection write fails.
+ */
+inline Promise<void> stream_channel_body(xHttpCtx *ctx, Arc<ServerLifetime> lifetime,
+                                         Arc<Body> body) {
+  auto buf = Arc<Vec<char>>::make();
+  buf->resize(kStreamChunk, '\0');
+  return body->read(buf->data(), kStreamChunk)
+    .then([ctx, lifetime, body, buf](ssize_t n) -> Promise<void> {
+      if (lifetime->destroyed) return xpp::resolve(); // server torn down
+      if (n <= 0) {
+        xHttpCtxEndStream(ctx); // EOF — finalize (Connection: close)
+        return xpp::resolve();
+      }
+      xErrno rc = xHttpCtxWrite(ctx, buf->data(), static_cast<size_t>(n));
+      if (rc != xErrno_Ok) return xpp::resolve(); // connection gone — drop
+      return stream_channel_body(ctx, lifetime, body);
+    });
+}
+
+inline Promise<void> write_response(xHttpCtx *ctx, Arc<ServerLifetime> lifetime,
+                                    Result<Response> r) {
   if (r.is_err()) {
     xHttpCtxSetStatus(ctx, 500);
     xHttpCtxSend(ctx, "Internal Server Error", 21);
-    return;
+    return xpp::resolve();
   }
   Response resp = std::move(r).unwrap();
   xHttpCtxSetStatus(ctx, resp.status_code());
@@ -187,14 +218,15 @@ inline void write_response(xHttpCtx *ctx, Result<Response> r) {
     xHttpCtxSetHeader(ctx, n.c_str(), v.c_str());
   }
   Body body = std::move(resp).into_body();
-  if (body.is_channel()) {
-    // Streaming (channel) response bodies are not yet supported.
-    xHttpCtxSetStatus(ctx, 500);
-    xHttpCtxSend(ctx, "Internal Server Error", 21);
-    return;
+  if (!body.is_channel()) {
+    Bytes bytes = body.into_once_bytes();
+    xHttpCtxSend(ctx, reinterpret_cast<const char *>(bytes.data()), bytes.size());
+    return xpp::resolve();
   }
-  Bytes bytes = body.into_once_bytes();
-  xHttpCtxSend(ctx, reinterpret_cast<const char *>(bytes.data()), bytes.size());
+  // Channel body — stream it. Arc<Body> keeps the reader alive across the
+  // recursive read/write chain.
+  Arc<Body> shared = Arc<Body>::make(std::move(body));
+  return stream_channel_body(ctx, lifetime, shared);
 }
 
 /* ── C callback trampolines ────────────────────────────────────────── */
@@ -265,11 +297,11 @@ inline int srv_on_request_cb(xHttpCtx *ctx, void *arg) {
   auto lifetime = route->server->lifetime; // Arc — outlives the server
   xpp::spawn([invoke, lifetime, ctx_key, holder]() -> Promise<void> {
     return invoke(std::move(holder->first), std::move(holder->second))
-      .then([lifetime, ctx_key](Result<Response> r) {
+      .then([lifetime, ctx_key](Result<Response> r) -> Promise<void> {
         // Server destroyed while the handler was running (ctx freed) —
         // drop the response instead of touching it.
-        if (lifetime->destroyed) return;
-        write_response(const_cast<xHttpCtx *>(ctx_key), std::move(r));
+        if (lifetime->destroyed) return xpp::resolve();
+        return write_response(const_cast<xHttpCtx *>(ctx_key), lifetime, std::move(r));
       });
   });
   return 0;
