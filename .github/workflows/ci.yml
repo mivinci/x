@@ -158,6 +158,74 @@ jobs:
           rm -f build/CMakeCache.txt
           zsh scripts/test-mac.sh -t ${{ matrix.tls }} -j $(sysctl -n hw.ncpu) -B build --asan
 
+  # ── ThreadSanitizer ───────────────────────────────────────────────────
+  # TSan sees data races ASan cannot (order/protocol races in the sync
+  # primitives — see issues/mpsc-single-slot-waiter-race.md, where three
+  # latent races were only exposed once TSan was first run). The two
+  # sanitizer runtimes are incompatible, so this is a separate lane.
+  tsan:
+    name: TSan / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            g++ \
+            cmake \
+            libgtest-dev \
+            libnghttp2-dev \
+            libssl-dev \
+            libusrsctp-dev \
+            libcurl4-openssl-dev
+
+      # clang, not gcc: gcc-12's libtsan mis-handles the sized-aligned
+      # operator delete interceptor, producing false-positive "data race
+      # in operator delete" reports on Arc refcount + free patterns
+      # (address-reuse shadow not cleared). clang's TSan runtime is the
+      # reference implementation and matches the macOS lane.
+      - name: Set clang (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install googletest llhttp nghttp2 openssl libusrsctp curl
+
+      - name: Build & Test (Linux, TSan)
+        if: runner.os == 'Linux'
+        env:
+          # Scoped to the xpp concurrency core (sync primitives, promise,
+          # spawn, adapters): pre-existing races in libx's timer/xnet/p2p
+          # are tracked in issues/tsan-preexisting-races.md.
+          CTEST_ARGS: -L xpp
+        run: |
+          rm -f build-tsan/CMakeCache.txt
+          bash scripts/test-linux.sh -t openssl -j $(nproc) -B build-tsan --tsan
+
+      - name: Build & Test (macOS, TSan)
+        if: runner.os == 'macOS'
+        env:
+          CTEST_ARGS: -L xpp
+        run: |
+          rm -f build-tsan/CMakeCache.txt
+          zsh scripts/test-mac.sh -t openssl -j $(sysctl -n hw.ncpu) -B build-tsan --tsan
+
   # ── Symbol visibility check ───────────────────────────────────────────
   # Verifies that X_BUILD_SHARED=ON produces a clean symbol table:
   # only XCAPI-marked symbols (and allowlisted internal symbols) are exported.

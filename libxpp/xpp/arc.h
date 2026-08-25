@@ -235,8 +235,12 @@ template <class T, class Allocator> struct ArcInner<T, Allocator, true> : privat
 template <class T, class Allocator>
 inline void arc_dec_weak_and_maybe_dealloc(ArcInner<T, Allocator> *inner) noexcept {
   XPP_DEBUG_ASSERT(inner != nullptr, "internal: arc_dec_weak called with null inner");
-  if (inner->weak.fetch_sub(1, std::memory_order_release) == 1) {
-    std::atomic_thread_fence(std::memory_order_acquire);
+  /* acq_rel RMW (not release + acquire-fence): the acquire side pairs
+   * with the previous owner's release, ordering the deallocation after
+   * every prior access. The fence variant is valid C++ but TSan cannot
+   * model fences through RMW chains — the canonical shared_ptr false
+   * positive; both gcc and clang Linux runtimes flag it. */
+  if (inner->weak.fetch_sub(1, std::memory_order_acq_rel) == 1) {
     // Move alloc out before deallocating the memory that contains it.
     // For empty Allocs (the common case) this is a no-op.
     Allocator a      = std::move(inner->alloc_ref());
@@ -252,11 +256,12 @@ inline void arc_dec_weak_and_maybe_dealloc(ArcInner<T, Allocator> *inner) noexce
 template <class T, class Allocator>
 inline void arc_dec_strong(ArcInner<T, Allocator> *inner) noexcept {
   XPP_DEBUG_ASSERT(inner != nullptr, "internal: arc_dec_strong called with null inner");
-  if (inner->strong.fetch_sub(1, std::memory_order_release) == 1) {
-    // Last strong gone. Acquire-fence to see every prior owner's
-    // writes to *T*, then destroy T in place. The inner's memory
-    // sticks around until the weak count also hits zero.
-    std::atomic_thread_fence(std::memory_order_acquire);
+  /* acq_rel RMW: the last decrementer acquires every prior owner's
+   * release, so destroying T is happens-after all accesses to it.
+   * (Same TSan note as arc_dec_weak_and_maybe_dealloc.) */
+  if (inner->strong.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    // Last strong gone. The inner's memory sticks around until the
+    // weak count also hits zero.
     inner->value.~T();
     arc_dec_weak_and_maybe_dealloc(inner);
   }
@@ -374,7 +379,9 @@ public:
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
     return &m_inner->value;
   }
-  explicit operator bool() const noexcept { return m_inner != nullptr; }
+  explicit operator bool() const noexcept {
+    return m_inner != nullptr;
+  }
   T *get() const noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
     return &m_inner->value;

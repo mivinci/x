@@ -302,7 +302,9 @@ static inline void loop_update_time(struct xEventLoop_ *loop) {
 static inline int loop_alive(struct xEventLoop_ *loop) {
   if (loop->active_handles > 0) return 1;
   if (xHeapSize(loop->timer_heap) > 0) return 1;
-  if (loop->done_head != NULL) return 1;
+  /* Atomic load: producers on other threads push to done_head
+   * concurrently (xEventLoopPost from any thread). */
+  if (!xMpscEmpty(&loop->done_head)) return 1;
   if (xAtomicLoad(&loop->inflight, xAtomicAcquire) > 0) return 1;
   return 0;
 }

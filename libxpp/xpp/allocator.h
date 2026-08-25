@@ -76,7 +76,11 @@ struct GlobalAllocator {
   void deallocate(void *ptr, Layout layout) const {
     (void)layout;
 #if __cplusplus >= 201703L || (defined(_MSC_VER) && _MSVC_LANG >= 201703L)
-    ::operator delete(ptr, layout.size, std::align_val_t(layout.align));
+    /* Unsized aligned form: the sized-aligned overload
+     * (void*, size_t, align_val_t) is not declared by default on
+     * clang + libstdc++ (they gate it behind -fsized-deallocation /
+     * __cpp_sized_deallocation), while gcc and libc++ provide it. */
+    ::operator delete(ptr, std::align_val_t(layout.align));
 #else
     ::operator delete(ptr);
 #endif

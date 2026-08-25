@@ -31,6 +31,7 @@
 #ifndef XPP_SPAWN_H
 #define XPP_SPAWN_H
 
+#include <atomic>
 #include <cstddef>
 #include <utility>
 
@@ -60,25 +61,50 @@ template <> inline void resolve_spawn_result<void>(PromiseResolver<void> &r, Opt
   r.resolve();
 }
 
+// Late/duplicate-wake safety: every posted step owns a reference to the
+// SpawnState (retained before the post; released below), and completed
+// chains are marked `done` — a step arriving after completion is a
+// harmless no-op instead of a use-after-free. Sources that fire wakes
+// repeatedly (e.g. mpsc channels) rely on this.
 template <class T> void spawn_step(void *arg) {
-  auto                                      *st = static_cast<SpawnState<T> *>(arg);
-  PromiseContext                             cx(st->waker);
-  Option<typename PromiseNode<T>::ValueType> r = st->node->poll(cx);
-  if (r.is_some()) {
-    resolve_spawn_result(st->resolver, r); // fulfill the JoinHandle
-    delete st;
+  auto *st = static_cast<SpawnState<T> *>(arg);
+  if (!st->done.load(std::memory_order_acquire)) {
+    PromiseContext                             cx(st->waker);
+    Option<typename PromiseNode<T>::ValueType> r = st->node->poll(cx);
+    if (r.is_some()) {
+      st->done.store(true, std::memory_order_release);
+      resolve_spawn_result(st->resolver, r); // fulfill the JoinHandle
+      st->waker.reset();                     // break the st→waker→st ownership cycle
+    }
+    // else: suspended; the waker (registered by the suspension source)
+    // will re-post spawn_step on wake.
   }
-  // else: suspended; the waker (registered by the suspension source)
-  // will re-post spawn_step on wake.
+  st->release(); // this step's reference (may delete st)
 }
 
 template <class T> struct SpawnState {
-  OwnPromiseNode<T>  node;
-  PromiseWaker       waker;
-  PromiseResolver<T> resolver;
+  OwnPromiseNode<T>     node;
+  PromiseWaker          waker;
+  PromiseResolver<T>    resolver;
+  std::atomic<bool>     done{false};
+  std::atomic<uint32_t> refs{0};
 
   SpawnState(OwnPromiseNode<T> n, PromiseWaker w, PromiseResolver<T> r)
       : node(std::move(n)), waker(std::move(w)), resolver(std::move(r)) {}
+
+  void retain() {
+    refs.fetch_add(1, std::memory_order_relaxed);
+  }
+  void release() {
+    if (refs.fetch_sub(1, std::memory_order_acq_rel) == 1) delete this;
+  }
+
+  static void on_retain(void *p) {
+    static_cast<SpawnState *>(p)->retain();
+  }
+  static void on_release(void *p) {
+    static_cast<SpawnState *>(p)->release();
+  }
 };
 
 template <class T> Promise<T> spawn_impl(Promise<T> &&p) {
@@ -88,7 +114,9 @@ template <class T> Promise<T> spawn_impl(Promise<T> &&p) {
   auto *st       = new SpawnState<T>(_extract_node(std::move(p)),
                                      PromiseWaker::create_with_wake_cb(&spawn_step<T>, nullptr),
                                      std::move(resolver));
-  st->waker.set_wake_arg(st); // point the wake callback at the state
+  // The waker owns one reference; the initial posted step owns another.
+  st->waker.attach_wake_arg(st, &SpawnState<T>::on_retain, &SpawnState<T>::on_release);
+  st->retain();
   xEventLoopPost(xEventLoopCurrent(), &spawn_step<T>, st);
   return promise;
 }

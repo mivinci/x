@@ -16,12 +16,19 @@
 static void *offload_worker(void *arg) {
   struct xWork_ *w = (struct xWork_ *)arg;
 
+  /*
+   * Cache the loop pointer before anything else: once w is pushed to
+   * the done queue its ownership transfers to the consumer side (the
+   * event loop thread, which may free it in loop_wait_inflight /
+   * loop_run_done), so w must not be touched after the push.
+   */
+  struct xEventLoop_ *loop = (struct xEventLoop_ *)w->loop;
+
   /* Execute the user's work function on the worker thread. */
   w->result = w->work_fn(w->arg);
 
   /* Enqueue the work item into the done queue (lock-free). */
-  xMpscPush(&((struct xEventLoop_ *)w->loop)->done_head,
-            &((struct xEventLoop_ *)w->loop)->done_tail, &w->mpsc);
+  xMpscPush(&loop->done_head, &loop->done_tail, &w->mpsc);
 
   /*
    * Wake the event loop so it drains the done queue promptly.
@@ -31,7 +38,17 @@ static void *offload_worker(void *arg) {
    * is a bug in the caller.  Either way the done-queue item is not
    * lost — it will be picked up on the next loop iteration.
    */
-  xEventLoopWake(w->loop);
+  xEventLoopWake((xEventLoop)loop);
+
+  /*
+   * Decrement inflight only AFTER the wake completes — this is the
+   * worker's last access to the loop.  inflight == 0 therefore means
+   * every worker has finished touching the loop, so the destroy path
+   * (loop_wait_inflight → ep_destroy → free(loop)) is safe.  Release
+   * ordering makes the wake's writes visible to the destroyer, which
+   * Acquire-loads the counter in loop_wait_inflight.
+   */
+  xAtomicFetchSub(&loop->inflight, 1, xAtomicRelease);
 
   return NULL;
 }
@@ -60,14 +77,22 @@ xWork xWorkSubmit(xTaskGroup group, xTaskFunc work_fn, xWorkDoneFunc done_fn,
   w->result    = NULL;
   w->loop      = (xEventLoop)loop;
 
+  /*
+   * Increment inflight BEFORE xTaskSubmit: a fast worker may finish
+   * (push + wake + decrement) before xTaskSubmit returns, so the
+   * increment must already be visible to keep the counter balanced.
+   * Rolled back on submit failure.
+   */
+  xAtomicFetchAdd(&loop->inflight, 1, xAtomicRelease);
+
   xTask t = xTaskSubmit(group, offload_worker, w);
   if (!t) {
+    xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
     event_work_free(loop, w);
     return NULL;
   }
 
   w->task = t;
-  xAtomicFetchAdd(&((struct xEventLoop_ *)loop)->inflight, 1, xAtomicRelaxed);
 
   return (xWork)w;
 }
@@ -86,13 +111,16 @@ xErrno xWorkCancel(xWork work) {
 
   /* Attempt to cancel the underlying task. If successful, the
    * offload_worker will never execute and we must push the work item
-   * to the done queue ourselves for cleanup. */
+   * to the done queue ourselves for cleanup.  Use the local l after
+   * the push — w's ownership has transferred to the consumer.
+   * The worker never runs, so we also own the inflight decrement. */
   xErrno err = xTaskCancel(w->task);
   if (err == xErrno_Ok) {
-    w->result             = NULL;
     struct xEventLoop_ *l = (struct xEventLoop_ *)xEventLoopCurrent();
+    w->result = NULL;
     xMpscPush(&l->done_head, &l->done_tail, &w->mpsc);
-    xEventLoopWake(w->loop);
+    xEventLoopWake((xEventLoop)l);
+    xAtomicFetchSub(&l->inflight, 1, xAtomicRelease);
   }
 
   return xErrno_Ok;

@@ -5,6 +5,7 @@
  *
  * notify_test.cpp — Tests for xpp::sync::Notify.
  */
+#include <chrono>
 #include <thread>
 
 #include <gtest/gtest.h>
@@ -124,4 +125,33 @@ TEST(NotifyMtTest, MultipleWorkersNotifyWaiters) {
   EXPECT_EQ(c2, 1);
   t1.join();
   t2.join();
+}
+
+// ── N-6: lost-wakeup stress regression ──────────────────────────────
+//
+// Races a worker thread's notify_one() against the loop thread's
+// notified() registration, fresh Notify per round. The old code
+// incremented the pending count *outside* the waiter mutex, so a
+// concurrently-registering waiter could re-check pending (relaxed, no
+// ordering), see 0, park — and the notification sat unconsumed forever.
+// (Sibling of issues/mpsc-single-slot-waiter-race.md.)
+
+TEST(NotifyMtTest, StressPendingVsRegister) {
+  xpp::EventLoop loop;
+  xpp::WaitScope scope(loop);
+
+  /* Probabilistic regression net, NOT a proof: the pre-fix bug window
+   * (notifier's unlock → its pending increment vs the waiter's in-lock
+   * re-check) is nanoseconds wide, so most rounds take the trivial
+   * fast path. This exact shape has reproduced the hang (old code:
+   * timeout kill) and is kept verbatim — adding a start barrier to
+   * "align" the threads systematically AVOIDS the window (measured)
+   * and loses coverage. The actual correctness guarantee is the
+   * mutex fusion argument in notify.h, not this test. */
+  for (int r = 0; r < 5000; ++r) {
+    xpp::sync::Notify n;
+    std::thread       worker([&n] { n.notify_one(); });
+    n.notified().await(); // lost wakeup → permanent hang (timeout kills)
+    worker.join();
+  }
 }

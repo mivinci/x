@@ -21,10 +21,10 @@
 #ifndef XPP_SYNC_NOTIFY_H
 #define XPP_SYNC_NOTIFY_H
 
+#include <xpp/loom/internal.h>
 #include <xpp/loom/mutex.h>
 #include <xpp/promise.h>
 #include <xpp/vec.h>
-#include <xpp/loom/internal.h>
 
 namespace xpp {
 namespace sync {
@@ -87,13 +87,17 @@ public:
       auto g = m_waiters.lock();
       if (!g->empty()) {
         r = std::move(g->pop().unwrap());
+      } else {
+        /* Accumulate under the lock: "empty → pending++" must be atomic
+         * with notified()'s "re-check pending → register waiter" on the
+         * other side of this mutex. Incrementing outside the lock left a
+         * window where a concurrently-registering waiter re-checked
+         * pending (relaxed, no ordering), saw 0, parked — and the
+         * notification sat unconsumed forever (lost wakeup). */
+        m_pending.fetch_add(1, std::memory_order_release);
       }
     } // lock released
-    if (r.is_pending()) {
-      r.resolve();
-    } else {
-      m_pending.fetch_add(1, std::memory_order_release);
-    }
+    if (r.is_pending()) r.resolve();
   }
 
   /**
@@ -107,15 +111,17 @@ public:
     Vec<xpp::PromiseResolver<void>> waiters;
     {
       auto g = m_waiters.lock();
-      waiters = std::move(*g);
-      g->clear();
-    }
-    if (!waiters.empty()) {
-      for (auto &w : waiters) {
-        w.resolve();
+      if (g->empty()) {
+        // Same reasoning as notify_one: the accumulate decision and the
+        // waiter registration must be ordered by the same mutex.
+        m_pending.fetch_add(1, std::memory_order_release);
+      } else {
+        waiters = std::move(*g);
+        g->clear();
       }
-    } else {
-      m_pending.fetch_add(1, std::memory_order_release);
+    }
+    for (auto &w : waiters) {
+      w.resolve();
     }
   }
 
@@ -123,7 +129,7 @@ private:
   // TODO: replace with a lock-free linked list, and fold m_pending into
   // a single AtomicUsize with state bits, matching tokio's pattern.
   xpp::loom::Mutex<Vec<xpp::PromiseResolver<void>>> m_waiters;
-  xpp::loom::_::Atomic<size_t>                              m_pending{0};
+  xpp::loom::_::Atomic<size_t>                      m_pending{0};
 };
 
 } // namespace sync
