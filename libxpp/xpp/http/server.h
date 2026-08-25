@@ -237,18 +237,19 @@ inline int srv_on_request_cb(xHttpCtx *ctx, void *arg) {
   impl->m_reqs[ctx_key]   = std::move(req_state);
   xHttpCtxSetUser(ctx, impl->m_reqs[ctx_key].get());
 
-  // 4. Dispatch through the Router via xpp::spawn — matching, params,
-  //    middleware, and the handler run as a waker-driven promise chain
-  //    on the event loop (no per-request fiber stack). The router's
-  //    dispatch composes synchronously here (invoke copies captured by
-  //    value), so the chain stays self-contained even if the Server is
-  //    destroyed while the handler is in flight.
-  auto router = d->router;
+  // 4. Dispatch through the Router. Compose synchronously HERE — while
+  //    the server is guaranteed alive — into a fully self-contained
+  //    endpoint (matching, params, middleware wrapping; every capture
+  //    by value). xpp::spawn defers execution to a later loop
+  //    iteration, so the spawned closure must not touch the Router
+  //    (raw pointer) — only the composed endpoint, which stays valid
+  //    even if the Server is destroyed before the step runs.
+  Router::HandlerFn endpoint = d->router->compose(req);
   // C++11 has no move-capture — hold the Request on the heap.
   auto holder   = Arc<Request>::make(std::move(req));
   auto lifetime = impl->lifetime; // Arc — outlives the server
-  xpp::spawn([router, lifetime, ctx_key, holder]() -> Promise<void> {
-    return (*router)(std::move(*holder))
+  xpp::spawn([endpoint, lifetime, ctx_key, holder]() -> Promise<void> {
+    return endpoint(std::move(*holder))
       .then([lifetime, ctx_key](Result<Response> r) -> Promise<void> {
         // Server destroyed while the handler was running (ctx freed) —
         // drop the response instead of touching it.

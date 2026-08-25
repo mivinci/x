@@ -347,13 +347,29 @@ public:
    * string is ignored; only the path participates in matching.
    */
   Promise<Result<Response>> operator()(Request req) {
+    HandlerFn endpoint = compose(req);
+    return endpoint(std::move(req));
+  }
+
+  /**
+   * @brief Synchronously compose the dispatch for a request.
+   *
+   * Matches, extracts parameters (stored on @p req for `req.param()`),
+   * and wraps the matched handler (or 405 / fallback / 404) with the
+   * middleware chain. The returned HandlerFn is fully self-contained —
+   * every capture is by value — so it stays callable after the Router
+   * itself has been destroyed. The Server composes at request arrival
+   * (while the server is alive) and spawns only the endpoint, since
+   * xpp::spawn defers execution to a later loop iteration; do the same
+   * if you defer dispatch yourself.
+   */
+  HandlerFn compose(Request &req) {
     const char *method = to_string(req.method());
     auto        ub     = req.url().as_bytes();
     Match       m      = match(ub.data(), ub.size(), method);
 
-    // Endpoint: the matched handler (invoke copied by value — the promise
-    // chain must stay self-contained if the router is destroyed while the
-    // handler is in flight), or 405 / fallback / 404.
+    // Endpoint: the matched handler (invoke copied by value — the
+    // self-containment note above), or 405 / fallback / 404.
     HandlerFn endpoint;
     if (m.entry) {
       auto invoke = m.entry->invoke;
@@ -366,6 +382,8 @@ public:
         return _::adapt_handler_result(
           ResponseBuilder().status(StatusCode::MethodNotAllowed).body());
       });
+    } else if (m.sub_fallback) {
+      endpoint = *m.sub_fallback; // nested sub-tree fallback (axum nest)
     } else if (m_fallback.is_some()) {
       endpoint = m_fallback.unwrap();
     } else {
@@ -386,7 +404,7 @@ public:
     for (size_t i = m_layers.len(); i-- > 0;)
       endpoint = m_layers[i](endpoint);
 
-    return endpoint(std::move(req));
+    return endpoint;
   }
 
   /* ── Internals (used by the Server's resolve trampoline + tests) ─── */
@@ -396,6 +414,11 @@ public:
     bool           path_matched = false;   ///< some pattern matched the path
     Vec<String>    params;                 ///< extracted, pattern order
     Vec<String>   *param_names = nullptr;  ///< entry's names (null if none)
+    /// Fallback of the deepest prefix-entered sub-router that has one
+    /// (axum nest semantics: a nested router's fallback answers
+    /// unmatched paths under its prefix). Null if none in the entered
+    /// sub-tree — the outer fallback / 404 then applies.
+    const HandlerFn *sub_fallback = nullptr;
   };
 
   /// Match a request path (query string ignored). First match wins.
@@ -424,7 +447,20 @@ private:
    */
   void bake_layers() {
     if (m_layers.len() == 0) return;
-    Vec<LayerFn> layers = m_layers; // copy — closures must not alias `this`
+    wrap_subtree(m_layers);
+    m_layers.clear();
+  }
+
+  /**
+   * Wrap every route invoker, the fallback, AND every nested sub-tree
+   * with @p layers (ours end up OUTER relative to already-baked inner
+   * layers). The recursion is what makes depth-2+ nesting apply the
+   * whole chain — bake_layers() on a router only fires when it is
+   * moved into a parent, so intermediate routers' layers must be
+   * pushed down here.
+   */
+  void wrap_subtree(const Vec<LayerFn> &layers) {
+    if (layers.len() == 0) return;
     for (auto &r : m_routes) {
       auto invoke = r->invoke; // copy
       r->invoke   = [layers, invoke](Request req, Vec<String> params) -> Promise<Result<Response>> {
@@ -440,9 +476,10 @@ private:
       HandlerFn wrapped = m_fallback.unwrap();
       for (size_t i = layers.len(); i-- > 0;)
         wrapped = layers[i](wrapped);
-      m_fallback = wrapped;
+      m_fallback = xpp::some(std::move(wrapped));
     }
-    m_layers.clear();
+    for (auto &n : m_nested)
+      n.router->wrap_subtree(layers);
   }
 
   Match match_segments(const Vec<String> &segs, const char *method) const {
@@ -477,6 +514,13 @@ private:
       Match sub = n.router->match_segments(rest, method);
       if (sub.entry) return sub;
       if (sub.path_matched) m.path_matched = true;
+      // The prefix entered this sub-tree: its fallback (or a deeper
+      // one already propagated into `sub`) answers unmatched paths.
+      if (sub.sub_fallback) {
+        m.sub_fallback = sub.sub_fallback;
+      } else if (n.router->m_fallback.is_some()) {
+        m.sub_fallback = &n.router->m_fallback.unwrap();
+      }
     }
     return m;
   }

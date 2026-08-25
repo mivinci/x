@@ -266,3 +266,84 @@ TEST(RouterTest, EmptyRouterAnswers404) {
   Router r;
   EXPECT_EQ(status_of(r(get("/anything")).await()), 404);
 }
+
+/* ── Review regression: depth-2 nest & nested fallback ─────────────── */
+
+TEST(RouterTest, NestLayersApplyAtDepthTwo) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  // top -> mid -> leaf. Expected chain (inner → outer): [leaf][mid][top].
+  Router leaf;
+  leaf.layer(tag_layer("[leaf]")).route("/h", [](Request) { return Response::ok("H"); });
+
+  Router mid;
+  mid.layer(tag_layer("[mid]")).nest("/m", std::move(leaf));
+
+  Router top;
+  top.layer(tag_layer("[top]")).nest("/t", std::move(mid));
+
+  EXPECT_EQ(body_str(top(get("/t/m/h")).await()), "H[leaf][mid][top]");
+}
+
+TEST(RouterTest, NestedFallbackAnswersUnderItsPrefix) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  Router api;
+  api.route("/known", [](Request) { return Response::ok("api"); });
+  api.fallback([](Request) { return Response::ok("api-404"); });
+
+  Router r;
+  r.route("/root", [](Request) { return Response::ok("root"); });
+  r.fallback([](Request) { return Response::ok("root-404"); });
+  r.nest("/api", std::move(api));
+
+  // Under /api: the nested fallback answers, not the outer one.
+  EXPECT_EQ(body_str(r(get("/api/nope")).await()), "api-404");
+  // Outside /api: the outer fallback answers.
+  EXPECT_EQ(body_str(r(get("/nope")).await()), "root-404");
+  // Nested routes still match normally.
+  EXPECT_EQ(body_str(r(get("/api/known")).await()), "api");
+  EXPECT_EQ(body_str(r(get("/root")).await()), "root");
+}
+
+TEST(RouterTest, NestedFallbackPropagatesFromDepthTwo) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  Router leaf;
+  leaf.fallback([](Request) { return Response::ok("leaf-404"); });
+
+  Router mid;
+  mid.nest("/m", std::move(leaf));
+
+  Router r;
+  r.nest("/t", std::move(mid));
+
+  EXPECT_EQ(body_str(r(get("/t/m/anything")).await()), "leaf-404");
+}
+
+TEST(RouterTest, ComposedEndpointOutlivesTheRouter) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  // The Server composes synchronously and spawns only the endpoint
+  // (xpp::spawn defers execution). Structural guarantee under test:
+  // the composed endpoint is fully self-contained — invoking it after
+  // the Router itself is destroyed must not touch freed memory (the
+  // pre-fix code dereferenced a raw Router* from the deferred closure).
+  Router::HandlerFn endpoint;
+  {
+    Router r;
+    r.layer(tag_layer("[mw]")).route("GET /a", [](Request) { return Response::ok("A"); });
+    Request req = get("/a");
+    endpoint    = r.compose(req);
+    // `r` (and its routes/layers) dies here.
+  }
+
+  Request req2 = get("/a");
+  auto    resp = endpoint(std::move(req2)).await();
+  EXPECT_TRUE(resp.is_ok());
+  EXPECT_EQ(body_str(std::move(resp)), "A[mw]");
+}
