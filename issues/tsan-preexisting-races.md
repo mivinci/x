@@ -89,10 +89,25 @@ current:  operator delete(void*, size, std::align_val_t)   ← sized-aligned del
 previous: Arc 引用计数 fetch_sub（原子 RMW）
 ```
 
-竞态对是"最后释放者的 free" vs "另一线程已完成的引用计数递减"——RMW acq_rel
-链下这有 happens-before，非真实竞争。gcc-12 libtsan 对 sized-aligned
-operator delete 拦截器的地址复用 shadow 清理有缺陷（shared_ptr 同族误报）。
+**诊断过程（含一次误判，留档）**：最初判断为 gcc-12 libtsan 的误报并把 lane
+切到 clang——结果 **clang-19/Linux 稳定复现同样 3 个失败**（本地 Debian trixie
+容器 + llvm-symbolizer 拿到完整符号栈）。真实根因：
 
-**处置**：Linux TSan lane 改用 clang（TSan 参考实现，与 macOS lane 一致），
-gcc-12 不再用于 TSan。若未来必须用 gcc 跑 TSan，需 gcc≥13 验证或写最小
-复现上报 GCC bugzilla。
+`arc.h` 的引用计数递减用的是 boost::shared_ptr 的
+"**release 递减 + 归零路径 acquire fence**"模式。这在 C++ 内存模型下合法
+（RMW 延续 release sequence），但 **TSan 不建模 fence 穿过 RMW 链**——
+这是 TSan 最著名的假阳性模式（libstdc++ shared_ptr 同款）。
+macOS 未触发只是交错时机差异。
+
+**修复（libc++ 的做法）**：`arc_dec_strong` / `arc_dec_weak_and_maybe_dealloc`
+的 `fetch_sub` 改为 `memory_order_acq_rel`，删除 acquire fence——RMW 的
+acquire 侧直接与前一 release 配对，TSan 正确建模；x86 上 LOCK RMW 本就全序，
+ARM 上单指令差别。验证：Linux/clang-19 TSan `-L xpp` **69/69 全绿 0 警告**。
+
+**教训**：跨平台 TSan 结果不一致时，先怀疑交错覆盖差异而非编译器实现差异；
+本地复现环境（Apple container + Debian trixie + clang-19 + llvm-symbolizer）
+是判定真伪的 fastest path。
+
+其他 CI 修复：allocator.h 改用 unsized aligned delete（clang+libstdc++ 不默认
+声明 sized-aligned 形式）；fiber.c 补 `_DEFAULT_SOURCE`（`_XOPEN_SOURCE`
+单定义会隐藏 `MAP_ANONYMOUS`）。

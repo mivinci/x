@@ -60,12 +60,16 @@
  */
 
 /* ucontext.h on macOS requires _XOPEN_SOURCE to be set. Define it before
- * any system headers. */
+ * any system headers. On Linux, _XOPEN_SOURCE alone disables glibc's
+ * _DEFAULT_SOURCE — which hides MAP_ANONYMOUS — so request both. */
+#if defined(__linux__)
+#define _DEFAULT_SOURCE
+#endif
 #define _XOPEN_SOURCE
 
-#include <x/base/fiber.h>
-
 #include <stdlib.h>
+
+#include <x/base/fiber.h>
 
 /* ── POSIX headers ─────────────────────────────────────────────────── */
 
@@ -88,13 +92,13 @@
 /* ── Internal struct ────────────────────────────────────────────────── */
 
 struct xFiber_ {
-  void      *stack;       /* mmap base (guard page start), NULL for main */
-  size_t     stack_size;  /* usable stack size in bytes */
-  ucontext_t uctx;        /* saved machine context (SP / PC / regs)       */
-  void      *stack_base;  /* guard page end = usable stack start         */
-  xFiberProc proc;        /* user entry point (NULL for main fiber)       */
-  void      *proc_arg;    /* opaque argument passed to proc               */
-  xFiber     parent;      /* parent fiber (NULL for root); yield target  */
+  void      *stack;      /* mmap base (guard page start), NULL for main */
+  size_t     stack_size; /* usable stack size in bytes */
+  ucontext_t uctx;       /* saved machine context (SP / PC / regs)       */
+  void      *stack_base; /* guard page end = usable stack start         */
+  xFiberProc proc;       /* user entry point (NULL for main fiber)       */
+  void      *proc_arg;   /* opaque argument passed to proc               */
+  xFiber     parent;     /* parent fiber (NULL for root); yield target  */
 };
 
 /* ── Thread-local current fiber ─────────────────────────────────────── */
@@ -160,7 +164,7 @@ xFiber xFiberCreate(size_t stack_size, xFiberProc proc, void *arg) {
 
   /* ── Allocate stack + guard page ──────────────────────────────── */
   long   page_size = sysconf(_SC_PAGESIZE);
-  size_t total    = stack_size + (size_t)page_size;
+  size_t total     = stack_size + (size_t)page_size;
 
   /* Round stack size up to page boundary for proper mmap alignment.
    * The actual usable stack may be slightly larger than requested. */
@@ -168,8 +172,7 @@ xFiber xFiberCreate(size_t stack_size, xFiberProc proc, void *arg) {
     total = ((total / (size_t)page_size) + 1) * (size_t)page_size;
   }
 
-  void *mem = mmap(NULL, total, PROT_READ | PROT_WRITE,
-                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  void *mem = mmap(NULL, total, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (mem == MAP_FAILED) {
     return NULL;
   }
@@ -181,8 +184,7 @@ xFiber xFiberCreate(size_t stack_size, xFiberProc proc, void *arg) {
   }
 
   /* ── Allocate fiber descriptor ────────────────────────────────── */
-  struct xFiber_ *f =
-      (struct xFiber_ *)calloc(1, sizeof(struct xFiber_));
+  struct xFiber_ *f = (struct xFiber_ *)calloc(1, sizeof(struct xFiber_));
   if (!f) {
     munmap(mem, total);
     return NULL;
@@ -193,7 +195,7 @@ xFiber xFiberCreate(size_t stack_size, xFiberProc proc, void *arg) {
   f->stack_base = (char *)mem + page_size;
   f->proc       = proc;
   f->proc_arg   = arg;
-  f->parent     = (xFiber)tl_fiber;  /* NULL from main, parent fiber inside nested fiber */
+  f->parent     = (xFiber)tl_fiber; /* NULL from main, parent fiber inside nested fiber */
 
   /* ── Initialize entry context (makecontext) ─────────────────────
    * makecontext/setcontext is used ONLY for the first switch-in.
@@ -217,7 +219,7 @@ xFiber xFiberCreate(size_t stack_size, xFiberProc proc, void *arg) {
 
 /* ── xFiberProcArg ───────────────────────────────────────────────────── */
 
-void* xFiberProcArg(xFiber fiber) {
+void *xFiberProcArg(xFiber fiber) {
   return (fiber ? ((struct xFiber_ *)fiber)->proc_arg : NULL);
 }
 
@@ -232,7 +234,7 @@ void xFiberDestroy(xFiber handle) {
   /* Main fiber has stack == NULL — only free the descriptor. */
   if (f->stack) {
     long   page_size = sysconf(_SC_PAGESIZE);
-    size_t total    = f->stack_size + (size_t)page_size;
+    size_t total     = f->stack_size + (size_t)page_size;
     if (total % (size_t)page_size != 0) {
       total = ((total / (size_t)page_size) + 1) * (size_t)page_size;
     }
