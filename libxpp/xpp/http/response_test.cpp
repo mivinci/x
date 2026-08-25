@@ -67,42 +67,42 @@ TEST(HttpResponseBuilderTest, HeaderLookupCaseInsensitive) {
  * ─────────────────────────────────────────────────────────────────── */
 
 TEST(HttpResponseStaticTest, OkWithBody) {
-  Response r = ResponseBuilder::ok("hello");
+  Response r = Response::ok("hello");
   EXPECT_EQ(r.status(), StatusCode::Ok);
   EXPECT_TRUE(r.has_body());
 }
 
 TEST(HttpResponseStaticTest, OkEmpty) {
-  Response r = ResponseBuilder::ok();
+  Response r = Response::ok();
   EXPECT_EQ(r.status(), StatusCode::Ok);
   EXPECT_FALSE(r.has_body());
 }
 
 TEST(HttpResponseStaticTest, Created) {
-  Response r = ResponseBuilder::created("id=42");
+  Response r = Response::created("id=42");
   EXPECT_EQ(r.status(), StatusCode::Created);
   EXPECT_TRUE(r.has_body());
 }
 
 TEST(HttpResponseStaticTest, NoContent) {
-  Response r = ResponseBuilder::no_content();
+  Response r = Response::no_content();
   EXPECT_EQ(r.status(), StatusCode::NoContent);
   EXPECT_FALSE(r.has_body());
 }
 
 TEST(HttpResponseStaticTest, BadRequest) {
-  Response r = ResponseBuilder::bad_request("bad input");
+  Response r = Response::bad_request("bad input");
   EXPECT_EQ(r.status(), StatusCode::BadRequest);
   EXPECT_TRUE(r.has_body());
 }
 
 TEST(HttpResponseStaticTest, NotFound) {
-  Response r = ResponseBuilder::not_found();
+  Response r = Response::not_found();
   EXPECT_EQ(r.status(), StatusCode::NotFound);
 }
 
 TEST(HttpResponseStaticTest, InternalServerError) {
-  Response r = ResponseBuilder::internal_server_error("oops");
+  Response r = Response::internal_server_error("oops");
   EXPECT_EQ(r.status(), StatusCode::InternalServerError);
   EXPECT_TRUE(r.has_body());
 }
@@ -112,7 +112,7 @@ TEST(HttpResponseStaticTest, InternalServerError) {
  * ─────────────────────────────────────────────────────────────────── */
 
 TEST(HttpResponseBodyTest, IntoBodyEmptiesResponse) {
-  Response r = ResponseBuilder::ok("hello");
+  Response r = Response::ok("hello");
   ASSERT_TRUE(r.has_body());
   Body b = r.into_body();
   EXPECT_FALSE(r.has_body());
@@ -120,7 +120,7 @@ TEST(HttpResponseBodyTest, IntoBodyEmptiesResponse) {
 }
 
 TEST(HttpResponseBodyTest, BodyAccessorBorrows) {
-  Response r = ResponseBuilder::ok("hello");
+  Response r = Response::ok("hello");
   Body    &b = r.body();
   EXPECT_FALSE(b.is_empty());
   // Response still owns the body.
@@ -132,14 +132,14 @@ TEST(HttpResponseBodyTest, BodyAccessorBorrows) {
  * ─────────────────────────────────────────────────────────────────── */
 
 TEST(HttpResponseMoveTest, MoveConstructorTransfersOwnership) {
-  Response r1 = ResponseBuilder::ok("hello");
+  Response r1 = Response::ok("hello");
   Response r2 = std::move(r1);
   EXPECT_EQ(r2.status(), StatusCode::Ok);
   EXPECT_TRUE(r2.has_body());
 }
 
 TEST(HttpResponseMoveTest, MoveAssignmentTransfersOwnership) {
-  Response r1 = ResponseBuilder::ok("hello");
+  Response r1 = Response::ok("hello");
   Response r2;
   r2 = std::move(r1);
   EXPECT_EQ(r2.status(), StatusCode::Ok);

@@ -30,7 +30,7 @@ Pattern is `"METHOD /path"` (or `/path` for any method). `:name` segments become
 
 ```cpp
 .route("GET /users/:id/posts/:post", [](Request req, String id, String post) {
-  return ResponseBuilder::ok(id + " / " + post);   // "42 / 7" for /users/42/posts/7
+  return Response::ok(id + " / " + post);   // "42 / 7" for /users/42/posts/7
 })
 ```
 
@@ -48,7 +48,7 @@ A handler takes `Request` **by value** (hyper style — move-in) plus the inject
 
 ```cpp
 // Sync (either standard):
-.route("GET /ok", [](Request req) { return ResponseBuilder::ok("fine"); })
+.route("GET /ok", [](Request req) { return Response::ok("fine"); })
 ```
 
 **C++20 — coroutine:**
@@ -57,7 +57,7 @@ A handler takes `Request` **by value** (hyper style — move-in) plus the inject
 // Async — reads the request body, then responds:
 .route("POST /echo", [](Request req) -> Promise<Result<Response>> {
   auto body = co_await req.into_body().bytes();
-  return ResponseBuilder::ok(body.unwrap());
+  return Response::ok(body.unwrap());
 })
 ```
 
@@ -67,13 +67,13 @@ A handler takes `Request` **by value** (hyper style — move-in) plus the inject
 // Async — same route, promise composition instead of a coroutine:
 .route("POST /echo", [](Request req) -> Promise<Result<Response>> {
   return req.into_body().bytes().then([](Result<Bytes> b) {
-    return ResponseBuilder::ok(b.unwrap());
+    return Response::ok(b.unwrap());
   });
 })
 
 // Timed work chains the same way:
 .route("GET /slow", [](Request req) -> Promise<Result<Response>> {
-  return xpp::after(50).then([]() { return ResponseBuilder::ok("done"); });
+  return xpp::after(50).then([]() { return Response::ok("done"); });
 })
 ```
 
@@ -89,7 +89,7 @@ The request `Body` is a channel fed by libx's `on_data` callback — streamed wi
 .route("POST /sum", [](Request req) -> Promise<Result<Response>> {
   auto bytes = co_await req.into_body().bytes();   // or .text(), or read() in a loop
   auto n = bytes_to_sum(bytes);
-  return ResponseBuilder::ok(std::to_string(n));
+  return Response::ok(std::to_string(n));
 })
 ```
 
@@ -98,7 +98,7 @@ The request `Body` is a channel fed by libx's `on_data` callback — streamed wi
 ```cpp
 .route("POST /sum", [](Request req) -> Promise<Result<Response>> {
   return req.into_body().bytes().then([](Result<Bytes> b) {
-    return ResponseBuilder::ok(std::to_string(bytes_to_sum(b.unwrap())));
+    return Response::ok(std::to_string(bytes_to_sum(b.unwrap())));
   });
 })
 ```
@@ -123,7 +123,7 @@ Return a **channel-backed body** and the server streams it out via `xHttpCtxWrit
     co_return;
   });
   auto body = Body::from_channel(std::move(rx));
-  return ResponseBuilder().status(StatusCode::Ok).body(std::move(body));
+  return Response::ok(std::move(body));
 })
 ```
 
@@ -153,7 +153,7 @@ struct Countdown {
   xpp::spawn(Countdown{tx});       // defer node keeps a heap copy alive
                                    // for the whole chain
   auto body = Body::from_channel(std::move(rx));
-  return ResponseBuilder().status(StatusCode::Ok).body(std::move(body));
+  return Response::ok(std::move(body));
 })
 ```
 
