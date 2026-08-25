@@ -76,7 +76,7 @@ The server-side request body is a channel fed by libx's `on_data` callback — `
 ```cpp
 .route("POST /echo", [](Request req) -> Promise<Result<Response>> {
   auto body = co_await req.into_body().bytes();  // full body, streamed
-  return ResponseBuilder::ok(body);
+  return Response::ok(body);
 })
 ```
 
@@ -85,7 +85,7 @@ The server-side request body is a channel fed by libx's `on_data` callback — `
 ```cpp
 .route("POST /echo", [](Request req) -> Promise<Result<Response>> {
   return req.into_body().bytes().then([](Result<Bytes> b) {
-    return ResponseBuilder::ok(b.unwrap());
+    return Response::ok(b.unwrap());
   });
 })
 ```
@@ -109,8 +109,7 @@ Return a channel `Body` from a handler and the server streams it:
     tx.close();
     co_return;
   });
-  return ResponseBuilder().status(StatusCode::Ok)
-                          .body(Body::from_channel(std::move(rx)));
+  return Response::ok(Body::from_channel(std::move(rx)));
 })
 ```
 
@@ -139,8 +138,7 @@ struct StreamProducer {
   auto [tx, rx] = xpp::sync::mpsc::channel<xpp::Bytes>(4);
   xpp::spawn(StreamProducer{tx});  // defer node keeps a heap copy alive
                                    // for the whole chain
-  return ResponseBuilder().status(StatusCode::Ok)
-                          .body(Body::from_channel(std::move(rx)));
+  return Response::ok(Body::from_channel(std::move(rx)));
 })
 ```
 

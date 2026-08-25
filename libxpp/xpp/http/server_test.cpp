@@ -31,7 +31,7 @@ TEST(ServerTest, SyncHandlerWithParam) {
 
   auto server_r =
     Server::builder()
-      .route("GET /hello/:name", [](Request req, String name) { return ResponseBuilder::ok(name); })
+      .route("GET /hello/:name", [](Request req, String name) { return Response::ok(name); })
       .bind("127.0.0.1", 0)
       .build();
   if (server_r.is_err()) {
@@ -69,7 +69,7 @@ TEST(ServerTest, MultipleParams) {
                            String joined = uid;
                            joined.push_str(String::from_utf8("/").unwrap());
                            joined.push_str(pid);
-                           return ResponseBuilder::ok(joined);
+                           return Response::ok(joined);
                          })
                   .bind("127.0.0.1", 0)
                   .build()
@@ -94,20 +94,20 @@ TEST(ServerTest, AsyncHandlerEchoBody) {
   EventLoop loop;
   WaitScope scope(loop);
 
-  auto server =
-    Server::builder()
-      .route("POST /echo",
-             [](Request req) -> Promise<http::Result<Response>> {
-               // Await the request body via the promise chain.
-               return req.into_body().bytes().then(
-                 [](http::Result<Bytes> b) -> http::Result<Response> {
-                   if (b.is_err()) return http::Result<Response>(xpp::err, b.unwrap_err());
-                   return http::Result<Response>(xpp::ok, ResponseBuilder::ok(b.unwrap()));
-                 });
-             })
-      .bind("127.0.0.1", 0)
-      .build()
-      .unwrap();
+  auto server = Server::builder()
+                  .route("POST /echo",
+                         [](Request req) -> Promise<http::Result<Response>> {
+                           // Await the request body via the promise chain.
+                           return req.into_body().bytes().then(
+                             [](http::Result<Bytes> b) -> http::Result<Response> {
+                               if (b.is_err())
+                                 return http::Result<Response>(xpp::err, b.unwrap_err());
+                               return http::Result<Response>(xpp::ok, Response::ok(b.unwrap()));
+                             });
+                         })
+                  .bind("127.0.0.1", 0)
+                  .build()
+                  .unwrap();
   auto running = server.serve();
 
   auto client = Client::builder().build().unwrap();
@@ -138,7 +138,7 @@ TEST(ServerTest, RequestMetadata) {
                              resp.push_str(String::from_utf8(" ct=").unwrap());
                              resp.push_str(ct.unwrap());
                            }
-                           return ResponseBuilder::ok(resp);
+                           return Response::ok(resp);
                          })
                   .bind("127.0.0.1", 0)
                   .build()
@@ -190,7 +190,7 @@ TEST(ServerTest, UnmatchedRouteIs404) {
   WaitScope scope(loop);
 
   auto server = Server::builder()
-                  .route("GET /known", [](Request req) { return ResponseBuilder::ok("yes"); })
+                  .route("GET /known", [](Request req) { return Response::ok("yes"); })
                   .bind("127.0.0.1", 0)
                   .build()
                   .unwrap();
@@ -234,18 +234,17 @@ TEST(ServerTest, ConcurrentBodiesStaySeparate) {
   EventLoop loop;
   WaitScope scope(loop);
 
-  auto server =
-    Server::builder()
-      .route("POST /echo",
-             [](Request req) -> Promise<http::Result<Response>> {
-               return req.into_body().bytes().then(
-                 [](http::Result<Bytes> b) -> http::Result<Response> {
-                   return http::Result<Response>(xpp::ok, ResponseBuilder::ok(b.unwrap()));
-                 });
-             })
-      .bind("127.0.0.1", 0)
-      .build()
-      .unwrap();
+  auto server = Server::builder()
+                  .route("POST /echo",
+                         [](Request req) -> Promise<http::Result<Response>> {
+                           return req.into_body().bytes().then(
+                             [](http::Result<Bytes> b) -> http::Result<Response> {
+                               return http::Result<Response>(xpp::ok, Response::ok(b.unwrap()));
+                             });
+                         })
+                  .bind("127.0.0.1", 0)
+                  .build()
+                  .unwrap();
   auto running = server.serve();
 
   auto client = Client::builder().build().unwrap();
@@ -283,7 +282,7 @@ TEST(ServerTest, DestroyWithInflightHandlerDoesNotCrash) {
                [&handler_done](Request req) -> Promise<http::Result<Response>> {
                  return xpp::after(50).then([&handler_done]() -> http::Result<Response> {
                    handler_done = true;
-                   return http::Result<Response>(xpp::ok, ResponseBuilder::ok("late"));
+                   return http::Result<Response>(xpp::ok, Response::ok("late"));
                  });
                })
         .bind("127.0.0.1", 0)
@@ -325,8 +324,7 @@ TEST(ServerTest, StreamingResponseBody) {
                                .then([tx]() mutable { tx.close(); });
                            });
                            Body b = Body::from_channel(std::move(rx));
-                           return http::Result<Response>(
-                             xpp::ok, ResponseBuilder().status(StatusCode::Ok).body(std::move(b)));
+                           return http::Result<Response>(xpp::ok, Response::ok(std::move(b)));
                          })
                   .bind("127.0.0.1", 0)
                   .build()
@@ -367,8 +365,7 @@ TEST(ServerTest, StreamingResponseBodyLarge) {
                                .then([tx]() mutable { tx.close(); });
                            });
                            Body b = Body::from_channel(std::move(rx));
-                           return http::Result<Response>(
-                             xpp::ok, ResponseBuilder().status(StatusCode::Ok).body(std::move(b)));
+                           return http::Result<Response>(xpp::ok, Response::ok(std::move(b)));
                          })
                   .bind("127.0.0.1", 0)
                   .build()
@@ -437,8 +434,7 @@ TEST(ServerTest, CoroutineStreamingProducer) {
                              co_return;
                            });
                            Body b = Body::from_channel(std::move(rx));
-                           return http::Result<Response>(
-                             xpp::ok, ResponseBuilder().status(StatusCode::Ok).body(std::move(b)));
+                           return http::Result<Response>(xpp::ok, Response::ok(std::move(b)));
                          })
                   .bind("127.0.0.1", 0)
                   .build()
@@ -475,8 +471,7 @@ TEST(ServerTest, CoroutineHandlerStreamingResponse) {
                            auto [tx, rx] = sync::mpsc::channel<Bytes>(4);
                            xpp::spawn(co_stream_producer(tx, "one", "-two"));
                            Body b = Body::from_channel(std::move(rx));
-                           co_return http::Result<Response>(
-                             xpp::ok, ResponseBuilder().status(StatusCode::Ok).body(std::move(b)));
+                           co_return http::Result<Response>(xpp::ok, Response::ok(std::move(b)));
                          })
                   .bind("127.0.0.1", 0)
                   .build()

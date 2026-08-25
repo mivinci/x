@@ -52,6 +52,41 @@ public:
 
   static ResponseBuilder builder();
 
+  /* ── Static convenience constructors ──────────────────────────── */
+  /* Defined out-of-line below — they build through ResponseBuilder. */
+
+  /// 200 OK with body.
+  static Response ok(Body body);
+  static Response ok(Bytes body);
+  static Response ok(String body);
+  static Response ok(const char *body);
+  /// 200 OK, empty body.
+  static Response ok();
+
+  /// 201 Created with body.
+  static Response created(Body body);
+  static Response created(Bytes body);
+  static Response created(String body);
+  static Response created(const char *body);
+
+  /// 204 No Content, empty body.
+  static Response no_content();
+
+  /// 400 Bad Request with body.
+  static Response bad_request(Body body);
+  static Response bad_request(Bytes body);
+  static Response bad_request(String body);
+  static Response bad_request(const char *body);
+
+  /// 404 Not Found, empty body.
+  static Response not_found();
+
+  /// 500 Internal Server Error with body.
+  static Response internal_server_error(Body body);
+  static Response internal_server_error(Bytes body);
+  static Response internal_server_error(String body);
+  static Response internal_server_error(const char *body);
+
   /* ── Status line ──────────────────────────────────────────────── */
 
   StatusCode::Value status() const noexcept {
@@ -196,66 +231,6 @@ public:
     return body(Body::empty());
   }
 
-  /* ── Static convenience constructors ──────────────────────────── */
-
-  /// 200 OK with body.
-  static Response ok(Bytes body) {
-    return ResponseBuilder().status(StatusCode::Ok).body(std::move(body));
-  }
-  static Response ok(String body) {
-    return ResponseBuilder().status(StatusCode::Ok).body(std::move(body));
-  }
-  static Response ok(const char *body) {
-    return ResponseBuilder().status(StatusCode::Ok).body(body);
-  }
-  /// 200 OK, empty body.
-  static Response ok() {
-    return ResponseBuilder().status(StatusCode::Ok).body();
-  }
-
-  /// 201 Created with body.
-  static Response created(Bytes body) {
-    return ResponseBuilder().status(StatusCode::Created).body(std::move(body));
-  }
-  static Response created(String body) {
-    return ResponseBuilder().status(StatusCode::Created).body(std::move(body));
-  }
-  static Response created(const char *body) {
-    return ResponseBuilder().status(StatusCode::Created).body(body);
-  }
-
-  /// 204 No Content, empty body.
-  static Response no_content() {
-    return ResponseBuilder().status(StatusCode::NoContent).body();
-  }
-
-  /// 400 Bad Request with body.
-  static Response bad_request(Bytes body) {
-    return ResponseBuilder().status(StatusCode::BadRequest).body(std::move(body));
-  }
-  static Response bad_request(String body) {
-    return ResponseBuilder().status(StatusCode::BadRequest).body(std::move(body));
-  }
-  static Response bad_request(const char *body) {
-    return ResponseBuilder().status(StatusCode::BadRequest).body(body);
-  }
-
-  /// 404 Not Found, empty body.
-  static Response not_found() {
-    return ResponseBuilder().status(StatusCode::NotFound).body();
-  }
-
-  /// 500 Internal Server Error with body.
-  static Response internal_server_error(Bytes body) {
-    return ResponseBuilder().status(StatusCode::InternalServerError).body(std::move(body));
-  }
-  static Response internal_server_error(String body) {
-    return ResponseBuilder().status(StatusCode::InternalServerError).body(std::move(body));
-  }
-  static Response internal_server_error(const char *body) {
-    return ResponseBuilder().status(StatusCode::InternalServerError).body(body);
-  }
-
 private:
   StatusCode::Value m_status = StatusCode::Ok;
   HeaderMap         m_headers;
@@ -264,6 +239,71 @@ private:
 
 inline ResponseBuilder Response::builder() {
   return ResponseBuilder();
+}
+
+/* ── Response static convenience constructors ──────────────────── */
+
+inline Response Response::ok(Body body) {
+  return builder().status(StatusCode::Ok).body(std::move(body));
+}
+inline Response Response::ok(Bytes body) {
+  return builder().status(StatusCode::Ok).body(std::move(body));
+}
+inline Response Response::ok(String body) {
+  return builder().status(StatusCode::Ok).body(std::move(body));
+}
+inline Response Response::ok(const char *body) {
+  return builder().status(StatusCode::Ok).body(body);
+}
+inline Response Response::ok() {
+  return builder().status(StatusCode::Ok).body();
+}
+
+inline Response Response::created(Body body) {
+  return builder().status(StatusCode::Created).body(std::move(body));
+}
+inline Response Response::created(Bytes body) {
+  return builder().status(StatusCode::Created).body(std::move(body));
+}
+inline Response Response::created(String body) {
+  return builder().status(StatusCode::Created).body(std::move(body));
+}
+inline Response Response::created(const char *body) {
+  return builder().status(StatusCode::Created).body(body);
+}
+
+inline Response Response::no_content() {
+  return builder().status(StatusCode::NoContent).body();
+}
+
+inline Response Response::bad_request(Body body) {
+  return builder().status(StatusCode::BadRequest).body(std::move(body));
+}
+inline Response Response::bad_request(Bytes body) {
+  return builder().status(StatusCode::BadRequest).body(std::move(body));
+}
+inline Response Response::bad_request(String body) {
+  return builder().status(StatusCode::BadRequest).body(std::move(body));
+}
+inline Response Response::bad_request(const char *body) {
+  return builder().status(StatusCode::BadRequest).body(body);
+}
+
+inline Response Response::not_found() {
+  return builder().status(StatusCode::NotFound).body();
+}
+
+inline Response Response::internal_server_error(Body body) {
+  return builder().status(StatusCode::InternalServerError).body(std::move(body));
+}
+inline Response Response::internal_server_error(Bytes body) {
+  return builder().status(StatusCode::InternalServerError).body(std::move(body));
+}
+inline Response Response::internal_server_error(String body) {
+  return builder().status(StatusCode::InternalServerError).body(std::move(body));
+}
+inline Response Response::internal_server_error(const char *body) {
+  return builder().status(StatusCode::InternalServerError).body(body);
 }
 
 /* ── Response::bytes() / text() — move body out and aggregate ──── */

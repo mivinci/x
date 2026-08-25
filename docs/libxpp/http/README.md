@@ -65,7 +65,7 @@ xpp::WaitScope scope(loop);
 
 auto server = xpp::http::Server::builder()
   .route("GET /users/:id", [](xpp::http::Request req, xpp::String id) {
-    return xpp::http::ResponseBuilder::ok(id);
+    return xpp::http::Response::ok(id);
   })
   .bind("127.0.0.1", 8080)   // port 0 = kernel-assigned
   .build()
@@ -83,7 +83,7 @@ Async handlers come in two flavors — the same `POST /echo` route:
 ```cpp
 .route("POST /echo", [](xpp::http::Request req) -> xpp::Promise<xpp::http::Result<xpp::http::Response>> {
   auto body = co_await req.into_body().bytes();
-  return xpp::http::ResponseBuilder::ok(body.unwrap());
+  return xpp::http::Response::ok(body.unwrap());
 })
 ```
 
@@ -92,7 +92,7 @@ Async handlers come in two flavors — the same `POST /echo` route:
 ```cpp
 .route("POST /echo", [](xpp::http::Request req) -> xpp::Promise<xpp::http::Result<xpp::http::Response>> {
   return req.into_body().bytes().then([](xpp::http::Result<xpp::Bytes> b) {
-    return xpp::http::ResponseBuilder::ok(b.unwrap());
+    return xpp::http::Response::ok(b.unwrap());
   });
 })
 ```
