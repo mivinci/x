@@ -23,14 +23,34 @@ Builder options: `timeout`, `connect_timeout`, `read_timeout`, `redirect`, `max_
 
 ## Making Requests
 
+**C++20 — coroutines:**
+
 ```cpp
-// Convenience methods — URL as String, const char*, or std::string_view:
+// Inside a coroutine — convenience methods take URL as String,
+// const char*, or std::string_view:
+xpp::Promise<void> run(xpp::http::Client &client) {
+  auto r = co_await client.get("https://example.com/a");    // Result<Response>
+  auto p = co_await client.post("https://example.com/upload", "payload");
+  auto d = co_await client.del("https://example.com/items/7");
+  auto h = co_await client.head("https://example.com");
+  co_return;
+}
+// fetch(client).await();  — or spawn it:
+// xpp::spawn(fetch(client));
+```
+
+**C++11 — `.await()`** (parks the caller, driving the event loop):
+
+```cpp
 auto r  = client.get("https://example.com/a").await();        // Promise<Result<Response>>
 auto p  = client.post("https://example.com/upload", "payload").await();
 auto d  = client.del("https://example.com/items/7").await();
 auto h  = client.head("https://example.com").await();
+```
 
-// Full control via Request:
+**Full control via `Request`** (either standard):
+
+```cpp
 auto req = xpp::http::Request::builder()
   .method(xpp::http::Method::Post)
   .url("https://example.com/api")
@@ -38,7 +58,7 @@ auto req = xpp::http::Request::builder()
   .body(R"({"k":"v"})")
   .build()
   .unwrap();
-auto r = client.send(std::move(req)).await();
+auto r = client.send(std::move(req)).await();    // or: co_await client.send(std::move(req));
 ```
 
 Each call returns `Promise<Result<Response, http::Error>>`:
@@ -53,7 +73,25 @@ auto resp = r.unwrap();
 uint16_t code = resp.status_code();
 auto headers  = resp.headers();          // HeaderMap (case-insensitive keys)
 auto final    = resp.final_url();        // Some(url) after redirects
+```
 
+**C++20 — coroutines:**
+
+```cpp
+// Whole body at once:
+auto bytes = co_await resp.bytes();   // Result<Bytes>
+auto text  = co_await resp.text();    // Result<String> (UTF-8)
+
+// Or stream it:
+auto body = resp.into_body();
+char buf[4096];
+ssize_t n;
+while ((n = co_await body.read(buf, sizeof(buf))) > 0) { /* process */ }
+```
+
+**C++11 — `.await()`:**
+
+```cpp
 // Whole body at once:
 auto bytes = resp.bytes().await().unwrap();   // Promise<Result<Bytes>>
 auto text  = resp.text().await().unwrap();    // Promise<Result<String>> (UTF-8)
