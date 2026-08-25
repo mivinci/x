@@ -17,6 +17,7 @@
 #include <xpp/option.h>
 #include <xpp/result.h>
 #include <xpp/string.h>
+#include <xpp/vec.h>
 
 #include <x/base/base64.h>
 
@@ -75,13 +76,37 @@ public:
     return !m_body.is_empty();
   }
 
+  /* ── Path parameters (populated by the server's Router) ────────── */
+
+  /**
+   * @brief A path parameter captured by the router's pattern.
+   *
+   * Populated by `http::Router` during dispatch (server requests); empty
+   * Option for client-built requests or unknown names. Middleware reads
+   * parameters here — typed handler injection happens in parallel.
+   *
+   * @param name  Parameter name from the route pattern (`"/users/:id"` → "id").
+   */
+  Option<String> param(const char *name) const {
+    for (auto &kv : m_path_params) {
+      if (kv.first == name) return xpp::some(kv.second);
+    }
+    return none;
+  }
+
 private:
   friend class RequestBuilder;
+  friend class Router;
 
-  Method::Value m_method = Method::Get;
-  String        m_url;
-  HeaderMap     m_headers;
-  Body          m_body;
+  void add_path_param(String name, String value) {
+    m_path_params.push(std::make_pair(std::move(name), std::move(value)));
+  }
+
+  Method::Value                  m_method = Method::Get;
+  String                         m_url;
+  HeaderMap                      m_headers;
+  Body                           m_body;
+  Vec<std::pair<String, String>> m_path_params;
 };
 
 /**
