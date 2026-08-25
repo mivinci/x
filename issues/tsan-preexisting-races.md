@@ -78,3 +78,21 @@ cd build-tsan && ctest -L xpp --output-on-failure                               
 ./libx/x/base/xbase_test 2>&1 | grep -A 12 "WARNING: ThreadSanitizer"              # #1/#2
 ./libx/x/net/xnet_test 2>&1 | grep -A 12 "WARNING: ThreadSanitizer"               # #3
 ```
+
+## CI 记录（2026-08-25）
+
+PR #82 的 Linux TSan lane（gcc-12）出现 3 个失败（`promise_adapter_work_test`、
+`sync_notify_test`、`sync_watch_test`），而 macOS/clang TSan 全绿。三份报告同型：
+
+```
+current:  operator delete(void*, size, std::align_val_t)   ← sized-aligned delete
+previous: Arc 引用计数 fetch_sub（原子 RMW）
+```
+
+竞态对是"最后释放者的 free" vs "另一线程已完成的引用计数递减"——RMW acq_rel
+链下这有 happens-before，非真实竞争。gcc-12 libtsan 对 sized-aligned
+operator delete 拦截器的地址复用 shadow 清理有缺陷（shared_ptr 同族误报）。
+
+**处置**：Linux TSan lane 改用 clang（TSan 参考实现，与 macOS lane 一致），
+gcc-12 不再用于 TSan。若未来必须用 gcc 跑 TSan，需 gcc≥13 验证或写最小
+复现上报 GCC bugzilla。
