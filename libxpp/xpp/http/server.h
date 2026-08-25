@@ -12,13 +12,11 @@
  * `Promise<Result<Response>>`; the last lets the handler `co_await`
  * the request body or external I/O before responding.
  *
- * Path parameters are injected by template: for a route pattern
- * `GET /users/:id`, a handler `[](Request req, String id)` gets `:id`
- * bound automatically (parameters in pattern order, type `String`).
- *
- * The request body arrives as a channel-backed `Body` (the C on_data
- * callback pushes chunks). A response Body of Once/Empty kind is sent
- * directly; channel (streaming) response bodies are not yet supported.
+ * Routing, path parameters, 404/405, and middleware all live in the
+ * composable `Router` (router.h — tower/axum-aligned). The server mounts
+ * one Router as its sole route via a custom C resolver; `.route()` on
+ * the builder registers into that Router, `.layer()` adds middleware,
+ * and `.router(r)` hands over a pre-composed one.
  *
  * Lifecycle: `Server::builder().route(...).bind(host, port).build()` →
  * `server.serve()` returns a `Promise<Result<void>>` that resolves when
@@ -40,6 +38,7 @@
 #include <xpp/http/client.h>
 #include <xpp/http/request.h>
 #include <xpp/http/response.h>
+#include <xpp/http/router.h>
 #include <xpp/option.h>
 #include <xpp/own.h>
 #include <xpp/promise.h>
@@ -70,15 +69,6 @@ public:
   bool destroyed = false;
 };
 
-/// Per-route state: the (type-erased) handler invoker + path-parameter
-/// names in pattern order. One per .route() registration.
-struct RouteState {
-  std::function<Promise<Result<Response>>(Request, Vec<String>)> invoke;
-  Vec<String>                                                    param_names;
-  String      pattern;          ///< raw "METHOD /path" pattern for libx mux
-  ServerImpl *server = nullptr; ///< back-pointer (valid while the server lives)
-};
-
 /// Per-request state: the request-body channel sender (fed by on_data).
 /// Lives from on_request until the handler's response is written.
 struct ReqState {
@@ -86,55 +76,32 @@ struct ReqState {
   ServerImpl                       *impl = nullptr; ///< owning server (to erase from m_reqs)
 };
 
-/* ── Signature traits (extract Ret/Args from a callable) ───────────── */
-
-template <class T> struct function_traits;
-template <class Ret, class... Args> struct function_traits<Ret(Args...)> {
-  using Ret_t                   = Ret;
-  static constexpr size_t arity = sizeof...(Args);
+/**
+ * @brief The server's single C-level route: the Router.
+ *
+ * The C resolver always returns this entry's info — matching, params,
+ * 404/405 and middleware all happen C++-side in Router::operator().
+ */
+struct RouterDispatch {
+  Router        *router = nullptr;
+  ServerImpl    *impl   = nullptr;
+  xHttpRouteInfo info   = {};
 };
-template <class Ret, class... Args>
-struct function_traits<Ret (*)(Args...)> : function_traits<Ret(Args...)> {};
-template <class Ret, class... Args>
-struct function_traits<Ret (&)(Args...)> : function_traits<Ret(Args...)> {};
-template <class Ret, class... Args>
-struct function_traits<std::function<Ret(Args...)>> : function_traits<Ret(Args...)> {};
-template <class Ret, class C, class... Args>
-struct function_traits<Ret (C::*)(Args...) const> : function_traits<Ret(Args...)> {};
-template <class Ret, class C, class... Args>
-struct function_traits<Ret (C::*)(Args...)> : function_traits<Ret(Args...)> {};
-template <class T> struct function_traits : function_traits<decltype(&T::operator())> {}; // lambdas
 
-/* ── Handler return adaptation: Response / Result<Response> / Promise ── */
-
-inline Promise<Result<Response>> adapt_handler_result(Response r) {
-  return xpp::resolve(http::Result<Response>(xpp::ok, std::move(r)));
-}
-inline Promise<Result<Response>> adapt_handler_result(http::Result<Response> r) {
-  return xpp::resolve(std::move(r));
-}
-inline Promise<Result<Response>> adapt_handler_result(Promise<http::Result<Response>> p) {
-  return p;
+inline const xHttpRouteInfo *xpp_router_resolve(void *router, xHttpCtx * /*ctx*/) {
+  return &static_cast<RouterDispatch *>(router)->info;
 }
 
-/* ── Parameter injection (params[I] in pattern order, type String) ──── */
-
-template <class H, size_t... I>
-Promise<Result<Response>> invoke_with_params(H &h, Request req, const Vec<String> &params,
-                                             std::index_sequence<I...>) {
-  return adapt_handler_result(h(std::move(req), params[I]...));
-}
-
-/* ── Server internals (stable heap address — route back-pointers) ──── */
+/* ── Server internals (stable heap address — dispatch back-pointers) ─ */
 
 class ServerImpl {
 public:
   xHttpServer                                         m_server = nullptr;
-  xHttpMux                                            m_mux    = nullptr;
   String                                              m_host;
   uint16_t                                            m_port            = 0;
   uint64_t                                            m_idle_timeout_ms = 60000;
-  Vec<Own<RouteState>>                                m_routes; ///< owns RouteStates (mux arg)
+  Router                                              m_router; ///< all routing + middleware
+  RouterDispatch                                      m_dispatch;
   std::unordered_map<const xHttpCtx *, Own<ReqState>> m_reqs;
   Option<PromiseResolver<Result<void>>>               m_stop_resolver;
   Arc<ServerLifetime>                                 lifetime = Arc<ServerLifetime>::make();
@@ -232,8 +199,8 @@ inline Promise<void> write_response(xHttpCtx *ctx, Arc<ServerLifetime> lifetime,
 /* ── C callback trampolines ────────────────────────────────────────── */
 
 inline int srv_on_request_cb(xHttpCtx *ctx, void *arg) {
-  auto *route = static_cast<RouteState *>(arg);
-  auto *impl  = route->server;
+  auto *d    = static_cast<RouterDispatch *>(arg);
+  auto *impl = d->impl;
   if (!impl || !impl->m_server) return 1;
 
   // 1. Request-body channel (bounded 256; handler consumes via Body).
@@ -256,21 +223,10 @@ inline int srv_on_request_cb(xHttpCtx *ctx, void *arg) {
   }
   Request req = builder.body(Body::from_channel(std::move(rx))).unwrap();
 
-  // 3. Path parameters (pattern order).
-  Vec<String> params;
-  for (auto &name : route->param_names) {
-    size_t      len = 0;
-    auto        nb  = name.as_bytes();
-    std::string nm(reinterpret_cast<const char *>(nb.data()), nb.size());
-    const char *v = xHttpCtxParam(ctx, nm.c_str(), &len);
-    if (v) {
-      params.push(String::from_utf8(v, len).unwrap());
-    } else {
-      params.push(String());
-    }
-  }
+  // Path parameters are extracted by the Router (it also stores them on
+  // the Request for req.param() and runs the middleware chain).
 
-  // 4. Per-request state: the channel sender, delivered to on_data /
+  // 3. Per-request state: the channel sender, delivered to on_data /
   //    on_done as the arg via xHttpCtxSetUser (distinguishes concurrent
   //    requests on the same route). Owned by impl->m_reqs; erased in
   //    on_done (after the body channel is closed).
@@ -281,22 +237,19 @@ inline int srv_on_request_cb(xHttpCtx *ctx, void *arg) {
   impl->m_reqs[ctx_key]   = std::move(req_state);
   xHttpCtxSetUser(ctx, impl->m_reqs[ctx_key].get());
 
-  // 5. Run the handler via xpp::spawn — the handler's promise chain is
-  //    waker-driven on the event loop (no per-request fiber stack).
-  //    Suspension sources (e.g. the request body channel) wake the chain;
-  //    on completion the response is written. ctx stays valid until the
-  //    response is sent (libx keeps the connection open when no response
-  //    was written in on_done).
-  // C++11 has no init-capture — move req/params into a heap holder that
-  // the lambda can capture by copy.
-  auto holder = Arc<std::pair<Request, Vec<String>>>::make(std::move(req), std::move(params));
-  // Capture the invoker (std::function copy) and the server Arc — the
-  // handler may complete after the Server was destroyed (RouteState and
-  // ctx are then freed), so the chain must not hold raw pointers to them.
-  auto invoke   = route->invoke;
-  auto lifetime = route->server->lifetime; // Arc — outlives the server
-  xpp::spawn([invoke, lifetime, ctx_key, holder]() -> Promise<void> {
-    return invoke(std::move(holder->first), std::move(holder->second))
+  // 4. Dispatch through the Router. Compose synchronously HERE — while
+  //    the server is guaranteed alive — into a fully self-contained
+  //    endpoint (matching, params, middleware wrapping; every capture
+  //    by value). xpp::spawn defers execution to a later loop
+  //    iteration, so the spawned closure must not touch the Router
+  //    (raw pointer) — only the composed endpoint, which stays valid
+  //    even if the Server is destroyed before the step runs.
+  Router::HandlerFn endpoint = d->router->compose(req);
+  // C++11 has no move-capture — hold the Request on the heap.
+  auto holder   = Arc<Request>::make(std::move(req));
+  auto lifetime = impl->lifetime; // Arc — outlives the server
+  xpp::spawn([endpoint, lifetime, ctx_key, holder]() -> Promise<void> {
+    return endpoint(std::move(*holder))
       .then([lifetime, ctx_key](Result<Response> r) -> Promise<void> {
         // Server destroyed while the handler was running (ctx freed) —
         // drop the response instead of touching it.
@@ -354,7 +307,6 @@ public:
     if (m_impl) {
       m_impl->lifetime->destroyed = true; // in-flight spawn chains must not touch ctx
       if (m_impl->m_server) xHttpServerDestroy(m_impl->m_server);
-      if (m_impl->m_mux) xHttpMuxDestroy(m_impl->m_mux);
     }
   }
   Server(Server &&) noexcept            = default;
@@ -420,7 +372,7 @@ public:
   ServerBuilder &operator=(const ServerBuilder &)     = delete;
 
   /**
-   * @brief Register a route.
+   * @brief Register a route (into the builder's Router).
    *
    * @p pattern is "METHOD /path" or "/path" (any method); ":name"
    * segments become handler parameters, injected in pattern order.
@@ -428,25 +380,27 @@ public:
    * Response / Result<Response> / Promise<Result<Response>>.
    */
   template <class H> ServerBuilder &route(const char *pattern, H &&handler) {
-    // Parse pattern → param names (in order) and store the handler.
-    auto names   = parse_pattern_params(pattern);
-    using H_t    = typename std::decay<H>::type;
-    using Traits = _::function_traits<H_t>;
-    using Ret    = typename Traits::Ret_t;
-    static_assert(Traits::arity >= 1, "handler must take at least (Request)");
-    XPP_ASSERT(Traits::arity == 1 + names.len(),
-               "handler parameter count must match :param count in the pattern");
+    m_router.route(pattern, std::forward<H>(handler));
+    return *this;
+  }
 
-    H_t  stored  = std::forward<H>(handler);
-    auto invoker = [stored](Request req, Vec<String> params) -> Promise<Result<Response>> {
-      return _::invoke_with_params(stored, std::move(req), params,
-                                   std::make_index_sequence<Traits::arity - 1>());
-    };
-    auto state         = Own<_::RouteState>(new _::RouteState());
-    state->invoke      = std::move(invoker);
-    state->param_names = std::move(names);
-    state->pattern     = String::from_utf8(pattern).unwrap();
-    m_routes.push(std::move(state));
+  /**
+   * @brief Hand over a pre-composed Router (replaces routes registered
+   *        on this builder so far).
+   */
+  ServerBuilder &router(Router r) {
+    m_router = std::move(r);
+    return *this;
+  }
+
+  /**
+   * @brief Add a middleware layer (into the builder's Router).
+   *
+   * Registration order follows tower's ServiceBuilder: the first layer
+   * registered is the outermost. See `Router::layer`.
+   */
+  template <class M> ServerBuilder &layer(M &&m) {
+    m_router.layer(std::forward<M>(m));
     return *this;
   }
 
@@ -473,68 +427,35 @@ public:
     impl->m_port            = m_port;
     impl->m_idle_timeout_ms = m_idle_timeout_ms;
 
-    impl->m_mux = xHttpMuxCreate();
-    if (!impl->m_mux) {
-      return Result<Server>(
-        xpp::err, Error(Error::Kind::Io, String::from_utf8("xHttpMuxCreate failed").unwrap()));
-    }
-    for (auto &route : m_routes) {
-      route->server       = impl.get();
-      xHttpRouteConf conf = {};
-      auto           pb   = route->pattern.as_bytes();
-      std::string    pat(reinterpret_cast<const char *>(pb.data()), pb.size());
-      conf.pattern    = pat.c_str();
-      conf.on_request = _::srv_on_request_cb;
-      conf.on_data    = _::srv_on_data_cb;
-      conf.on_done    = _::srv_on_done_cb;
-      conf.arg        = route.get();
-      // Register with libx mux using the raw pattern (param names live in
-      // RouteState for injection).
-      xErrno rc = xHttpMuxHandle(impl->m_mux, &conf);
-      if (rc != xErrno_Ok) {
-        return Result<Server>(
-          xpp::err, Error(Error::Kind::Io, String::from_utf8("xHttpMuxHandle failed").unwrap()));
-      }
-    }
+    // The Router is the server's single route: the C resolver always
+    // returns its dispatch entry; matching, params, 404/405, and the
+    // middleware chain all run C++-side in Router::operator().
+    impl->m_router                   = std::move(m_router);
+    impl->m_dispatch.router          = &impl->m_router;
+    impl->m_dispatch.impl            = impl.get();
+    impl->m_dispatch.info.on_request = _::srv_on_request_cb;
+    impl->m_dispatch.info.on_data    = _::srv_on_data_cb;
+    impl->m_dispatch.info.on_done    = _::srv_on_done_cb;
+    impl->m_dispatch.info.arg        = &impl->m_dispatch;
 
     xHttpServerConf sconf = {};
-    sconf.resolve         = xHttpMuxResolve;
-    sconf.router          = impl->m_mux;
+    sconf.resolve         = _::xpp_router_resolve;
+    sconf.router          = &impl->m_dispatch;
     sconf.idle_timeout_ms = static_cast<int>(impl->m_idle_timeout_ms);
     impl->m_server        = xHttpServerCreate(&sconf);
     if (!impl->m_server) {
-      xHttpMuxDestroy(impl->m_mux);
-      impl->m_mux = nullptr;
       return Result<Server>(
         xpp::err, Error(Error::Kind::Io, String::from_utf8("xHttpServerCreate failed").unwrap()));
     }
 
-    // Move route ownership into the impl (mux arg pointers stay valid).
-    impl->m_routes = std::move(m_routes);
     return Result<Server>(xpp::ok, Server(std::move(impl)));
   }
 
 private:
-  static Vec<String> parse_pattern_params(const char *pattern) {
-    Vec<String> names;
-    const char *p = pattern;
-    while (*p) {
-      if (*p == ':') {
-        const char *start = ++p;
-        while (*p && *p != '/' && *p != ' ')
-          ++p;
-        names.push(String::from_utf8(start, static_cast<size_t>(p - start)).unwrap());
-      } else {
-        ++p;
-      }
-    }
-    return names;
-  }
-
-  String                  m_host            = String::from_utf8("127.0.0.1").unwrap();
-  uint16_t                m_port            = 8080;
-  uint64_t                m_idle_timeout_ms = 60000;
-  Vec<Own<_::RouteState>> m_routes;
+  String   m_host            = String::from_utf8("127.0.0.1").unwrap();
+  uint16_t m_port            = 8080;
+  uint64_t m_idle_timeout_ms = 60000;
+  Router   m_router;
 };
 
 inline ServerBuilder Server::builder() {

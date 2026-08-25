@@ -161,6 +161,81 @@ The stream ends when the channel closes. The write loop drops remaining chunks i
 
 > **Coroutine-lambda lifetime**: a lambda coroutine's frame stores the closure *pointer*, not a copy. Pass the lambda **directly** to `xpp::spawn(...)` (the defer node keeps a heap copy for the chain's lifetime), use a named coroutine function, or keep the closure alive where it is declared. `auto make = [&]{...}; spawn(make());` on a dying stack frame crashes. See `issues/coro-nested-spawn-capture-lambda-crash.md`.
 
+## Router & Middleware (tower/axum-aligned)
+
+Routing, path parameters, 404/405, and middleware live in the composable
+`Router` (`<xpp/http/router.h>`). A Router is itself a handler — hand one to
+`.router(...)`, nest it under a prefix, or call it directly in tests:
+
+```cpp
+Router r;
+r.route("GET /users/:id", [](Request req, String id) { return Response::ok(id); })
+  .route("/health", [](Request) { return Response::ok("fine"); });
+
+Router api;
+api.route("/users/:id", handler);
+r.nest("/api", std::move(api));   // strips "/api" — sub-router is prefix-unaware
+
+auto server = Server::builder()
+                .router(std::move(r))
+                .bind("127.0.0.1", 8080)
+                .build()
+                .unwrap();
+```
+
+`ServerBuilder::route()` registers into the builder's internal Router;
+`layer()` adds middleware to it.
+
+### Middleware
+
+A middleware is `Handler -> Handler` where the unified Handler is
+`Request -> Promise<Result<Response>>` (hyper's `Service::call` shape).
+Registration order follows tower's ServiceBuilder: **the first layer
+registered is the outermost**.
+
+**C++20 — coroutine layer:**
+
+```cpp
+auto logging = [](Router::HandlerFn next) -> Router::HandlerFn {
+  return [next](Request req) -> Promise<Result<Response>> {
+    XLOG_INFO("-> {} {}", to_string(req.method()), req.url());
+    auto r = co_await next(std::move(req));
+    co_return r;
+  };
+};
+```
+
+**C++11 — `.then()` layer:**
+
+```cpp
+auto tag = [](Router::HandlerFn next) -> Router::HandlerFn {
+  return [next](Request req) -> Promise<Result<Response>> {
+    return next(std::move(req)).then([](Result<Response> r) {
+      return xpp::resolve(std::move(r));
+    });
+  };
+};
+```
+
+Layers run after matching — path parameters are readable via
+`req.param("id")` — and can short-circuit (return without calling `next`).
+`nest()` freezes the sub-router and bakes its layers into its routes
+(sub layers inner, outer router's layers outer).
+
+### Fallback & status answers
+
+- No route matches the path → the `fallback(h)` handler, or **404** by default
+- Path matches a pattern but the method doesn't → **405**
+- A Router with no routes at all still answers 404
+
+Standalone unit-testing: call the Router directly — no sockets:
+
+```cpp
+Router r;
+r.route("GET /a", [](Request) { return Response::ok("a"); });
+auto resp = r(Request::builder().method(Method::Get).url("/a").body().unwrap()).await();
+```
+
 ## Concurrency
 
 Requests on the same route run concurrently — per-request state is stored via `xHttpCtxSetUser` (user pointer delivered to `on_data`/`on_done`), so streaming bodies of simultaneous requests stay separate. Test `ConcurrentBodiesStaySeparate` covers this.

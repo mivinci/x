@@ -491,3 +491,98 @@ TEST(ServerTest, CoroutineHandlerStreamingResponse) {
 }
 
 #endif // XPP_HAS_COROUTINES
+
+/* ───────────────────────────────────────────────────────────────────
+ *  Router integration (real HTTP round-trips): pre-composed Router,
+ *  builder layer sugar, and 405 over the wire.
+ * ─────────────────────────────────────────────────────────────────── */
+
+TEST(ServerTest, PrecomposedRouterViaBuilder) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  // Compose the router as a standalone value, then hand it over.
+  Router r;
+  r.route("GET /users/:id",
+          [](Request, String id) {
+            auto b = id.as_bytes();
+            return Response::ok((std::string("user-") +
+                                 std::string(reinterpret_cast<const char *>(b.data()), b.size()))
+                                  .c_str());
+          })
+    .route("/health", [](Request) { return Response::ok("fine"); });
+
+  auto server  = Server::builder().router(std::move(r)).bind("127.0.0.1", 0).build().unwrap();
+  auto running = server.serve();
+
+  auto client = Client::builder().build().unwrap();
+
+  auto h = client.get(url_for(server.port(), "/health").c_str()).await();
+  ASSERT_TRUE(h.is_ok());
+  EXPECT_EQ(h.unwrap().bytes().await().unwrap().to_string().unwrap(), "fine");
+
+  auto u = client.get(url_for(server.port(), "/users/7").c_str()).await();
+  ASSERT_TRUE(u.is_ok());
+  EXPECT_EQ(u.unwrap().bytes().await().unwrap().to_string().unwrap(), "user-7");
+
+  server.stop();
+  running.await();
+}
+
+TEST(ServerTest, BuilderLayerSugarOverHttp) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  // Layer via the builder: appends to the response body (outermost
+  // because it is registered before any implicit route handling).
+  auto server =
+    Server::builder()
+      .layer([](Router::HandlerFn next) -> Router::HandlerFn {
+        return [next](Request req) -> Promise<xpp::http::Result<Response>> {
+          return next(std::move(req))
+            .then([](xpp::http::Result<Response> r) -> Promise<xpp::http::Result<Response>> {
+              Response    resp = std::move(r).unwrap();
+              Bytes       b    = resp.into_body().into_once_bytes();
+              std::string s(reinterpret_cast<const char *>(b.data()), b.size());
+              s += "-mw";
+              return xpp::resolve(xpp::http::Result<Response>(xpp::ok, Response::ok(s.c_str())));
+            });
+        };
+      })
+      .route("GET /plain", [](Request) { return Response::ok("plain"); })
+      .bind("127.0.0.1", 0)
+      .build()
+      .unwrap();
+  auto running = server.serve();
+
+  auto client = Client::builder().build().unwrap();
+  auto resp   = client.get(url_for(server.port(), "/plain").c_str()).await();
+  ASSERT_TRUE(resp.is_ok());
+  EXPECT_EQ(resp.unwrap().bytes().await().unwrap().to_string().unwrap(), "plain-mw");
+
+  server.stop();
+  running.await();
+}
+
+TEST(ServerTest, MethodMismatchAnswers405OverHttp) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  auto server = Server::builder()
+                  .route("GET /only-get", [](Request) { return Response::ok("g"); })
+                  .bind("127.0.0.1", 0)
+                  .build()
+                  .unwrap();
+  auto running = server.serve();
+
+  auto client  = Client::builder().build().unwrap();
+  auto blocked = client.post(url_for(server.port(), "/only-get").c_str(), "").await();
+  // 405 surfaces as a Protocol error carrying the status (4xx/5xx rule).
+  ASSERT_TRUE(blocked.is_err());
+  auto st = blocked.unwrap_err().status();
+  ASSERT_TRUE(st.is_some());
+  EXPECT_EQ(static_cast<uint16_t>(st.unwrap()), 405);
+
+  server.stop();
+  running.await();
+}
