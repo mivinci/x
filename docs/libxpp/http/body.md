@@ -27,6 +27,22 @@ tx.close();                              // EOF for the reader
 
 ## Reading
 
+**C++20 — coroutines:**
+
+```cpp
+// Whole body:
+auto bytes = co_await body.bytes();   // Result<Bytes>
+auto text  = co_await body.text();    // Result<String> (UTF-8)
+
+// Streaming (AsyncReader):
+char buf[4096];
+ssize_t n;
+while ((n = co_await body.read(buf, sizeof(buf))) > 0) { /* process */ }
+// n == 0 at EOF
+```
+
+**C++11 — `.await()`:**
+
 ```cpp
 // Whole body:
 auto bytes = body.bytes().await().unwrap();   // Promise<Result<Bytes>>
@@ -55,10 +71,22 @@ xpp::Bytes once = body.into_once_bytes();  // Once/Empty only (channel → empty
 
 The server-side request body is a channel fed by libx's `on_data` callback — `req.into_body()` gives you a channel `Body` that streams with backpressure:
 
+**C++20 — coroutine:**
+
 ```cpp
 .route("POST /echo", [](Request req) -> Promise<Result<Response>> {
   auto body = co_await req.into_body().bytes();  // full body, streamed
   return ResponseBuilder::ok(body);
+})
+```
+
+**C++11 — `.then()` chain:**
+
+```cpp
+.route("POST /echo", [](Request req) -> Promise<Result<Response>> {
+  return req.into_body().bytes().then([](Result<Bytes> b) {
+    return ResponseBuilder::ok(b.unwrap());
+  });
 })
 ```
 
@@ -70,6 +98,8 @@ Client-side request **upload** only supports `Once` bodies today — `into_once_
 
 Return a channel `Body` from a handler and the server streams it:
 
+**C++20 — coroutine producer** (pass the lambda directly to `spawn` — see the lifetime note below):
+
 ```cpp
 .route("GET /stream", [](Request req) -> Result<Response> {
   auto [tx, rx] = xpp::sync::mpsc::channel<xpp::Bytes>(4);
@@ -79,6 +109,36 @@ Return a channel `Body` from a handler and the server streams it:
     tx.close();
     co_return;
   });
+  return ResponseBuilder().status(StatusCode::Ok)
+                          .body(Body::from_channel(std::move(rx)));
+})
+```
+
+**C++11 — recursive `.then()` producer:**
+
+```cpp
+// A struct whose operator() sends one chunk and chains itself for the
+// next — the .then()-era equivalent of a coroutine loop.
+struct StreamProducer {
+  xpp::sync::mpsc::Sender<xpp::Bytes> tx;
+  int i = 2;
+
+  xpp::Promise<void> operator()() {
+    if (i == 0) {
+      tx.close();                  // EOF for the reader
+      return xpp::resolve();
+    }
+    return tx.send(chunk(i)).then([this]() {
+      --i;
+      return (*this)();
+    });
+  }
+};
+
+.route("GET /stream", [](Request req) -> Result<Response> {
+  auto [tx, rx] = xpp::sync::mpsc::channel<xpp::Bytes>(4);
+  xpp::spawn(StreamProducer{tx});  // defer node keeps a heap copy alive
+                                   // for the whole chain
   return ResponseBuilder().status(StatusCode::Ok)
                           .body(Body::from_channel(std::move(rx)));
 })

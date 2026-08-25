@@ -47,16 +47,31 @@ A handler takes `Request` **by value** (hyper style — move-in) plus the inject
 | `Promise<Result<Response>>` | async handler (`.then()` chain, or a `co_await` coroutine) |
 
 ```cpp
-// Sync:
+// Sync (either standard):
 .route("GET /ok", [](Request req) { return ResponseBuilder::ok("fine"); })
+```
 
-// Async (C++20 coroutine) — reads the request body, then responds:
+**C++20 — coroutine:**
+
+```cpp
+// Async — reads the request body, then responds:
 .route("POST /echo", [](Request req) -> Promise<Result<Response>> {
   auto body = co_await req.into_body().bytes();
   return ResponseBuilder::ok(body.unwrap());
 })
+```
 
-// Async (C++11 .then() chain):
+**C++11 — `.then()` chain:**
+
+```cpp
+// Async — same route, promise composition instead of a coroutine:
+.route("POST /echo", [](Request req) -> Promise<Result<Response>> {
+  return req.into_body().bytes().then([](Result<Bytes> b) {
+    return ResponseBuilder::ok(b.unwrap());
+  });
+})
+
+// Timed work chains the same way:
 .route("GET /slow", [](Request req) -> Promise<Result<Response>> {
   return xpp::after(50).then([]() { return ResponseBuilder::ok("done"); });
 })
@@ -68,11 +83,23 @@ Handler errors: returning `Err` answers **500**. Unmatched routes answer **404**
 
 The request `Body` is a channel fed by libx's `on_data` callback — streamed with backpressure, no full-buffering:
 
+**C++20 — coroutine:**
+
 ```cpp
 .route("POST /sum", [](Request req) -> Promise<Result<Response>> {
   auto bytes = co_await req.into_body().bytes();   // or .text(), or read() in a loop
   auto n = bytes_to_sum(bytes);
   return ResponseBuilder::ok(std::to_string(n));
+})
+```
+
+**C++11 — `.then()` chain:**
+
+```cpp
+.route("POST /sum", [](Request req) -> Promise<Result<Response>> {
+  return req.into_body().bytes().then([](Result<Bytes> b) {
+    return ResponseBuilder::ok(std::to_string(bytes_to_sum(b.unwrap())));
+  });
 })
 ```
 
@@ -82,18 +109,49 @@ The channel has a fixed capacity (256 chunks); when full, libx pauses the connec
 
 Return a **channel-backed body** and the server streams it out via `xHttpCtxWrite` (close-delimited in HTTP/1; nghttp2 streams in H2):
 
+**C++20 — coroutine producer** (pass the lambda directly to `spawn` — see the lifetime note below):
+
 ```cpp
 #include <xpp/http/body.h>
 #include <xpp/sync/mpsc.h>
 
 .route("GET /countdown", [](Request req) -> Result<Response> {
   auto [tx, rx] = xpp::sync::mpsc::channel<xpp::Bytes>(4);
-  // Producer — spawn a coroutine lambda (closure copied to the heap):
   xpp::spawn([tx]() mutable -> Promise<void> {
     for (int i = 3; i > 0; --i) co_await tx.send(xpp::Bytes::copy(std::to_string(i).c_str(), 1));
     tx.close();
     co_return;
   });
+  auto body = Body::from_channel(std::move(rx));
+  return ResponseBuilder().status(StatusCode::Ok).body(std::move(body));
+})
+```
+
+**C++11 — recursive `.then()` producer:**
+
+```cpp
+// A struct whose operator() sends one chunk and chains itself for the
+// next — the .then()-era equivalent of a coroutine loop.
+struct Countdown {
+  xpp::sync::mpsc::Sender<xpp::Bytes> tx;
+  int i = 3;
+
+  xpp::Promise<void> operator()() {
+    if (i == 0) {
+      tx.close();                  // EOF for the reader
+      return xpp::resolve();
+    }
+    return tx.send(xpp::Bytes::copy(std::to_string(i).c_str(), 1)).then([this]() {
+      --i;
+      return (*this)();
+    });
+  }
+};
+
+.route("GET /countdown", [](Request req) -> Result<Response> {
+  auto [tx, rx] = xpp::sync::mpsc::channel<xpp::Bytes>(4);
+  xpp::spawn(Countdown{tx});       // defer node keeps a heap copy alive
+                                   // for the whole chain
   auto body = Body::from_channel(std::move(rx));
   return ResponseBuilder().status(StatusCode::Ok).body(std::move(body));
 })
