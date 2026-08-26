@@ -5,11 +5,11 @@
  *
  * client_test.cpp — Layer 3 integration tests for xpp::http::Client.
  *
- * Uses xpp::http::test::TestServer (loopback, no external network) to
+ * Uses xpp::http::test::Server (loopback, no external network) to
  * exercise Client::send end-to-end: request submission, push→pull
  * body bridge, header parsing, error mapping, and timeout.
  *
- * TestServer uses libx C API (xTcpListener + synchronous accept
+ * test::Server uses libx C API (xTcpListener + synchronous accept
  * callback), so no fibers are involved. client.send(req).await()
  * runs on the main thread via the non-fiber park() path
  * (xEventLoopRun), which is safe because no fiber switches occur
@@ -21,12 +21,13 @@
 #include <gtest/gtest.h>
 #include <xpp/event.h>
 #include <xpp/http/client.h>
-#include <xpp/http/test_server.h>
+#include <xpp/http/test/evil_server.h>
+#include <xpp/http/test/server.h>
 
 using namespace xpp;
 using namespace xpp::http;
 
-/* ── Helper: build a URL for the TestServer ─────────────────────── */
+/* ── Helper: build a URL for the test::Server ─────────────────────── */
 
 static std::string url_for(uint16_t port, const char *path = "/") {
   return "http://127.0.0.1:" + std::to_string(port) + path;
@@ -53,7 +54,7 @@ TEST(ClientTest, BuilderRejectsNoEventLoop) {
 }
 
 /* ───────────────────────────────────────────────────────────────────
- *  End-to-end send via TestServer
+ *  End-to-end send via test::Server
  * ─────────────────────────────────────────────────────────────────── */
 
 TEST(ClientSendTest, GetReturns200WithBody) {
@@ -66,7 +67,7 @@ TEST(ClientSendTest, GetReturns200WithBody) {
     {String::from_utf8("Content-Type").unwrap(), String::from_utf8("text/plain").unwrap()});
   spec.body = Bytes::from("hello");
 
-  auto server = test::TestServer::start(spec);
+  test::Server server(spec);
 
   auto req =
     Request::builder().method(Method::Get).url(url_for(server.port()).c_str()).body().unwrap();
@@ -96,7 +97,7 @@ TEST(ClientSendTest, PostWithBodyRoundTrips) {
   spec.status = StatusCode::Ok;
   spec.body   = Bytes::from("ack");
 
-  auto server = test::TestServer::start(spec);
+  test::Server server(spec);
 
   auto req = Request::builder()
                .method(Method::Post)
@@ -126,7 +127,7 @@ TEST(ClientSendTest, NotFoundReturns400LevelStatus) {
   spec.status = StatusCode::NotFound;
   spec.body   = Bytes::from("nope");
 
-  auto server = test::TestServer::start(spec);
+  test::Server server(spec);
 
   auto req =
     Request::builder().method(Method::Get).url(url_for(server.port()).c_str()).body().unwrap();
@@ -154,7 +155,7 @@ TEST(ClientSendTest, TimeoutTriggersError) {
   spec.body     = Bytes::from("slow");
   spec.delay_ms = 200;
 
-  auto server = test::TestServer::start(spec);
+  test::Server server(spec);
 
   auto req =
     Request::builder().method(Method::Get).url(url_for(server.port()).c_str()).body().unwrap();
@@ -178,7 +179,7 @@ TEST(ClientSendTest, PostBodyIsTransmitted) {
   spec.status            = StatusCode::Ok;
   spec.echo_request_body = true;
 
-  auto server = test::TestServer::start(spec);
+  test::Server server(spec);
 
   auto req = Request::builder()
                .method(Method::Post)
@@ -211,7 +212,7 @@ TEST(ClientSendTest, LargeBodyRoundTrips) {
   spec.status            = StatusCode::Ok;
   spec.echo_request_body = true;
 
-  auto server = test::TestServer::start(spec);
+  test::Server server(spec);
 
   std::string payload(2 * 1024 * 1024, 'x');
   auto        req = Request::builder()
@@ -247,7 +248,7 @@ TEST(ClientSendTest, RedirectFollowed) {
   spec.body        = Bytes::from("redirected!");
   spec.headers.push({String::from_utf8("X-Final-Hop").unwrap(), String::from_utf8("yes").unwrap()});
 
-  auto server = test::TestServer::start(spec);
+  test::Server server(spec);
 
   auto req = Request::builder()
                .method(Method::Get)
@@ -290,7 +291,7 @@ TEST(ClientSendTest, LargeBodyBackpressure) {
   spec.status = StatusCode::Ok;
   spec.body   = Bytes::from(std::string(8 * 1024 * 1024, 'y').c_str());
 
-  auto server = test::TestServer::start(spec);
+  test::Server server(spec);
 
   auto req =
     Request::builder().method(Method::Get).url(url_for(server.port()).c_str()).body().unwrap();
@@ -317,12 +318,11 @@ TEST(ClientSendTest, MidBodyDisconnectReportsError) {
   // send() still resolves Ok (headers arrived — reqwest semantics), but
   // reading the body must surface an error instead of a silent truncated
   // EOF.
-  test::TestResponseSpec spec;
-  spec.status              = StatusCode::Ok;
-  spec.body                = Bytes::from(std::string(1024 * 1024, 'z').c_str());
-  spec.truncate_body_after = 64 * 1024;
+  test::EvilSpec spec;
+  spec.body      = Bytes::copy(std::string(1024 * 1024, 'z').c_str(), 1024 * 1024);
+  spec.send_only = 64 * 1024;
 
-  auto server = test::TestServer::start(spec);
+  test::EvilServer server(spec);
 
   auto req =
     Request::builder().method(Method::Get).url(url_for(server.port()).c_str()).body().unwrap();
@@ -353,7 +353,7 @@ TEST(ClientSendTest, ReadTimeoutTriggersError) {
   spec.body              = Bytes::from(std::string(1024 * 1024, 'r').c_str());
   spec.mid_body_delay_ms = 2000;
 
-  auto server = test::TestServer::start(spec);
+  test::Server server(spec);
 
   auto req =
     Request::builder().method(Method::Get).url(url_for(server.port()).c_str()).body().unwrap();
@@ -378,7 +378,7 @@ TEST(ClientSendTest, CustomHeaderSent) {
   test::TestResponseSpec spec;
   spec.status = StatusCode::Ok;
 
-  auto server = test::TestServer::start(spec);
+  test::Server server(spec);
 
   auto req = Request::builder()
                .method(Method::Get)

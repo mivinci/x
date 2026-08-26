@@ -647,6 +647,13 @@ void xHttpConnClose(struct xHttpConn_ *conn) {
   }
 
   if (conn->stream) {
+    /* Notify the route before the stream (and the xHttpCtx embedded in it)
+     * is freed — the C++ layer uses this to stop in-flight response
+     * streaming. Use route_info->arg (not stream->user, which may already
+     * be freed by a prior on_done). */
+    if (conn->stream->route_info && conn->stream->route_info->on_close) {
+      conn->stream->route_info->on_close(&conn->stream->ctx, conn->stream->route_info->arg);
+    }
     xHttpStreamDestroy(conn->stream);
     conn->stream = NULL;
   }

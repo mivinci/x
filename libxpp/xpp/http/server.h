@@ -69,6 +69,23 @@ public:
   bool destroyed = false;
 };
 
+/// Per-connection lifetime flag. The C on_close callback sets closed=true
+/// right before the stream (and the xHttpCtx embedded in it) is freed.
+/// The connection outlives the Server in some paths (client disconnect)
+/// and is outlived by it in others, so the response-streaming task holds
+/// an Arc and checks this *in addition to* ServerLifetime before touching
+/// ctx.
+class ConnLifetime {
+public:
+  bool closed = false;
+};
+
+/// Live connection-lifetime flags keyed by the stream's ctx address.
+/// The map owns one strong Arc per in-flight request; the streaming task
+/// and the C on_close callback both reach it (through their own Arc of the
+/// map, so it survives the Server itself).
+using ConnMap = std::unordered_map<const xHttpCtx *, Arc<ConnLifetime>>;
+
 /// Per-request state: the request-body channel sender (fed by on_data).
 /// Lives from on_request until the handler's response is written.
 struct ReqState {
@@ -103,6 +120,7 @@ public:
   Router                                              m_router; ///< all routing + middleware
   RouterDispatch                                      m_dispatch;
   std::unordered_map<const xHttpCtx *, Own<ReqState>> m_reqs;
+  Arc<ConnMap>                                        m_conns = Arc<ConnMap>::make();
   Option<PromiseResolver<Result<void>>>               m_stop_resolver;
   Arc<ServerLifetime>                                 lifetime = Arc<ServerLifetime>::make();
 };
@@ -151,24 +169,27 @@ constexpr size_t kStreamChunk = 4096;
  * or the connection write fails.
  */
 inline Promise<void> stream_channel_body(xHttpCtx *ctx, Arc<ServerLifetime> lifetime,
-                                         Arc<Body> body) {
+                                         Arc<ConnLifetime> conn, Arc<Body> body) {
   auto buf = Arc<Vec<char>>::make();
   buf->resize(kStreamChunk, '\0');
   return body->read(buf->data(), kStreamChunk)
-    .then([ctx, lifetime, body, buf](ssize_t n) -> Promise<void> {
-      if (lifetime->destroyed) return xpp::resolve(); // server torn down
+    .then([ctx, lifetime, conn, body, buf](ssize_t n) -> Promise<void> {
+      // The connection may be closed (and ctx freed) while we were parked
+      // on the body channel — stop before touching ctx.
+      if (lifetime->destroyed || conn->closed) return xpp::resolve();
       if (n <= 0) {
         xHttpCtxEndStream(ctx); // EOF — finalize (Connection: close)
         return xpp::resolve();
       }
       xErrno rc = xHttpCtxWrite(ctx, buf->data(), static_cast<size_t>(n));
       if (rc != xErrno_Ok) return xpp::resolve(); // connection gone — drop
-      return stream_channel_body(ctx, lifetime, body);
+      return stream_channel_body(ctx, lifetime, conn, body);
     });
 }
 
 inline Promise<void> write_response(xHttpCtx *ctx, Arc<ServerLifetime> lifetime,
-                                    Result<Response> r) {
+                                    Arc<ConnLifetime> conn, Result<Response> r) {
+  if (lifetime->destroyed || conn->closed) return xpp::resolve();
   if (r.is_err()) {
     xHttpCtxSetStatus(ctx, 500);
     xHttpCtxSend(ctx, "Internal Server Error", 21);
@@ -193,7 +214,7 @@ inline Promise<void> write_response(xHttpCtx *ctx, Arc<ServerLifetime> lifetime,
   // Channel body — stream it. Arc<Body> keeps the reader alive across the
   // recursive read/write chain.
   Arc<Body> shared = Arc<Body>::make(std::move(body));
-  return stream_channel_body(ctx, lifetime, shared);
+  return stream_channel_body(ctx, lifetime, conn, shared);
 }
 
 /* ── C callback trampolines ────────────────────────────────────────── */
@@ -248,13 +269,23 @@ inline int srv_on_request_cb(xHttpCtx *ctx, void *arg) {
   // C++11 has no move-capture — hold the Request on the heap.
   auto holder   = Arc<Request>::make(std::move(req));
   auto lifetime = impl->lifetime; // Arc — outlives the server
-  xpp::spawn([endpoint, lifetime, ctx_key, holder]() -> Promise<void> {
+  auto conns    = impl->m_conns;  // Arc — erase this request's entry when done
+  auto conn     = Arc<ConnLifetime>::make();
+  conns->emplace(ctx_key, conn);
+  xpp::spawn([endpoint, lifetime, conns, conn, ctx_key, holder]() -> Promise<void> {
     return endpoint(std::move(*holder))
-      .then([lifetime, ctx_key](Result<Response> r) -> Promise<void> {
-        // Server destroyed while the handler was running (ctx freed) —
-        // drop the response instead of touching it.
-        if (lifetime->destroyed) return xpp::resolve();
-        return write_response(const_cast<xHttpCtx *>(ctx_key), lifetime, std::move(r));
+      .then([lifetime, conns, conn, ctx_key](Result<Response> r) -> Promise<void> {
+        // Server destroyed or connection closed while the handler was
+        // running (ctx freed) — drop the response instead of touching it.
+        if (lifetime->destroyed || conn->closed) {
+          conns->erase(ctx_key);
+          return xpp::resolve();
+        }
+        return write_response(const_cast<xHttpCtx *>(ctx_key), lifetime, conn, std::move(r))
+          .then([conns, ctx_key]() -> Promise<void> {
+            conns->erase(ctx_key);
+            return xpp::resolve();
+          });
       });
   });
   return 0;
@@ -278,6 +309,21 @@ inline void srv_on_done_cb(xHttpCtx *ctx, void *arg) {
   // the response is written).
   if (req_state && req_state->impl) {
     req_state->impl->m_reqs.erase(ctx);
+  }
+}
+
+inline void srv_on_close_cb(xHttpCtx *ctx, void *arg) {
+  // arg is the route's info.arg (the RouterDispatch) — NOT the per-request
+  // user data, which on_done may already have freed. The stream (and the
+  // ctx embedded in it) is about to be freed; mark the connection closed so
+  // the response-streaming task stops touching ctx.
+  auto *d    = static_cast<RouterDispatch *>(arg);
+  auto *impl = d ? d->impl : nullptr;
+  if (!impl) return;
+  auto it = impl->m_conns->find(ctx);
+  if (it != impl->m_conns->end()) {
+    it->second->closed = true;
+    impl->m_conns->erase(it);
   }
 }
 
@@ -436,6 +482,7 @@ public:
     impl->m_dispatch.info.on_request = _::srv_on_request_cb;
     impl->m_dispatch.info.on_data    = _::srv_on_data_cb;
     impl->m_dispatch.info.on_done    = _::srv_on_done_cb;
+    impl->m_dispatch.info.on_close   = _::srv_on_close_cb;
     impl->m_dispatch.info.arg        = &impl->m_dispatch;
 
     xHttpServerConf sconf = {};
