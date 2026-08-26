@@ -35,20 +35,38 @@ XDEF_HANDLE(xHttpServer);
 XDEF_HANDLE(xHttpMux);
 
 /**
+ * @brief Callback invoked right before the connection's request stream is
+ *        torn down (client disconnect, error, or normal close).
+ *
+ * Unlike @ref xHttpDoneFunc, this fires on *every* path that ends the
+ * request's lifetime, including an abrupt close that never reaches
+ * @ref xHttpDoneFunc. The @p ctx is still valid during the callback but
+ * must not be used after it returns.
+ *
+ * @param ctx  Request context (valid only during the callback).
+ * @param arg  User-provided argument (the route's @p arg, NOT the
+ *             per-request user data, which may already be freed).
+ */
+typedef void (*xHttpCloseFunc)(xHttpCtx *ctx, void *arg);
+
+/**
  * @brief Route information returned by the resolver.
  *
  * Returned by @ref xHttpResolveFunc after the request headers are parsed.
  * The library calls @p on_request (if non-NULL) right after resolution,
  * streams the body via @p on_data (if non-NULL), and finally invokes
- * @p on_done when the request is fully received.
+ * @p on_done when the request is fully received. @p on_close (if non-NULL)
+ * is invoked immediately before the stream is destroyed, on every teardown
+ * path.
  *
  * All callbacks receive @p arg as the user-provided context.
  */
 XDEF_STRUCT(xHttpRouteInfo) {
-  xHttpInitFunc on_request; /**< Called once after headers (may be NULL) */
-  xHttpDataFunc on_data;    /**< Per body chunk callback (may be NULL)    */
-  xHttpDoneFunc on_done;    /**< Called when request is complete           */
-  void         *arg;        /**< User argument forwarded to callbacks      */
+  xHttpInitFunc  on_request; /**< Called once after headers (may be NULL) */
+  xHttpDataFunc  on_data;    /**< Per body chunk callback (may be NULL)    */
+  xHttpDoneFunc  on_done;    /**< Called when request is complete           */
+  xHttpCloseFunc on_close;   /**< Called before the stream is destroyed     */
+  void          *arg;        /**< User argument forwarded to callbacks      */
 };
 
 /**
