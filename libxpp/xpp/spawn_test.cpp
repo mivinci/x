@@ -264,3 +264,120 @@ TEST(SpawnTest, SpawnedLambdaCoroutineClosureSafe) {
 }
 
 #endif // XPP_HAS_COROUTINES
+
+/* ───────────────────────────────────────────────────────────────────
+ *  .await() inside a spawned fn.
+ *
+ *  Verified semantics: .await() parks the spawn step's C stack and
+ *  re-enters the event loop (xEventLoopRun(X_RUN_ONCE) in park()), so
+ *  the world keeps turning — timers fire, other chains progress —
+ *  while the fn waits. This is the re-entrant suspension model:
+ *  usable, but the idiomatic forms remain .then() chains (C++11) and
+ *  co_await (C++20), which are waker-driven with no parked stack.
+ *
+ *  Known deadlock (documented, not tested here — it hangs): awaiting
+ *  the spawn's OWN JoinHandle, or anything that only resolves after
+ *  this fn returns.
+ * ─────────────────────────────────────────────────────────────────── */
+
+TEST(SpawnTest, AwaitInsideSpawnedFn) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  auto [tx, rx] = sync::mpsc::channel<int>(4);
+  std::atomic<bool> done{false};
+
+  spawn([&rx, &done]() -> Promise<void> {
+    auto v = rx.recv().await(); // parks the step; the loop keeps running
+    EXPECT_TRUE(v.is_some());
+    EXPECT_EQ(v.unwrap(), 42);
+    done.store(true, std::memory_order_release);
+    return xpp::resolve();
+  });
+
+  // Feed the channel from a timer while the fn is parked.
+  xTimerStart([](void *arg) { static_cast<sync::mpsc::Sender<int> *>(arg)->try_send(42); }, &tx,
+              NULL, 10, 0);
+
+  for (int i = 0; i < 200 && !done.load(std::memory_order_acquire); ++i) {
+    xEventLoopRun(loop.handle(), X_RUN_ONCE);
+  }
+  tx.close();
+  EXPECT_TRUE(done.load(std::memory_order_acquire)) << ".await() inside spawn never resolved";
+}
+
+TEST(SpawnTest, SequentialAwaitsInsideSpawnedFn) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  auto [tx, rx] = sync::mpsc::channel<int>(4);
+  std::atomic<int> sum{0};
+
+  spawn([&rx, &sum]() -> Promise<void> {
+    // Two park/resume cycles in one fn — each .await() parks, gets fed
+    // by a timer, resumes, and the next .await() parks again.
+    auto a = rx.recv().await();
+    auto b = rx.recv().await();
+    sum.store(a.unwrap() + b.unwrap(), std::memory_order_release);
+    return xpp::resolve();
+  });
+
+  xTimerStart([](void *arg) { static_cast<sync::mpsc::Sender<int> *>(arg)->try_send(10); }, &tx,
+              NULL, 10, 0);
+  xTimerStart([](void *arg) { static_cast<sync::mpsc::Sender<int> *>(arg)->try_send(32); }, &tx,
+              NULL, 30, 0);
+
+  for (int i = 0; i < 300 && sum.load(std::memory_order_acquire) == 0; ++i) {
+    xEventLoopRun(loop.handle(), X_RUN_ONCE);
+  }
+  tx.close();
+  EXPECT_EQ(sum.load(std::memory_order_acquire), 42);
+}
+
+TEST(SpawnTest, AwaitTimerInsideSpawnedFn) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  std::atomic<bool> done{false};
+
+  spawn([&done]() -> Promise<void> {
+    xpp::after(10).await(); // await a timer promise directly
+    done.store(true, std::memory_order_release);
+    return xpp::resolve();
+  });
+
+  for (int i = 0; i < 200 && !done.load(std::memory_order_acquire); ++i) {
+    xEventLoopRun(loop.handle(), X_RUN_ONCE);
+  }
+  EXPECT_TRUE(done.load(std::memory_order_acquire));
+}
+
+TEST(SpawnTest, AwaitCrossChainInsideSpawnedFn) {
+  EventLoop loop;
+  WaitScope scope(loop);
+
+  // Chain A awaits a promise that chain B resolves — cross-chain .await()
+  // with both chains spawned on the same loop.
+  auto              pr       = xpp::async<int>();
+  auto              resolver = std::move(pr.second);
+  std::atomic<bool> done{false};
+
+  spawn([&done, p = std::move(pr.first)]() mutable -> Promise<void> {
+    int v = p.await(); // parks until the OTHER spawn resolves it
+    EXPECT_EQ(v, 7);
+    done.store(true, std::memory_order_release);
+    return xpp::resolve();
+  });
+
+  // C++11 lambdas cannot move-capture from an enclosing capture — hold the
+  // move-only resolver on the heap and share it into the .then continuation.
+  auto r_holder = Arc<PromiseResolver<int>>::make(std::move(resolver));
+  spawn([r_holder]() -> Promise<void> {
+    return xpp::after(10).then([r_holder]() { r_holder->resolve(7); });
+  });
+
+  for (int i = 0; i < 200 && !done.load(std::memory_order_acquire); ++i) {
+    xEventLoopRun(loop.handle(), X_RUN_ONCE);
+  }
+  EXPECT_TRUE(done.load(std::memory_order_acquire));
+}

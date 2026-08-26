@@ -143,9 +143,21 @@ template <class T> Promise<T> spawn(Promise<T> p) {
  *
  * Convenience overload mirroring tokio::spawn(async { ... }): the
  * callable is wrapped via xpp::defer (its return value is flattened if
- * it returns a Promise). The callable runs on the event loop; to await
- * inside it, return a Promise chain (`.then(...)`) rather than calling
- * `.await()` (which would block unless already inside a fiber).
+ * it returns a Promise). The callable runs on the event loop.
+ *
+ * @par Awaiting inside the callable
+ * `.await()` is USABLE inside a spawned fn: it parks the fn's stack
+ * while re-entering the event loop (park() runs X_RUN_ONCE until
+ * woken), so timers, I/O and other chains keep progressing while the
+ * fn waits — verified by the Await* tests in spawn_test.cpp. The
+ * idiomatic forms remain a returned `.then()` chain (C++11) or
+ * `co_await` (C++20) — waker-driven, no parked stack — but a plain
+ * sequential `.await()` works when that is more convenient.
+ *
+ * Deadlock boundary: never await anything that only resolves after
+ * this fn returns — e.g. the spawn's own JoinHandle. That is a
+ * circular wait (the step cannot complete while parked on its own
+ * completion) and hangs.
  *
  * @par Coroutine lambdas and closure lifetime
  * A lambda coroutine's frame stores the closure *pointer* (`this`),
