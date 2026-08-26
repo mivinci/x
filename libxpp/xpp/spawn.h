@@ -159,6 +159,15 @@ template <class T> Promise<T> spawn(Promise<T> p) {
  * circular wait (the step cannot complete while parked on its own
  * completion) and hangs.
  *
+ * The same applies to *cross-task dependency cycles*: park() re-enters
+ * the event loop with a nested X_RUN_ONCE, so an outer await cannot
+ * re-check its woken flag until every nested await unwinds. A spawned
+ * fn that `.await()`s another spawned fn's channel output, while that
+ * producer in turn waits on this fn's progress (e.g. a full channel
+ * whose receiver is the parked consumer), deadlocks the whole loop.
+ * Use `.then()`/`co_await` for producer/consumer chains — waker-driven
+ * polling has no nested stack and cannot deadlock.
+ *
  * @par Coroutine lambdas and closure lifetime
  * A lambda coroutine's frame stores the closure *pointer* (`this`),
  * not a copy of the closure object. Passing a coroutine lambda directly

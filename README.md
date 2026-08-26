@@ -8,23 +8,21 @@
 ```cpp
 auto [tx, rx] = xpp::sync::mpsc::channel<int>(8);
 
-// Consumer fiber — drains the channel, prints sum
-auto consumer = xpp::fiber([rx = std::move(rx)]() mutable {
+// Consumer task — drains the channel, prints sum
+auto consumer = xpp::spawn([rx = std::move(rx)]() -> xpp::Promise<void> {
   int sum = 0;
-  while (true) {
-    auto val = rx.recv().await();      // suspends until data arrives
-    if (val.is_none()) break;          // channel closed — all done
-    sum += val.unwrap();
+  while (auto val = co_await rx.recv()) {
+    sum += val.unwrap();           // suspends until data arrives
   }
-  printf("sum: %d\n", sum);            // 210
+  printf("sum: %d\n", sum);        // 210
 });
 
-// Two producer fibers send concurrently over the same channel
-auto p1 = xpp::fiber([tx]() {
-  for (int i =  1; i <= 10; i++) tx.send(i).await();
+// Two producer tasks send concurrently over the same channel
+auto p1 = xpp::spawn([tx]() -> xpp::Promise<void> {
+  for (int i =  1; i <= 10; i++) co_await tx.send(i);
 });
-auto p2 = xpp::fiber([tx]() {
-  for (int i = 11; i <= 20; i++) tx.send(i).await();
+auto p2 = xpp::spawn([tx]() -> xpp::Promise<void> {
+  for (int i = 11; i <= 20; i++) co_await tx.send(i);
 });
 
 // Wait for producers, then signal consumer
@@ -35,8 +33,8 @@ xpp::all(std::move(p1), std::move(p2))
 consumer.await();
 ```
 
-`.await()` suspends the fiber so the event loop keeps churning — and it works in C++11.  
-Prefer `co_await`?  Prefer `.then()` chains?  Same `Promise<T>`, your call.
+`co_await` suspends the spawned task — waker-driven, so the event loop keeps churning.  
+Prefer `.then()` chains (C++11)?  Prefer fibers + `.await()`?  Same `Promise<T>`, your call.
 
 ## Libraries
 
