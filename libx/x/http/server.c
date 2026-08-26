@@ -258,6 +258,7 @@ xErrno xHttpMuxHandle(xHttpMux mux, const xHttpRouteConf *conf) {
   route->info.on_request = conf->on_request;
   route->info.on_data    = conf->on_data;
   route->info.on_done    = conf->on_done;
+  route->info.on_close   = conf->on_close;
   route->info.arg        = conf->arg;
 
   if (!route->path) {

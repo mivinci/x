@@ -63,9 +63,9 @@ static const xWsCallbacks ws_cbs = {
 
 /* ── HTTP handler that upgrades to WebSocket ───────────── */
 
-static void ws_handler(xHttpResponseWriter w, const xHttpRequestConf *req, void *arg) {
+static void ws_handler(xHttpCtx *ctx, void *arg) {
   (void)arg;
-  xWsUpgrade(w, req, &ws_cbs, nullptr);
+  xWsUpgrade(ctx, &ws_cbs, nullptr);
 }
 
 int main(int argc, char *argv[]) {
@@ -82,18 +82,36 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Failed to create event loop\n");
     return 1;
   }
+  xEventLoopEnter(g_loop); /* xHttpServerCreate requires a bound loop */
 
   /* Watch SIGINT to stop gracefully */
-  xSignal(g_loop, SIGINT, [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
+  xSignal(SIGINT, [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
 
-  xHttpServer server = xHttpServerCreate();
-  if (!server) {
-    fprintf(stderr, "Failed to create HTTP server\n");
+  xHttpMux mux = xHttpMuxCreate();
+  if (!mux) {
+    fprintf(stderr, "Failed to create HTTP mux\n");
+    xEventLoopLeave();
     xEventLoopDestroy(g_loop);
     return 1;
   }
 
-  xHttpServerRoute(server, "GET /", ws_handler, nullptr);
+  xHttpServerConf conf = {};
+  conf.resolve         = xHttpMuxResolve;
+  conf.router          = mux;
+  conf.idle_timeout_ms = 60000;
+  xHttpServer server   = xHttpServerCreate(&conf);
+  if (!server) {
+    fprintf(stderr, "Failed to create HTTP server\n");
+    xHttpMuxDestroy(mux);
+    xEventLoopLeave();
+    xEventLoopDestroy(g_loop);
+    return 1;
+  }
+
+  xHttpRouteConf rc = {};
+  rc.pattern        = "GET /";
+  rc.on_done        = ws_handler;
+  xHttpMuxHandle(mux, &rc);
 
   xTlsConf tls = {};
   tls.cert     = cert_path;
@@ -116,6 +134,8 @@ int main(int argc, char *argv[]) {
             "-days 365 -nodes -subj '/CN=localhost'\n",
             key_path, cert_path);
     xHttpServerDestroy(server);
+    xHttpMuxDestroy(mux);
+    xEventLoopLeave();
     xEventLoopDestroy(g_loop);
     return 1;
   }
@@ -133,6 +153,8 @@ int main(int argc, char *argv[]) {
   fprintf(stdout, "Total messages:    %llu\n", static_cast<unsigned long long>(g_messages.load()));
 
   xHttpServerDestroy(server);
+  xHttpMuxDestroy(mux);
+  xEventLoopLeave();
   xEventLoopDestroy(g_loop);
   return 0;
 }

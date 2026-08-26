@@ -145,7 +145,12 @@ static int h2_on_data_chunk_recv_callback(nghttp2_session *session, uint8_t flag
   /* If no route or no on_data callback, discard body */
   if (!stream->route_info || !stream->route_info->on_data) return 0;
 
-  int rc = stream->route_info->on_data((const char *)data, len, stream->route_info->arg);
+  /* Same arg resolution as h1 (proto_h1.c on_body): the per-request
+   * user data (xHttpCtxSetUser) wins, falling back to the route-level
+   * arg. h2 must not use route_info->arg directly — on_request sets
+   * per-request state via SetUser and on_data expects to see it. */
+  void *arg = stream->user ? stream->user : stream->route_info->arg;
+  int   rc  = stream->route_info->on_data((const char *)data, len, arg);
   if (rc != 0) {
     stream->pending_error        = 413;
     stream->pending_error_reason = "Content Too Large";

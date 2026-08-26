@@ -102,11 +102,12 @@ XDEF_STRUCT(xHttpServerConf) {
  * @brief Configuration for registering a route with @ref xHttpMux.
  */
 XDEF_STRUCT(xHttpRouteConf) {
-  const char   *pattern;    /**< "METHOD /path" or "/path" (any method)   */
-  xHttpInitFunc on_request; /**< Called after headers (may be NULL)       */
-  xHttpDataFunc on_data;    /**< Per body chunk callback (may be NULL)    */
-  xHttpDoneFunc on_done;    /**< Called at request completion (may be NULL) */
-  void         *arg;        /**< User argument forwarded to callbacks      */
+  const char    *pattern;    /**< "METHOD /path" or "/path" (any method)   */
+  xHttpInitFunc  on_request; /**< Called after headers (may be NULL)       */
+  xHttpDataFunc  on_data;    /**< Per body chunk callback (may be NULL)    */
+  xHttpDoneFunc  on_done;    /**< Called at request completion (may be NULL) */
+  xHttpCloseFunc on_close;   /**< Called before the stream is destroyed (may be NULL) */
+  void          *arg;        /**< User argument forwarded to callbacks      */
 };
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */

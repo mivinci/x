@@ -34,41 +34,77 @@
 
 static xEventLoop g_loop = nullptr;
 
-// GET /ping → "pong"
-static void handle_ping(xHttpResponseWriter writer, const xHttpRequestConf *req, void *arg) {
-  (void)req;
+/* GET /ping → "pong" */
+static void handle_ping(xHttpCtx *ctx, void *arg) {
   (void)arg;
-  xHttpResponseSetHeader(writer, "Content-Type", "text/plain");
-  xHttpResponseSend(writer, "pong", 4);
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "text/plain");
+  xHttpCtxSend(ctx, "pong", 4);
 }
 
-// GET /echo?size=N → N bytes of 'x'
-// POST /echo → echo request body
-static void handle_echo(xHttpResponseWriter writer, const xHttpRequestConf *req, void *arg) {
+/* GET /echo?size=N → N bytes of 'x' */
+static void handle_echo(xHttpCtx *ctx, void *arg) {
   (void)arg;
 
-  if (strcmp(req->method, "POST") == 0) {
-    // Echo back the request body
-    xHttpResponseSetHeader(writer, "Content-Type", "application/octet-stream");
-    xHttpResponseSend(writer, req->body, req->body_len);
-    return;
-  }
-
-  // GET: parse ?size=N from URL
-  size_t      size = 64; // default
-  const char *q    = strchr(req->url, '?');
+  size_t      size = 64; /* default */
+  const char *q    = strchr(ctx->url, '?');
   if (q) {
     const char *sp = strstr(q, "size=");
     if (sp) {
       size = static_cast<size_t>(atoi(sp + 5));
       if (size == 0) size = 64;
-      if (size > 1048576) size = 1048576; // cap at 1MB
+      if (size > 1048576) size = 1048576; /* cap at 1MB */
     }
   }
 
   std::vector<char> body(size, 'x');
-  xHttpResponseSetHeader(writer, "Content-Type", "application/octet-stream");
-  xHttpResponseSend(writer, body.data(), body.size());
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "application/octet-stream");
+  xHttpCtxSend(ctx, body.data(), body.size());
+}
+
+/* POST /echo → echo the request body.
+ *
+ * Each request gets its own EchoBody via on_request (xHttpCtxSetUser);
+ * on_data accumulates chunks and on_done writes it. The EchoBody is
+ * freed by on_done on the happy path (and the user pointer nulled so
+ * on_close does not double-free); on_close frees it when the request
+ * dies before on_done (client disconnect / pending error / abort). */
+struct EchoBody {
+  std::vector<char> body;
+};
+
+static int echo_on_request(xHttpCtx *ctx, void *arg) {
+  (void)arg;
+  xHttpCtxSetUser(ctx, new EchoBody());
+  return 0;
+}
+
+static int echo_on_data(const char *data, size_t len, void *arg) {
+  auto *c = static_cast<EchoBody *>(arg);
+  c->body.insert(c->body.end(), data, data + len);
+  return 0;
+}
+
+static void echo_on_done(xHttpCtx *ctx, void *arg) {
+  auto *c = static_cast<EchoBody *>(arg);
+  xHttpCtxSetStatus(ctx, 200);
+  xHttpCtxSetHeader(ctx, "Content-Type", "application/octet-stream");
+  xHttpCtxSend(ctx, c->body.data(), c->body.size());
+  delete c;
+  xHttpCtxSetUser(ctx, NULL); /* on_close must not double-free */
+}
+
+/* Arg is the route-level arg (may be NULL) — read the per-request state
+ * from the ctx. on_close fires on EVERY teardown path (including ones that
+ * never reach on_done), so it is the leak guard for aborted requests. */
+static void echo_on_close(xHttpCtx *ctx, void *arg) {
+  (void)arg;
+  auto *c = static_cast<EchoBody *>(xHttpCtxUser(ctx));
+  if (c) {
+    delete c;
+    xHttpCtxSetUser(ctx, NULL);
+  }
 }
 
 int main(int argc, char *argv[]) {
@@ -85,24 +121,54 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Failed to create event loop\n");
     return 1;
   }
+  xEventLoopEnter(g_loop); /* xHttpServerCreate requires a bound loop */
 
-  // Watch SIGINT to stop gracefully
-  xSignal(g_loop, SIGINT, [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
+  /* Watch SIGINT to stop gracefully */
+  xSignal(SIGINT, [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
 
-  xHttpServer server = xHttpServerCreate();
-  if (!server) {
-    fprintf(stderr, "Failed to create HTTP server\n");
+  xHttpMux mux = xHttpMuxCreate();
+  if (!mux) {
+    fprintf(stderr, "Failed to create HTTP mux\n");
+    xEventLoopLeave();
     xEventLoopDestroy(g_loop);
     return 1;
   }
 
-  xHttpServerRoute(server, "GET /ping", handle_ping, nullptr);
-  xHttpServerRoute(server, "/echo", handle_echo, nullptr);
+  xHttpServerConf conf = {};
+  conf.resolve         = xHttpMuxResolve;
+  conf.router          = mux;
+  conf.idle_timeout_ms = 60000;
+  xHttpServer server   = xHttpServerCreate(&conf);
+  if (!server) {
+    fprintf(stderr, "Failed to create HTTP server\n");
+    xHttpMuxDestroy(mux);
+    xEventLoopLeave();
+    xEventLoopDestroy(g_loop);
+    return 1;
+  }
+
+  xHttpRouteConf rc = {};
+  rc.pattern        = "GET /ping";
+  rc.on_done        = handle_ping;
+  xHttpMuxHandle(mux, &rc);
+
+  rc         = {};
+  rc.pattern = "GET /echo";
+  rc.on_done = handle_echo;
+  xHttpMuxHandle(mux, &rc);
+
+  rc            = {};
+  rc.pattern    = "POST /echo";
+  rc.on_request = echo_on_request;
+  rc.on_data    = echo_on_data;
+  rc.on_done    = echo_on_done;
+  rc.on_close   = echo_on_close;
+  xHttpMuxHandle(mux, &rc);
 
   xTlsConf tls    = {};
   tls.cert        = cert_path;
   tls.key         = key_path;
-  tls.skip_verify = 1; // No client cert required (one-way TLS for benchmarking)
+  tls.skip_verify = 1; /* No client cert required (one-way TLS for benchmarking) */
 
   xErrno err = xHttpServerListenTls(server, "0.0.0.0", port, &tls);
   if (err != xErrno_Ok) {
@@ -116,6 +182,8 @@ int main(int argc, char *argv[]) {
             "-days 365 -nodes -subj '/CN=localhost'\n",
             key_path, cert_path);
     xHttpServerDestroy(server);
+    xHttpMuxDestroy(mux);
+    xEventLoopLeave();
     xEventLoopDestroy(g_loop);
     return 1;
   }
@@ -133,6 +201,8 @@ int main(int argc, char *argv[]) {
   xEventLoopRun(g_loop, X_RUN_DEFAULT);
 
   xHttpServerDestroy(server);
+  xHttpMuxDestroy(mux);
+  xEventLoopLeave();
   xEventLoopDestroy(g_loop);
   return 0;
 }
