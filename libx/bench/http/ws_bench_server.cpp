@@ -69,13 +69,15 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Failed to create event loop\n");
     return 1;
   }
+  xEventLoopEnter(g_loop); /* xWsServe requires a bound loop */
 
   /* Watch SIGINT to stop gracefully */
-  xSignal(g_loop, SIGINT, [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
+  xSignal(SIGINT, [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
 
-  xHttpServer server = xWsServe(g_loop, "0.0.0.0", port, &ws_cbs, nullptr);
+  xHttpServer server = xWsServe("0.0.0.0", port, &ws_cbs, nullptr);
   if (!server) {
     fprintf(stderr, "Failed to create WebSocket server on port %u\n", port);
+    xEventLoopLeave();
     xEventLoopDestroy(g_loop);
     return 1;
   }
@@ -91,6 +93,7 @@ int main(int argc, char *argv[]) {
   fprintf(stdout, "Total messages:    %llu\n", static_cast<unsigned long long>(g_messages.load()));
 
   xHttpServerDestroy(server);
+  xEventLoopLeave();
   xEventLoopDestroy(g_loop);
   return 0;
 }
