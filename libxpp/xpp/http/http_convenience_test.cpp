@@ -4,7 +4,7 @@
  * found in the LICENSE file.
  *
  * http_convenience_test.cpp — Phase 6: Client convenience methods +
- * top-level xpp::http::get/post/... against the local TestServer.
+ * top-level xpp::http::get/post/... against the local test::Server.
  */
 
 #include <string>
@@ -12,7 +12,7 @@
 #include <gtest/gtest.h>
 #include <xpp/event.h>
 #include <xpp/http/client.h>
-#include <xpp/http/test_server.h>
+#include <xpp/http/test/server.h>
 
 using namespace xpp;
 using namespace xpp::http;
@@ -35,8 +35,8 @@ TEST(ClientConvenienceTest, VerbsRoundTrip) {
   spec.echo_request_method = true;
   spec.echo_request_body   = true;
 
-  auto server = test::TestServer::start(spec);
-  auto client = Client::builder().build().unwrap();
+  test::Server server(spec);
+  auto         client = Client::builder().build().unwrap();
 
   // GET
   {
@@ -98,8 +98,8 @@ TEST(ClientConvenienceTest, UrlOverloadsCompileAndRoundTrip) {
 
   test::TestResponseSpec spec;
   spec.status = StatusCode::Ok;
-  auto server = test::TestServer::start(spec);
-  auto client = Client::builder().build().unwrap();
+  test::Server server(spec);
+  auto         client = Client::builder().build().unwrap();
 
   // const char*
   ASSERT_TRUE(client.get(url_for(server.port()).c_str()).await().is_ok());
