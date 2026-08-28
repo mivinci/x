@@ -150,7 +150,7 @@ graph TD
 | `yield()` | Immediately-resolved `Promise<void>` |
 | `fiber(fn)` | Run `fn` in a stackful fiber (64KB stack). Returns `Promise<decltype(fn())>` |
 | `after(ms)` | Resolve after `ms` milliseconds. Returns `Promise<void>` |
-| `defer(fn)` | Defer sync function as promise. T deduced from return type |
+| `lazy(fn)` | Wrap sync function as lazy promise; runs on first poll. T deduced from return type |
 | `work(fn)` | Run func on thread pool. T deduced from return type |
 | `adapt<T, Adapter>(args...)` | Custom adapter-backed promise |
 | `async<T>()` | → `pair<Promise<T>, PromiseResolver<T>>` |

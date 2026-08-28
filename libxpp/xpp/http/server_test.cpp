@@ -397,7 +397,7 @@ TEST(ServerTest, StreamingResponseBodyLarge) {
  *  streams out.
  *
  *  Two safe ways to spawn a coroutine producer from a handler:
- *  - pass a lambda directly to spawn(): the defer node copies the
+ *  - pass a lambda directly to spawn(): the lazy node copies the
  *    closure to the heap for the chain's lifetime (first test);
  *  - use a named coroutine function: its arguments are copied into
  *    the coroutine frame (second test).
@@ -425,7 +425,7 @@ TEST(ServerTest, CoroutineStreamingProducer) {
                            auto [tx, rx] = sync::mpsc::channel<Bytes>(4);
                            // Coroutine producer lambda passed directly to
                            // spawn(): closure (tx by value) is copied into
-                           // the defer node on the heap — safe even though
+                           // the lazy node on the heap — safe even though
                            // this handler's stack frame dies right after.
                            xpp::spawn([tx = std::move(tx)]() mutable -> Promise<void> {
                              co_await tx.send(Bytes::copy("alpha", strlen("alpha")));

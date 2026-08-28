@@ -132,7 +132,7 @@ TEST(PromiseTest, EvalSynchronous) {
   xpp::EventLoop loop;
   xpp::WaitScope scope(loop);
 
-  int result = xpp::defer([] { return 42; }).await();
+  int result = xpp::lazy([] { return 42; }).await();
   EXPECT_EQ(result, 42);
 }
 
