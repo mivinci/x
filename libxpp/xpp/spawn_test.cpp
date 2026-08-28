@@ -207,7 +207,7 @@ TEST(SpawnTest, JoinHandleVoid) {
  *  not a copy of the closure — the closure object must therefore
  *  outlive the spawned chain (issues/coro-nested-spawn-capture-lambda-crash.md).
  *
- *  Safe: passing the lambda directly to spawn() — the defer node keeps
+ *  Safe: passing the lambda directly to spawn() — the lazy node keeps
  *  a heap copy of the closure for the chain's lifetime — or keeping the
  *  closure alive where it is declared (as below).
  *  Unsafe: `auto make = [&]{...}; spawn(make());` where `make` lives on
@@ -250,7 +250,7 @@ TEST(SpawnTest, SpawnedLambdaCoroutineClosureSafe) {
   WaitScope scope(loop);
 
   // Passing the coroutine lambda directly to spawn(): the closure is
-  // copied into the defer node (heap) and stays alive for the chain.
+  // copied into the lazy node (heap) and stays alive for the chain.
   bool ran = false;
   spawn([&ran]() -> Promise<void> {
     ran = true;

@@ -291,9 +291,9 @@ inline Promise<void> after(uint64_t ms) {
   return adapt<void, TimerAdapter>(ms);
 }
 
-/** Defer a synchronous function as a promise (runs on first poll). */
+/** Wrap a synchronous function as a lazy promise (runs on first poll). */
 template <class Func>
-auto defer(Func &&fn) -> Promise<typename _::ReducePromise<_::ReturnTypeVoid<Func>>::Type> {
+auto lazy(Func &&fn) -> Promise<typename _::ReducePromise<_::ReturnTypeVoid<Func>>::Type> {
   return yield().then(std::forward<Func>(fn));
 }
 

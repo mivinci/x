@@ -67,11 +67,11 @@ xpp::yield()
 // counter == 2
 ```
 
-## `defer()` and `yield()`
+## `lazy()` and `yield()`
 
 ```cpp
 // defer: wrap a sync function as a promise
-int result = xpp::defer([] { return 42; }).await();
+int result = xpp::lazy([] { return 42; }).await();
 // result == 42
 
 // yield: immediately-resolved Promise<void>, chain entry point

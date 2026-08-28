@@ -35,7 +35,7 @@ Task t = make();
 
 ## 安全模式（已写入 `spawn.h` 文档与回归测试）
 
-- `xpp::spawn([&]() -> Promise<void> { ... })`（**直接传 lambda**）：安全——defer 节点把闭包**按值存到堆上**（`TransformPromiseNode::m_fn`），且（修复第二个 bug 后）闭包存活到链完成；
+- `xpp::spawn([&]() -> Promise<void> { ... })`（**直接传 lambda**）：安全——lazy 节点把闭包**按值存到堆上**（`TransformPromiseNode::m_fn`），且（修复第二个 bug 后）闭包存活到链完成；
 - `auto make = [&]{...}; spawn(make());`：要求 `make` **存活到链完成**；
 - 命名协程函数：参数拷贝进帧，天然安全。
 

@@ -142,7 +142,7 @@ template <class T> Promise<T> spawn(Promise<T> p) {
  * @brief Run a callable as a fire-and-forget task on the event loop.
  *
  * Convenience overload mirroring tokio::spawn(async { ... }): the
- * callable is wrapped via xpp::defer (its return value is flattened if
+ * callable is wrapped via xpp::lazy (its return value is flattened if
  * it returns a Promise). The callable runs on the event loop.
  *
  * @par Awaiting inside the callable
@@ -171,7 +171,7 @@ template <class T> Promise<T> spawn(Promise<T> p) {
  * @par Coroutine lambdas and closure lifetime
  * A lambda coroutine's frame stores the closure *pointer* (`this`),
  * not a copy of the closure object. Passing a coroutine lambda directly
- * to spawn() is safe — the defer node keeps a heap copy of the closure
+ * to spawn() is safe — the lazy node keeps a heap copy of the closure
  * for the chain's lifetime. But the pattern
  * @code
  *   auto make = [&]() -> Promise<void> { ... };
@@ -185,7 +185,7 @@ template <class T> Promise<T> spawn(Promise<T> p) {
  * (whose arguments are copied into the frame).
  */
 template <class Func> auto spawn(Func &&fn) {
-  return spawn(xpp::defer(std::forward<Func>(fn)));
+  return spawn(xpp::lazy(std::forward<Func>(fn)));
 }
 
 } // namespace xpp
